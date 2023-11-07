@@ -31,6 +31,7 @@ use clarity::vm::types::Value;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
+use rusqlite::Error as sqlite_error;
 use rusqlite::Row;
 use rusqlite::Transaction;
 use rusqlite::TransactionBehavior;
@@ -874,17 +875,22 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
         PRIMARY KEY(txid, burn_header_hash)
     );"#,
     r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#,
-];
-
-const SORTITION_DB_SCHEMA_9: &'static [&'static str] = &[
-    r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#,
     r#"
     -- eagerly-processed reward sets, before they're applied to the start of the next reward cycle
     CREATE TABLE preprocessed_reward_sets (
         sortition_id TEXT PRIMARY KEY,
         reward_set TEXT NOT NULL
-    );"#
-];       
+    );"#,
+    r#"
+    -- canonical chain tip at each sortition ID.
+    -- This is updated in both 2.x and Nakamoto, but Nakamoto relies on this exclusively
+    CREATE TABLE stacks_chain_tips (
+        sortition_id TEXT PRIMARY KEY,
+        consensus_hash TEXT NOT NULL,
+        block_hash TEXT NOT NULL,
+        block_height INTEGER NOT NULL
+    );"#,
+];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -968,7 +974,7 @@ impl SortitionContext for SortitionDBTxContext {
     }
 }
 
-fn get_block_commit_by_txid(
+pub fn get_block_commit_by_txid(
     conn: &Connection,
     sort_id: &SortitionId,
     txid: &Txid,
@@ -1596,6 +1602,15 @@ impl<'a> SortitionHandleTx<'a> {
             stacks_block_height,
         )?;
 
+        #[cfg(test)]
+        {
+            let (ch, bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
+            debug!(
+                "Memoized canonical Stacks chain tip is now {}/{}",
+                &ch, &bhh
+            );
+        }
+
         Ok(())
     }
 
@@ -1796,6 +1811,25 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(anchor_block_txid)
     }
 
+    /// Update the canonical Stacks tip
+    fn update_canonical_stacks_tip(
+        &mut self,
+        sort_id: &SortitionId,
+        consensus_hash: &ConsensusHash,
+        stacks_block_hash: &BlockHeaderHash,
+        stacks_block_height: u64,
+    ) -> Result<(), db_error> {
+        let sql = "INSERT OR REPLACE INTO stacks_chain_tips (sortition_id,consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4)";
+        let args: &[&dyn ToSql] = &[
+            sort_id,
+            consensus_hash,
+            stacks_block_hash,
+            &u64_to_sql(stacks_block_height)?,
+        ];
+        self.execute(sql, args)?;
+        Ok(())
+    }
+
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
     /// and calculate and store its arrival index.
     /// If this Stacks block extends the canonical stacks chain tip, then also update the memoized canonical
@@ -1812,6 +1846,27 @@ impl<'a> SortitionHandleTx<'a> {
         stacks_block_hash: &BlockHeaderHash,
         stacks_block_height: u64,
     ) -> Result<(), db_error> {
+        let block_sn = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)?
+            .ok_or(db_error::NotFoundError)?;
+
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(self, block_sn.block_height)?.expect(&format!(
+                "FATAL: no epoch defined for burn height {}",
+                block_sn.block_height
+            ));
+
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
+            // Nakamoto blocks are always processed in order since the chain can't fork
+            self.update_canonical_stacks_tip(
+                &burn_tip.sortition_id,
+                consensus_hash,
+                stacks_block_hash,
+                stacks_block_height,
+            )?;
+            return Ok(());
+        }
+
+        // in epoch 2.x, where we track canonical stacks tip via the sortition DB
         let arrival_index = SortitionDB::get_max_arrival_index(self)?;
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(stacks_block_height)?,
@@ -1838,6 +1893,7 @@ impl<'a> SortitionHandleTx<'a> {
 
         // update arrival data across all Stacks forks
         let (best_ch, best_bhh, best_height) = self.find_new_block_arrivals(burn_tip)?;
+        self.update_canonical_stacks_tip(&burn_tip.sortition_id, &best_ch, &best_bhh, best_height)?;
         self.update_new_block_arrivals(burn_tip, best_ch, best_bhh, best_height)?;
 
         Ok(())
@@ -3058,8 +3114,6 @@ impl SortitionDB {
 
     /// Get the Sortition ID for the burnchain block containing `txid`'s parent.
     /// `txid` is the burnchain txid of a block-commit.
-    /// Because the block_commit_parents table is not populated on schema migration, the returned
-    /// value may be NULL (and this is okay).
     pub fn get_block_commit_parent_sortition_id(
         conn: &Connection,
         txid: &Txid,
@@ -3486,7 +3540,11 @@ impl SortitionDB {
 
     /// Store a pre-processed reward set.
     /// `sortition_id` is the first sortition ID of the prepare phase
-    pub fn store_preprocessed_reward_set(sort_tx: &mut DBTx, sortition_id: &SortitionId, rc_info: &RewardCycleInfo) -> Result<(), db_error> {
+    pub fn store_preprocessed_reward_set(
+        sort_tx: &mut DBTx,
+        sortition_id: &SortitionId,
+        rc_info: &RewardCycleInfo,
+    ) -> Result<(), db_error> {
         let sql = "INSERT INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
         let rc_json = serde_json::to_string(rc_info).map_err(db_error::SerializationError)?;
         let args: &[&dyn ToSql] = &[sortition_id, &rc_json];
@@ -3496,21 +3554,25 @@ impl SortitionDB {
 
     /// Get a pre-processed reawrd set.
     /// `sortition_id` is the first sortition ID of the prepare phase.
-    pub fn get_preprocessed_reward_set(sortdb: &DBConn, sortition_id: &SortitionId) -> Result<Option<RewardCycleInfo>, db_error> {
+    pub fn get_preprocessed_reward_set(
+        sortdb: &DBConn,
+        sortition_id: &SortitionId,
+    ) -> Result<Option<RewardCycleInfo>, db_error> {
         let sql = "SELECT reward_set FROM preprocessed_reward_sets WHERE sortition_id = ?1";
         let args: &[&dyn ToSql] = &[sortition_id];
-        let reward_set_opt : Option<String> = sortdb.query_row(sql, args, |row| row.get(0))
+        let reward_set_opt: Option<String> = sortdb
+            .query_row(sql, args, |row| row.get(0))
             .optional()
             .map_err(db_error::from)?;
 
         if let Some(reward_set_str) = reward_set_opt {
-            let rc_info : RewardCycleInfo = serde_json::from_str(&reward_set_str).map_err(|_| db_error::ParseError)?;
+            let rc_info: RewardCycleInfo =
+                serde_json::from_str(&reward_set_str).map_err(|_| db_error::ParseError)?;
             Ok(Some(rc_info))
-        }
-        else {
+        } else {
             Ok(None)
         }
-    } 
+    }
 }
 
 impl<'a> SortitionDBTx<'a> {
@@ -4488,7 +4550,22 @@ impl SortitionDB {
         conn: &Connection,
     ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
         let sn = SortitionDB::get_canonical_burn_chain_tip(conn)?;
+        let cur_epoch = SortitionDB::get_stacks_epoch(conn, sn.block_height)?.expect(&format!(
+            "FATAL: no epoch defined for burn height {}",
+            sn.block_height
+        ));
 
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
+            // nakamoto behavior -- look to the stacks_chain_tip table
+            let res: Result<_, db_error> = conn.query_row_and_then(
+                "SELECT consensus_hash,block_hash FROM stacks_chain_tips WHERE sortition_id = ?",
+                &[&sn.sortition_id],
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
+            );
+            return res;
+        }
+
+        // epoch 2.x behavior -- look at the snapshot itself
         let stacks_block_hash = sn.canonical_stacks_tip_hash;
         let consensus_hash = sn.canonical_stacks_tip_consensus_hash;
 
@@ -4857,8 +4934,8 @@ impl SortitionDB {
     }
 
     /// Get a block commit by its committed block.
-    /// For Nakamoto, `consensus_hash` and `block_hash` are the hashes that combine to form the
-    /// `last_tenure_id` (i.e. the index block hash of the first block in the last tenure)
+    /// For Stacks 2.x, `block_hash` is just the hash of the block
+    /// For Nakamoto, `block_hash` is the StacksBlockId of the last tenure's first block
     pub fn get_block_commit_for_stacks_block(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
@@ -4887,6 +4964,17 @@ impl SortitionDB {
         })
     }
 
+    /// Get the block-commit for a Nakamoto block, given the block-commit's sortition's consensus
+    /// hash and its given last_tenure_id
+    pub fn get_block_commit_for_nakamoto_block(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+        last_tenure_id: &StacksBlockId,
+    ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        let bhh = BlockHeaderHash(last_tenure_id.0.clone());
+        Self::get_block_commit_for_stacks_block(conn, consensus_hash, &bhh)
+    }
+
     /// Get a block snapshot for a winning block hash in a given burn chain fork.
     pub fn get_block_snapshot_for_winning_stacks_block(
         ic: &SortitionDBConn,
@@ -4902,7 +4990,7 @@ impl SortitionDB {
             None => Ok(None),
         }
     }
-    
+
     /// Get a block snapshot for a winning Nakamoto tenure in a given burn chain fork.
     pub fn get_block_snapshot_for_winning_nakamoto_tenure(
         ic: &SortitionDBConn,
@@ -5139,10 +5227,35 @@ impl<'a> SortitionHandleTx<'a> {
         let mut sn = snapshot.clone();
         sn.index_root = root_hash.clone();
 
-        // preserve memoized stacks chain tip from this burn chain fork
-        sn.canonical_stacks_tip_height = parent_sn.canonical_stacks_tip_height;
-        sn.canonical_stacks_tip_hash = parent_sn.canonical_stacks_tip_hash;
-        sn.canonical_stacks_tip_consensus_hash = parent_sn.canonical_stacks_tip_consensus_hash;
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(self, snapshot.block_height)?.expect(&format!(
+                "FATAL: no epoch defined for burn height {}",
+                snapshot.block_height
+            ));
+
+        if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
+            // nakamoto behavior
+            // look at stacks_chain_tips table
+            let res: Result<_, db_error> = self.deref().query_row_and_then(
+                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?",
+                &[&parent_snapshot.sortition_id],
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+            );
+            let (
+                canonical_stacks_tip_consensus_hash,
+                canonical_stacks_tip_block_hash,
+                canonical_stacks_tip_height,
+            ) = res?;
+            sn.canonical_stacks_tip_height = canonical_stacks_tip_height;
+            sn.canonical_stacks_tip_hash = canonical_stacks_tip_block_hash;
+            sn.canonical_stacks_tip_consensus_hash = canonical_stacks_tip_consensus_hash;
+        } else {
+            // epoch 2.x behavior
+            // preserve memoized stacks chain tip from this burn chain fork
+            sn.canonical_stacks_tip_height = parent_sn.canonical_stacks_tip_height;
+            sn.canonical_stacks_tip_hash = parent_sn.canonical_stacks_tip_hash;
+            sn.canonical_stacks_tip_consensus_hash = parent_sn.canonical_stacks_tip_consensus_hash;
+        }
 
         self.insert_block_snapshot(&sn, pox_payout)?;
 
@@ -5154,6 +5267,23 @@ impl<'a> SortitionHandleTx<'a> {
             self.insert_missed_block_commit(missed_commit)?;
         }
 
+        self.update_canonical_stacks_tip(
+            &sn.sortition_id,
+            &sn.canonical_stacks_tip_consensus_hash,
+            &sn.canonical_stacks_tip_hash,
+            sn.canonical_stacks_tip_height,
+        )?;
+
+        #[cfg(test)]
+        {
+            let (block_consensus_hash, block_bhh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self).unwrap();
+
+            debug!(
+                "After sortition {}, canonical Stacks tip is {}/{}",
+                &snapshot.consensus_hash, &block_consensus_hash, &block_bhh
+            );
+        }
         Ok(root_hash)
     }
 
@@ -6241,6 +6371,7 @@ impl<'a> SortitionHandleTx<'a> {
 
     /// Update the given tip's canonical Stacks block pointer.
     /// Does so on all sortitions of the same height as tip.
+    /// Only used in Stacks 2.x
     fn update_new_block_arrivals(
         &mut self,
         tip: &BlockSnapshot,
@@ -6262,7 +6393,6 @@ impl<'a> SortitionHandleTx<'a> {
         self.execute("UPDATE snapshots SET canonical_stacks_tip_consensus_hash = ?1, canonical_stacks_tip_hash = ?2, canonical_stacks_tip_height = ?3
                     WHERE block_height = ?4", args)
             .map_err(db_error::SqliteError)?;
-
         Ok(())
     }
 
