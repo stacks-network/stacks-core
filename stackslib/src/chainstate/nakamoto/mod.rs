@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashSet;
 use std::ops::DerefMut;
 
 use clarity::vm::ast::ASTRules;
@@ -31,19 +32,21 @@ use stacks_common::codec::{
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
 };
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
 };
+use stacks_common::types::PrivateKey;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::{Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::{MessageSignature};
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::types::PrivateKey;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::{VRFProof, VRF};
 
-use super::burn::db::sortdb::{SortitionHandleConn, SortitionHandleTx};
+use super::burn::db::sortdb::{get_block_commit_by_txid, SortitionHandleConn, SortitionHandleTx};
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
@@ -57,14 +60,19 @@ use super::stacks::{
     TenureChangeError, TenureChangePayload, TransactionPayload,
 };
 use crate::burnchains::PoxConstants;
+use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
+use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::DBConfig as ChainstateConfig;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH};
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::monitoring;
 use crate::util_lib::db::{
-    query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError, FromRow,
+    query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
 
 use crate::core::BOOT_BLOCK_HASH;
@@ -196,6 +204,8 @@ lazy_static! {
                      tenure_changed INTEGER NOT NULL,
                      -- this field tracks the total tx fees so far in this tenure. it is a text-serialized u128
                      tenure_tx_fees TEXT NOT NULL,
+                     -- nakamoto block's VRF proof, if this is a tenure-start block
+                     vrf_proof TEXT,
               PRIMARY KEY(consensus_hash,block_hash)
           );
     "#.into(),
@@ -346,8 +356,7 @@ impl NakamotoBlockHeader {
     pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
         let signed_hash = self.signature_hash().ok()?;
         let recovered_pk =
-            StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature)
-                .ok()?;
+            StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature).ok()?;
 
         Some(recovered_pk)
     }
@@ -392,7 +401,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty()
+            stacker_signature: MessageSignature::empty(),
         }
     }
 
@@ -407,10 +416,10 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty()
+            stacker_signature: MessageSignature::empty(),
         }
     }
-    
+
     /// Make a genesis header (testing only)
     pub fn genesis() -> NakamotoBlockHeader {
         NakamotoBlockHeader {
@@ -422,27 +431,47 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty()
+            stacker_signature: MessageSignature::empty(),
         }
     }
 }
 
 impl NakamotoBlock {
-    /// Did the stacks tenure change on this nakamoto block? i.e., does this block
-    ///  include a TenureChange transaction?
-    pub fn tenure_changed(&self, parent: &StacksBlockId) -> bool {
+    /// Find all positionally-valid tenure changes in this block.
+    /// They must be the first transactions.
+    /// Return their indexes into self.txs
+    fn find_tenure_changes(&self) -> Vec<usize> {
+        let mut ret = vec![];
+        for (i, tx) in self.txs.iter().enumerate() {
+            if let TransactionPayload::TenureChange(..) = &tx.payload {
+                ret.push(i);
+            } else {
+                break;
+            }
+        }
+        ret
+    }
+
+    /// Does this block contain one or more well-formed and valid tenure change transactions?
+    /// Return Some(true) if it does contain at least one, and they're all valid
+    /// Return Some(false) if it does contain at least one, but at least one is invalid
+    /// Return None if it contains none.
+    pub fn tenure_changed(&self) -> Option<bool> {
+        let wellformed = self.is_wellformed_first_tenure_block();
+        if wellformed.is_none() {
+            // block isn't a first-tenure block, so no valid tenure changes
+            return None;
+        }
+
         // Find all txs that have TenureChange payload
         let tenure_changes = self
-            .txs
+            .find_tenure_changes()
             .iter()
-            .filter_map(|tx| match &tx.payload {
-                TransactionPayload::TenureChange(payload) => Some(payload),
-                _ => None,
-            })
+            .map(|i| &self.txs[*i])
             .collect::<Vec<_>>();
 
         if tenure_changes.len() > 1 {
-            warn!(
+            debug!(
                 "Block contains multiple TenureChange transactions";
                 "tenure_change_txs" => tenure_changes.len(),
                 "parent_block_id" => %self.header.parent_block_id,
@@ -450,19 +479,26 @@ impl NakamotoBlock {
             );
         }
 
-        let validate = |tc: &TenureChangePayload| -> Result<(), TenureChangeError> {
-            if tc.previous_tenure_end != *parent {
-                return Err(TenureChangeError::PreviousTenureInvalid);
-            }
+        let validate = |tc: &StacksTransaction| -> Result<(), TenureChangeError> {
+            if let TransactionPayload::TenureChange(tc) = &tc.payload {
+                if tc.previous_tenure_end != self.header.parent_block_id {
+                    return Err(TenureChangeError::PreviousTenureInvalid);
+                }
 
-            tc.validate()
+                tc.validate()
+            } else {
+                // placeholder error
+                Err(TenureChangeError::NotNakamoto)
+            }
         };
 
         // Return true if there is a valid TenureChange
-        tenure_changes
-            .iter()
-            .find(|tc| validate(tc).is_ok())
-            .is_some()
+        Some(
+            tenure_changes
+                .iter()
+                .find(|tc| validate(tc).is_ok())
+                .is_some(),
+        )
     }
 
     pub fn is_first_mined(&self) -> bool {
@@ -473,37 +509,318 @@ impl NakamotoBlock {
     /// It's the first non-TenureChange transaction
     /// (and, all preceding transactions _must_ be TenureChanges)
     pub fn get_coinbase_tx(&self) -> Option<&StacksTransaction> {
-        let mut tx_ref = None;
-        for tx in self.txs.iter() {
-            if let TransactionPayload::TenureChange(..) = &tx.payload {
-                if tx_ref.is_none() {
-                    continue;
-                }
-                // non-TenureChange tx precedes a coinbase, so there's no valid coinbase.
-                // (a coinbase in any other position is invalid anyway).
-                return None;
+        let wellformed = self.is_wellformed_first_tenure_block();
+        if wellformed.is_none() {
+            // block isn't a first-tenure block, so no coinbase
+            return None;
+        }
+        if let Some(false) = wellformed {
+            // block isn't well-formed
+            return None;
+        }
+
+        // there is one coinbase.
+        // go find it.
+        self.txs.iter().find(|tx| {
+            if let TransactionPayload::Coinbase(..) = &tx.payload {
+                true
+            } else {
+                false
             }
-            else if let TransactionPayload::Coinbase(..) = &tx.payload {
-                if tx_ref.is_none() {
-                    // contender
-                    tx_ref = Some(tx);
+        })
+    }
+
+    /// Get the VRF proof from this block.
+    /// It's Some(..) only if there's a coinbase
+    pub fn get_vrf_proof(&self) -> Option<&VRFProof> {
+        self.get_coinbase_tx()
+            .map(|coinbase_tx| {
+                if let TransactionPayload::Coinbase(_, _, vrf_proof) = &coinbase_tx.payload {
+                    vrf_proof.as_ref()
+                } else {
+                    // actually unreachable
+                    None
                 }
-                else {
-                    // multiple coinbases, so none of them are valid.
-                    return None;
+            })
+            .flatten()
+    }
+
+    /// Determine if this is a well-formed first block in a tenure.
+    /// * It has one or more TenureChange transactions
+    /// * It then has a coinbase
+    /// * Coinbases and TenureChanges do not occur anywhere else
+    ///
+    /// Returns Some(true) if the above are true
+    /// Returns Some(false) if this block has at least one coinbase or TenureChange tx, but one of
+    /// the above checks are false
+    /// Returns None if this block has no coinbase or TenureChange txs
+    pub fn is_wellformed_first_tenure_block(&self) -> Option<bool> {
+        // sanity check -- this may contain no coinbases or tenure-changes
+        let coinbase_positions = self
+            .txs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, tx)| {
+                if let TransactionPayload::Coinbase(..) = &tx.payload {
+                    Some(i)
+                } else {
+                    None
                 }
-            }
-            else if tx_ref.is_none() {
-                // non-Coinbase and non-TenureChange tx, so there's no valid coinbase.
-                // (a coinbase in any other position is invalid anyway)
-                return None;
+            })
+            .collect::<Vec<_>>();
+
+        let tenure_change_positions = self
+            .txs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, tx)| {
+                if let TransactionPayload::TenureChange(..) = &tx.payload {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if coinbase_positions.len() == 0 && tenure_change_positions.len() == 0 {
+            // can't be a first block in a tenure
+            return None;
+        }
+
+        if coinbase_positions.len() > 1 {
+            // has more than one coinbase
+            return Some(false);
+        }
+
+        if coinbase_positions.len() == 1 && tenure_change_positions.len() == 0 {
+            // has a coinbase but no tenure change
+            return Some(false);
+        }
+
+        if coinbase_positions.len() == 0 && tenure_change_positions.len() > 0 {
+            // has tenure-changes but no coinbase
+            return Some(false);
+        }
+
+        // tenure-changes must all come first, and must be in order
+        for i in 0..tenure_change_positions.len() {
+            if i != tenure_change_positions[i] {
+                // tenure-change is out of place
+                return Some(false);
             }
         }
-        tx_ref
+
+        // coinbase must come next
+        if coinbase_positions
+            .first()
+            .expect("FATAL: coinbase_positions.len() == 1")
+            != &tenure_change_positions.len()
+        {
+            // coinbase is not the next transaction
+            return Some(false);
+        }
+
+        return Some(true);
+    }
+
+    /// Verify that the VRF seed of this block's block-commit is the hash of the parent tenure's
+    /// VRF seed.
+    pub fn validate_vrf_seed(
+        &self,
+        sortdb_conn: &Connection,
+        chainstate_conn: &Connection,
+        block_commit: &LeaderBlockCommitOp,
+    ) -> Result<(), ChainstateError> {
+        // the block-commit from the miner who created this coinbase must have a VRF seed that
+        // is the hash of the parent tenure's VRF proof.
+        let parent_vrf_proof = NakamotoChainState::get_parent_vrf_proof(
+            chainstate_conn,
+            sortdb_conn,
+            &self.header.consensus_hash,
+            &block_commit.txid,
+        )?;
+        if !block_commit.new_seed.is_from_proof(&parent_vrf_proof) {
+            warn!("Invalid Nakamoto block-commit: seed does not match parent VRF proof";
+                  "block_id" => %self.block_id(),
+                  "commit_seed" => %block_commit.new_seed,
+                  "proof_seed" => %VRFSeed::from_proof(&parent_vrf_proof),
+                  "parent_vrf_proof" => %parent_vrf_proof.to_hex(),
+                  "block_commit" => format!("{:?}", &block_commit)
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid Nakamoto block: bad VRF proof".into(),
+            ));
+        }
+        Ok(())
     }
 
     pub fn block_id(&self) -> StacksBlockId {
         self.header.block_id()
+    }
+
+    /// Validate this Nakamoto block header against burnchain state.
+    /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
+    ///
+    /// Arguments
+    /// -- `burn_chain_tip` is the BlockSnapshot containing the block-commit for this block's
+    /// tenure
+    /// -- `leader_key` is the miner's leader key registration transaction
+    /// -- `bloc_commit` is the block-commit for this tenure
+    ///
+    /// Verifies the following:
+    /// -- that this block falls into this block-commit's tenure
+    /// -- that this miner signed this block
+    /// -- if this block has a coinbase, then that it's VRF proof was generated by this miner
+    /// -- that this block's burn total matches `burn_chain_tip`'s total burn
+    pub fn validate_against_burnchain(
+        &self,
+        burn_chain_tip: &BlockSnapshot,
+        leader_key: &LeaderKeyRegisterOp,
+    ) -> Result<(), ChainstateError> {
+        // this block's consensus hash must match the sortition that selected it
+        if burn_chain_tip.consensus_hash != self.header.consensus_hash {
+            warn!("Invalid Nakamoto block: consensus hash does not match sortition";
+                  "consensus_hash" => %self.header.consensus_hash,
+                  "sortition.consensus_hash" => %burn_chain_tip.consensus_hash
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid Nakamoto block: invalid consensus hash".into(),
+            ));
+        }
+
+        // miner must have signed this block
+        let miner_pubkey_hash160 = leader_key
+            .interpret_nakamoto_signing_key()
+            .ok_or(ChainstateError::NoSuchBlockError)
+            .map_err(|e| {
+                warn!(
+                    "Leader key did not contain a hash160 of the miner signing public key";
+                    "leader_key" => format!("{:?}", &leader_key),
+                );
+                e
+            })?;
+
+        let recovered_miner_pubk = self.header.recover_miner_pk().ok_or_else(|| {
+            warn!(
+                "Nakamoto Stacks block downloaded with unrecoverable miner public key";
+                "block_hash" => %self.header.block_hash(),
+                "block_id" => %self.header.block_id(),
+            );
+            return ChainstateError::InvalidStacksBlock("Unrecoverable miner public key".into());
+        })?;
+
+        let recovered_miner_hash160 = Hash160::from_node_public_key(&recovered_miner_pubk);
+        if recovered_miner_hash160 != miner_pubkey_hash160 {
+            warn!(
+                "Nakamoto Stacks block signature from {recovered_miner_pubk:?} mismatch: {recovered_miner_hash160} != {miner_pubkey_hash160} from leader-key";
+                "block_hash" => %self.header.block_hash(),
+                "block_id" => %self.header.block_id(),
+                "leader_key" => format!("{:?}", &leader_key),
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid miner signature".into(),
+            ));
+        }
+
+        // If this block has a coinbase, then verify that its VRF proof was generated by this
+        // block's miner.  We'll verify that the seed of this block-commit was generated from the
+        // parnet tenure's VRF proof via the `validate_vrf_seed()` method, which requires that we
+        // already have the parent block.
+        if let Some(coinbase_tx) = self.get_coinbase_tx() {
+            let (_, _, vrf_proof_opt) = coinbase_tx
+                .try_as_coinbase()
+                .expect("FATAL: `get_coinbase_tx()` did not return a coinbase");
+            let vrf_proof = vrf_proof_opt.ok_or(ChainstateError::InvalidStacksBlock(
+                "Nakamoto coinbase must have a VRF proof".into(),
+            ))?;
+
+            // this block's VRF proof must have ben generated from the last sortition's sortition
+            // hash (which includes the last commit's VRF seed)
+            let valid = match VRF::verify(
+                &leader_key.public_key,
+                vrf_proof,
+                burn_chain_tip.sortition_hash.as_bytes(),
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!(
+                        "Invalid Stacks block header {}: failed to verify VRF proof: {}",
+                        self.header.block_hash(),
+                        e
+                    );
+                    false
+                }
+            };
+
+            if !valid {
+                warn!("Invalid Nakamoto block: leader VRF key did not produce a valid proof";
+                      "block_id" => %self.block_id(),
+                      "leader_public_key" => %leader_key.public_key.to_hex(),
+                      "sortition_hash" => %burn_chain_tip.sortition_hash
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Invalid Nakamoto block: leader VRF key did not produce a valid proof".into(),
+                ));
+            }
+        }
+
+        // this block must commit to all of the work seen so far
+        if self.header.burn_spent != burn_chain_tip.total_burn {
+            warn!("Invalid Nakamoto block header: invalid total burns";
+                  "header.burn_spent" => self.header.burn_spent,
+                  "burn_chain_tip.total_burn" => burn_chain_tip.total_burn
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid Nakamoto block: invalid total burns".into(),
+            ));
+        }
+        // not verified by this method:
+        // * chain_length       (need parent block header)
+        // * parent_block_id    (need parent block header)
+        // * block-commit seed  (need parent block)
+        // * tx_merkle_root     (already verified; validated on deserialization)
+        // * state_index_root   (validated on process_block())
+        Ok(())
+    }
+
+    /// Static sanity checks on transactions.
+    /// Verifies:
+    /// * that all txs are unique
+    /// * that all txs use the given network
+    /// * that all txs use the given chain ID
+    /// * if this is a tenure-start tx, that:
+    ///    * it has a well-formed coinbase
+    ///    * all TenureChange transactions are present and in the right order, starting with
+    ///    `stacks_tip` and leading up to this block
+    /// * that only epoch-permitted transactions are present
+    pub fn validate_transactions_static(
+        &self,
+        mainnet: bool,
+        chain_id: u32,
+        epoch_id: StacksEpochId,
+    ) -> bool {
+        if !StacksBlock::validate_transactions_unique(&self.txs) {
+            return false;
+        }
+        if !StacksBlock::validate_transactions_network(&self.txs, mainnet) {
+            return false;
+        }
+        if !StacksBlock::validate_transactions_chain_id(&self.txs, chain_id) {
+            return false;
+        }
+        if let Some(valid) = self.tenure_changed() {
+            if !valid {
+                // bad tenure change
+                return false;
+            }
+            if self.get_coinbase_tx().is_none() {
+                return false;
+            }
+        }
+        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id) {
+            return false;
+        }
+        return true;
     }
 }
 
@@ -700,7 +1017,18 @@ impl NakamotoChainState {
 
         // find commit and sortition burns if this is a tenure-start block
         // TODO: store each *tenure*
-        let (commit_burn, sortition_burn) = if next_ready_block.tenure_changed(&parent_block_id) {
+        let tenure_changed = if let Some(tenure_valid) = next_ready_block.tenure_changed() {
+            if !tenure_valid {
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Invalid Nakamoto block: invalid tenure change tx(s)".into(),
+                ));
+            }
+            true
+        } else {
+            false
+        };
+
+        let (commit_burn, sortition_burn) = if tenure_changed {
             // find block-commit to get commit-burn
             let block_commit = sort_tx
                 .get_block_commit(
@@ -804,6 +1132,87 @@ impl NakamotoChainState {
         Ok(Some(receipt))
     }
 
+    /// Validate that a Nakamoto block attaches to the burn chain state.
+    /// Called before inserting the block into the staging DB.
+    /// Wraps `NakamotoBlock::validate_against_burnchain()`, and
+    /// verifies that all transactions in the block are allowed in this epoch.
+    fn validate_nakamoto_block_burnchain(
+        db_handle: &SortitionHandleConn,
+        block: &NakamotoBlock,
+        mainnet: bool,
+        chain_id: u32,
+    ) -> Result<(), ChainstateError> {
+        // find the sortition-winning block commit for this block, as well as the block snapshot
+        // containing the parent block-commit
+        let block_hash = block.header.block_hash();
+        let consensus_hash = &block.header.consensus_hash;
+
+        // burn chain tip that selected this commit's block
+        let Some(burn_chain_tip) =
+            SortitionDB::get_block_snapshot_consensus(db_handle, &consensus_hash)?
+        else {
+            warn!("No sortition for {}", &consensus_hash);
+            return Err(ChainstateError::InvalidStacksBlock(
+                "No sortition for block's consensus hash".into(),
+            ));
+        };
+
+        // the block-commit itself
+        let Some(block_commit) = db_handle.get_block_commit_by_txid(
+            &burn_chain_tip.sortition_id,
+            &burn_chain_tip.winning_block_txid,
+        )?
+        else {
+            warn!(
+                "No block commit for {} in sortition for {}",
+                &burn_chain_tip.winning_block_txid, &consensus_hash
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "No block-commit in sortition for block's consensus hash".into(),
+            ));
+        };
+
+        // key register of the winning miner
+        let leader_key = db_handle
+            .get_leader_key_at(
+                block_commit.key_block_ptr as u64,
+                block_commit.key_vtxindex as u32,
+            )?
+            .expect("FATAL: have block commit but no leader key");
+
+        // attaches to burn chain
+        if let Err(e) = block.validate_against_burnchain(&burn_chain_tip, &leader_key) {
+            warn!(
+                "Invalid Nakamoto block, could not validate on burnchain";
+                "consensus_hash" => %consensus_hash,
+                "block_hash" => %block_hash,
+                "error" => format!("{:?}", &e)
+            );
+
+            return Err(e);
+        }
+
+        // check the _next_ block's tenure, since when Nakamoto's miner activates, the current chain tip
+        // will be in epoch 2.5 (the next block will be epoch 3.0)
+        let cur_epoch =
+            SortitionDB::get_stacks_epoch(db_handle.deref(), burn_chain_tip.block_height + 1)?
+                .expect("FATAL: no epoch defined for current Stacks block");
+
+        // static checks on transactions all pass
+        let valid = block.validate_transactions_static(mainnet, chain_id, cur_epoch.epoch_id);
+        if !valid {
+            warn!(
+                "Invalid Nakamoto block, transactions failed static checks: {}/{} (epoch {})",
+                consensus_hash, block_hash, cur_epoch.epoch_id
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid Nakamoto block: failed static transaction checks".into(),
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Accept a Nakamoto block into the staging blocks DB.
     /// Fails if:
     /// * the public key cannot be recovered from the miner's signature
@@ -813,6 +1222,7 @@ impl NakamotoChainState {
     /// * we already have the block
     /// Returns true if we stored the block; false if not.
     pub fn accept_block(
+        config: &ChainstateConfig,
         block: NakamotoBlock,
         sortdb: &SortitionHandleConn,
         staging_db_tx: &rusqlite::Transaction,
@@ -820,68 +1230,37 @@ impl NakamotoChainState {
         // do nothing if we already have this block
         if let Some(_) = Self::get_block_header(&staging_db_tx, &block.header.block_id())? {
             debug!("Already have block {}", &block.header.block_id());
-            return Ok(false)
+            return Ok(false);
         }
 
-        // identify the winning block-commit
-        let sortition = SortitionDB::get_block_snapshot_consensus(sortdb, &block.header.consensus_hash)?
-            .ok_or(ChainstateError::NoSuchBlockError)
-            .map_err(|e| {
-                warn!("No block snapshot for {}", &block.header.consensus_hash);
-                e
-            })?;
-
-        let block_commit = SortitionDB::get_block_commit(sortdb, &sortition.winning_block_txid, &sortition.sortition_id)?
-            .ok_or(ChainstateError::NoSuchBlockError)
-            .map_err(|e| {
-                warn!("No block commit {} off of sortition tip {}", &sortition.winning_block_txid, &sortition.sortition_id);
-                e
-            })?;
-
-        // identify the leader key for this block-commit
-        let leader_key = SortitionDB::get_leader_key_at(sortdb, u64::from(block_commit.key_block_ptr), u32::from(block_commit.key_vtxindex), &sortition.sortition_id)?
-            .ok_or(ChainstateError::NoSuchBlockError)
-            .map_err(|e| {
-                warn!("No leader key at {},{} for block-commit {} off of sortition tip {}", block_commit.key_block_ptr, block_commit.key_vtxindex, &block_commit.txid, &sortition.sortition_id);
-                e
-            })?;
-
-        let miner_pubkey_hash160 = leader_key.interpret_nakamoto_signing_key()
-            .ok_or(ChainstateError::NoSuchBlockError)
-            .map_err(|e| {
-                warn!(
-                    "Leader key did not contain a hash160 of the miner signing public key";
-                    "leader_key" => format!("{:?}", &leader_key),
-                );
-                e
-            })?;
-
-        let recovered_miner_pubk = block.header.recover_miner_pk().ok_or_else(|| {
+        // if this is the first tenure block, then make sure it's well-formed
+        if let Some(false) = block.is_wellformed_first_tenure_block() {
             warn!(
-                "Nakamoto Stacks block downloaded with unrecoverable miner public key";
-                "block_hash" => %block.header.block_hash(),
-                "block_id" => %block.header.block_id(),
+                "Block {} is not a well-formed first tenure block",
+                &block.block_id()
             );
-            return ChainstateError::InvalidStacksBlock("Unrecoverable miner public key".into());
-        })?;
-
-        let recovered_miner_hash160 = Hash160::from_node_public_key(&recovered_miner_pubk);
-        if recovered_miner_hash160 != miner_pubkey_hash160 {
-            warn!(
-                "Nakamoto Stacks block signature from {recovered_miner_pubk:?} mismatch: {recovered_miner_hash160} != {miner_pubkey_hash160} from leader-key";
-                "block_hash" => %block.header.block_hash(),
-                "block_id" => %block.header.block_id(),
-                "leader_key" => format!("{:?}", &leader_key),
-                "block_commit" => format!("{:?}", &block_commit)
-            );
-            return Err(ChainstateError::InvalidStacksBlock("Invalid miner signature".into()));
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Not a well-formed first block".into(),
+            ));
         }
+
+        // this block must be consistent with its miner's leader-key and block-commit, and must
+        // contain only transactions that are valid in this epoch.
+        if let Err(e) =
+            Self::validate_nakamoto_block_burnchain(sortdb, &block, config.mainnet, config.chain_id)
+        {
+            warn!("Unacceptable Nakamoto block; will not store";
+                  "block_id" => %block.block_id(),
+                  "error" => format!("{:?}", &e)
+            );
+            return Ok(false);
+        };
 
         if !sortdb.expects_stacker_signature(
             &block.header.consensus_hash,
             &block.header.stacker_signature,
         )? {
-            let msg = format!("Received block, signed by {recovered_miner_pubk:?}, but the stacker signature does not match the active stacking cycle");
+            let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
             warn!("{}", msg);
             return Err(ChainstateError::InvalidStacksBlock(msg));
         }
@@ -1071,7 +1450,7 @@ impl NakamotoChainState {
 
         for candidate in candidate_headers.into_iter() {
             let Ok(Some(ancestor_at_height)) =
-                tx.get_ancestor_block_hash(tenure_height, tip_index_hash)
+                tx.get_ancestor_block_hash(candidate.stacks_block_height, tip_index_hash)
             else {
                 // if there's an error or no result, this candidate doesn't match, so try next candidate
                 continue;
@@ -1137,13 +1516,110 @@ impl NakamotoChainState {
 
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
     pub fn get_canonical_block_header(
-        conn: &Connection,
+        chainstate_conn: &Connection,
         sortdb: &SortitionDB,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
-        let (consensus_hash, block_bhh) =
+        let (consensus_hash, block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
-        let index_block_hash = StacksBlockId::new(&consensus_hash, &block_bhh);
-        Self::get_block_header(conn, &index_block_hash)
+        Self::get_block_header(
+            chainstate_conn,
+            &StacksBlockId::new(&consensus_hash, &block_hash),
+        )
+    }
+
+    /// Get the parent header of a Nakamoto block.
+    /// It might be an epoch 2.x block header
+    pub fn get_block_header_by_consensus_hash(
+        chainstate_conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let nakamoto_header_info =
+            Self::get_nakamoto_tenure_start_block_header(chainstate_conn, consensus_hash)?;
+        if nakamoto_header_info.is_some() {
+            return Ok(nakamoto_header_info);
+        }
+
+        // parent might be epoch 2
+        let epoch2_header_info = StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+            chainstate_conn,
+            consensus_hash,
+        )?;
+        Ok(epoch2_header_info)
+    }
+
+    /// Get the VRF proof for a Stacks block.
+    /// This works for either Nakamoto or epoch 2.x
+    pub fn get_block_vrf_proof(
+        chainstate_conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<VRFProof>, ChainstateError> {
+        let Some(start_header) = NakamotoChainState::get_block_header_by_consensus_hash(
+            chainstate_conn,
+            consensus_hash,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        let vrf_proof = match start_header.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(epoch2_header) => Some(epoch2_header.proof),
+            StacksBlockHeaderTypes::Nakamoto(..) => {
+                NakamotoChainState::get_nakamoto_tenure_vrf_proof(chainstate_conn, consensus_hash)?
+            }
+        };
+
+        Ok(vrf_proof)
+    }
+
+    /// Get the VRF proof of the parent tenure (either Nakamoto or epoch 2.x) of the block
+    /// identified by the given consensus hash.
+    /// The parent must already have been processed.
+    ///
+    /// `consensus_hash` identifies the child block.
+    /// `block_commit_txid` identifies the child block's tenure's block-commit tx
+    ///
+    /// Returns the proof of this block's parent tenure on success.
+    ///
+    /// Returns InvalidStacksBlock if the sortition for `consensus_hash` does not exist, or if its
+    /// parent sortition doesn't exist (i.e. the sortition DB is missing something)
+    ///
+    /// Returns NoSuchBlockError if the block header for `consensus_hash` does not exist, or if the
+    /// parent block header info does not exist (i.e. the chainstate DB is missing something)
+    pub fn get_parent_vrf_proof(
+        chainstate_conn: &Connection,
+        sortdb_conn: &Connection,
+        consensus_hash: &ConsensusHash,
+        block_commit_txid: &Txid,
+    ) -> Result<VRFProof, ChainstateError> {
+        let sn = SortitionDB::get_block_snapshot_consensus(sortdb_conn, consensus_hash)?.ok_or(
+            ChainstateError::InvalidStacksBlock("No sortition for consensus hash".into()),
+        )?;
+
+        let parent_sortition_id = SortitionDB::get_block_commit_parent_sortition_id(
+            sortdb_conn,
+            &block_commit_txid,
+            &sn.sortition_id,
+        )?
+        .ok_or(ChainstateError::InvalidStacksBlock(
+            "Parent block-commit is not in this block's sortition history".into(),
+        ))?;
+
+        let parent_sn = SortitionDB::get_block_snapshot(sortdb_conn, &parent_sortition_id)?.ok_or(
+            ChainstateError::InvalidStacksBlock(
+                "Parent block-commit does not have a sortition".into(),
+            ),
+        )?;
+
+        let parent_vrf_proof =
+            Self::get_block_vrf_proof(chainstate_conn, &parent_sn.consensus_hash)?
+                .ok_or(ChainstateError::NoSuchBlockError)
+                .map_err(|e| {
+                    warn!("Nakamoto block has no parent";
+                      "block consensus_hash" => %consensus_hash);
+                    e
+                })?;
+
+        Ok(parent_vrf_proof)
     }
 
     /// Get the first block header in a Nakamoto tenure
@@ -1177,7 +1653,7 @@ impl NakamotoChainState {
     pub fn get_nakamoto_block_status(
         conn: &Connection,
         consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash
+        block_hash: &BlockHeaderHash,
     ) -> Result<Option<(bool, bool)>, ChainstateError> {
         let sql = "SELECT (processed, orphaned) FROM nakamoto_block_headers WHERE consensus_hash = ?1 AND block_hash = ?2";
         let args: &[&dyn ToSql] = &[consensus_hash, block_hash];
@@ -1188,14 +1664,67 @@ impl NakamotoChainState {
         .map(|(processed, orphaned): (u32, u32)| (processed != 0, orphaned != 0)))
     }
 
+    /// Get the VRF proof for a Nakamoto block, if it exists.
+    /// Returns None if the Nakamoto block's VRF proof is not found (e.g. because there is no
+    /// Nakamoto block)
+    pub fn get_nakamoto_tenure_vrf_proof(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<VRFProof>, ChainstateError> {
+        let sql = "SELECT vrf_proof FROM nakamoto_block_headers WHERE consensus_hash = ?1 AND tenure_changed = 1";
+        let args: &[&dyn ToSql] = &[consensus_hash];
+        let proof_bytes: Option<String> = query_row(conn, sql, args)?;
+        if let Some(bytes) = proof_bytes {
+            let proof = VRFProof::from_hex(&bytes)
+                .ok_or(DBError::Corruption)
+                .map_err(|e| {
+                    warn!("Failed to load VRF proof: could not decode";
+                          "vrf_proof" => %bytes,
+                          "consensus_hash" => %consensus_hash
+                    );
+                    e
+                })?;
+            Ok(Some(proof))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Verify that a nakamoto block's block-commit's VRF seed is consistent with the VRF proof
+    fn check_block_commit_vrf_seed(
+        chainstate_conn: &Connection,
+        sortdb_conn: &Connection,
+        block: &NakamotoBlock,
+    ) -> Result<(), ChainstateError> {
+        // get the block-commit for this block
+        let sn =
+            SortitionDB::get_block_snapshot_consensus(sortdb_conn, &block.header.consensus_hash)?
+                .ok_or(ChainstateError::NoSuchBlockError)
+                .map_err(|e| {
+                    warn!("No block-commit for block"; "block_id" => %block.block_id());
+                    e
+                })?;
+
+        let block_commit =
+            get_block_commit_by_txid(sortdb_conn, &sn.sortition_id, &sn.winning_block_txid)?
+                .ok_or(ChainstateError::NoSuchBlockError)
+                .map_err(|e| {
+                    warn!("No block-commit for block"; "block_id" => %block.block_id());
+                    e
+                })?;
+
+        block.validate_vrf_seed(sortdb_conn, chainstate_conn, &block_commit)
+    }
+
     /// Insert a nakamoto block header that is paired with an
     /// already-existing block commit and snapshot
     ///
     /// `header` should be a pointer to the header in `tip_info`.
-    pub fn insert_stacks_block_header(
+    fn insert_stacks_block_header(
         tx: &Connection,
         tip_info: &StacksHeaderInfo,
         header: &NakamotoBlockHeader,
+        vrf_proof: Option<&VRFProof>,
         block_cost: &ExecutionCost,
         total_tenure_cost: &ExecutionCost,
         tenure_height: u64,
@@ -1224,6 +1753,8 @@ impl NakamotoChainState {
 
         assert!(*stacks_block_height < u64::try_from(i64::MAX).unwrap());
 
+        let vrf_proof_bytes = vrf_proof.map(|proof| proof.to_hex());
+
         let args: &[&dyn ToSql] = &[
             &u64_to_sql(*stacks_block_height)?,
             &index_root,
@@ -1248,6 +1779,7 @@ impl NakamotoChainState {
             &header.parent_block_id,
             &u64_to_sql(tenure_height)?,
             if tenure_changed { &1i64 } else { &0 },
+            &vrf_proof_bytes.as_ref(),
         ];
 
         tx.execute(
@@ -1267,8 +1799,9 @@ impl NakamotoChainState {
                      tenure_tx_fees,
                      parent_block_id,
                      tenure_height,
-                     tenure_changed)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                     tenure_changed,
+                     vrf_proof)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             args
         )?;
 
@@ -1277,11 +1810,12 @@ impl NakamotoChainState {
 
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
-    pub fn advance_tip(
+    fn advance_tip(
         headers_tx: &mut StacksDBTx,
         parent_tip: &StacksBlockHeaderTypes,
         parent_consensus_hash: &ConsensusHash,
         new_tip: &NakamotoBlockHeader,
+        new_vrf_proof: Option<&VRFProof>,
         new_burn_header_hash: &BurnchainHeaderHash,
         new_burnchain_height: u32,
         new_burnchain_timestamp: u64,
@@ -1299,10 +1833,7 @@ impl NakamotoChainState {
         block_fees: u128,
     ) -> Result<StacksHeaderInfo, ChainstateError> {
         if new_tip.parent_block_id
-            != StacksBlockHeader::make_index_block_hash(
-                &FIRST_BURNCHAIN_CONSENSUS_HASH,
-                &FIRST_STACKS_BLOCK_HASH,
-            )
+            != StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
         {
             // not the first-ever block, so linkage must occur
             match parent_tip {
@@ -1388,6 +1919,7 @@ impl NakamotoChainState {
             headers_tx.deref_mut(),
             &new_tip_info,
             &new_tip,
+            new_vrf_proof,
             anchor_block_cost,
             total_tenure_cost,
             tenure_height,
@@ -1786,8 +2318,17 @@ impl NakamotoChainState {
             .block_height;
 
         let block_hash = block.header.block_hash();
+        let tenure_changed = if let Some(tenures_valid) = block.tenure_changed() {
+            if !tenures_valid {
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Invalid tenure changes in nakamoto block".into(),
+                ));
+            }
+            true
+        } else {
+            false
+        };
 
-        let tenure_changed = block.tenure_changed(&parent_block_id);
         if !tenure_changed && (block.is_first_mined() || parent_ch != block.header.consensus_hash) {
             return Err(ChainstateError::ExpectedTenureChange);
         }
@@ -1807,9 +2348,26 @@ impl NakamotoChainState {
         };
 
         let tenure_height = if tenure_changed {
+            // TODO: this should be + ${num_tenures_passed_since_parent}
             parent_tenure_height + 1
         } else {
             parent_tenure_height
+        };
+
+        // verify VRF proof, if present
+        // only need to do this once per tenure
+        // get the resulting vrf proof bytes
+        let vrf_proof_opt = if tenure_changed {
+            Self::check_block_commit_vrf_seed(chainstate_tx.deref(), burn_dbconn, block)?;
+            Some(
+                block
+                    .get_vrf_proof()
+                    .ok_or(ChainstateError::InvalidStacksBlock(
+                        "Invalid Nakamoto block: has coinbase but no VRF proof".into(),
+                    ))?,
+            )
+        } else {
+            None
         };
 
         let SetupBlockResult {
@@ -1820,8 +2378,8 @@ impl NakamotoChainState {
             applied_epoch_transition,
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
-            mut auto_unlock_events,
             burn_delegate_stx_ops,
+            mut auto_unlock_events,
         } = Self::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -1973,6 +2531,7 @@ impl NakamotoChainState {
             .ok_or_else(|| {
                 warn!("While processing tenure change, failed to look up parent tenure";
                       "parent_tenure_height" => parent_tenure_height,
+                      "parent_block_id" => %parent_block_id,
                       "block_hash" => %block_hash,
                       "block_consensus_hash" => %block.header.consensus_hash);
                 ChainstateError::NoSuchBlockError
@@ -2032,6 +2591,7 @@ impl NakamotoChainState {
             &parent_chain_tip.anchored_header,
             &parent_chain_tip.consensus_hash,
             &block.header,
+            vrf_proof_opt,
             chain_tip_burn_header_hash,
             chain_tip_burn_header_height,
             chain_tip_burn_header_timestamp,
