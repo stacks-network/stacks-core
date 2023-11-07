@@ -1,4 +1,9 @@
-use std::{borrow::BorrowMut, collections::HashMap, fs::File, io::Write};
+use std::{
+    borrow::BorrowMut,
+    collections::{BTreeMap, HashMap},
+    fs::File,
+    io::Write,
+};
 
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
@@ -11,9 +16,10 @@ use super::{
     errors::RuntimeErrorType,
     events::*,
     types::{
-        ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, CharType, FixedFunction,
-        FunctionType, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData,
-        SequenceData, StandardPrincipalData, TraitIdentifier, TupleData,
+        ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CharType,
+        FixedFunction, FunctionType, OptionalData, PrincipalData, QualifiedContractIdentifier,
+        ResponseData, SequenceData, StandardPrincipalData, TraitIdentifier, TupleData,
+        TupleTypeSignature, BUFF_1, BUFF_32,
     },
     CallStack, ContractName, Environment, SymbolicExpression,
 };
@@ -582,7 +588,13 @@ pub fn get_type_size(ty: &TypeSignature) -> i32 {
         TypeSignature::BoolType => 4,                           // i32
         TypeSignature::PrincipalType | TypeSignature::SequenceType(_) => 8, // offset: i32, length: i32
         TypeSignature::OptionalType(inner) => 4 + get_type_size(inner), // indicator: i32, value: inner
-        TypeSignature::TupleType(_) => todo!(),
+        TypeSignature::TupleType(tuple_ty) => {
+            let mut size = 0;
+            for inner_type in tuple_ty.get_type_map().values() {
+                size += get_type_size(inner_type);
+            }
+            size
+        }
         TypeSignature::ResponseType(inner_types) => {
             // indicator: i32, ok_val: inner_types.0, err_val: inner_types.1
             4 + get_type_size(&inner_types.0) + get_type_size(&inner_types.1)
@@ -630,7 +642,13 @@ pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
         TypeSignature::SequenceType(_) => todo!(),
         TypeSignature::NoType => 4,   // i32
         TypeSignature::BoolType => 4, // i32
-        TypeSignature::TupleType(_) => todo!(),
+        TypeSignature::TupleType(tuple_ty) => {
+            let mut size = 0;
+            for inner_type in tuple_ty.get_type_map().values() {
+                size += get_type_in_memory_size(inner_type, true);
+            }
+            size
+        }
         TypeSignature::ResponseType(res_types) => {
             // indicator: i32, ok_val: inner_types.0, err_val: inner_types.1
             4 + get_type_in_memory_size(&res_types.0, true)
@@ -1637,6 +1655,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_map_insert_fn(linker)?;
     link_map_delete_fn(linker)?;
     link_get_block_info_fn(linker)?;
+    link_get_burn_block_info_fn(linker)?;
     link_contract_call_fn(linker)?;
     link_print_fn(linker)?;
 
@@ -4406,11 +4425,6 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                 )
                 .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
 
-                let memory = caller
-                    .get_export("memory")
-                    .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
-
                 let height_value = match u32::try_from(height) {
                     Ok(result) => result,
                     _ => {
@@ -4588,6 +4602,139 @@ fn link_get_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `get_burn_block_info`, into the Wasm module.
+/// This function is called for the `get-burn-block-info?` expression.
+fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "get_burn_block_info",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             name_offset: i32,
+             name_length: i32,
+             height_lo: i64,
+             height_hi: i64,
+             return_offset: i32,
+             _return_length: i32| {
+                // runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
+
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                // Retrieve the property name
+                let property_name =
+                    read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
+
+                let height = (height_lo as u128) | ((height_hi as u128) << 64);
+
+                let block_info_prop = BurnBlockInfoProperty::lookup_by_name(&property_name)
+                    .ok_or(CheckErrors::GetBurnBlockInfoExpectPropertyName)?;
+
+                // Note: we assume that we will not have a height bigger than u32::MAX.
+                let height_value = match u32::try_from(height) {
+                    Ok(result) => result,
+                    _ => {
+                        // Write a 0 to the return buffer for `none`
+                        write_to_wasm(
+                            &mut caller,
+                            memory,
+                            &TypeSignature::BoolType,
+                            return_offset,
+                            return_offset + get_type_size(&TypeSignature::BoolType),
+                            &Value::Bool(false),
+                            true,
+                        )?;
+                        return Ok(());
+                    }
+                };
+
+                let (result, result_ty) = match block_info_prop {
+                    BurnBlockInfoProperty::HeaderHash => {
+                        let burnchain_header_hash_opt = caller
+                            .data_mut()
+                            .global_context
+                            .database
+                            .get_burnchain_block_header_hash_for_burnchain_height(height_value);
+                        (
+                            match burnchain_header_hash_opt {
+                                Some(burnchain_header_hash) => {
+                                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                                        data: burnchain_header_hash.as_bytes().to_vec(),
+                                    })))
+                                    .expect("FATAL: could not wrap a (buff 32) in an optional")
+                                }
+                                None => Value::none(),
+                            },
+                            TypeSignature::OptionalType(Box::new(BUFF_32.clone())),
+                        )
+                    }
+                    BurnBlockInfoProperty::PoxAddrs => {
+                        let pox_addrs_and_payout = caller
+                            .data_mut()
+                            .global_context
+                            .database
+                            .get_pox_payout_addrs_for_burnchain_height(height_value);
+                        let value = match pox_addrs_and_payout {
+                            Some((addrs, payout)) => Value::some(Value::Tuple(
+                                TupleData::from_data(vec![
+                                    (
+                                        "addrs".into(),
+                                        Value::list_from(
+                                            addrs.into_iter().map(Value::Tuple).collect(),
+                                        )
+                                        .expect("FATAL: could not convert address list to Value"),
+                                    ),
+                                    ("payout".into(), Value::UInt(payout)),
+                                ])
+                                .expect("FATAL: failed to build pox addrs and payout tuple"),
+                            ))
+                            .expect("FATAL: could not build Some(..)"),
+                            None => Value::none(),
+                        };
+                        let addr_ty = TupleTypeSignature::try_from(vec![
+                            ("hashbytes".into(), BUFF_32.clone()),
+                            ("version".into(), BUFF_1.clone()),
+                        ])
+                        .expect("FATAL: could not build tuple type signature")
+                        .into();
+                        let addrs_ty = TypeSignature::list_of(addr_ty, 2)
+                            .expect("FATAL: could not build list type signature");
+                        let tuple_ty = TupleTypeSignature::try_from(vec![
+                            ("addrs".into(), addrs_ty),
+                            ("payout".into(), TypeSignature::UIntType),
+                        ])?;
+                        let ty = TypeSignature::OptionalType(Box::new(tuple_ty.into()));
+                        (value, ty)
+                    }
+                };
+
+                // Write the result to the return buffer
+                let ty = TypeSignature::OptionalType(Box::new(result_ty));
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    &ty,
+                    return_offset,
+                    return_offset + get_type_size(&ty),
+                    &Value::some(result)?,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "get_burn_block_info".to_string(),
                 e,
             ))
         })
