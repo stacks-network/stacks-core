@@ -58,7 +58,7 @@ use std::{
 };
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use wsts::{
-    state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
+    state_machine::{coordinator::frost::Coordinator as FrostCoordinator, OperationResult},
     v2,
 };
 

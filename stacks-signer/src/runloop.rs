@@ -1,14 +1,14 @@
 use crate::{config::Config, stacks_client::StacksClient};
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
-use p256k1::ecdsa;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 use std::{collections::VecDeque, sync::mpsc::Sender, time::Duration};
 use wsts::{
     common::MerkleRoot,
+    ecdsa,
     net::{Message, Packet, Signable},
     state_machine::{
-        coordinator::{Coordinatable, Coordinator as FrostCoordinator},
+        coordinator::{frost::Coordinator as FrostCoordinator, Coordinatable},
         signer::SigningRound,
         OperationResult, PublicKeys,
     },
@@ -161,12 +161,12 @@ impl<C: Coordinatable> RunLoop<C> {
         // First process all messages as a signer
         let mut outbound_messages = self
             .signing_round
-            .process_inbound_messages(inbound_messages.clone())
+            .process_inbound_messages(&inbound_messages)
             .unwrap_or_default();
         // If the signer is the coordinator, then next process the message as the coordinator
         let (messages, results) = if self.signing_round.signer_id == coordinator_id {
             self.coordinator
-                .process_inbound_messages(inbound_messages)
+                .process_inbound_messages(&inbound_messages)
                 .unwrap_or_default()
         } else {
             (vec![], vec![])

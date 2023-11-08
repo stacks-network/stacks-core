@@ -16,7 +16,6 @@
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
-use p256k1::{ecdsa, scalar::Scalar};
 use serde::Deserialize;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use std::{
@@ -26,7 +25,7 @@ use std::{
     path::PathBuf,
     time::Duration,
 };
-use wsts::state_machine::PublicKeys;
+use wsts::{ecdsa, state_machine::PublicKeys, Scalar};
 
 /// List of key_ids for each signer_id
 pub type SignerKeyIds = HashMap<u32, Vec<u32>>;
