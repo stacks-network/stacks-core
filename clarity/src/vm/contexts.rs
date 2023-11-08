@@ -226,7 +226,10 @@ pub struct ContractContext {
     pub data_size: u64,
     /// track the clarity version of the contract
     clarity_version: ClarityVersion,
-    wasm_module: Option<Vec<u8>>,
+    // @todo: @hugocaillard: remove pub
+    // it's only used to know that the contract can be called with wasm
+    // it should be epoch gated in the future
+    pub wasm_module: Option<Vec<u8>>,
 }
 
 pub struct LocalContext<'a> {
