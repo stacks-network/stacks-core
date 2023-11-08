@@ -3540,6 +3540,7 @@ dependencies = [
  "p256k1 5.5.0",
  "percent-encoding",
  "rand 0.7.3",
+ "rand_core 0.6.4",
  "ripemd",
  "rstest 0.11.0",
  "rstest_reuse 0.1.3",

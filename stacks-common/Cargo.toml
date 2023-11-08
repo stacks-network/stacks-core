@@ -71,6 +71,7 @@ features = ["std"]
 rstest = "0.11.0"
 rstest_reuse = "0.1.3"
 assert-json-diff = "1.0.0"
+rand_core = "0.6"
 
 [features]
 default = ["developer-mode"]
