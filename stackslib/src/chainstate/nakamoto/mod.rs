@@ -328,7 +328,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
 }
 
 impl NakamotoBlockHeader {
-    /// Calculate the message digest to sign.
+    /// Calculate the message digest for miners to sign.
     /// This includes all fields _except_ the signatures.
     pub fn signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
@@ -340,6 +340,22 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.parent_block_id)?;
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
+        Ok(Sha512Trunc256Sum::from_hasher(hasher))
+    }
+
+    /// Calculate the message digest for stackers to sign.
+    /// This includes all fields _except_ the stacker signature.
+    pub fn stacker_signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+        let mut hasher = Sha512_256::new();
+        let fd = &mut hasher;
+        write_next(fd, &self.version)?;
+        write_next(fd, &self.chain_length)?;
+        write_next(fd, &self.burn_spent)?;
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.parent_block_id)?;
+        write_next(fd, &self.tx_merkle_root)?;
+        write_next(fd, &self.state_index_root)?;
+        write_next(fd, &self.miner_signature)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
