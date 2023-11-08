@@ -2353,6 +2353,29 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "p256k1"
+version = "5.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22e81c2cb5a1936d3f26278f9d698932239d03ddf0d5818392d91cd5f98ffc79"
+dependencies = [
+ "bindgen",
+ "bitvec",
+ "bs58 0.4.0",
+ "cc",
+ "hex",
+ "itertools",
+ "num-traits",
+ "primitive-types",
+ "proc-macro2",
+ "quote",
+ "rand_core 0.6.4",
+ "rustfmt-wrapper",
+ "serde",
+ "sha2 0.10.6",
+ "syn 2.0.29",
+]
+
+[[package]]
+name = "p256k1"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5afcf536d20c074ef45371ee9a654dcfc46fb2dde18ecc54ec30c936eb850fa2"
@@ -3514,6 +3537,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "nix",
+ "p256k1 5.5.0",
  "percent-encoding",
  "rand 0.7.3",
  "ripemd",
@@ -3532,6 +3556,7 @@ dependencies = [
  "slog-term",
  "time 0.2.27",
  "winapi 0.3.9",
+ "wsts 4.0.0",
 ]
 
 [[package]]
@@ -3567,7 +3592,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "warp",
- "wsts",
+ "wsts 5.0.0",
 ]
 
 [[package]]
@@ -3597,7 +3622,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
- "wsts",
+ "wsts 5.0.0",
 ]
 
 [[package]]
@@ -3643,7 +3668,7 @@ dependencies = [
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
- "wsts",
+ "wsts 5.0.0",
 ]
 
 [[package]]
@@ -4708,6 +4733,28 @@ dependencies = [
 
 [[package]]
 name = "wsts"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a0c0ec44cbd35be82490c8c566ad4971f7b41ffe8508f1c9938140df7fe18b2"
+dependencies = [
+ "aes-gcm 0.10.2",
+ "bs58 0.5.0",
+ "hashbrown 0.14.0",
+ "hex",
+ "num-traits",
+ "p256k1 5.5.0",
+ "polynomial",
+ "primitive-types",
+ "rand_core 0.6.4",
+ "serde",
+ "sha2 0.10.6",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "wsts"
 version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c250118354755b4abb091a83cb8d659b511c0ae211ccdb3b1254e3db199cb86"
@@ -4717,7 +4764,7 @@ dependencies = [
  "hashbrown 0.14.0",
  "hex",
  "num-traits",
- "p256k1",
+ "p256k1 6.0.0",
  "polynomial",
  "primitive-types",
  "rand_core 0.6.4",
