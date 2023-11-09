@@ -7,7 +7,10 @@ use std::{
 
 use stacks_common::{
     types::chainstate::StacksBlockId,
-    util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum},
+    util::{
+        hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum},
+        secp256k1::{secp256k1_recover, secp256k1_verify},
+    },
 };
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
@@ -23,7 +26,7 @@ use super::{
         ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CharType,
         FixedFunction, FunctionType, ListData, OptionalData, PrincipalData,
         QualifiedContractIdentifier, ResponseData, SequenceData, StandardPrincipalData,
-        TraitIdentifier, TupleData, TupleTypeSignature, BUFF_1, BUFF_32,
+        TraitIdentifier, TupleData, TupleTypeSignature, BUFF_1, BUFF_32, BUFF_33,
     },
     CallStack, ContractName, Environment, SymbolicExpression,
 };
@@ -1821,6 +1824,8 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_keccak256_fn(linker)?;
     link_sha512_fn(linker)?;
     link_sha512_256_fn(linker)?;
+    link_secp256k1_recover_fn(linker)?;
+    link_secp256k1_verify_fn(linker)?;
 
     link_log(linker)
 }
@@ -5279,6 +5284,108 @@ fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "sha512_256".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `secp256k1_recover`, into the Wasm module.
+/// This function is called for the Clarity expression, `secp256k1-recover?`.
+fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "secp256k1_recover",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             msg_offset: i32,
+             msg_length: i32,
+             sig_offset: i32,
+             sig_length: i32,
+             return_offset: i32,
+             _return_length: i32| {
+                // runtime_cost(ClarityCostFunction::Secp256k1recover, env, 0)?;
+
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read the message bytes from the memory
+                let msg_bytes = read_bytes_from_wasm(memory, &mut caller, msg_offset, msg_length)?;
+
+                // Read the signature bytes from the memory
+                let sig_bytes = read_bytes_from_wasm(memory, &mut caller, sig_offset, sig_length)?;
+
+                let result = match secp256k1_recover(&msg_bytes, &sig_bytes) {
+                    Ok(pubkey) => Value::okay(Value::buff_from(pubkey.to_vec()).unwrap()).unwrap(),
+                    _ => Value::err_uint(1),
+                };
+
+                // Write the result to the return buffer
+                let ret_ty =
+                    TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType).unwrap();
+                let repr_size = get_type_size(&ret_ty);
+                write_to_wasm(
+                    caller,
+                    memory,
+                    &ret_ty,
+                    return_offset,
+                    return_offset + repr_size,
+                    &result,
+                    true,
+                )?;
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "secp256k1_recover".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `secp256k1_verify`, into the Wasm module.
+/// This function is called for the Clarity expression, `secp256k1-verify`.
+fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "secp256k1_verify",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             msg_offset: i32,
+             msg_length: i32,
+             sig_offset: i32,
+             sig_length: i32,
+             pk_offset: i32,
+             pk_length: i32| {
+                // runtime_cost(ClarityCostFunction::Secp256k1verify, env, 0)?;
+
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read the message bytes from the memory
+                let msg_bytes = read_bytes_from_wasm(memory, &mut caller, msg_offset, msg_length)?;
+
+                // Read the signature bytes from the memory
+                let sig_bytes = read_bytes_from_wasm(memory, &mut caller, sig_offset, sig_length)?;
+
+                // Read the public-key bytes from the memory
+                let pk_bytes = read_bytes_from_wasm(memory, &mut caller, pk_offset, pk_length)?;
+
+                Ok(secp256k1_verify(&msg_bytes, &sig_bytes, &pk_bytes).map_or(0i32, |_| 1i32))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "secp256k1_verify".to_string(),
                 e,
             ))
         })
