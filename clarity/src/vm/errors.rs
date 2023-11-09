@@ -143,6 +143,7 @@ pub enum WasmError {
     InvalidFunctionKind(i32),
     DefineFunctionCalledInRunMode,
     ExpectedReturnValue,
+    InvalidIndicator(i32),
     Runtime(wasmtime::Error),
 }
 
@@ -177,6 +178,9 @@ impl fmt::Display for WasmError {
                 write!(f, "Define function called in run mode")
             }
             WasmError::ExpectedReturnValue => write!(f, "Expected return value"),
+            WasmError::InvalidIndicator(indicator) => {
+                write!(f, "Invalid response/optional indicator: {indicator}")
+            }
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
         }
     }
