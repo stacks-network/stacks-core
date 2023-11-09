@@ -5,7 +5,10 @@ use std::{
     io::Write,
 };
 
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::{
+    types::chainstate::StacksBlockId,
+    util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum},
+};
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
 use super::{
@@ -1815,6 +1818,9 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_print_fn(linker)?;
     link_enter_at_block_fn(linker)?;
     link_exit_at_block_fn(linker)?;
+    link_keccak256_fn(linker)?;
+    link_sha512_fn(linker)?;
+    link_sha512_256_fn(linker)?;
 
     link_log(linker)
 }
@@ -5161,6 +5167,118 @@ fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "exit_at_block".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `keccak256`, into the Wasm module.
+/// This function is called for the Clarity expression, `keccak256`.
+fn link_keccak256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "keccak256",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             buffer_offset: i32,
+             buffer_length: i32,
+             return_offset: i32,
+             return_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read the bytes from the memory
+                let bytes =
+                    read_bytes_from_wasm(memory, &mut caller, buffer_offset, buffer_length)?;
+
+                let hash = Keccak256Hash::from_data(&bytes);
+
+                // Write the hash to the return buffer
+                memory.write(&mut caller, return_offset as usize, hash.as_bytes())?;
+
+                Ok((return_offset, return_length))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "keccak256".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `sha512`, into the Wasm module.
+/// This function is called for the Clarity expression, `sha512`.
+fn link_sha512_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "sha512",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             buffer_offset: i32,
+             buffer_length: i32,
+             return_offset: i32,
+             return_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read the bytes from the memory
+                let bytes =
+                    read_bytes_from_wasm(memory, &mut caller, buffer_offset, buffer_length)?;
+
+                let hash = Sha512Sum::from_data(&bytes);
+
+                // Write the hash to the return buffer
+                memory.write(&mut caller, return_offset as usize, hash.as_bytes())?;
+
+                Ok((return_offset, return_length))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("sha512".to_string(), e)))
+}
+
+/// Link host interface function, `sha512_256`, into the Wasm module.
+/// This function is called for the Clarity expression, `sha512/256`.
+fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "sha512_256",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             buffer_offset: i32,
+             buffer_length: i32,
+             return_offset: i32,
+             return_length: i32| {
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read the bytes from the memory
+                let bytes =
+                    read_bytes_from_wasm(memory, &mut caller, buffer_offset, buffer_length)?;
+
+                let hash = Sha512Trunc256Sum::from_data(&bytes);
+
+                // Write the hash to the return buffer
+                memory.write(&mut caller, return_offset as usize, hash.as_bytes())?;
+
+                Ok((return_offset, return_length))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "sha512_256".to_string(),
                 e,
             ))
         })
