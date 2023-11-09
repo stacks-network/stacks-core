@@ -1157,7 +1157,7 @@ impl StacksChainState {
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
                 // Compile the contract to Wasm
-                let mut module = compile_contract(&mut contract_analysis).map_err(|e| {
+                let mut module = compile_contract(contract_analysis.clone()).map_err(|e| {
                     Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(
                         e.message(),
                     )))

@@ -5,21 +5,22 @@ use std::{
     io::Write,
 };
 
+use stacks_common::types::chainstate::StacksBlockId;
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
 use super::{
     analysis::CheckErrors,
     callables::{DefineType, DefinedFunction},
     contracts::Contract,
-    costs::CostTracker,
+    costs::{constants as cost_constants, CostTracker},
     database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata, STXBalance},
     errors::RuntimeErrorType,
     events::*,
     types::{
         ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CharType,
-        FixedFunction, FunctionType, OptionalData, PrincipalData, QualifiedContractIdentifier,
-        ResponseData, SequenceData, StandardPrincipalData, TraitIdentifier, TupleData,
-        TupleTypeSignature, BUFF_1, BUFF_32,
+        FixedFunction, FunctionType, ListData, OptionalData, PrincipalData,
+        QualifiedContractIdentifier, ResponseData, SequenceData, StandardPrincipalData,
+        TraitIdentifier, TupleData, TupleTypeSignature, BUFF_1, BUFF_32,
     },
     CallStack, ContractName, Environment, SymbolicExpression,
 };
@@ -74,8 +75,12 @@ pub struct ClarityWasmContext<'a, 'b> {
     pub sender: Option<PrincipalData>,
     pub caller: Option<PrincipalData>,
     pub sponsor: Option<PrincipalData>,
+    // Stack of senders, used for `as-contract` expressions.
     sender_stack: Vec<PrincipalData>,
+    /// Stack of callers, used for `contract-call?` and `as-contract` expressions.
     caller_stack: Vec<PrincipalData>,
+    /// Stack of block hashes, used for `at-block` expressions.
+    bhh_stack: Vec<StacksBlockId>,
 
     /// Contract analysis data, used for typing information, and only available
     /// when initializing a contract. Should always be `Some` when initializing
@@ -103,6 +108,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
             sponsor,
             sender_stack: vec![],
             caller_stack: vec![],
+            bhh_stack: vec![],
             contract_analysis,
         }
     }
@@ -126,6 +132,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
             sponsor,
             sender_stack: vec![],
             caller_stack: vec![],
+            bhh_stack: vec![],
             contract_analysis,
         }
     }
@@ -162,6 +169,16 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
                 self.caller = self.caller_stack.pop();
                 caller
             })
+    }
+
+    fn push_at_block(&mut self, bhh: StacksBlockId) {
+        self.bhh_stack.push(bhh);
+    }
+
+    fn pop_at_block(&mut self) -> StacksBlockId {
+        self.bhh_stack
+            .pop()
+            .expect("called pop_at_block without calling push_at_block")
     }
 
     /// Return an immutable reference to the contract_context
@@ -738,7 +755,7 @@ fn read_identifier_from_wasm(
     String::from_utf8(buffer).map_err(|e| Error::Wasm(WasmError::UnableToReadIdentifier(e)))
 }
 
-/// Read a value from the WASM memory at `offset` with `length` given the
+/// Read a value from the Wasm memory at `offset` with `length` given the
 /// provided Clarity `TypeSignature`. In-memory values require one extra level
 /// of indirection, so this function will read the offset and length from the
 /// memory, then read the actual value.
@@ -768,7 +785,7 @@ fn read_from_wasm_indirect(
     read_from_wasm(memory, store, ty, offset, length)
 }
 
-/// Read a value from the WASM memory at `offset` with `length`, given the
+/// Read a value from the Wasm memory at `offset` with `length`, given the
 /// provided Clarity `TypeSignature`.
 fn read_from_wasm(
     memory: Memory,
@@ -898,13 +915,71 @@ fn read_from_wasm(
             let bool_val = u32::from_le_bytes(buffer);
             Ok(Value::Bool(bool_val != 0))
         }
-        TypeSignature::ResponseType(_r) => todo!("type not yet implemented: {:?}", ty),
+        TypeSignature::TupleType(type_sig) => {
+            let mut data = Vec::new();
+            let mut current_offset = offset;
+            for (field_key, field_ty) in type_sig.get_type_map() {
+                let field_length = get_type_size(field_ty);
+                let field_value = read_from_wasm_indirect(memory, store, field_ty, current_offset)?;
+                data.push((field_key.clone(), field_value));
+                current_offset += field_length;
+            }
+            Ok(Value::Tuple(TupleData::from_data(data)?))
+        }
+        TypeSignature::ResponseType(response_type) => {
+            let mut current_offset = offset;
+
+            // Read the indicator
+            let mut indicator_bytes = [0u8; 4];
+            memory
+                .read(&mut store, current_offset as usize, &mut indicator_bytes)
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            current_offset += 4;
+            let indicator = i32::from_le_bytes(indicator_bytes);
+
+            // Read the ok or err value, depending on the indicator
+            match indicator {
+                0 => {
+                    current_offset += get_type_size(&response_type.0);
+                    let err_value =
+                        read_from_wasm_indirect(memory, store, &response_type.1, current_offset)?;
+                    Value::error(err_value).map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))
+                }
+                1 => {
+                    let ok_value =
+                        read_from_wasm_indirect(memory, store, &response_type.0, current_offset)?;
+                    Value::okay(ok_value).map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))
+                }
+                _ => Err(Error::Wasm(WasmError::InvalidIndicator(indicator))),
+            }
+        }
+        TypeSignature::OptionalType(type_sig) => {
+            let mut current_offset = offset;
+
+            // Read the indicator
+            let mut indicator_bytes = [0u8; 4];
+            memory
+                .read(&mut store, current_offset as usize, &mut indicator_bytes)
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            current_offset += 4;
+            let indicator = i32::from_le_bytes(indicator_bytes);
+
+            match indicator {
+                0 => Ok(Value::none()),
+                1 => {
+                    let value = read_from_wasm_indirect(memory, store, type_sig, current_offset)?;
+                    Ok(
+                        Value::some(value)
+                            .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?,
+                    )
+                }
+                _ => Err(Error::Wasm(WasmError::InvalidIndicator(indicator))),
+            }
+        }
+        TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::CallableType(_subtype) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::OptionalType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TupleType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
     }
 }
 
@@ -960,6 +1035,20 @@ fn value_as_response(value: &Value) -> Result<&ResponseData, Error> {
 fn value_as_string_ascii(value: Value) -> Result<ASCIIData, Error> {
     match value {
         Value::Sequence(SequenceData::String(CharType::ASCII(string_data))) => Ok(string_data),
+        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+    }
+}
+
+fn value_as_tuple(value: &Value) -> Result<&TupleData, Error> {
+    match value {
+        Value::Tuple(d) => Ok(d),
+        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+    }
+}
+
+fn value_as_list(value: &Value) -> Result<&ListData, Error> {
+    match value {
+        Value::Sequence(SequenceData::List(list_data)) => Ok(list_data),
         _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
@@ -1072,6 +1161,49 @@ fn write_to_wasm(
             }
 
             Ok((written, in_mem_written))
+        }
+        TypeSignature::SequenceType(SequenceSubtype::ListType(list)) => {
+            let mut written = 0;
+            let list_data = value_as_list(value)?;
+            let elem_ty = list.get_list_item_type();
+            // For a list, the values are written to the memory at
+            // `in_mem_offset`, and the representation (offset and length) is
+            // written to the memory at `offset`. The `in_mem_offset` for the
+            // list elements should be after their representations.
+            let val_offset = in_mem_offset;
+            let val_in_mem_offset = in_mem_offset + get_type_in_memory_size(ty, false);
+            let mut val_written = 0;
+            let mut val_in_mem_written = 0;
+            for elem in &list_data.data {
+                let (new_written, new_in_mem_written) = write_to_wasm(
+                    store.as_context_mut(),
+                    memory,
+                    elem_ty,
+                    val_offset + val_written,
+                    val_in_mem_offset + val_in_mem_written,
+                    &elem,
+                    true,
+                )?;
+                val_written += new_written;
+                val_in_mem_written += new_in_mem_written;
+            }
+
+            if include_repr {
+                // Write the representation (offset and length) of the value to
+                // `offset`.
+                let offset_buffer = (in_mem_offset as i32).to_le_bytes();
+                memory
+                    .write(&mut store, (offset) as usize, &offset_buffer)
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                written += 4;
+                let len_buffer = (val_written as i32).to_le_bytes();
+                memory
+                    .write(&mut store, (offset + 4) as usize, &len_buffer)
+                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                written += 4;
+            }
+
+            Ok((written, val_written + val_in_mem_written))
         }
         TypeSignature::SequenceType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::ResponseType(inner_types) => {
@@ -1231,8 +1363,31 @@ fn write_to_wasm(
 
             Ok((written, in_mem_written))
         }
+        TypeSignature::TupleType(type_sig) => {
+            let tuple_data = value_as_tuple(value)?;
+            let mut written = 0;
+            let mut in_mem_written = 0;
+
+            for (key, val) in &tuple_data.data_map {
+                let val_type = type_sig
+                    .field_type(&key)
+                    .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                let (new_written, new_in_mem_written) = write_to_wasm(
+                    store.as_context_mut(),
+                    memory,
+                    val_type,
+                    offset + written,
+                    in_mem_offset + in_mem_written,
+                    val,
+                    true,
+                )?;
+                written += new_written;
+                in_mem_written += new_in_mem_written;
+            }
+
+            Ok((written, in_mem_written))
+        }
         TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TupleType(_type_sig) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::CallableType(_) | TypeSignature::ListUnionType(_) => {
             unreachable!("not a value type")
         }
@@ -1658,6 +1813,8 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_get_burn_block_info_fn(linker)?;
     link_contract_call_fn(linker)?;
     link_print_fn(linker)?;
+    link_enter_at_block_fn(linker)?;
+    link_exit_at_block_fn(linker)?;
 
     link_log(linker)
 }
@@ -4717,14 +4874,13 @@ fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
                 };
 
                 // Write the result to the return buffer
-                let ty = TypeSignature::OptionalType(Box::new(result_ty));
                 write_to_wasm(
                     &mut caller,
                     memory,
-                    &ty,
+                    &result_ty,
                     return_offset,
-                    return_offset + get_type_size(&ty),
-                    &Value::some(result)?,
+                    return_offset + get_type_size(&result_ty),
+                    &result,
                     true,
                 )?;
 
@@ -4906,6 +5062,110 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
         .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("print".to_string(), e)))
 }
 
+/// Link host interface function, `enter_at_block`, into the Wasm module.
+/// This function is called before evaluating the inner expression of an
+/// `at-block` expression.
+fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "enter_at_block",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             block_hash_offset: i32,
+             block_hash_length: i32| {
+                // runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
+
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                let block_hash = read_from_wasm(
+                    memory,
+                    &mut caller,
+                    &BUFF_32,
+                    block_hash_offset,
+                    block_hash_length,
+                )?;
+
+                let bhh = match block_hash {
+                    Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
+                        if data.len() != 32 {
+                            return Err(RuntimeErrorType::BadBlockHash(data).into());
+                        } else {
+                            StacksBlockId::from(data.as_slice())
+                        }
+                    }
+                    x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into()),
+                };
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .add_memory(cost_constants::AT_BLOCK_MEMORY)
+                    .map_err(|e| Error::from(e))?;
+
+                caller.data_mut().global_context.begin_read_only();
+
+                let prev_bhh = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .set_block_hash(bhh, false)?;
+
+                caller.data_mut().push_at_block(prev_bhh);
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "enter_at_block".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `exit_at_block`, into the Wasm module.
+/// This function is called after evaluating the inner expression of an
+/// `at-block` expression, resetting the state back to the current block.
+fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "exit_at_block",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                // Pop back to the current block
+                let bhh = caller.data_mut().pop_at_block();
+                caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .set_block_hash(bhh, true)
+                    .expect("ERROR: Failed to restore prior active block after time-shifted evaluation.");
+
+                // Roll back any changes that occurred during the `at-block`
+                // expression. This is precautionary, since only read-only
+                // operations are allowed during an `at-block` expression.
+                caller.data_mut().global_context.roll_back();
+
+                caller
+                    .data_mut()
+                    .global_context
+                    .drop_memory(cost_constants::AT_BLOCK_MEMORY);
+
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "exit_at_block".to_string(),
+                e,
+            ))
+        })
+}
+
 /// Link host-interface function, `log`, into the Wasm module.
 /// This function is used for debugging the Wasm, and should not be called in
 /// production.
@@ -4916,4 +5176,1230 @@ fn link_log<T>(linker: &mut Linker<T>) -> Result<(), Error> {
         })
         .map(|_| ())
         .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("log".to_string(), e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasmtime::*;
+
+    #[test]
+    fn test_read_bytes_from_wasm() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 0;
+        let bytes = vec![0x01, 0x02, 0x03, 0x04];
+        memory
+            .write(&mut store, offset, bytes.as_slice())
+            .expect("write failed");
+
+        let read = read_bytes_from_wasm(memory, &mut store, offset as i32, bytes.len() as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, bytes);
+    }
+
+    #[test]
+    fn test_read_identifier_from_wasm() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 1;
+        let expected = "hello-world";
+        memory
+            .write(&mut store, offset, expected.as_bytes())
+            .expect("write failed");
+
+        let read =
+            read_identifier_from_wasm(memory, &mut store, offset as i32, expected.len() as i32)
+                .expect("failed to read id");
+        assert_eq!(&read, expected);
+    }
+
+    #[test]
+    fn test_read_from_wasm_indirect_uint() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 2;
+        memory
+            .write(&mut store, offset, &3i64.to_le_bytes())
+            .expect("write failed");
+        memory
+            .write(&mut store, offset + 8, &0i64.to_le_bytes())
+            .expect("write failed");
+
+        let read =
+            read_from_wasm_indirect(memory, &mut store, &&TypeSignature::UIntType, offset as i32)
+                .expect("failed to read bytes");
+        assert_eq!(read, Value::UInt(3),);
+    }
+
+    #[test]
+    fn test_read_from_wasm_indirect_string() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 3;
+        let expected = "hello-world";
+        memory
+            .write(&mut store, offset + 8, expected.as_bytes())
+            .expect("write failed");
+        let offset_bytes = (offset as i32 + 8).to_le_bytes();
+        memory
+            .write(&mut store, offset, &offset_bytes)
+            .expect("write failed");
+        let length_bytes = (expected.len() as i32).to_le_bytes();
+        memory
+            .write(&mut store, offset + 4, &length_bytes)
+            .expect("write failed");
+
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &TypeSignature::max_string_ascii(),
+            offset as i32,
+        )
+        .expect("failed to read bytes");
+        assert_eq!(
+            read,
+            Value::string_ascii_from_bytes(expected.as_bytes().to_vec()).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_write_read_wasm_int() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 4;
+        let expected = Value::Int(42);
+        let expected_ty = TypeSignature::IntType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 16)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_uint() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 5;
+        let expected = Value::UInt(1234);
+        let expected_ty = TypeSignature::UIntType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 16)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_buffer() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 6;
+        let expected = Value::buff_from(vec![0x01, 0x02, 0x03, 0x04]).unwrap();
+        let expected_ty = TypeSignature::max_buffer();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 4)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_string_ascii() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 7;
+        let expected =
+            Value::string_ascii_from_bytes("Party on, Wayne!".as_bytes().to_vec()).unwrap();
+        let expected_ty = TypeSignature::max_string_ascii();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 16)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_list() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected =
+            Value::list_from(vec![Value::UInt(1), Value::UInt(2), Value::UInt(3)]).unwrap();
+        let expected_ty = TypeSignature::list_of(TypeSignature::UIntType, 8).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 48)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_list_strings() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::list_from(vec![
+            Value::string_ascii_from_bytes("this ".as_bytes().to_vec()).unwrap(),
+            Value::string_ascii_from_bytes("should".as_bytes().to_vec()).unwrap(),
+            Value::string_ascii_from_bytes("work.".as_bytes().to_vec()).unwrap(),
+        ])
+        .unwrap();
+        let expected_ty = TypeSignature::list_of(
+            TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                BufferLength::try_from(16u32).unwrap(),
+            ))),
+            8,
+        )
+        .unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_response_ok() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::okay_true();
+        let expected_ty =
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_response_err() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::err_uint(123);
+        let expected_ty =
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_response_ok_string() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 11;
+        let expected =
+            Value::okay(Value::string_ascii_from_bytes("okay!!".as_bytes().to_vec()).unwrap())
+                .unwrap();
+        let expected_ty = TypeSignature::new_response(
+            TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                BufferLength::try_from(8u32).unwrap(),
+            ))),
+            TypeSignature::UIntType,
+        )
+        .unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 28,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 28)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_response_err_string() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 12;
+        let expected = Value::error(
+            Value::string_ascii_from_bytes("it's an error :(".as_bytes().to_vec()).unwrap(),
+        )
+        .unwrap();
+        let expected_ty = TypeSignature::new_response(
+            TypeSignature::BoolType,
+            TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                BufferLength::try_from(32u32).unwrap(),
+            ))),
+        )
+        .unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 28)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_bool() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 13;
+        let expected = Value::Bool(true);
+        let expected_ty = TypeSignature::BoolType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 4,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 4)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_optional_none() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::none();
+        let expected_ty = TypeSignature::new_option(TypeSignature::UIntType).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 20,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 20)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_optional_some() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected =
+            Value::some(Value::UInt(0x1234_5678_9abc_def0_0fed_cba9_8765_4321u128)).unwrap();
+        let expected_ty = TypeSignature::new_option(TypeSignature::UIntType).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_optional_some_string() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::some(
+            Value::string_ascii_from_bytes(
+                "Some people are like clouds. When they disappear, it's a beautiful day."
+                    .as_bytes()
+                    .to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let expected_ty =
+            TypeSignature::new_option(TypeSignature::SequenceType(SequenceSubtype::StringType(
+                StringSubtype::ASCII(BufferLength::try_from(80u32).unwrap()),
+            )))
+            .unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_principal_standard() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 14;
+        let expected = Value::Principal(
+            PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap(),
+        );
+        let expected_ty = TypeSignature::PrincipalType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            STANDARD_PRINCIPAL_BYTES as i32,
+        )
+        .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_principal_contract() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 14;
+        let expected = Value::Principal(
+            PrincipalData::parse("SPXACZ2NS34QHWCMAK1V2QJK0XB6WM6N5AB7RWYB.hiro-values-award-nft")
+                .unwrap(),
+        );
+        let expected_ty = TypeSignature::PrincipalType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            STANDARD_PRINCIPAL_BYTES as i32 + 21,
+        )
+        .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_tuple_simple() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 14;
+        let expected = Value::Tuple(
+            TupleData::from_data(vec![
+                ("a".into(), Value::Int(42)),
+                ("b".into(), Value::Bool(false)),
+                ("another".into(), Value::UInt(1234)),
+            ])
+            .unwrap(),
+        );
+        let expected_ty = expected.clone().expect_tuple().type_signature.into();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 36)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_tuple_compound() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 14;
+        let expected = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "a".into(),
+                    Value::list_from(vec![Value::Int(42), Value::Int(-42)]).unwrap(),
+                ),
+                ("b".into(), Value::Bool(false)),
+                (
+                    "another".into(),
+                    Value::string_ascii_from_bytes("this is a string!".as_bytes().to_vec())
+                        .unwrap(),
+                ),
+            ])
+            .unwrap(),
+        );
+        let expected_ty = expected.clone().expect_tuple().type_signature.into();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 20,
+            &expected,
+            false,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 20)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    //- Indirect
+
+    #[test]
+    fn test_write_read_wasm_indirect_int() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 4;
+        let expected = Value::Int(42);
+        let expected_ty = TypeSignature::IntType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_uint() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 5;
+        let expected = Value::UInt(1234);
+        let expected_ty = TypeSignature::UIntType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_buffer() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 6;
+        let expected = Value::buff_from(vec![0x01, 0x02, 0x03, 0x04]).unwrap();
+        let expected_ty = TypeSignature::max_buffer();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_string_ascii() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 7;
+        let expected =
+            Value::string_ascii_from_bytes("Party on, Wayne!".as_bytes().to_vec()).unwrap();
+        let expected_ty = TypeSignature::max_string_ascii();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_list() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected =
+            Value::list_from(vec![Value::UInt(1), Value::UInt(2), Value::UInt(3)]).unwrap();
+        let expected_ty = TypeSignature::list_of(TypeSignature::UIntType, 8).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_list_strings() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::list_from(vec![
+            Value::string_ascii_from_bytes("this ".as_bytes().to_vec()).unwrap(),
+            Value::string_ascii_from_bytes("should".as_bytes().to_vec()).unwrap(),
+            Value::string_ascii_from_bytes("work.".as_bytes().to_vec()).unwrap(),
+        ])
+        .unwrap();
+        let expected_ty = TypeSignature::list_of(
+            TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                BufferLength::try_from(16u32).unwrap(),
+            ))),
+            8,
+        )
+        .unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_response_ok() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::okay_true();
+        let expected_ty =
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_response_err() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::err_uint(123);
+        let expected_ty =
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_response_ok_string() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 11;
+        let expected =
+            Value::okay(Value::string_ascii_from_bytes("okay!!".as_bytes().to_vec()).unwrap())
+                .unwrap();
+        let expected_ty = TypeSignature::new_response(
+            TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                BufferLength::try_from(8u32).unwrap(),
+            ))),
+            TypeSignature::UIntType,
+        )
+        .unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 28,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_response_err_string() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 12;
+        let expected = Value::error(
+            Value::string_ascii_from_bytes("it's an error :(".as_bytes().to_vec()).unwrap(),
+        )
+        .unwrap();
+        let expected_ty = TypeSignature::new_response(
+            TypeSignature::BoolType,
+            TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                BufferLength::try_from(32u32).unwrap(),
+            ))),
+        )
+        .unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_bool() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 13;
+        let expected = Value::Bool(true);
+        let expected_ty = TypeSignature::BoolType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 4,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_optional_none() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::none();
+        let expected_ty = TypeSignature::new_option(TypeSignature::UIntType).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 20,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_optional_some() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected =
+            Value::some(Value::UInt(0x1234_5678_9abc_def0_0fed_cba9_8765_4321u128)).unwrap();
+        let expected_ty = TypeSignature::new_option(TypeSignature::UIntType).unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_optional_some_string() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 8;
+        let expected = Value::some(
+            Value::string_ascii_from_bytes(
+                "Some people are like clouds. When they disappear, it's a beautiful day."
+                    .as_bytes()
+                    .to_vec(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let expected_ty =
+            TypeSignature::new_option(TypeSignature::SequenceType(SequenceSubtype::StringType(
+                StringSubtype::ASCII(BufferLength::try_from(80u32).unwrap()),
+            )))
+            .unwrap();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 24,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_principal_standard() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 14;
+        let expected = Value::Principal(
+            PrincipalData::parse("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM").unwrap(),
+        );
+        let expected_ty = TypeSignature::PrincipalType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_principal_contract() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 14;
+        let expected = Value::Principal(
+            PrincipalData::parse("SPXACZ2NS34QHWCMAK1V2QJK0XB6WM6N5AB7RWYB.hiro-values-award-nft")
+                .unwrap(),
+        );
+        let expected_ty = TypeSignature::PrincipalType;
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 8,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_tuple_simple() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 14;
+        let expected = Value::Tuple(
+            TupleData::from_data(vec![
+                ("a".into(), Value::Int(42)),
+                ("b".into(), Value::Bool(false)),
+                ("another".into(), Value::UInt(1234)),
+            ])
+            .unwrap(),
+        );
+        let expected_ty = expected.clone().expect_tuple().type_signature.into();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
+
+    #[test]
+    fn test_write_read_wasm_indirect_tuple_compound() {
+        let engine = Engine::default();
+        let mut store = Store::new(&engine, ());
+        let memory =
+            Memory::new(&mut store, MemoryType::new(1, None)).expect("failed to create memory");
+
+        let offset = 14;
+        let expected = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "a".into(),
+                    Value::list_from(vec![Value::Int(42), Value::Int(-42)]).unwrap(),
+                ),
+                ("b".into(), Value::Bool(false)),
+                (
+                    "another".into(),
+                    Value::string_ascii_from_bytes("this is a string!".as_bytes().to_vec())
+                        .unwrap(),
+                ),
+            ])
+            .unwrap(),
+        );
+        let expected_ty = expected.clone().expect_tuple().type_signature.into();
+
+        write_to_wasm(
+            &mut store,
+            memory,
+            &expected_ty,
+            offset as i32,
+            offset as i32 + 20,
+            &expected,
+            true,
+        )
+        .expect("failed to write bytes");
+
+        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
+            .expect("failed to read bytes");
+        assert_eq!(read, expected);
+    }
 }
