@@ -121,7 +121,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         match epoch {
             StacksEpochId::Epoch2_05 => {
-                let (ast, _analysis) = tx
+                let (mut ast, _analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-2", false),
                         ClarityVersion::Clarity1,
@@ -132,7 +132,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 tx.initialize_smart_contract(
                     &boot_code_id("costs-2", false),
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
                     BOOT_CODE_COSTS_2,
                     None,
                     |_, _| false,
@@ -145,7 +145,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30 => {
-                let (ast, _analysis) = tx
+                let (mut ast, _analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-3", false),
                         ClarityVersion::Clarity2,
@@ -156,7 +156,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 tx.initialize_smart_contract(
                     &boot_code_id("costs-3", false),
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
                     BOOT_CODE_COSTS_3,
                     None,
                     |_, _| false,
@@ -179,20 +179,20 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         let tokens_contract = SIMPLE_TOKENS;
 
-        let contract_ast = ast::build_ast(
-            &contract_identifier,
-            tokens_contract,
-            &mut (),
-            version,
-            epoch,
-        )
-        .unwrap();
-
         block.as_transaction(|tx| {
+            let (mut contract_ast, contract_analysis) = tx
+                .analyze_smart_contract(
+                    &contract_identifier,
+                    ClarityVersion::Clarity2,
+                    tokens_contract,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
             tx.initialize_smart_contract(
                 &contract_identifier,
                 version,
-                &contract_ast,
+                &mut contract_ast,
+                &contract_analysis,
                 tokens_contract,
                 None,
                 |_, _| false,
@@ -702,7 +702,7 @@ pub fn rollback_log_memory_test(
         }
 
         conn.as_transaction(|conn| {
-            let (ct_ast, _ct_analysis) = conn
+            let (mut ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(
                     &contract_identifier,
                     clarity_version,
@@ -715,7 +715,8 @@ pub fn rollback_log_memory_test(
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     clarity_version,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| { false }
@@ -777,7 +778,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
         contract.push_str(") 1)");
 
         conn.as_transaction(|conn| {
-            let (ct_ast, _ct_analysis) = conn
+            let (mut ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(
                     &contract_identifier,
                     clarity_version,
@@ -790,7 +791,8 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     clarity_version,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| { false }
@@ -855,7 +857,7 @@ pub fn argument_memory_test(
         contract.push_str(")");
 
         conn.as_transaction(|conn| {
-            let (ct_ast, _ct_analysis) = conn
+            let (mut ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(
                     &contract_identifier,
                     clarity_version,
@@ -868,7 +870,8 @@ pub fn argument_memory_test(
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     clarity_version,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| { false }
@@ -949,7 +952,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
         eprintln!("{}", contract_err);
 
         conn.as_transaction(|conn| {
-            let (ct_ast, _ct_analysis) = conn
+            let (mut ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(
                     &contract_identifier,
                     clarity_version,
@@ -962,7 +965,8 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     // initialize the ok contract without errs, but still abort.
                     &contract_identifier,
                     clarity_version,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract_ok,
                     None,
                     |_, _| true
@@ -975,7 +979,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
         });
 
         conn.as_transaction(|conn| {
-            let (ct_ast, _ct_analysis) = conn
+            let (mut ct_ast, ct_analysis) = conn
                 .analyze_smart_contract(
                     &contract_identifier,
                     clarity_version,
@@ -988,7 +992,8 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     clarity_version,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract_err,
                     None,
                     |_, _| false
@@ -1062,7 +1067,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
             if i < (CONTRACTS - 1) {
                 conn.as_transaction(|conn| {
-                    let (ct_ast, ct_analysis) = conn
+                    let (mut ct_ast, ct_analysis) = conn
                         .analyze_smart_contract(
                             &contract_identifier,
                             clarity_version,
@@ -1073,7 +1078,8 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                     conn.initialize_smart_contract(
                         &contract_identifier,
                         clarity_version,
-                        &ct_ast,
+                        &mut ct_ast,
+                        &ct_analysis,
                         &contract,
                         None,
                         |_, _| false,
@@ -1084,7 +1090,7 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                 });
             } else {
                 conn.as_transaction(|conn| {
-                    let (ct_ast, _ct_analysis) = conn
+                    let (mut ct_ast, ct_analysis) = conn
                         .analyze_smart_contract(
                             &contract_identifier,
                             clarity_version,
@@ -1097,7 +1103,8 @@ pub fn ccall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
                         conn.initialize_smart_contract(
                             &contract_identifier,
                             clarity_version,
-                            &ct_ast,
+                            &mut ct_ast,
+                            &ct_analysis,
                             &contract,
                             None,
                             |_, _| false
