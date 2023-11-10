@@ -48,7 +48,9 @@ use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::asn::ASEntry4;
 use crate::net::atlas::{AtlasDB, AttachmentInstance, AttachmentsDownloader};
 use crate::net::chat::{ConversationP2P, NeighborStats};
-use crate::net::connection::{ConnectionOptions, NetworkReplyHandle, ReplyHandleP2P};
+use crate::net::connection::{
+    AsyncRequests, ConnectionOptions, NetworkReplyHandle, ReplyHandleP2P,
+};
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::BlockDownloader;
 use crate::net::inv::*;
@@ -359,17 +361,18 @@ impl PeerNetwork {
             (StackerDBConfig, StackerDBSync<PeerNetworkComms>),
         >,
         epochs: Vec<StacksEpoch>,
+        async_rpc_sender: Option<SyncSender<AsyncRequests>>,
     ) -> PeerNetwork {
-        let http = HttpPeer::new(connection_opts.clone(), 0);
+        let http = HttpPeer::new(connection_opts.clone(), 0, async_rpc_sender);
         let pub_ip = connection_opts.public_ip_address.clone();
         let pub_ip_learned = pub_ip.is_none();
         local_peer.public_ip_address = pub_ip.clone();
 
         if connection_opts.disable_inbound_handshakes {
-            debug!("{:?}: disable inbound handshakes", &local_peer);
+            debug!("{local_peer:?}: disable inbound handshakes");
         }
         if connection_opts.disable_inbound_walks {
-            debug!("{:?}: disable inbound neighbor walks", &local_peer);
+            debug!("{local_peer:?}: disable inbound neighbor walks");
         }
 
         let first_block_height = burnchain.first_block_height;
@@ -387,8 +390,8 @@ impl PeerNetwork {
             peer_version: peer_version,
             epochs: epochs,
 
-            local_peer: local_peer,
-            chain_view: chain_view,
+            local_peer,
+            chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             ast_rules: ASTRules::Typical,
             heaviest_affirmation_map: AffirmationMap::empty(),
@@ -403,8 +406,8 @@ impl PeerNetwork {
                 first_burn_header_ts as u64,
             ),
 
-            peerdb: peerdb,
-            atlasdb: atlasdb,
+            peerdb,
+            atlasdb,
 
             peers: PeerMap::new(),
             sockets: HashMap::new(),
@@ -420,8 +423,8 @@ impl PeerNetwork {
             p2p_network_handle: 0,
             http_network_handle: 0,
 
-            burnchain: burnchain,
-            connection_opts: connection_opts,
+            burnchain,
+            connection_opts,
 
             work_state: PeerNetworkWorkState::GetPublicIP,
             have_data_to_download: false,
@@ -445,8 +448,8 @@ impl PeerNetwork {
             attachments_downloader: None,
 
             stacker_db_syncs: Some(stacker_db_sync_map),
-            stacker_db_configs: stacker_db_configs,
-            stackerdbs: stackerdbs,
+            stacker_db_configs,
+            stackerdbs,
 
             mempool_state: MempoolSyncState::PickOutboundPeer,
             mempool_sync_deadline: 0,
@@ -5868,6 +5871,7 @@ mod test {
             conn_opts,
             HashMap::new(),
             StacksEpoch::unit_test_pre_2_05(0),
+            None
         );
         p2p
     }

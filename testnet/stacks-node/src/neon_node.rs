@@ -188,6 +188,7 @@ use stacks::net::dns::{DNSClient, DNSResolver};
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::relay::Relayer;
 use stacks::net::rpc::RPCHandlerArgs;
+use stacks::net::connection::AsyncRequests;
 use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
 use stacks::net::{Error as NetError, NetworkResult, PeerAddress, PeerNetworkComms, ServiceFlags};
 use stacks::util_lib::strings::{UrlString, VecDisplay};
@@ -3987,13 +3988,14 @@ impl StacksNode {
         config: &Config,
         atlas_config: &AtlasConfig,
         burnchain: Burnchain,
+        async_rpc_sender: Option<SyncSender<AsyncRequests>>,
     ) -> PeerNetwork {
         let sortdb = SortitionDB::open(
             &config.get_burn_db_file_path(),
             true,
             burnchain.pox_constants.clone(),
         )
-        .expect("Error while instantiating sor/tition db");
+        .expect("Error while instantiating sortition db");
 
         let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())
             .expect("Error while loading stacks epochs");
@@ -4023,10 +4025,7 @@ impl StacksNode {
             ) {
                 Ok(c) => (true, c),
                 Err(e) => {
-                    warn!(
-                        "Failed to load StackerDB config for {}: {:?}",
-                        stackerdb_contract_id, &e
-                    );
+                    warn!("Failed to load StackerDB config for {stackerdb_contract_id}: {e:?}");
                     (false, StackerDBConfig::noop())
                 }
             };
@@ -4040,8 +4039,7 @@ impl StacksNode {
                         let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
                         tx.reconfigure_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
                             .expect(&format!(
-                                "FATAL: failed to reconfigure StackerDB replica {}",
-                                stackerdb_contract_id
+                                "FATAL: failed to reconfigure StackerDB replica {stackerdb_contract_id}"
                             ));
                         tx.commit().unwrap();
                     }
@@ -4050,13 +4048,12 @@ impl StacksNode {
                         let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
                         tx.create_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
                             .expect(&format!(
-                                "FATAL: failed to instantiate StackerDB replica {}",
-                                stackerdb_contract_id
+                                "FATAL: failed to instantiate StackerDB replica {stackerdb_contract_id}"
                             ));
                         tx.commit().unwrap();
                     }
                     Err(e) => {
-                        panic!("FATAL: failed to query StackerDB state: {:?}", &e);
+                        panic!("FATAL: failed to query StackerDB state: {e:?}");
                     }
                 }
             }
@@ -4068,10 +4065,7 @@ impl StacksNode {
             ) {
                 Ok(s) => s,
                 Err(e) => {
-                    warn!(
-                        "Failed to instantiate StackerDB sync machine for {}: {:?}",
-                        stackerdb_contract_id, &e
-                    );
+                    warn!( "Failed to instantiate StackerDB sync machine for {stackerdb_contract_id}: {e:?}");
                     continue;
                 }
             };
@@ -4102,6 +4096,7 @@ impl StacksNode {
             config.connection_options.clone(),
             stackerdb_machines,
             epochs,
+            async_rpc_sender,
         );
 
         p2p_net
@@ -4248,7 +4243,12 @@ impl StacksNode {
 
         let _ = Self::setup_mempool_db(&config);
 
-        let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain.clone());
+        let mut p2p_net = Self::setup_peer_network(
+            &config,
+            &atlas_config,
+            burnchain.clone(),
+            runloop.async_rpc_sender.clone(),
+        );
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");

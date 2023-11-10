@@ -372,9 +372,6 @@ pub struct ConnectionOptions {
     /// how long a mempool sync is allowed to take, in total, before timing out
     pub mempool_sync_timeout: u64,
 
-    /// a channel for submitting long-running tasks to the stacks-node
-    pub async_rpc_channel: Option<SyncSender<AsyncRequests>>,
-
     // fault injection
     pub disable_neighbor_walk: bool,
     pub disable_chat_neighbors: bool,
@@ -463,7 +460,6 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
-            async_rpc_channel: None,
 
             // no faults on by default
             disable_neighbor_walk: false,

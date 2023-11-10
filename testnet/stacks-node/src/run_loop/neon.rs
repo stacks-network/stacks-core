@@ -1,7 +1,7 @@
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver};
+use std::sync::mpsc::{sync_channel, SyncSender, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -149,7 +149,10 @@ pub struct RunLoop {
     miner_status: Arc<Mutex<MinerStatus>>,
     /// this channel is used for receiving incoming RPC requests that have to be handled asynchronously
     ///  by spawning a worker from the main thread.
-    async_rpc_channel: Option<Receiver<AsyncRequests>>,
+    async_rpc_receiver: Option<Receiver<AsyncRequests>>,
+
+    /// Sender for `async_rpc_receiver`. Clone this to send messages
+    pub async_rpc_sender: Option<SyncSender<AsyncRequests>>,
 }
 
 /// Write to stderr in an async-safe manner.
@@ -185,17 +188,11 @@ impl RunLoop {
             event_dispatcher.register_observer(observer);
         }
 
-        let async_rpc_channel = if config.needs_async_request_handler() {
-            // create a sync channel for async RPC requests
-            // only 1 can be handled at a time!
-            let (async_rpc_snd, async_rpc_rcv) = sync_channel(1);
-            config
-                .connection_options
-                .async_rpc_channel
-                .replace(async_rpc_snd);
-            Some(async_rpc_rcv)
+        let (async_rpc_sender, async_rpc_receiver) = if config.needs_async_request_handler() {
+            let (snd, rcv) = sync_channel(1);
+            (Some(snd), Some(rcv))
         } else {
-            None
+            (None, None)
         };
 
         Self {
@@ -211,7 +208,8 @@ impl RunLoop {
             burnchain: None,
             pox_watchdog_comms,
             miner_status,
-            async_rpc_channel,
+            async_rpc_receiver,
+            async_rpc_sender,
         }
     }
 
@@ -936,7 +934,7 @@ impl RunLoop {
         globals: Globals,
     ) -> Result<JoinHandle<()>, &'static str> {
         let rcv_handle = self
-            .async_rpc_channel
+            .async_rpc_receiver
             .take()
             .ok_or("async request handler could not start: no rcv handle available")?;
         let burnchain = self.get_burnchain();
@@ -1089,13 +1087,14 @@ impl RunLoop {
         // Start the runloop
         debug!("Runloop: Begin run loop");
         let async_handler = if self.config.needs_async_request_handler() {
-            Some(
-                self.spawn_async_request_handler(globals.clone())
-                    .expect("Failed to spawn the necessary async request handler thread"),
-            )
+            let handler = self
+                .spawn_async_request_handler(globals.clone())
+                .expect("Failed to spawn the necessary async request handler thread");
+            Some(handler)
         } else {
             None
         };
+
         self.counters.bump_blocks_processed();
 
         let mut sortition_db_height = rc_aligned_height;

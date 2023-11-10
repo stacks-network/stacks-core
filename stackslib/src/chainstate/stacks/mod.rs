@@ -1241,7 +1241,7 @@ pub mod test {
                     let tx = StacksTransaction {
                         version: (*version).clone(),
                         chain_id: chain_id,
-                        auth: auth,
+                        auth,
                         anchor_mode: (*anchor_mode).clone(),
                         post_condition_mode: (*post_condition_mode).clone(),
                         post_conditions: tx_post_condition.clone(),
@@ -1288,11 +1288,8 @@ pub mod test {
         txs_anchored.push(tx_coinbase);
 
         for tx in all_txs.drain(..) {
-            match tx.payload {
-                TransactionPayload::Coinbase(..) => {
-                    continue;
-                }
-                _ => {}
+            if matches!(tx.payload, TransactionPayload::Coinbase(..)) {
+                continue;
             }
             txs_anchored.push(tx);
             if txs_anchored.len() >= num_txs {

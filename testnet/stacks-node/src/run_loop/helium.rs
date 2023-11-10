@@ -73,9 +73,8 @@ impl RunLoop {
         // Bootstrap the chain: node will start a new tenure,
         // using the sortition hash from block #1 for generating a VRF.
         let leader = &mut self.node;
-        let mut first_tenure = match leader.initiate_genesis_tenure(&burnchain_tip) {
-            Some(res) => res,
-            None => panic!("Error while initiating genesis tenure"),
+        let Some(mut first_tenure) = leader.initiate_genesis_tenure(&burnchain_tip) else {
+            panic!("Error while initiating genesis tenure");
         };
 
         self.callbacks.invoke_new_tenure(
@@ -89,10 +88,10 @@ impl RunLoop {
         let _ = burnchain.sortdb_mut();
 
         // Run the tenure, keep the artifacts
-        let artifacts_from_1st_tenure = match first_tenure.run(&burnchain.sortdb_ref().index_conn())
-        {
-            Some(res) => res,
-            None => panic!("Error while running 1st tenure"),
+        let Some(artifacts_from_1st_tenure) =
+            first_tenure.run(&burnchain.sortdb_ref().index_conn())
+        else {
+            panic!("Error while running 1st tenure");
         };
 
         // Tenures are instantiating their own chainstate, so that nodes can keep a clean chainstate,

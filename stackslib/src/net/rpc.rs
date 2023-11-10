@@ -19,7 +19,7 @@ use std::convert::TryFrom;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
-use std::sync::mpsc::TrySendError;
+use std::sync::mpsc::{SyncSender, TrySendError};
 use std::time::Instant;
 use std::{fmt, io};
 
@@ -129,6 +129,9 @@ pub struct ConversationHttp {
     pending_request: Option<ReplyHandleHttp>,
     pending_response: Option<HttpResponseType>,
     pending_error_response: Option<HttpResponseType>,
+
+    /// Handle slow requests in separate thread (if enabled)
+    pub async_rpc_sender: Option<SyncSender<AsyncRequests>>,
 }
 
 impl fmt::Display for ConversationHttp {
@@ -589,17 +592,18 @@ impl ConversationHttp {
         peer_host: PeerHost,
         conn_opts: &ConnectionOptions,
         conn_id: usize,
+        async_rpc_sender: Option<SyncSender<AsyncRequests>>,
     ) -> ConversationHttp {
         let mut stacks_http = StacksHttp::new(peer_addr.clone());
         stacks_http.maximum_call_argument_size = conn_opts.maximum_call_argument_size;
         ConversationHttp {
             connection: ConnectionHttp::new(stacks_http, conn_opts, None),
-            conn_id: conn_id,
+            conn_id,
             timeout: conn_opts.timeout,
             reply_streams: VecDeque::new(),
-            peer_addr: peer_addr,
-            outbound_url: outbound_url,
-            peer_host: peer_host,
+            peer_addr,
+            outbound_url,
+            peer_host,
             canonical_stacks_tip_height: None,
             pending_request: None,
             pending_response: None,
@@ -610,6 +614,7 @@ impl ConversationHttp {
             last_request_timestamp: 0,
             last_response_timestamp: 0,
             connection_time: get_epoch_time_secs(),
+            async_rpc_sender,
         }
     }
 
@@ -1228,9 +1233,9 @@ impl ConversationHttp {
     fn handle_validate_block_proposal(
         metadata: HttpResponseMetadata,
         block_proposal: BlockProposal,
-        options: &ConnectionOptions,
+        async_rpc_sender: &Option<SyncSender<AsyncRequests>>,
     ) -> HttpResponseType {
-        let Some(async_rpc_channel) = options.async_rpc_channel.as_ref() else {
+        let Some(async_rpc_sender) = async_rpc_sender else {
             return HttpResponseType::BadRequestJSON(
                 metadata,
                 json!("stacks-node is not configured to receive block proposals"),
@@ -1238,7 +1243,7 @@ impl ConversationHttp {
         };
 
         if let Err(channel_error) =
-            async_rpc_channel.try_send(AsyncRequests::ValidateBlock(block_proposal))
+            async_rpc_sender.try_send(AsyncRequests::ValidateBlock(block_proposal))
         {
             let error_msg = match channel_error {
                 TrySendError::Full(_) => {
@@ -3199,7 +3204,7 @@ impl ConversationHttp {
                     ConversationHttp::handle_validate_block_proposal(
                         resp_md,
                         proposal,
-                        &self.connection.options,
+                        &self.async_rpc_sender,
                     )
                 } else {
                     HttpResponseType::Forbidden(resp_md, String::from("Invalid sender"))
@@ -4518,6 +4523,7 @@ mod test {
             peer_1.to_peer_host(),
             &peer_1.config.connection_opts,
             0,
+            None
         );
 
         let mut convo_2 = ConversationHttp::new(
@@ -4528,6 +4534,7 @@ mod test {
             peer_2.to_peer_host(),
             &peer_2.config.connection_opts,
             1,
+            None
         );
 
         let req = make_request(&mut peer_1, &mut convo_1, &mut peer_2, &mut convo_2);

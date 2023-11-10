@@ -3209,6 +3209,7 @@ pub mod test {
                 config.connection_opts.clone(),
                 stacker_dbs,
                 epochs.clone(),
+                None
             );
             peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
 

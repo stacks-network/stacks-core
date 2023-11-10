@@ -733,7 +733,10 @@ impl HttpResponsePreamble {
         Self::JSON_with_status(fd, md, 200)
     }
 
-    fn accepted_JSON_from_md<W: Write>(fd: &mut W, md: &HttpResponseMetadata) -> Result<(), codec_error> {
+    fn accepted_JSON_from_md<W: Write>(
+        fd: &mut W,
+        md: &HttpResponseMetadata,
+    ) -> Result<(), codec_error> {
         Self::JSON_with_status(fd, md, 202)
     }
 

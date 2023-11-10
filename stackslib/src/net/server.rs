@@ -16,7 +16,9 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{Error as io_error, ErrorKind, Read, Write};
-use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError};
+use std::sync::mpsc::{
+    sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError,
+};
 
 use mio::net as mio_net;
 use stacks_common::util::get_epoch_time_secs;
@@ -56,18 +58,26 @@ pub struct HttpPeer {
 
     // connection options
     pub connection_opts: ConnectionOptions,
+
+    /// Handle slow requests in separate thread (if enabled)
+    pub async_rpc_sender: Option<SyncSender<AsyncRequests>>,
 }
 
 impl HttpPeer {
-    pub fn new(conn_opts: ConnectionOptions, server_handle: usize) -> HttpPeer {
+    pub fn new(
+        connection_opts: ConnectionOptions,
+        http_server_handle: usize,
+        async_rpc_sender: Option<SyncSender<AsyncRequests>>,
+    ) -> HttpPeer {
         HttpPeer {
             peers: HashMap::new(),
             sockets: HashMap::new(),
 
             connecting: HashMap::new(),
-            http_server_handle: server_handle,
+            http_server_handle,
 
-            connection_opts: conn_opts,
+            connection_opts,
+            async_rpc_sender,
         }
     }
 
@@ -233,6 +243,7 @@ impl HttpPeer {
             peer_host,
             &self.connection_opts,
             event_id,
+            self.async_rpc_sender.clone(),
         );
 
         debug!(
