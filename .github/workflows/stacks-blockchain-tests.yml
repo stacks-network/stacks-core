@@ -138,19 +138,42 @@ jobs:
   # Core contract tests
   core-contracts-clarinet-test:
     name: Core Contracts Test
+    defaults:
+      run:
+        working-directory: "./contrib/core-contract-tests/"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@v3
+      - name: Execute core contract unit tests with clarinet-sdk
+        id: clarinet_unit_test
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+          cache: "npm"
+          cache-dependency-path: "./contrib/core-contract-tests/package-lock.json"
+      - run: npm ci
+      - run: npm test
+      - name: Export code coverage
+        id: clarinet_codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./lcov.info
+          verbose: true
+
+  # Core contract tests on Clarinet v1
+  # Check for false positives/negatives
+  # https://github.com/stacks-network/stacks-blockchain/pull/4031#pullrequestreview-1713341208
+  core-contracts-clarinet-test-clarinet-v1:
+    name: Core Contracts Test Clarinet V1
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the latest code
         id: git_checkout
         uses: actions/checkout@v3
       - name: Execute core contract unit tests in Clarinet
-        id: clarinet_unit_test
-        uses: docker://hirosystems/clarinet:1.1.0
+        id: clarinet_unit_test_v1
+        uses: docker://hirosystems/clarinet:1.7.1
         with:
-          args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
-      - name: Export code coverage
-        id: clarinet_codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: ./coverage.lcov
-          verbose: true
+          args: test --manifest-path=./contrib/core-contract-tests/Clarinet.toml contrib/core-contract-tests/tests/bns/name_register_test.ts
