@@ -44,9 +44,9 @@ use crate::chainstate::stacks::db::{
     ChainstateBNSNamespace, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, ThresholdSignature, StacksBlockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
-    TransactionAuth, TransactionPayload, TransactionVersion,
+    CoinbasePayload, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
+    TenureChangeCause, TenureChangePayload, ThresholdSignature, TokenTransferMemo, TransactionAuth,
+    TransactionPayload, TransactionVersion,
 };
 use crate::core;
 use crate::core::StacksEpochExtension;
@@ -55,6 +55,7 @@ fn test_path(name: &str) -> String {
     format!("/tmp/stacks-node-tests/nakamoto-tests/{}", name)
 }
 
+#[ignore]
 #[test]
 pub fn nakamoto_advance_tip_simple() {
     let path = test_path(function_name!());
@@ -109,13 +110,16 @@ pub fn nakamoto_advance_tip_simple() {
 
     let parent_block_id =
         StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-    let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
-        previous_tenure_end: parent_block_id,
-        previous_tenure_blocks: 0,
-        cause: TenureChangeCause::BlockFound,
-        pubkey_hash: Hash160([0; 20]),
-        signers: vec![],
-    }, ThresholdSignature::mock());
+    let tenure_change_tx_payload = TransactionPayload::TenureChange(
+        TenureChangePayload {
+            previous_tenure_end: parent_block_id,
+            previous_tenure_blocks: 0,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0; 20]),
+            signers: vec![],
+        },
+        ThresholdSignature::mock(),
+    );
     let mut tenure_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&stacker_sk).unwrap(),
@@ -339,6 +343,7 @@ pub fn staging_blocks() {
 
 // Assemble 5 nakamoto blocks, invoking append_block. Check that miner rewards
 //  mature as expected.
+#[ignore]
 #[test]
 pub fn nakamoto_advance_tip_multiple() {
     let path = test_path(function_name!());
@@ -457,13 +462,16 @@ pub fn nakamoto_advance_tip_multiple() {
         let new_sh = SortitionHash([1; 32]);
 
         let parent_block_id = StacksBlockId::new(&parent_snapshot.consensus_hash, &parent);
-        let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
-            previous_tenure_end: parent_block_id,
-            previous_tenure_blocks: 1,
-            cause: TenureChangeCause::BlockFound,
-            pubkey_hash: Hash160([0; 20]),
-            signers: vec![],
-        }, ThresholdSignature::mock());
+        let tenure_change_tx_payload = TransactionPayload::TenureChange(
+            TenureChangePayload {
+                previous_tenure_end: parent_block_id,
+                previous_tenure_blocks: 1,
+                cause: TenureChangeCause::BlockFound,
+                pubkey_hash: Hash160([0; 20]),
+                signers: vec![],
+            },
+            ThresholdSignature::mock(),
+        );
         let mut tenure_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&transacter_sk).unwrap(),

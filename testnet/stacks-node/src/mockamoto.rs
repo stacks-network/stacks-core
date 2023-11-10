@@ -26,11 +26,11 @@ use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::chainstate::stacks::CoinbasePayload;
 use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::chainstate::stacks::ThresholdSignature;
 use stacks::chainstate::stacks::StacksTransaction;
 use stacks::chainstate::stacks::StacksTransactionSigner;
 use stacks::chainstate::stacks::TenureChangeCause;
 use stacks::chainstate::stacks::TenureChangePayload;
+use stacks::chainstate::stacks::ThresholdSignature;
 use stacks::chainstate::stacks::TransactionAuth;
 use stacks::chainstate::stacks::TransactionPayload;
 use stacks::chainstate::stacks::TransactionVersion;
@@ -393,14 +393,17 @@ impl MockamotoNode {
         //  as of now every mockamoto block is a tenure-change.
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
         //  to be gated.
-        let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
-            previous_tenure_end: parent_block_id,
-            previous_tenure_blocks: 1,
-            cause: TenureChangeCause::BlockFound,
-            pubkey_hash: Hash160([0; 20]),
-            
-            signers: vec![],
-        }, ThresholdSignature::mock());
+        let tenure_change_tx_payload = TransactionPayload::TenureChange(
+            TenureChangePayload {
+                previous_tenure_end: parent_block_id,
+                previous_tenure_blocks: 1,
+                cause: TenureChangeCause::BlockFound,
+                pubkey_hash: Hash160([0; 20]),
+
+                signers: vec![],
+            },
+            ThresholdSignature::mock(),
+        );
         let mut tenure_tx = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
