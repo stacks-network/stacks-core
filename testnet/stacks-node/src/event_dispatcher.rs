@@ -371,7 +371,7 @@ impl EventObserver {
     fn make_new_block_processed_payload(
         &self,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        block: StacksBlockEventData,
+        block: &StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
@@ -515,7 +515,7 @@ impl StackerDBEventDispatcher for EventDispatcher {
 impl BlockEventDispatcher for EventDispatcher {
     fn announce_block(
         &self,
-        block: StacksBlockEventData,
+        block: &StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent: &StacksBlockId,
@@ -717,7 +717,7 @@ impl EventDispatcher {
 
     pub fn process_chain_tip(
         &self,
-        block: StacksBlockEventData,
+        block: &StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
@@ -767,7 +767,7 @@ impl EventDispatcher {
                 let payload = self.registered_observers[observer_id]
                     .make_new_block_processed_payload(
                         filtered_events,
-                        block.clone(),
+                        &block,
                         metadata,
                         receipts,
                         parent_index_hash,
@@ -1163,7 +1163,7 @@ mod test {
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
-            block.into(),
+            &block.into(),
             &metadata,
             &receipts,
             &parent_index_hash,
