@@ -775,11 +775,11 @@ impl LeaderBlockCommitOp {
     ) -> Result<SortitionId, op_error> {
         let tx_tip = tx.context.chain_tip.clone();
         let intended_sortition = match epoch_id {
-            StacksEpochId::Epoch30 => todo!(), // Need input here
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch30 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
                     .block_height

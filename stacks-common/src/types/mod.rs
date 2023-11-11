@@ -93,7 +93,7 @@ impl StacksEpochId {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23 => false,
             StacksEpochId::Epoch24 => true,
-            StacksEpochId::Epoch30 => true, //TODO: Is this correct, or should it only be the latest epoch which is true?
+            StacksEpochId::Epoch30 => true,
         }
     }
 }

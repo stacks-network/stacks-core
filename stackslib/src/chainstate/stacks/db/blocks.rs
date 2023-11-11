@@ -5325,7 +5325,8 @@ impl StacksChainState {
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch30 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -5335,7 +5336,6 @@ impl StacksChainState {
                     cur_epoch.start_height,
                 )
             }
-            StacksEpochId::Epoch30 => todo!(), // Need input here
         }
     }
 
@@ -5411,12 +5411,13 @@ impl StacksChainState {
                         pox_start_cycle_info,
                     )
                 }
-                StacksEpochId::Epoch24 => Self::handle_pox_cycle_start_pox_3(
-                    clarity_tx,
-                    pox_reward_cycle,
-                    pox_start_cycle_info,
-                ),
-                StacksEpochId::Epoch30 => todo!(), // Need input here
+                StacksEpochId::Epoch24 | StacksEpochId::Epoch30 => {
+                    Self::handle_pox_cycle_start_pox_3(
+                        clarity_tx,
+                        pox_reward_cycle,
+                        pox_start_cycle_info,
+                    )
+                }
             }
         })?;
         debug!("check_and_handle_reward_start: handled pox cycle start");

@@ -3060,7 +3060,6 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
             }
-            // TODO: Please double-check this
             StacksEpochId::Epoch30 => {
                 version == "3"
                     || version == "4"

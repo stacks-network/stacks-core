@@ -277,7 +277,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                 info!("PoX reward cycle defaulting to burn in Epochs 2.2 and 2.3");
                 return Ok(RewardSet::empty());
             }
-            StacksEpochId::Epoch24 => {
+            StacksEpochId::Epoch24 | StacksEpochId::Epoch30 => {
                 // Epoch 2.4 computes reward sets, but *only* if PoX-3 is active
                 if burnchain
                     .pox_constants
@@ -292,7 +292,6 @@ impl RewardSetProvider for OnChainRewardSetProvider {
                     return Ok(RewardSet::empty());
                 }
             }
-            StacksEpochId::Epoch30 => todo!(), // Need input here
         };
 
         let registered_addrs =
@@ -3043,7 +3042,8 @@ impl<
                             StacksEpochId::Epoch21
                             | StacksEpochId::Epoch22
                             | StacksEpochId::Epoch23
-                            | StacksEpochId::Epoch24 => {
+                            | StacksEpochId::Epoch24
+                            | StacksEpochId::Epoch30 => {
                                 // 2.1 and onward behavior: the anchor block must also be the
                                 // heaviest-confirmed anchor block by BTC weight, and the highest
                                 // such anchor block if there are multiple contenders.
@@ -3053,7 +3053,6 @@ impl<
                                     return Ok(Some(pox_anchor));
                                 }
                             }
-                            StacksEpochId::Epoch30 => todo!(), // Need input here
                         }
                     }
                 }

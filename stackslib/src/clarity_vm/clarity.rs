@@ -1277,7 +1277,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     }
 
     pub fn initialize_epoch_3_0(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
-        todo!()
+        Ok(vec![])
     }
 
     pub fn start_transaction_processing<'c>(&'c mut self) -> ClarityTransactionConnection<'c, 'a> {

@@ -49,7 +49,6 @@ pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
 pub const COSTS_3_NAME: &'static str = "costs-3";
-pub const COSTS_4_NAME: &'static str = "costs-4";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = TypeSignature::TupleType(
@@ -723,8 +722,8 @@ impl LimitedCostTracker {
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => COSTS_3_NAME.to_string(),
-            StacksEpochId::Epoch30 => COSTS_4_NAME.to_string(),
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch30 => COSTS_3_NAME.to_string(),
         }
     }
 }

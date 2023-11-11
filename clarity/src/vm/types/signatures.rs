@@ -530,13 +530,12 @@ impl TypeSignature {
 
     pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
         match epoch {
+            // Note for future epochs, Epochs >= 2.1 should use `admits_type_v2_1` function.
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(&other),
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
-            // TODO: Afaik we're not making any changes which should change this behavior?
-            // Maybe add a "Note for future epochs, Epochs >= 2.1 should use `admits_type_v2_1` function."
             | StacksEpochId::Epoch30 => self.admits_type_v2_1(other),
             StacksEpochId::Epoch10 => unreachable!("epoch 1.0 not supported"),
         }
@@ -1063,7 +1062,6 @@ impl TypeSignature {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24
-            // TODO: afaik we're not changing anything that would affect this behavior?
             | StacksEpochId::Epoch30 => Self::least_supertype_v2_1(a, b),
             StacksEpochId::Epoch10 => unreachable!("Clarity 1.0 is not supported"),
         }
