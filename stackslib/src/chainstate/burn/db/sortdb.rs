@@ -1928,11 +1928,66 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// Does the sortition db expect to receive blocks
     /// signed by this stacker set?
+    ///
+    /// This only works if `consensus_hash` is within one reward cycle (2100 blocks) of the
+    /// sortition pointed to by this handle's sortiton tip.  If it isn't, then this
+    /// method returns Ok(false).  This is to prevent a DDoS vector whereby compromised stale
+    /// Stacker keys can be used to blast out lots of Nakamoto blocks that will be accepted
+    /// but never processed.  So, `consensus_hash` can be in the same reward cycle as
+    /// `self.context.chain_tip`, or the previous, but no earlier.
     pub fn expects_stacker_signature(
         &self,
         consensus_hash: &ConsensusHash,
         _stacker_signature: &MessageSignature,
     ) -> Result<bool, db_error> {
+        let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
+            .ok_or(db_error::NotFoundError)
+            .map_err(|e| {
+                warn!("No sortition for tip: {:?}", &self.context.chain_tip);
+                e
+            })?;
+
+        let ch_sn = SortitionDB::get_block_snapshot_consensus(self, consensus_hash)?
+            .ok_or(db_error::NotFoundError)
+            .map_err(|e| {
+                warn!("No sortition for consensus hash: {:?}", consensus_hash);
+                e
+            })?;
+
+        if ch_sn.block_height + u64::from(self.context.pox_constants.reward_cycle_length)
+            < sn.block_height
+        {
+            // too far in the past
+            debug!("Block with consensus hash {} is too far in the past", consensus_hash;
+                   "consensus_hash" => %consensus_hash,
+                   "block_height" => ch_sn.block_height,
+                   "tip_block_height" => sn.block_height
+            );
+            return Ok(false);
+        }
+
+        // this given consensus hash must be an ancestor of our chain tip
+        let ch_at = self
+            .get_consensus_at(ch_sn.block_height)?
+            .ok_or(db_error::NotFoundError)
+            .map_err(|e| {
+                warn!("No ancestor consensus hash";
+                      "tip" => %self.context.chain_tip,
+                      "consensus_hash" => %consensus_hash,
+                      "consensus_hash height" => %ch_sn.block_height
+                );
+                e
+            })?;
+
+        if ch_at != ch_sn.consensus_hash {
+            // not an ancestor
+            warn!("Consensus hash is not an ancestor of the sortition tip";
+                  "tip" => %self.context.chain_tip,
+                  "consensus_hash" => %consensus_hash
+            );
+            return Err(db_error::NotFoundError);
+        }
+
         // is this consensus hash in this fork?
         let Some(bhh) = SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?
         else {
@@ -4991,7 +5046,9 @@ impl SortitionDB {
         }
     }
 
-    /// Get a block snapshot for a winning Nakamoto tenure in a given burn chain fork.
+    /// Given the last_tenure_id (e.g. in a block-commit in Nakamoto), find its sortition in the
+    /// given sortition fork.
+    #[cfg(test)]
     pub fn get_block_snapshot_for_winning_nakamoto_tenure(
         ic: &SortitionDBConn,
         tip: &SortitionId,
