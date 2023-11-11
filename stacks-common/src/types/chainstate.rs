@@ -15,6 +15,7 @@ use sha2::Sha256;
 use sha2::{Digest as Sha2Digest, Sha512_256};
 
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
+use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::util::hash::DoubleSha256;
 use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
@@ -279,6 +280,10 @@ impl StacksBlockId {
 
         let h = Sha512Trunc256Sum::from_hasher(hasher);
         StacksBlockId(h.0)
+    }
+
+    pub fn first_mined() -> StacksBlockId {
+        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
     }
 }
 
