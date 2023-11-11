@@ -2132,7 +2132,8 @@ impl<'a> SortitionHandleConn<'a> {
         else {
             return Ok(false);
         };
-        let Some(expected_sortition_id) = self.get_sortition_id_for_bhh(&snapshot.burn_header_hash)?
+        let Some(expected_sortition_id) =
+            self.get_sortition_id_for_bhh(&snapshot.burn_header_hash)?
         else {
             return Ok(false);
         };
