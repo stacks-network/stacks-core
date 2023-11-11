@@ -196,7 +196,7 @@ pub struct DummyEventDispatcher;
 impl BlockEventDispatcher for DummyEventDispatcher {
     fn announce_block(
         &self,
-        _block: StacksBlockEventData,
+        _block: &StacksBlockEventData,
         _metadata: &StacksHeaderInfo,
         _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
@@ -6542,7 +6542,7 @@ impl StacksChainState {
                 &next_staging_block.parent_anchored_block_hash,
             );
             dispatcher.announce_block(
-                block.into(),
+                &block.into(),
                 &epoch_receipt.header.clone(),
                 &epoch_receipt.tx_receipts,
                 &parent_id,
