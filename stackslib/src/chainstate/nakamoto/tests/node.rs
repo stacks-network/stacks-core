@@ -507,6 +507,17 @@ impl TestStacksNode {
             if accepted {
                 test_debug!("Accepted Nakamoto block {}", &block_id);
                 coord.handle_new_nakamoto_stacks_block().unwrap();
+
+                // confirm that the chain tip advanced
+                let stacks_chain_tip =
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+                        .unwrap()
+                        .unwrap();
+                let nakamoto_chain_tip = stacks_chain_tip
+                    .anchored_header
+                    .as_stacks_nakamoto()
+                    .expect("FATAL: chain tip is not a Nakamoto block");
+                assert_eq!(nakamoto_chain_tip, &nakamoto_block.header);
             } else {
                 test_debug!("Did NOT accept Nakamoto block {}", &block_id);
             }
