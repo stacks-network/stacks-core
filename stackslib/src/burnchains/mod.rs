@@ -510,17 +510,19 @@ impl PoxConstants {
         }
     }
 
+    /// What's the first block in the prepare phase
+    pub fn prepare_phase_start(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
+        let reward_cycle_start =
+            self.reward_cycle_to_block_height(first_block_height, reward_cycle);
+        let prepare_phase_start = reward_cycle_start + u64::from(self.reward_cycle_length)
+            - u64::from(self.prepare_length);
+        prepare_phase_start
+    }
+
     pub fn is_reward_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {
         let effective_height = burn_height - first_block_height;
         // first block of the new reward cycle
         (effective_height % (self.reward_cycle_length as u64)) == 1
-    }
-
-    /// Is this burnchain block height the start of a prepare phase?
-    pub fn is_prepare_phase_start(&self, first_block_height: u64, burn_height: u64) -> bool {
-        let effective_height = burn_height - first_block_height;
-        (effective_height % u64::from(self.reward_cycle_length))
-            == u64::from((self.reward_cycle_length - self.prepare_length) + 1)
     }
 
     pub fn reward_cycle_to_block_height(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
