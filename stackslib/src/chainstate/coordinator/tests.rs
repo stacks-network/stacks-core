@@ -429,7 +429,7 @@ pub struct NullEventDispatcher;
 impl BlockEventDispatcher for NullEventDispatcher {
     fn announce_block(
         &self,
-        _block: StacksBlockEventData,
+        _block: &StacksBlockEventData,
         _metadata: &StacksHeaderInfo,
         _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
