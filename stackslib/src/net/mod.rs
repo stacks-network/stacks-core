@@ -2684,7 +2684,7 @@ pub mod test {
     impl BlockEventDispatcher for TestEventObserver {
         fn announce_block(
             &self,
-            block: StacksBlockEventData,
+            block: &StacksBlockEventData,
             metadata: &StacksHeaderInfo,
             receipts: &[events::StacksTransactionReceipt],
             parent: &StacksBlockId,
@@ -3599,7 +3599,11 @@ pub mod test {
             let missing_pox_anchor_block_hash_opt = if epoch_id < StacksEpochId::Epoch30 {
                 self.coord.handle_new_burnchain_block().unwrap()
             } else {
-                self.coord.handle_new_nakamoto_burnchain_block().unwrap()
+                if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
+                    None
+                } else {
+                    Some(BlockHeaderHash([0x00; 32]))
+                }
             };
 
             let pox_id = {
@@ -3995,7 +3999,7 @@ pub mod test {
             txs: &[StacksTransaction],
             coinbase_nonce: &mut usize,
         ) -> StacksBlockId {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = self.miner.next_microblock_privkey();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
