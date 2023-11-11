@@ -141,7 +141,7 @@ impl RewardCycleInfo {
 pub trait BlockEventDispatcher {
     fn announce_block(
         &self,
-        block: StacksBlockEventData,
+        block: &StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent: &StacksBlockId,
@@ -226,6 +226,7 @@ pub enum Error {
     NotPoXAnchorBlock,
     NotInPreparePhase,
     RewardSetAlreadyProcessed,
+    PoXAnchorBlockRequired,
 }
 
 impl From<BurnchainError> for Error {
@@ -750,11 +751,9 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
             .expect("FATAL: no reward cycle for burn height");
 
         if prev_reward_cycle > 1 {
-            let prev_reward_cycle_start =
-                burnchain.reward_cycle_to_block_height(prev_reward_cycle - 1);
-            let prepare_phase_start = prev_reward_cycle_start
-                + u64::from(burnchain.pox_constants.reward_cycle_length)
-                - u64::from(burnchain.pox_constants.prepare_length);
+            let prepare_phase_start = burnchain
+                .pox_constants
+                .prepare_phase_start(burnchain.first_block_height, prev_reward_cycle - 1);
             let first_prepare_sn =
                 SortitionDB::get_ancestor_snapshot(&ic, prepare_phase_start, sortition_tip)?
                     .expect("FATAL: no start-of-prepare-phase sortition");
@@ -2263,8 +2262,8 @@ impl<
     /// Outermost call to process a burnchain block.
     /// Will call the Stacks 2.x or Nakamoto handler, depending on whether or not
     /// Not called internally.
-    /// NOTE: the 2.x and Nakamoto handlers return `Some(..)` in _different_ circumstances.  If
-    /// that matters to you, then you should call them directly.
+    /// NOTE: in epoch 3.x, we can't determine the hash of the PoX anchor block directly if it's
+    /// missing. If it is missing, then this method would return Some(BlockHeaderHash("0000...0000"))
     pub fn handle_new_burnchain_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
@@ -2276,32 +2275,39 @@ impl<
             .expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
         if target_epoch.epoch_id < StacksEpochId::Epoch30 {
             // burnchain has not yet advanced to epoch 3.0
-            self.handle_new_epoch2_burnchain_block(&mut HashSet::new())
-        } else {
-            // burnchain has advanced to epoch 3.0, but has our sortition DB?
-            let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
-                Some(sn_tip) => SortitionDB::get_block_snapshot(self.sortition_db.conn(), sn_tip)?
-                    .expect(&format!(
-                        "FATAL: do not have previously-calculated highest valid sortition tip {}",
-                        sn_tip
-                    )),
-                None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
-            };
-            let target_epoch_index =
-                StacksEpoch::find_epoch(&epochs, canonical_snapshot.block_height)
-                    .expect("FATAL: epoch not defined for BlockSnapshot height");
-            let target_epoch = epochs
-                .get(target_epoch_index)
-                .expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
-
-            if target_epoch.epoch_id < StacksEpochId::Epoch30 {
-                // need to catch the sortition DB up
-                self.handle_new_epoch2_burnchain_block(&mut HashSet::new())?;
-            }
-
-            // proceed to process sortitions in epoch 3.0
-            self.handle_new_nakamoto_burnchain_block()
+            return self.handle_new_epoch2_burnchain_block(&mut HashSet::new());
         }
+
+        // burnchain has advanced to epoch 3.0, but has our sortition DB?
+        let canonical_snapshot = match self.canonical_sortition_tip.as_ref() {
+            Some(sn_tip) => SortitionDB::get_block_snapshot(self.sortition_db.conn(), sn_tip)?
+                .expect(&format!(
+                    "FATAL: do not have previously-calculated highest valid sortition tip {}",
+                    sn_tip
+                )),
+            None => SortitionDB::get_canonical_burn_chain_tip(&self.sortition_db.conn())?,
+        };
+        let target_epoch_index = StacksEpoch::find_epoch(&epochs, canonical_snapshot.block_height)
+            .expect("FATAL: epoch not defined for BlockSnapshot height");
+        let target_epoch = epochs
+            .get(target_epoch_index)
+            .expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
+
+        if target_epoch.epoch_id < StacksEpochId::Epoch30 {
+            // need to catch the sortition DB up
+            self.handle_new_epoch2_burnchain_block(&mut HashSet::new())?;
+        }
+
+        // proceed to process sortitions in epoch 3.0
+        self.handle_new_nakamoto_burnchain_block()
+            .map(|can_proceed| {
+                if can_proceed {
+                    None
+                } else {
+                    // missing PoX anchor block, but unlike in 2.x, we don't know what it is!
+                    Some(BlockHeaderHash([0x00; 32]))
+                }
+            })
     }
 
     /// Are affirmation maps active during the epoch?
