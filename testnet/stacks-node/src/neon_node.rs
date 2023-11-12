@@ -3471,26 +3471,39 @@ impl ParentStacksBlockInfo {
                 .expect("Failed to look up block's parent snapshot");
 
         let parent_sortition_id = &parent_snapshot.sortition_id;
-        let parent_winning_vtxindex =
-            SortitionDB::get_block_winning_vtxindex(burn_db.conn(), parent_sortition_id)
+
+        let (parent_block_height, parent_winning_vtxindex, parent_block_total_burn) = if mine_tip_ch
+            == &FIRST_BURNCHAIN_CONSENSUS_HASH
+        {
+            (0, 0, 0)
+        } else {
+            let parent_winning_vtxindex =
+                SortitionDB::get_block_winning_vtxindex(burn_db.conn(), parent_sortition_id)
+                    .expect("SortitionDB failure.")
+                    .ok_or_else(|| {
+                        error!(
+                            "Failed to find winning vtx index for the parent sortition";
+                            "parent_sortition_id" => %parent_sortition_id
+                        );
+                        Error::WinningVtxNotFoundForChainTip
+                    })?;
+
+            let parent_block = SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
                 .expect("SortitionDB failure.")
                 .ok_or_else(|| {
                     error!(
-                        "Failed to find winning vtx index for the parent sortition";
+                        "Failed to find block snapshot for the parent sortition";
                         "parent_sortition_id" => %parent_sortition_id
                     );
-                    Error::WinningVtxNotFoundForChainTip
+                    Error::SnapshotNotFoundForChainTip
                 })?;
 
-        let parent_block = SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
-            .expect("SortitionDB failure.")
-            .ok_or_else(|| {
-                error!(
-                    "Failed to find block snapshot for the parent sortition";
-                    "parent_sortition_id" => %parent_sortition_id
-                );
-                Error::SnapshotNotFoundForChainTip
-            })?;
+            (
+                parent_block.block_height,
+                parent_winning_vtxindex,
+                parent_block.total_burn,
+            )
+        };
 
         // don't mine off of an old burnchain block
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
@@ -3529,8 +3542,8 @@ impl ParentStacksBlockInfo {
         Ok(ParentStacksBlockInfo {
             stacks_parent_header: stacks_tip_header,
             parent_consensus_hash: mine_tip_ch.clone(),
-            parent_block_burn_height: parent_block.block_height,
-            parent_block_total_burn: parent_block.total_burn,
+            parent_block_burn_height: parent_block_height,
+            parent_block_total_burn: parent_block_total_burn,
             parent_winning_vtxindex,
             coinbase_nonce,
         })
