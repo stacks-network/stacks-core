@@ -1,4 +1,4 @@
-;; The .pox-3 contract
+;; The .pox-4 contract
 ;; Error codes
 (define-constant ERR_STACKING_UNREACHABLE 255)
 (define-constant ERR_STACKING_CORRUPTED_STATE 254)
@@ -85,7 +85,7 @@
 ;; Records will be deleted from this map when auto-unlocks are processed
 ;;
 ;; This map de-normalizes some state from the `reward-cycle-pox-address-list` map
-;;  and the `pox-3` contract tries to keep this state in sync with the reward-cycle
+;;  and the `pox-4` contract tries to keep this state in sync with the reward-cycle
 ;;  state. The major invariants of this `stacking-state` map are:
 ;;    (1) any entry in `reward-cycle-pox-address-list` with `some stacker` points to a real `stacking-state`
 ;;    (2) `stacking-state.reward-set-indexes` matches the index of that `reward-cycle-pox-address-list`
@@ -1010,7 +1010,7 @@
                     stacker: tx-sender,
                     add-amount: increase-by })))
             (err ERR_STACKING_UNREACHABLE))
-      ;; NOTE: stacking-state map is unchanged: it does not track amount-stacked in PoX-3
+      ;; NOTE: stacking-state map is unchanged: it does not track amount-stacked in PoX-4
       (ok { stacker: tx-sender, total-locked: (+ amount-stacked increase-by)})))
 
 ;; Extend an active Stacking lock.
