@@ -592,7 +592,7 @@ impl StacksBlock {
                 }
             }
             if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
-                if version_opt.is_some() {
+                if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
                     // not supported
                     error!("Versioned smart contracts not supported before Stacks 2.1");
                     return false;
