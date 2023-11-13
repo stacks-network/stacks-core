@@ -5396,7 +5396,7 @@ fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
 /// production.
 fn link_log<T>(linker: &mut Linker<T>) -> Result<(), Error> {
     linker
-        .func_wrap("clarity", "log", |_: Caller<'_, T>, param: i64| {
+        .func_wrap("", "log", |_: Caller<'_, T>, param: i64| {
             println!("log: {param}");
         })
         .map(|_| ())
