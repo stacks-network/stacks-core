@@ -2298,7 +2298,7 @@ impl ConversationHttp {
                         )
                     }
                     Err(e) => {
-                        debug!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
+                        info!("Mempool rejected POSTed transaction {}: {:?}", &txid, &e);
                         (
                             HttpResponseType::BadRequestJSON(response_metadata, e.into_json(&txid)),
                             false,

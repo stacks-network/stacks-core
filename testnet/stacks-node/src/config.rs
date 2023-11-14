@@ -37,6 +37,8 @@ use stacks::cost_estimates::PessimisticEstimator;
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
@@ -292,11 +294,31 @@ impl ConfigFile {
             ..MinerConfigFile::default()
         };
 
+        let mock_private_key = Secp256k1PrivateKey::from_seed(&[0]);
+        let mock_public_key = Secp256k1PublicKey::from_private(&mock_private_key);
+        let mock_address = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![mock_public_key],
+        )
+        .unwrap();
+
+        info!(
+            "Mockamoto starting. Initial balance set to mock_private_key = {}",
+            mock_private_key.to_hex()
+        );
+
+        let ustx_balance = vec![InitialBalanceFile {
+            address: mock_address.to_string(),
+            amount: 1_000_000_000_000,
+        }];
+
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            ustx_balance: None,
             miner: Some(miner),
+            ustx_balance: Some(ustx_balance),
             ..ConfigFile::default()
         }
     }
