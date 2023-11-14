@@ -457,7 +457,7 @@ impl MockamotoNode {
                 burn_spent: 10,
                 tx_merkle_root: tx_merkle_tree.root(),
                 state_index_root,
-                stacker_signature: SchnorrSignature::default(),
+                signer_signature: SchnorrSignature::default(),
                 miner_signature: MessageSignature::empty(),
                 consensus_hash: sortition_tip.consensus_hash.clone(),
                 parent_block_id: StacksBlockId::new(&chain_tip_ch, &chain_tip_bh),
