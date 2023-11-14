@@ -69,6 +69,12 @@ impl OnChainRewardSetProvider {
         let registered_addrs =
             chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
 
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(current_burn_height)
+            .ok_or(crate::chainstate::stacks::Error::PoxNoRewardCycle)?;
+
+        let _aggregate_public_key =
+            chainstate.get_aggregate_public_key_pox_4(sortdb, block_id, reward_cycle)?;
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
