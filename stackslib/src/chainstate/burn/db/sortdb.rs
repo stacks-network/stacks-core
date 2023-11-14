@@ -1928,7 +1928,8 @@ impl<'a> SortitionHandleConn<'a> {
     pub fn expects_stacker_signature(
         &self,
         consensus_hash: &ConsensusHash,
-        _stacker_signature: &WSTSSignature,
+        stacker_signature: &WSTSSignature,
+        message: &[u8],
     ) -> Result<bool, db_error> {
         let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
             .ok_or(db_error::NotFoundError)
@@ -1983,12 +1984,21 @@ impl<'a> SortitionHandleConn<'a> {
         else {
             return Ok(false);
         };
-        let Some(_sortition_id) = self.get_sortition_id_for_bhh(&bhh)? else {
+        let Some(sortition_id) = self.get_sortition_id_for_bhh(&bhh)? else {
             return Ok(false);
         };
+        let Some(aggregate_public_key) = self.get_aggregate_public_key(&sortition_id)? else {
+            return Ok(false);
+        };
+        Ok(stacker_signature.verify(&aggregate_public_key, message))
+    }
 
-        // TODO: query set of stacker signers in order to get the aggregate public key
-        Ok(true)
+    /// Retrieve the aggregate public key from the sortition DB
+    pub fn get_aggregate_public_key(
+        &self,
+        _sortition_id: &SortitionId,
+    ) -> Result<Option<Point>, db_error> {
+        todo!("Retrieve the aggregate public key from the sortition DB")
     }
 
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
