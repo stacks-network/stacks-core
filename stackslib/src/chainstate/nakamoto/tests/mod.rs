@@ -28,7 +28,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{PrivateKey, StacksEpoch, StacksEpochId};
 use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof};
 use stdext::prelude::Integer;
 use stx_genesis::GenesisData;
@@ -100,7 +100,7 @@ fn codec_nakamoto_header() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        stacker_signature: SchnorrSignature::default(),
     };
 
     let bytes = vec![
@@ -146,7 +146,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        stacker_signature: SchnorrSignature::default(),
     };
 
     let tenure_change_payload = TransactionPayload::TenureChange(
@@ -500,7 +500,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        stacker_signature: SchnorrSignature::default(),
     };
 
     let nakamoto_header_info = StacksHeaderInfo {

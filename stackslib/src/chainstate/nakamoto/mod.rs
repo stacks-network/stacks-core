@@ -40,7 +40,7 @@ use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature};
 use stacks_common::util::vrf::{VRFProof, VRF};
 
 use super::burn::db::sortdb::{get_block_commit_by_txid, SortitionHandleConn, SortitionHandleTx};
@@ -254,9 +254,8 @@ pub struct NakamotoBlockHeader {
     pub state_index_root: TrieHash,
     /// Recoverable ECDSA signature from the tenure's miner.
     pub miner_signature: MessageSignature,
-    /// Recoverable ECDSA signature from the stacker set active during the tenure.
-    /// TODO: This is a placeholder
-    pub stacker_signature: MessageSignature,
+    /// Schnorr signature over the block header from the stacker set active during the tenure.
+    pub stacker_signature: SchnorrSignature,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -407,7 +406,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty(),
+            stacker_signature: SchnorrSignature::default(),
         }
     }
 
@@ -422,7 +421,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty(),
+            stacker_signature: SchnorrSignature::default(),
         }
     }
 
@@ -437,7 +436,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty(),
+            stacker_signature: SchnorrSignature::default(),
         }
     }
 }
@@ -1360,10 +1359,14 @@ impl NakamotoChainState {
             return Ok(false);
         };
 
-        if !sortdb.expects_stacker_signature(
-            &block.header.consensus_hash,
-            &block.header.stacker_signature,
-        )? {
+        let schnorr_signature = block.header.stacker_signature.to_wsts_signature().ok_or({
+            let msg =
+                format!("Received block, signed by miner, but the block has no stacker signature");
+            warn!("{}", msg);
+            ChainstateError::InvalidStacksBlock(msg)
+        })?;
+
+        if !sortdb.expects_stacker_signature(&block.header.consensus_hash, &schnorr_signature)? {
             let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
             warn!("{}", msg);
             return Err(ChainstateError::InvalidStacksBlock(msg));

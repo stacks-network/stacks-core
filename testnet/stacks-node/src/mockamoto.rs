@@ -38,7 +38,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature, Secp256k1PublicKey};
 
 use crate::neon::Counters;
 use crate::neon_node::{
@@ -457,8 +457,8 @@ impl MockamotoNode {
                 burn_spent: 10,
                 tx_merkle_root: tx_merkle_tree.root(),
                 state_index_root,
-                stacker_signature: MessageSignature([0; 65]),
-                miner_signature: MessageSignature([0; 65]),
+                stacker_signature: SchnorrSignature::default(),
+                miner_signature: MessageSignature::empty(),
                 consensus_hash: sortition_tip.consensus_hash.clone(),
                 parent_block_id: StacksBlockId::new(&chain_tip_ch, &chain_tip_bh),
             },
