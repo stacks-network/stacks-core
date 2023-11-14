@@ -39,6 +39,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::util::hash::{to_hex, Hash160};
+use wsts::{Point, Scalar};
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Burnchain, PoxConstants};
@@ -1124,6 +1125,38 @@ impl StacksChainState {
             }
             x => x,
         }
+    }
+
+    /// Get the aggregate public key for a given reward cycle from pox 4
+    pub fn get_aggregate_public_key_pox_4(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<Option<Point>, Error> {
+        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_4_NAME)? {
+            debug!(
+                "PoX was voted disabled in block {} (reward cycle {})",
+                block_id, reward_cycle
+            );
+            return Ok(None);
+        }
+
+        let aggregate_public_key = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                POX_4_NAME,
+                &format!("(get-aggregate-pubilc-key u{})", reward_cycle),
+            )?
+            .expect_optional()
+            .map(|value| {
+                let mut bytes = [0_u8; 32];
+                let data = value.expect_buff(bytes.len());
+                bytes.copy_from_slice(&data);
+                Point::from(Scalar::from(bytes))
+            });
+        Ok(aggregate_public_key)
     }
 }
 
