@@ -12,21 +12,46 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use stacks::chainstate::coordinator::comm::CoordinatorReceivers;
 use stacks::chainstate::coordinator::CoordinatorCommunication;
-use stacks::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
-};
-use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::nakamoto::NakamotoBlock;
+use stacks::chainstate::nakamoto::NakamotoBlockHeader;
+use stacks::chainstate::nakamoto::NakamotoChainState;
+use stacks::chainstate::nakamoto::SetupBlockResult;
+use stacks::chainstate::stacks::db::ChainStateBootData;
+use stacks::chainstate::stacks::db::ClarityTx;
+use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::BlockBuilder;
+use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::miner::BlockLimitFunction;
 use stacks::chainstate::stacks::miner::MinerStatus;
-use stacks::chainstate::stacks::{
-    CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
-    TenureChangeCause, TenureChangePayload, ThresholdSignature, TransactionAuth,
-    TransactionPayload, TransactionVersion, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
-};
-use stacks::core::{
-    StacksEpoch, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
-    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
-    PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-};
+use stacks::chainstate::stacks::miner::TransactionResult;
+use stacks::chainstate::stacks::CoinbasePayload;
+use stacks::chainstate::stacks::Error as ChainstateError;
+use stacks::chainstate::stacks::SchnorrThresholdSignature;
+use stacks::chainstate::stacks::StacksBlockBuilder;
+use stacks::chainstate::stacks::StacksTransaction;
+use stacks::chainstate::stacks::StacksTransactionSigner;
+use stacks::chainstate::stacks::TenureChangeCause;
+use stacks::chainstate::stacks::TenureChangePayload;
+use stacks::chainstate::stacks::TransactionAuth;
+use stacks::chainstate::stacks::TransactionPayload;
+use stacks::chainstate::stacks::TransactionVersion;
+use stacks::chainstate::stacks::MAX_EPOCH_SIZE;
+use stacks::chainstate::stacks::MINER_BLOCK_CONSENSUS_HASH;
+use stacks::chainstate::stacks::MINER_BLOCK_HEADER_HASH;
+use stacks::clarity_vm::database::SortitionDBRef;
+use stacks::core::mempool::MemPoolWalkSettings;
+use stacks::core::MemPoolDB;
+use stacks::core::StacksEpoch;
+use stacks::core::BLOCK_LIMIT_MAINNET_10;
+use stacks::core::HELIUM_BLOCK_LIMIT_20;
+use stacks::core::PEER_VERSION_EPOCH_1_0;
+use stacks::core::PEER_VERSION_EPOCH_2_0;
+use stacks::core::PEER_VERSION_EPOCH_2_05;
+use stacks::core::PEER_VERSION_EPOCH_2_1;
+use stacks::core::PEER_VERSION_EPOCH_2_2;
+use stacks::core::PEER_VERSION_EPOCH_2_3;
+use stacks::core::PEER_VERSION_EPOCH_2_4;
+use stacks::core::TX_BLOCK_LIMIT_PROPORTION_HEURISTIC;
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::db::Error as db_error;
@@ -169,12 +194,79 @@ fn make_snapshot(
 ///
 pub struct MockamotoNode {
     sortdb: SortitionDB,
+    mempool: MemPoolDB,
     chainstate: StacksChainState,
     miner_key: StacksPrivateKey,
     relay_rcv: Receiver<RelayerDirective>,
     coord_rcv: CoordinatorReceivers,
     globals: Globals,
     config: Config,
+}
+
+struct MockamotoBlockBuilder {
+    txs: Vec<StacksTransaction>,
+    bytes_so_far: u64,
+}
+
+impl BlockBuilder for MockamotoBlockBuilder {
+    fn try_mine_tx_with_len(
+        &mut self,
+        clarity_tx: &mut ClarityTx,
+        tx: &StacksTransaction,
+        tx_len: u64,
+        limit_behavior: &BlockLimitFunction,
+        ast_rules: ASTRules,
+    ) -> TransactionResult {
+        if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
+            return TransactionResult::skipped(tx, "BlockSizeLimit".into());
+        }
+
+        if BlockLimitFunction::NO_LIMIT_HIT != *limit_behavior {
+            return TransactionResult::skipped(tx, "LimitReached".into());
+        }
+
+        let (fee, receipt) = match StacksChainState::process_transaction(
+            clarity_tx, tx, true, ast_rules,
+        ) {
+            Ok(x) => x,
+            Err(ChainstateError::CostOverflowError(cost_before, cost_after, total_budget)) => {
+                clarity_tx.reset_cost(cost_before.clone());
+                if total_budget.proportion_largest_dimension(&cost_before)
+                    < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                {
+                    warn!(
+                        "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
+                        tx.txid(),
+                        100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+                        &total_budget
+                    );
+                    return TransactionResult::error(&tx, ChainstateError::TransactionTooBigError);
+                } else {
+                    warn!(
+                        "Transaction {} reached block cost {}; budget was {}",
+                        tx.txid(),
+                        &cost_after,
+                        &total_budget
+                    );
+                    return TransactionResult::skipped_due_to_error(
+                        &tx,
+                        ChainstateError::BlockTooBigError,
+                    );
+                }
+            }
+            Err(e) => return TransactionResult::error(&tx, e),
+        };
+
+        info!("Include tx";
+              "tx" => %tx.txid(),
+              "payload" => tx.payload.name(),
+              "origin" => %tx.origin_address());
+
+        self.txs.push(tx.clone());
+        self.bytes_so_far += tx_len;
+
+        TransactionResult::success(tx, fee, receipt)
+    }
 }
 
 impl MockamotoNode {
@@ -195,7 +287,12 @@ impl MockamotoNode {
             )
             .map_err(|e| e.to_string())?;
 
-        let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+        let initial_balances: Vec<_> = config
+            .initial_balances
+            .iter()
+            .map(|balance| (balance.address.clone(), balance.amount))
+            .collect();
+        let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances, None);
         let (chainstate, _) = StacksChainState::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
@@ -204,6 +301,7 @@ impl MockamotoNode {
             Some(config.node.get_marf_opts()),
         )
         .unwrap();
+        let mempool = PeerThread::connect_mempool_db(config);
 
         let (coord_rcv, coord_comms) = CoordinatorCommunication::instantiate();
         let miner_status = Arc::new(Mutex::new(MinerStatus::make_ready(100)));
@@ -227,6 +325,7 @@ impl MockamotoNode {
             miner_key,
             relay_rcv,
             coord_rcv,
+            mempool,
             globals,
             config: config.clone(),
         })
@@ -431,6 +530,32 @@ impl MockamotoNode {
             Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
         };
 
+        let bytes_so_far = txs.iter().map(|tx| tx.tx_len()).sum();
+        let mut builder = MockamotoBlockBuilder { txs, bytes_so_far };
+        let _ = match StacksBlockBuilder::select_and_apply_transactions(
+            &mut clarity_tx,
+            &mut builder,
+            &mut self.mempool,
+            parent_chain_length,
+            None,
+            BlockBuilderSettings {
+                max_miner_time_ms: 15_000,
+                mempool_settings: MemPoolWalkSettings::default(),
+                miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(10000))),
+            },
+            None,
+            ASTRules::PrecheckSize,
+        ) {
+            Ok(x) => x,
+            Err(e) => {
+                let msg = format!("Mined invalid stacks block {e:?}");
+                warn!("{msg}");
+
+                clarity_tx.rollback_block();
+                return Err(ChainstateError::InvalidStacksBlock(msg));
+            }
+        };
+
         let mut lockup_events = match NakamotoChainState::finish_block(
             &mut clarity_tx,
             matured_miner_rewards_opt.as_ref(),
@@ -444,7 +569,7 @@ impl MockamotoNode {
         };
 
         let state_index_root = clarity_tx.seal();
-        let tx_merkle_tree: MerkleTree<Sha512Trunc256Sum> = txs.iter().collect();
+        let tx_merkle_tree: MerkleTree<Sha512Trunc256Sum> = builder.txs.iter().collect();
         clarity_tx.commit_mined_block(&StacksBlockId::new(
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
@@ -463,7 +588,7 @@ impl MockamotoNode {
                 consensus_hash: sortition_tip.consensus_hash.clone(),
                 parent_block_id: StacksBlockId::new(&chain_tip_ch, &chain_tip_bh),
             },
-            txs,
+            txs: builder.txs,
         };
 
         let miner_signature = self
@@ -510,6 +635,8 @@ impl MockamotoNode {
     }
 
     fn process_staging_block(&mut self) -> Result<bool, ChainstateError> {
+        info!("Processing a staging block!");
+
         let (mut chainstate_tx, clarity_instance) = self.chainstate.chainstate_tx_begin()?;
         let pox_constants = self.sortdb.pox_constants.clone();
         let mut sortdb_tx = self.sortdb.tx_begin_at_tip();
@@ -567,6 +694,8 @@ impl MockamotoNode {
 
         chainstate_tx.commit();
         clarity_tx.commit();
+
+        info!("Processed a staging block!");
 
         Ok(true)
     }
