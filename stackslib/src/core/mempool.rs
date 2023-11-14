@@ -46,6 +46,7 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::index::Error as MarfError;
 use crate::chainstate::stacks::miner::TransactionEvent;

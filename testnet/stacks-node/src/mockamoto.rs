@@ -43,6 +43,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::CoordinatorReceivers;
+<<<<<<< HEAD
 use stacks::chainstate::coordinator::{
     ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
 };
@@ -71,6 +72,49 @@ use stacks::core::{
     PEER_VERSION_EPOCH_3_0, STACKS_EPOCH_3_0_MARKER, TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
 };
 use stacks::net::atlas::{AtlasConfig, AtlasDB};
+=======
+use stacks::chainstate::coordinator::CoordinatorCommunication;
+use stacks::chainstate::nakamoto::NakamotoBlock;
+use stacks::chainstate::nakamoto::NakamotoBlockHeader;
+use stacks::chainstate::nakamoto::NakamotoChainState;
+use stacks::chainstate::nakamoto::SetupBlockResult;
+use stacks::chainstate::stacks::db::ChainStateBootData;
+use stacks::chainstate::stacks::db::ClarityTx;
+use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::BlockBuilder;
+use stacks::chainstate::stacks::miner::BlockBuilderSettings;
+use stacks::chainstate::stacks::miner::BlockLimitFunction;
+use stacks::chainstate::stacks::miner::MinerStatus;
+use stacks::chainstate::stacks::miner::TransactionResult;
+use stacks::chainstate::stacks::CoinbasePayload;
+use stacks::chainstate::stacks::Error as ChainstateError;
+use stacks::chainstate::stacks::SchnorrThresholdSignature;
+use stacks::chainstate::stacks::StacksBlockBuilder;
+use stacks::chainstate::stacks::StacksTransaction;
+use stacks::chainstate::stacks::StacksTransactionSigner;
+use stacks::chainstate::stacks::TenureChangeCause;
+use stacks::chainstate::stacks::TenureChangePayload;
+use stacks::chainstate::stacks::TransactionAuth;
+use stacks::chainstate::stacks::TransactionPayload;
+use stacks::chainstate::stacks::TransactionVersion;
+use stacks::chainstate::stacks::MAX_EPOCH_SIZE;
+use stacks::chainstate::stacks::MINER_BLOCK_CONSENSUS_HASH;
+use stacks::chainstate::stacks::MINER_BLOCK_HEADER_HASH;
+use stacks::clarity_vm::database::SortitionDBRef;
+use stacks::core::mempool::MemPoolWalkSettings;
+use stacks::core::MemPoolDB;
+use stacks::core::StacksEpoch;
+use stacks::core::BLOCK_LIMIT_MAINNET_10;
+use stacks::core::HELIUM_BLOCK_LIMIT_20;
+use stacks::core::PEER_VERSION_EPOCH_1_0;
+use stacks::core::PEER_VERSION_EPOCH_2_0;
+use stacks::core::PEER_VERSION_EPOCH_2_05;
+use stacks::core::PEER_VERSION_EPOCH_2_1;
+use stacks::core::PEER_VERSION_EPOCH_2_2;
+use stacks::core::PEER_VERSION_EPOCH_2_3;
+use stacks::core::PEER_VERSION_EPOCH_2_4;
+use stacks::core::TX_BLOCK_LIMIT_PROPORTION_HEURISTIC;
+>>>>>>> 90eb6f5e2 (stashing demo changes)
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::db::Error as DBError;
@@ -293,6 +337,7 @@ struct MockamotoBlockBuilder {
     bytes_so_far: u64,
 }
 
+<<<<<<< HEAD
 /// This struct is used by mockamoto to pass the burnchain indexer
 ///  parameter to the `ChainsCoordinator`. It errors on every
 ///  invocation except `read_burnchain_headers`.
@@ -329,6 +374,8 @@ impl BurnchainHeaderReader for MockBurnchainIndexer {
     }
 }
 
+=======
+>>>>>>> 90eb6f5e2 (stashing demo changes)
 impl BlockBuilder for MockamotoBlockBuilder {
     fn try_mine_tx_with_len(
         &mut self,
@@ -417,11 +464,16 @@ impl MockamotoNode {
             )
             .map_err(|e| e.to_string())?;
 
+<<<<<<< HEAD
         let mut initial_balances: Vec<_> = config
+=======
+        let initial_balances: Vec<_> = config
+>>>>>>> 90eb6f5e2 (stashing demo changes)
             .initial_balances
             .iter()
             .map(|balance| (balance.address.clone(), balance.amount))
             .collect();
+<<<<<<< HEAD
 
         initial_balances.push((stacker.into(), 100_000_000_000_000));
 
@@ -435,6 +487,10 @@ impl MockamotoNode {
         let mut boot_data =
             ChainStateBootData::new(&burnchain, initial_balances, Some(Box::new(callback)));
         let (chainstate, boot_receipts) = StacksChainState::open_and_exec(
+=======
+        let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances, None);
+        let (chainstate, _) = StacksChainState::open_and_exec(
+>>>>>>> 90eb6f5e2 (stashing demo changes)
             config.is_mainnet(),
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
@@ -477,10 +533,15 @@ impl MockamotoNode {
             self_signer,
             chainstate,
             miner_key,
+<<<<<<< HEAD
             vrf_key,
             relay_rcv: Some(relay_rcv),
             coord_rcv: Some(coord_rcv),
             dispatcher: event_dispatcher,
+=======
+            relay_rcv,
+            coord_rcv,
+>>>>>>> 90eb6f5e2 (stashing demo changes)
             mempool,
             globals,
             config: config.clone(),
@@ -926,7 +987,11 @@ impl MockamotoNode {
             &mut builder,
             &mut self.mempool,
             parent_chain_length,
+<<<<<<< HEAD
             &[],
+=======
+            None,
+>>>>>>> 90eb6f5e2 (stashing demo changes)
             BlockBuilderSettings {
                 max_miner_time_ms: 15_000,
                 mempool_settings: MemPoolWalkSettings::default(),
@@ -945,7 +1010,11 @@ impl MockamotoNode {
             }
         };
 
+<<<<<<< HEAD
         let _lockup_events = match NakamotoChainState::finish_block(
+=======
+        let mut lockup_events = match NakamotoChainState::finish_block(
+>>>>>>> 90eb6f5e2 (stashing demo changes)
             &mut clarity_tx,
             matured_miner_rewards_opt.as_ref(),
         ) {
@@ -1015,7 +1084,78 @@ impl MockamotoNode {
             &staging_tx,
             &aggregate_public_key,
         )?;
+<<<<<<< HEAD
         staging_tx.commit()?;
         Ok(chain_length)
+=======
+        chainstate_tx.commit()?;
+        Ok(())
+    }
+
+    fn process_staging_block(&mut self) -> Result<bool, ChainstateError> {
+        info!("Processing a staging block!");
+
+        let (mut chainstate_tx, clarity_instance) = self.chainstate.chainstate_tx_begin()?;
+        let pox_constants = self.sortdb.pox_constants.clone();
+        let mut sortdb_tx = self.sortdb.tx_begin_at_tip();
+        let Some((next_block, _)) = NakamotoChainState::next_ready_nakamoto_block(&chainstate_tx)?
+        else {
+            return Ok(false);
+        };
+
+        let parent_block_id = &next_block.header.parent_block_id;
+        let parent_chain_tip =
+            NakamotoChainState::get_block_header(&chainstate_tx, &parent_block_id)?.ok_or_else(
+                || {
+                    warn!(
+                        "Tried to process next ready block, but its parent header cannot be found";
+                        "block_hash" => %next_block.header.block_hash(),
+                        "parent_block_id" => %parent_block_id
+                    );
+                    ChainstateError::NoSuchBlockError
+                },
+            )?;
+
+        let burnchain_tip_info = SortitionDB::get_block_snapshot_consensus(
+            &sortdb_tx,
+            &next_block.header.consensus_hash,
+        )?.ok_or_else(|| {
+            warn!(
+                "Tried to process next ready block, but the snapshot that elected it cannot be found";
+                "block_hash" => %next_block.header.block_hash(),
+                "consensus_hash" => %next_block.header.consensus_hash,
+            );
+            ChainstateError::NoSuchBlockError
+        })?;
+
+        let burnchain_height = burnchain_tip_info.block_height.try_into().map_err(|_| {
+            error!("Burnchain height exceeds u32");
+            ChainstateError::InvalidStacksBlock("Burnchain height exceeds u32".into())
+        })?;
+        let block_size = 1;
+
+        let (_receipt, clarity_tx) = NakamotoChainState::append_block(
+            &mut chainstate_tx,
+            clarity_instance,
+            &mut sortdb_tx,
+            &pox_constants,
+            &parent_chain_tip,
+            &burnchain_tip_info.burn_header_hash,
+            burnchain_height,
+            burnchain_tip_info.burn_header_timestamp,
+            &next_block,
+            block_size,
+            1,
+            1,
+        )
+        .unwrap();
+
+        chainstate_tx.commit();
+        clarity_tx.commit();
+
+        info!("Processed a staging block!");
+
+        Ok(true)
+>>>>>>> 90eb6f5e2 (stashing demo changes)
     }
 }

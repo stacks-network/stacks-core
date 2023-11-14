@@ -32,6 +32,8 @@ use stacks::util_lib::db::Error as DBError;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
