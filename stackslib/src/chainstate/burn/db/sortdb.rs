@@ -1917,18 +1917,18 @@ impl<'a> SortitionHandleConn<'a> {
     }
 
     /// Does the sortition db expect to receive blocks
-    /// signed by this stacker set?
+    /// signed by this signer set?
     ///
     /// This only works if `consensus_hash` is within one reward cycle (2100 blocks) of the
     /// sortition pointed to by this handle's sortiton tip.  If it isn't, then this
     /// method returns Ok(false).  This is to prevent a DDoS vector whereby compromised stale
-    /// Stacker keys can be used to blast out lots of Nakamoto blocks that will be accepted
+    /// Signer keys can be used to blast out lots of Nakamoto blocks that will be accepted
     /// but never processed.  So, `consensus_hash` can be in the same reward cycle as
     /// `self.context.chain_tip`, or the previous, but no earlier.
-    pub fn expects_stacker_signature(
+    pub fn expects_signer_signature(
         &self,
         consensus_hash: &ConsensusHash,
-        stacker_signature: &WSTSSignature,
+        signer_signature: &WSTSSignature,
         message: &[u8],
     ) -> Result<bool, db_error> {
         let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
@@ -1991,7 +1991,7 @@ impl<'a> SortitionHandleConn<'a> {
         else {
             return Ok(false);
         };
-        Ok(stacker_signature.verify(&aggregate_public_key, message))
+        Ok(signer_signature.verify(&aggregate_public_key, message))
     }
 
     /// Get the aggregate public key for the current reward set
