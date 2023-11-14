@@ -1987,18 +1987,26 @@ impl<'a> SortitionHandleConn<'a> {
         let Some(sortition_id) = self.get_sortition_id_for_bhh(&bhh)? else {
             return Ok(false);
         };
-        let Some(aggregate_public_key) = self.get_aggregate_public_key(&sortition_id)? else {
+        let Some(aggregate_public_key) = self.get_reward_set_aggregate_public_key(&sortition_id)?
+        else {
             return Ok(false);
         };
         Ok(stacker_signature.verify(&aggregate_public_key, message))
     }
 
-    /// Retrieve the aggregate public key from the sortition DB
-    pub fn get_aggregate_public_key(
+    /// Get the aggregate public key for the current reward set
+    pub fn get_reward_set_aggregate_public_key(
         &self,
-        _sortition_id: &SortitionId,
+        sortition_id: &SortitionId,
     ) -> Result<Option<Point>, db_error> {
-        todo!("Retrieve the aggregate public key from the sortition DB")
+        if let Some(reward_info) = SortitionDB::get_preprocessed_reward_set(self, sortition_id)? {
+            if let PoxAnchorBlockStatus::SelectedAndKnown(_, _, reward_set) =
+                reward_info.anchor_status
+            {
+                return Ok(reward_set.aggregate_public_key);
+            }
+        }
+        Ok(None)
     }
 
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
