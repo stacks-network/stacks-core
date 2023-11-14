@@ -73,7 +73,7 @@ impl OnChainRewardSetProvider {
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(crate::chainstate::stacks::Error::PoxNoRewardCycle)?;
 
-        let _aggregate_public_key =
+        let aggregate_public_key =
             chainstate.get_aggregate_public_key_pox_4(sortdb, block_id, reward_cycle)?;
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
@@ -106,6 +106,7 @@ impl OnChainRewardSetProvider {
             threshold,
             registered_addrs,
             cur_epoch.epoch_id,
+            aggregate_public_key,
         ))
     }
 }

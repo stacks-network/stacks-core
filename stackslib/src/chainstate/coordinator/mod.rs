@@ -405,6 +405,7 @@ impl OnChainRewardSetProvider {
             threshold,
             registered_addrs,
             cur_epoch.epoch_id,
+            None,
         ))
     }
 }
