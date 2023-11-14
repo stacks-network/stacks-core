@@ -116,7 +116,7 @@ impl<M: CostMetric> WeightedMedianFeeRateEstimator<M> {
         let mut mids = Vec::with_capacity(window_size as usize);
         let mut lows = Vec::with_capacity(window_size as usize);
         let results = stmt
-            .query_and_then::<_, SqliteError, _, _>(&[window_size], |row| {
+            .query_and_then::<_, SqliteError, _, _>([window_size], |row| {
                 let high: f64 = row.get("high")?;
                 let middle: f64 = row.get("middle")?;
                 let low: f64 = row.get("low")?;

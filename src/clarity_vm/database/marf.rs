@@ -408,6 +408,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
 
     fn get(&mut self, key: &str) -> Option<String> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
+        
         self.marf
             .get(&self.chain_tip, key)
             .or_else(|e| match e {

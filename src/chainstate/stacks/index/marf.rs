@@ -1137,6 +1137,7 @@ impl<T: MarfTrieId> MARF<T> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
+        //eprintln!("key: {}, path: {}", key, path);
 
         let result = MARF::get_path(storage, block_hash, &path).or_else(|e| match e {
             Error::NotFoundError => Ok(None),

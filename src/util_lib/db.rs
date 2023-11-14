@@ -382,7 +382,7 @@ fn log_sql_eqp(_conn: &Connection, _sql_query: &str) {}
 /// boilerplate code for querying rows
 pub fn query_rows<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Vec<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromRow<T>,
 {
@@ -397,7 +397,7 @@ where
 ///   if more than 1 row is returned, excess rows are ignored.
 pub fn query_row<T, P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromRow<T>,
 {
@@ -418,7 +418,7 @@ pub fn query_expect_row<T, P>(
     sql_args: P,
 ) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromRow<T>,
 {
@@ -444,7 +444,7 @@ pub fn query_row_panic<T, P, F>(
     panic_message: F,
 ) -> Result<Option<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromRow<T>,
     F: FnOnce() -> String,
@@ -470,7 +470,7 @@ pub fn query_row_columns<T, P>(
     column_name: &str,
 ) -> Result<Vec<T>, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
     T: FromColumn<T>,
 {
@@ -491,7 +491,7 @@ where
 /// Boilerplate for querying a single integer (first and only item of the query must be an int)
 pub fn query_int<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
 {
     log_sql_eqp(conn, sql_query);
@@ -515,7 +515,7 @@ where
 
 pub fn query_count<P>(conn: &Connection, sql_query: &str, sql_args: P) -> Result<i64, Error>
 where
-    P: IntoIterator,
+    P: IntoIterator + rusqlite::Params,
     P::Item: ToSql,
 {
     query_int(conn, sql_query, sql_args)

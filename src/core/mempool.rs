@@ -1282,7 +1282,7 @@ impl MemPoolDB {
         let txs: Vec<MemPoolTxInfo> = query_rows(
             &sql_tx,
             "SELECT * FROM mempool as m WHERE m.fee_rate IS NULL LIMIT ?",
-            &[max_updates],
+            [max_updates],
         )?;
         let mut updated = 0;
         for tx_to_estimate in txs {

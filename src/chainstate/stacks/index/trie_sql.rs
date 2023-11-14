@@ -235,7 +235,7 @@ pub fn get_block_hash<T: MarfTrieId>(conn: &Connection, local_id: u32) -> Result
     let result = conn
         .query_row(
             "SELECT block_hash FROM marf_data WHERE block_id = ?",
-            &[local_id],
+            [local_id],
             |row| row.get("block_hash"),
         )
         .optional()?;
