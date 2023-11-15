@@ -40,7 +40,7 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
-    pub path: Option<String>,
+    pub __path: Option<String>, // Only used for config file reloads
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
@@ -1174,7 +1174,7 @@ impl Config {
             .map_err(|e| format!("Atlas config error: {e}"))?;
 
         Ok(Config {
-            config_path: config_file.path,
+            config_path: config_file.__path,
             node,
             burnchain,
             initial_balances,

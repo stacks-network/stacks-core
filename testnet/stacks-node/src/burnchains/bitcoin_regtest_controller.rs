@@ -157,7 +157,12 @@ pub fn make_bitcoin_indexer(
 pub fn get_satoshis_per_byte(config: Config) -> u64 {
     match config.get_burnchain_config() {
         Ok(s) => s.satoshis_per_byte,
-        Err(_) => config.burnchain.satoshis_per_byte,
+        Err(_) => {
+            info!(
+                "No config found. Using previous configuration."
+            );
+            config.burnchain.satoshis_per_byte,
+        }
     }
 }
 
