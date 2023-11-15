@@ -154,14 +154,12 @@ pub fn make_bitcoin_indexer(
     burnchain_indexer
 }
 
-pub fn get_satoshis_per_byte(config: Config) -> u64 {
+pub fn get_satoshis_per_byte(config: &Config) -> u64 {
     match config.get_burnchain_config() {
         Ok(s) => s.satoshis_per_byte,
         Err(_) => {
-            info!(
-                "No config found. Using previous configuration."
-            );
-            config.burnchain.satoshis_per_byte,
+            info!("No config found. Using previous configuration.");
+            config.burnchain.satoshis_per_byte
         }
     }
 }
@@ -809,7 +807,7 @@ impl BitcoinRegtestController {
         let public_key = signer.get_public_key();
 
         // reload the config to find satoshis_per_byte changes
-        let satoshis_per_byte = get_satoshis_per_byte(config);
+        let satoshis_per_byte = get_satoshis_per_byte(&self.config);
         let btc_miner_fee = self.config.burnchain.leader_key_tx_estimated_size * satoshis_per_byte;
         let budget_for_outputs = DUST_UTXO_LIMIT;
         let total_required = btc_miner_fee + budget_for_outputs;
@@ -932,7 +930,7 @@ impl BitcoinRegtestController {
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
         let max_tx_size = 230;
-        let satoshis_per_byte = get_satoshis_per_byte(self.config);
+        let satoshis_per_byte = get_satoshis_per_byte(&self.config);
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
                 Transaction {
@@ -978,7 +976,7 @@ impl BitcoinRegtestController {
                 .to_bitcoin_tx_out(DUST_UTXO_LIMIT),
         );
 
-        let satoshis_per_byte = get_satoshis_per_byte(self.config);
+        let satoshis_per_byte = get_satoshis_per_byte(&self.config);
         self.finalize_tx(
             epoch_id,
             &mut tx,
@@ -1034,7 +1032,7 @@ impl BitcoinRegtestController {
             self.prepare_tx(
                 epoch_id,
                 &public_key,
-                DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(self.config),
+                DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(&self.config),
                 None,
                 None,
                 0,
@@ -1068,7 +1066,7 @@ impl BitcoinRegtestController {
             DUST_UTXO_LIMIT,
             0,
             max_tx_size,
-            get_satoshis_per_byte(self.config),
+            get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
         )?;
@@ -1103,7 +1101,7 @@ impl BitcoinRegtestController {
         let public_key = signer.get_public_key();
         let max_tx_size = 280;
 
-        let output_amt = DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(self.config);
+        let output_amt = DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(&self.config);
         let (mut tx, mut utxos) =
             self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
 
@@ -1132,7 +1130,7 @@ impl BitcoinRegtestController {
             output_amt,
             0,
             max_tx_size,
-            get_satoshis_per_byte(self.config),
+            get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
         )?;
@@ -1333,7 +1331,7 @@ impl BitcoinRegtestController {
 
         // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent higher, stop RBF
         if ongoing_op.fees.fee_rate
-            > (get_satoshis_per_byte(self.config) * self.config.burnchain.max_rbf / 100)
+            > (get_satoshis_per_byte(&self.config) * self.config.burnchain.max_rbf / 100)
         {
             warn!(
                 "RBF'd block commits reached {}% satoshi per byte fee rate, not resubmitting",

@@ -173,7 +173,7 @@ impl ConfigFile {
     pub fn from_path(path: &str) -> Result<ConfigFile, String> {
         let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
         let mut f = Self::from_str(&content)?;
-        f.path = Some(path.to_string());
+        f.__path = Some(path.to_string());
         Ok(f)
     }
 
