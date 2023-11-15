@@ -166,16 +166,17 @@ pub fn get_satoshis_per_byte(config: &Config) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::config::DEFAULT_SATS_PER_VB;
+
     use super::*;
+    use std::env::temp_dir;
     use std::fs::File;
     use std::io::Write;
-    use std::path::Path;
-    use tempfile::tempdir;
 
     #[test]
     fn test_get_satoshis_per_byte() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("config.toml");
+        let dir = temp_dir();
+        let file_path = dir.as_path().join("config.toml");
 
         let mut config = Config::default();
 
@@ -185,11 +186,9 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         writeln!(file, "[burnchain]").unwrap();
         writeln!(file, "satoshis_per_byte = 51").unwrap();
-        config.burnchain.config_file = Some(file_path.to_str().unwrap().to_string());
+        config.config_path = Some(file_path.to_str().unwrap().to_string());
 
         assert_eq!(get_satoshis_per_byte(&config), 51);
-
-        dir.close().unwrap();
     }
 }
 
