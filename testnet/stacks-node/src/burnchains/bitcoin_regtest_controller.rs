@@ -164,6 +164,35 @@ pub fn get_satoshis_per_byte(config: &Config) -> u64 {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_get_satoshis_per_byte() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("config.toml");
+
+        let mut config = Config::default();
+
+        let satoshis_per_byte = get_satoshis_per_byte(&config);
+        assert_eq!(satoshis_per_byte, DEFAULT_SATS_PER_VB);
+
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "[burnchain]").unwrap();
+        writeln!(file, "satoshis_per_byte = 51").unwrap();
+        config.burnchain.config_file = Some(file_path.to_str().unwrap().to_string());
+
+        assert_eq!(get_satoshis_per_byte(&config), 51);
+
+        dir.close().unwrap();
+    }
+}
+
 impl LeaderBlockCommitFees {
     pub fn fees_from_previous_tx(
         &self,
