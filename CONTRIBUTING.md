@@ -102,7 +102,7 @@ you push your code. Follow these instruction to set it up:
 ```sh
 #!/bin/sh
 git diff --name-only --staged | grep '\.rs$' | xargs -P 8 -I {} rustfmt {} --edition 2021 --check --config group_imports=StdExternalCrate,imports_granularity=Module || (
-  echo 'rustfmt failed: run "cargo fmt --all -- --config group_imports=StdExternalCrate,imports_granularity=Module"';
+  echo 'rustfmt failed: run "cargo fmt-stacks"';
   exit 1
 )
 ```
@@ -385,23 +385,19 @@ A test should be marked `#[ignore]` if:
 ## Formatting
 
 PRs will be checked against `rustfmt` and will _fail_ if not properly formatted.
-Unfortunately, some config options that we require cannot currently be set in `.rustfmt` files currently, so arguments must be passed via the command line.
-There is a Makefile target to simplify calling `cargo fmt` with the desired config.
+Unfortunately, some config options that we require cannot currently be set in `.rustfmt` files, so arguments must be passed via the command line.
+Therefore, we handle `rustfmt` configuration using a Cargo alias: `cargo fmt-stacks`
 
 You can check the formatting locally via:
 
 ```bash
-cargo fmt --all -- --check --config group_imports=StdExternalCrate,imports_granularity=Module
-# Or
-make fmt-check
+cargo fmt-stacks --check
 ```
 
 You can automatically reformat your commit via:
 
 ```bash
-cargo fmt --all -- --config group_imports=StdExternalCrate,imports_granularity=Module
-# Or
-make fmt
+cargo fmt-stacks
 ```
 
 ## Comments
