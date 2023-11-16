@@ -181,7 +181,7 @@ pub fn announce_boot_receipts(
 
     debug!("Push {} boot receipts", &boot_receipts.len());
     event_dispatcher.announce_block(
-        &block_0,
+        &block_0.into(),
         &block_header_0,
         boot_receipts,
         &StacksBlockId::sentinel(),

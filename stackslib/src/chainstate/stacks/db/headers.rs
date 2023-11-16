@@ -249,6 +249,21 @@ impl StacksChainState {
         .map_err(Error::DBError)
     }
 
+    /// Get a stacks header info by its sortition's consensus hash.
+    /// Because the consensus hash mixes in the burnchain header hash and the PoX bit vector,
+    /// it's guaranteed to be unique across all burnchain forks and all PoX forks, and thus all
+    /// Stacks forks.
+    pub fn get_stacks_block_header_info_by_consensus_hash(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<StacksHeaderInfo>, Error> {
+        let sql = "SELECT * FROM block_headers WHERE consensus_hash = ?1";
+        query_row_panic(conn, sql, &[&consensus_hash], || {
+            "FATAL: multiple rows for the same consensus hash".to_string()
+        })
+        .map_err(Error::DBError)
+    }
+
     /// Get an ancestor block header
     pub fn get_tip_ancestor(
         tx: &mut StacksDBTx,

@@ -42,6 +42,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::Error as CoordinatorError;
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
@@ -270,7 +271,9 @@ pub struct TestStacksNode {
     pub key_ops: HashMap<VRFPublicKey, usize>, // map VRF public keys to their locations in the prev_keys array
     pub anchored_blocks: Vec<StacksBlock>,
     pub microblocks: Vec<Vec<StacksMicroblock>>,
+    pub nakamoto_blocks: Vec<Vec<NakamotoBlock>>,
     pub commit_ops: HashMap<BlockHeaderHash, usize>,
+    pub nakamoto_commit_ops: HashMap<StacksBlockId, usize>,
     pub test_name: String,
     forkable: bool,
 }
@@ -295,7 +298,9 @@ impl TestStacksNode {
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
+            nakamoto_blocks: vec![],
             commit_ops: HashMap::new(),
+            nakamoto_commit_ops: HashMap::new(),
             test_name: test_name.to_string(),
             forkable: true,
         }
@@ -309,7 +314,9 @@ impl TestStacksNode {
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
+            nakamoto_blocks: vec![],
             commit_ops: HashMap::new(),
+            nakamoto_commit_ops: HashMap::new(),
             test_name: test_name.to_string(),
             forkable: true,
         }
@@ -322,7 +329,9 @@ impl TestStacksNode {
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
+            nakamoto_blocks: vec![],
             commit_ops: HashMap::new(),
+            nakamoto_commit_ops: HashMap::new(),
             test_name: "".to_string(),
             forkable: false,
         }
@@ -357,7 +366,9 @@ impl TestStacksNode {
             key_ops: self.key_ops.clone(),
             anchored_blocks: self.anchored_blocks.clone(),
             microblocks: self.microblocks.clone(),
+            nakamoto_blocks: self.nakamoto_blocks.clone(),
             commit_ops: self.commit_ops.clone(),
+            nakamoto_commit_ops: self.nakamoto_commit_ops.clone(),
             test_name: new_test_name.to_string(),
             forkable: true,
         }
@@ -574,6 +585,8 @@ impl TestStacksNode {
         block_commit_op
     }
 
+    /// Mine a single Stacks block and a microblock stream.
+    /// Produce its block-commit.
     pub fn mine_stacks_block<F>(
         &mut self,
         sortdb: &SortitionDB,
@@ -1022,6 +1035,7 @@ pub fn make_coinbase_with_nonce(
         TransactionPayload::Coinbase(
             CoinbasePayload([(burnchain_height % 256) as u8; 32]),
             recipient,
+            None,
         ),
     );
     tx_coinbase.chain_id = 0x80000000;
@@ -1246,7 +1260,7 @@ pub fn make_user_stacks_transfer(
 }
 
 pub fn make_user_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> StacksTransaction {
-    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
+    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
     sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
 }
 

@@ -43,6 +43,8 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -658,6 +660,81 @@ impl Relayer {
             );
         }
         Ok(res)
+    }
+
+    /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
+    /// downloaded by us, or pushed via p2p.
+    /// Return Ok(true) if we stored it, Ok(false) if we didn't
+    pub fn process_new_nakamoto_block(
+        sort_handle: &SortitionHandleConn,
+        chainstate: &mut StacksChainState,
+        block: NakamotoBlock,
+    ) -> Result<bool, chainstate_error> {
+        debug!(
+            "Handle incoming Nakamoto block {}/{}",
+            &block.header.consensus_hash,
+            &block.header.block_hash()
+        );
+
+        // do we have this block?  don't lock the DB needlessly if so.
+        if let Some(_) =
+            NakamotoChainState::get_block_header(chainstate.db(), &block.header.block_id())?
+        {
+            debug!("Already have Nakamoto block {}", &block.header.block_id());
+            return Ok(false);
+        }
+
+        let block_sn =
+            SortitionDB::get_block_snapshot_consensus(sort_handle, &block.header.consensus_hash)?
+                .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
+
+        // NOTE: it's `+ 1` because the first Nakamoto block is built atop the last epoch 2.x
+        // tenure, right after the last 2.x sortition
+        let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height + 1)?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
+
+        if epoch_id < StacksEpochId::Epoch30 {
+            error!("Nakamoto blocks are not supported in this epoch");
+            return Err(chainstate_error::InvalidStacksBlock(
+                "Nakamoto blocks are not supported in this epoch".into(),
+            ));
+        }
+
+        // don't relay this block if it's using the wrong AST rules (this would render at least one of its
+        // txs problematic).
+        if !Relayer::static_check_problematic_relayed_nakamoto_block(
+            chainstate.mainnet,
+            epoch_id,
+            &block,
+            ASTRules::PrecheckSize,
+        ) {
+            warn!(
+                "Nakamoto block is problematic; will not store or relay";
+                "stacks_block_hash" => %block.header.block_hash(),
+                "consensus_hash" => %block.header.consensus_hash,
+                "burn_height" => block.header.chain_length,
+                "sortition_height" => block_sn.block_height,
+            );
+            return Ok(false);
+        }
+
+        let accept_msg = format!(
+            "Stored incoming Nakamoto block {}/{}",
+            &block.header.consensus_hash,
+            &block.header.block_hash()
+        );
+
+        let config = chainstate.config();
+        let staging_db_tx = chainstate.db_tx_begin()?;
+        let accepted =
+            NakamotoChainState::accept_block(&config, block, sort_handle, &staging_db_tx)?;
+        staging_db_tx.commit()?;
+
+        if accepted {
+            debug!("{}", &accept_msg);
+        }
+        Ok(accepted)
     }
 
     /// Coalesce a set of microblocks into relayer hints and MicroblocksData messages, as calculated by
@@ -1313,6 +1390,32 @@ impl Relayer {
         true
     }
 
+    /// Verify that a relayed block is not problematic -- i.e. it doesn't contain any problematic
+    /// transactions.  This is a static check -- we only look at the block contents.
+    ///
+    /// Returns true if the check passed -- i.e. no problems.
+    /// Returns false if not
+    pub fn static_check_problematic_relayed_nakamoto_block(
+        mainnet: bool,
+        epoch_id: StacksEpochId,
+        block: &NakamotoBlock,
+        ast_rules: ASTRules,
+    ) -> bool {
+        for tx in block.txs.iter() {
+            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_ok()
+            {
+                info!(
+                    "Nakamoto block {} with tx {} will not be stored or relayed",
+                    block.header.block_hash(),
+                    tx.txid()
+                );
+                return false;
+            }
+        }
+        true
+    }
+
     /// Verify that a relayed microblock is not problematic -- i.e. it doesn't contain any
     /// problematic transactions. This is a static check -- we only look at the microblock
     /// contents.
@@ -1576,21 +1679,22 @@ impl Relayer {
         mempool: &mut MemPoolDB,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
-        let chain_tip = match chainstate.get_stacks_chain_tip(sortdb)? {
-            Some(tip) => tip,
-            None => {
-                debug!(
-                    "No Stacks chain tip; dropping {} transaction(s)",
-                    network_result.pushed_transactions.len()
-                );
-                return Ok(vec![]);
-            }
-        };
+        let chain_tip =
+            match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
+                Some(tip) => tip,
+                None => {
+                    debug!(
+                        "No Stacks chain tip; dropping {} transaction(s)",
+                        network_result.pushed_transactions.len()
+                    );
+                    return Ok(vec![]);
+                }
+            };
         let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), network_result.burn_height)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
 
-        let chain_height = chain_tip.height;
+        let chain_height = chain_tip.anchored_header.height();
         Relayer::filter_problematic_transactions(network_result, chainstate.mainnet, epoch_id);
 
         if let Err(e) = PeerNetwork::store_transactions(
@@ -1674,6 +1778,7 @@ impl Relayer {
     }
 
     /// Set up the unconfirmed chain state off of the canonical chain tip.
+    /// Only relevant in Stacks 2.x.  Nakamoto nodes should not call this.
     pub fn setup_unconfirmed_state(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -1695,7 +1800,8 @@ impl Relayer {
         Ok(processed_unconfirmed_state)
     }
 
-    /// Set up unconfirmed chain state in a read-only fashion
+    /// Set up unconfirmed chain state in a read-only fashion.
+    /// Only relevant in Stacks 2.x.  Nakamoto nodes should not call this.
     pub fn setup_unconfirmed_state_readonly(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -1716,6 +1822,8 @@ impl Relayer {
         Ok(())
     }
 
+    /// Reload unconfirmed microblock stream.
+    /// Only call if we're in Stacks 2.x
     pub fn refresh_unconfirmed(
         chainstate: &mut StacksChainState,
         sortdb: &mut SortitionDB,
@@ -4753,7 +4861,11 @@ pub mod test {
 
                     let tip_opt = peers[1]
                         .with_db_state(|sortdb, chainstate, _, _| {
-                            let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                            let tip_opt = NakamotoChainState::get_canonical_block_header(
+                                chainstate.db(),
+                                sortdb,
+                            )
+                            .unwrap();
                             Ok(tip_opt)
                         })
                         .unwrap();
@@ -4883,7 +4995,11 @@ pub mod test {
 
                     let tip_opt = peers[1]
                         .with_db_state(|sortdb, chainstate, _, _| {
-                            let tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                            let tip_opt = NakamotoChainState::get_canonical_block_header(
+                                chainstate.db(),
+                                sortdb,
+                            )
+                            .unwrap();
                             Ok(tip_opt)
                         })
                         .unwrap();
@@ -4896,10 +5012,14 @@ pub mod test {
                     if let Some(tip) = tip_opt {
                         debug!(
                             "Push at {}, need {}",
-                            tip.height - peers[1].config.burnchain.first_block_height - 1,
+                            tip.anchored_header.height()
+                                - peers[1].config.burnchain.first_block_height
+                                - 1,
                             *pushed_i
                         );
-                        if tip.height - peers[1].config.burnchain.first_block_height - 1
+                        if tip.anchored_header.height()
+                            - peers[1].config.burnchain.first_block_height
+                            - 1
                             == *pushed_i as u64
                         {
                             // next block
@@ -4922,10 +5042,14 @@ pub mod test {
                         }
                         debug!(
                             "Sortition at {}, need {}",
-                            tip.height - peers[1].config.burnchain.first_block_height - 1,
+                            tip.anchored_header.height()
+                                - peers[1].config.burnchain.first_block_height
+                                - 1,
                             *i
                         );
-                        if tip.height - peers[1].config.burnchain.first_block_height - 1
+                        if tip.anchored_header.height()
+                            - peers[1].config.burnchain.first_block_height
+                            - 1
                             == *i as u64
                         {
                             let event_id = {
@@ -5548,15 +5672,17 @@ pub mod test {
              microblock_parent_opt: Option<&StacksMicroblockHeader>| {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let stacks_tip_opt =
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                        .unwrap();
                 let parent_tip = match stacks_tip_opt {
                     None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
-                    Some(staging_block) => {
+                    Some(header_tip) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                             &ic,
                             &tip.sortition_id,
-                            &staging_block.anchored_block_hash,
+                            &header_tip.anchored_header.block_hash(),
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
@@ -5717,15 +5843,17 @@ pub mod test {
              microblock_parent_opt: Option<&StacksMicroblockHeader>| {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let stacks_tip_opt =
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                        .unwrap();
                 let parent_tip = match stacks_tip_opt {
                     None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
-                    Some(staging_block) => {
+                    Some(header_tip) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                             &ic,
                             &tip.sortition_id,
-                            &staging_block.anchored_block_hash,
+                            &header_tip.anchored_header.block_hash(),
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork
@@ -5896,15 +6024,17 @@ pub mod test {
              microblock_parent_opt: Option<&StacksMicroblockHeader>| {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-                let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                let stacks_tip_opt =
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                        .unwrap();
                 let parent_tip = match stacks_tip_opt {
                     None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
-                    Some(staging_block) => {
+                    Some(header_tip) => {
                         let ic = sortdb.index_conn();
                         let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
                             &ic,
                             &tip.sortition_id,
-                            &staging_block.anchored_block_hash,
+                            &header_tip.anchored_header.block_hash(),
                         )
                         .unwrap()
                         .unwrap(); // succeeds because we don't fork

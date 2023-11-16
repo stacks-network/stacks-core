@@ -53,6 +53,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
 use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
@@ -445,9 +446,9 @@ impl StackerDBConfig {
         sortition_db: &SortitionDB,
         contract_id: &QualifiedContractIdentifier,
     ) -> Result<StackerDBConfig, net_error> {
-        let chain_tip = chainstate
-            .get_stacks_chain_tip(sortition_db)?
-            .ok_or(net_error::NoSuchStackerDB(contract_id.clone()))?;
+        let chain_tip =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), sortition_db)?
+                .ok_or(net_error::NoSuchStackerDB(contract_id.clone()))?;
 
         let burn_tip = SortitionDB::get_block_snapshot_consensus(
             sortition_db.conn(),
@@ -455,8 +456,10 @@ impl StackerDBConfig {
         )?
         .expect("FATAL: missing snapshot for Stacks block");
 
-        let chain_tip_hash =
-            StacksBlockId::new(&chain_tip.consensus_hash, &chain_tip.anchored_block_hash);
+        let chain_tip_hash = StacksBlockId::new(
+            &chain_tip.consensus_hash,
+            &chain_tip.anchored_header.block_hash(),
+        );
         let cur_epoch = SortitionDB::get_stacks_epoch(sortition_db.conn(), burn_tip.block_height)?
             .expect("FATAL: no epoch defined");
 

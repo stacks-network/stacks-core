@@ -31,6 +31,7 @@ use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
+use crate::chainstate::stacks::TransactionPayloadID;
 use crate::chainstate::stacks::*;
 use crate::core::*;
 use crate::net::Error as net_error;
@@ -51,7 +52,7 @@ impl StacksMessageCodec for TransactionContractCall {
         let contract_name: ContractName = read_next(fd)?;
         let function_name: ClarityName = read_next(fd)?;
         let function_args: Vec<Value> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN as u64);
+            let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_TRANSACTION_LEN));
             read_next(&mut bound_read)
         }?;
 
@@ -219,17 +220,36 @@ impl StacksMessageCodec for TransactionPayload {
                 h1.consensus_serialize(fd)?;
                 h2.consensus_serialize(fd)?;
             }
-            TransactionPayload::Coinbase(buf, recipient_opt) => {
-                match recipient_opt {
-                    None => {
+            TransactionPayload::Coinbase(buf, recipient_opt, vrf_opt) => {
+                match (recipient_opt, vrf_opt) {
+                    (None, None) => {
                         // stacks 2.05 and earlier only use this path
                         write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
                         write_next(fd, buf)?;
                     }
-                    Some(recipient) => {
+                    (Some(recipient), None) => {
                         write_next(fd, &(TransactionPayloadID::CoinbaseToAltRecipient as u8))?;
                         write_next(fd, buf)?;
                         write_next(fd, &Value::Principal(recipient.clone()))?;
+                    }
+                    (None, Some(vrf_proof)) => {
+                        // nakamoto coinbase
+                        // encode principal as (optional principal)
+                        write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
+                        write_next(fd, buf)?;
+                        write_next(fd, &Value::none())?;
+                        write_next(fd, &vrf_proof.to_bytes().to_vec())?;
+                    }
+                    (Some(recipient), Some(vrf_proof)) => {
+                        write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
+                        write_next(fd, buf)?;
+                        write_next(
+                            fd,
+                            &Value::some(Value::Principal(recipient.clone())).expect(
+                                "FATAL: failed to encode recipient principal as `optional`",
+                            ),
+                        )?;
+                        write_next(fd, &vrf_proof.to_bytes().to_vec())?;
                     }
                 }
             }
@@ -291,7 +311,7 @@ impl StacksMessageCodec for TransactionPayload {
             }
             TransactionPayloadID::Coinbase => {
                 let payload: CoinbasePayload = read_next(fd)?;
-                TransactionPayload::Coinbase(payload, None)
+                TransactionPayload::Coinbase(payload, None, None)
             }
             TransactionPayloadID::CoinbaseToAltRecipient => {
                 let payload: CoinbasePayload = read_next(fd)?;
@@ -303,9 +323,37 @@ impl StacksMessageCodec for TransactionPayload {
                     }
                 };
 
-                TransactionPayload::Coinbase(payload, Some(recipient))
+                TransactionPayload::Coinbase(payload, Some(recipient), None)
             }
-            TransactionPayloadID::TenureChange => TransactionPayload::TenureChange(read_next(fd)?),
+            TransactionPayloadID::TenureChange => {
+                let payload: TenureChangePayload = read_next(fd)?;
+                TransactionPayload::TenureChange(payload)
+            }
+            // TODO: gate this!
+            TransactionPayloadID::NakamotoCoinbase => {
+                let payload: CoinbasePayload = read_next(fd)?;
+                let principal_value_opt: Value = read_next(fd)?;
+                let recipient_opt = if let Value::Optional(optional_data) = principal_value_opt {
+                    if let Some(principal_value) = optional_data.data {
+                        if let Value::Principal(recipient_principal) = *principal_value {
+                            Some(recipient_principal)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    return Err(codec_error::DeserializeError("Failed to parse nakamoto coinbase transaction -- did not receive an optional recipient principal value".to_string()));
+                };
+                let vrf_proof_bytes: Vec<u8> = read_next(fd)?;
+                let Some(vrf_proof) = VRFProof::from_bytes(&vrf_proof_bytes) else {
+                    return Err(codec_error::DeserializeError(
+                        "Failed to decode coinbase VRF proof".to_string(),
+                    ));
+                };
+                TransactionPayload::Coinbase(payload, recipient_opt, Some(vrf_proof))
+            }
         };
 
         Ok(payload)
@@ -537,7 +585,7 @@ impl StacksTransaction {
         let mut tx_bytes = vec![];
         self.consensus_serialize(&mut tx_bytes)
             .expect("BUG: Failed to serialize a transaction object");
-        tx_bytes.len() as u64
+        u64::try_from(tx_bytes.len()).expect("tx len exceeds 2^64 bytes")
     }
 
     pub fn consensus_deserialize_with_len<R: Read>(
@@ -633,10 +681,12 @@ impl StacksTransaction {
     }
 
     /// Try to convert to a coinbase payload
-    pub fn try_as_coinbase(&self) -> Option<(&CoinbasePayload, Option<&PrincipalData>)> {
+    pub fn try_as_coinbase(
+        &self,
+    ) -> Option<(&CoinbasePayload, Option<&PrincipalData>, Option<&VRFProof>)> {
         match &self.payload {
-            TransactionPayload::Coinbase(ref payload, ref recipient_opt) => {
-                Some((payload, recipient_opt.as_ref()))
+            TransactionPayload::Coinbase(ref payload, ref recipient_opt, ref vrf_proof_opt) => {
+                Some((payload, recipient_opt.as_ref(), vrf_proof_opt.as_ref()))
             }
             _ => None,
         }
@@ -1603,12 +1653,16 @@ mod test {
                 corrupt_h2.sequence += 1;
                 TransactionPayload::PoisonMicroblock(corrupt_h1, corrupt_h2)
             }
-            TransactionPayload::Coinbase(ref buf, ref recipient_opt) => {
+            TransactionPayload::Coinbase(ref buf, ref recipient_opt, ref vrf_proof_opt) => {
                 let mut corrupt_buf_bytes = buf.as_bytes().clone();
                 corrupt_buf_bytes[0] = (((corrupt_buf_bytes[0] as u16) + 1) % 256) as u8;
 
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
-                TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone())
+                TransactionPayload::Coinbase(
+                    corrupt_buf,
+                    recipient_opt.clone(),
+                    vrf_proof_opt.clone(),
+                )
             }
             TransactionPayload::TenureChange(_) => todo!(),
         };
@@ -1846,7 +1900,8 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_payload_coinbase() {
-        let coinbase_payload = TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None);
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None);
         let coinbase_payload_bytes = vec![
             // payload type ID
             TransactionPayloadID::Coinbase as u8,
@@ -1889,6 +1944,326 @@ mod test {
             &coinbase_payload,
             &coinbase_payload_bytes,
         );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_nakamoto_coinbase() {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof));
+        let coinbase_bytes = vec![
+            // payload type ID
+            TransactionPayloadID::NakamotoCoinbase as u8,
+            // buffer
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            // no alt recipient, so Value::none
+            0x09,
+            // proof bytes length
+            0x00,
+            0x00,
+            0x00,
+            0x50,
+            // proof bytes
+            0x92,
+            0x75,
+            0xdf,
+            0x67,
+            0xa6,
+            0x8c,
+            0x87,
+            0x45,
+            0xc0,
+            0xff,
+            0x97,
+            0xb4,
+            0x82,
+            0x01,
+            0xee,
+            0x6d,
+            0xb4,
+            0x47,
+            0xf7,
+            0xc9,
+            0x3b,
+            0x23,
+            0xae,
+            0x24,
+            0xcd,
+            0xc2,
+            0x40,
+            0x0f,
+            0x52,
+            0xfd,
+            0xb0,
+            0x8a,
+            0x1a,
+            0x6a,
+            0xc7,
+            0xec,
+            0x71,
+            0xbf,
+            0x9c,
+            0x9c,
+            0x76,
+            0xe9,
+            0x6e,
+            0xe4,
+            0x67,
+            0x5e,
+            0xbf,
+            0xf6,
+            0x06,
+            0x25,
+            0xaf,
+            0x28,
+            0x71,
+            0x85,
+            0x01,
+            0x04,
+            0x7b,
+            0xfd,
+            0x87,
+            0xb8,
+            0x10,
+            0xc2,
+            0xd2,
+            0x13,
+            0x9b,
+            0x73,
+            0xc2,
+            0x3b,
+            0xd6,
+            0x9d,
+            0xe6,
+            0x63,
+            0x60,
+            0x95,
+            0x3a,
+            0x64,
+            0x2c,
+            0x2a,
+            0x33,
+            0x0a,
+        ];
+
+        check_codec_and_corruption(&coinbase_payload, &coinbase_bytes);
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_nakamoto_coinbase_alt_recipient() {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let recipient = PrincipalData::from(QualifiedContractIdentifier {
+            issuer: StacksAddress {
+                version: 1,
+                bytes: Hash160([0xff; 20]),
+            }
+            .into(),
+            name: "foo-contract".into(),
+        });
+
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), Some(recipient), Some(proof));
+        let coinbase_bytes = vec![
+            // payload type ID
+            TransactionPayloadID::NakamotoCoinbase as u8,
+            // buffer
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            // have contract recipient, so Some(..)
+            0x0a,
+            // contract address type
+            0x06,
+            // address
+            0x01,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            // name length
+            0x0c,
+            // name ('foo-contract')
+            0x66,
+            0x6f,
+            0x6f,
+            0x2d,
+            0x63,
+            0x6f,
+            0x6e,
+            0x74,
+            0x72,
+            0x61,
+            0x63,
+            0x74,
+            // proof bytes length
+            0x00,
+            0x00,
+            0x00,
+            0x50,
+            // proof bytes
+            0x92,
+            0x75,
+            0xdf,
+            0x67,
+            0xa6,
+            0x8c,
+            0x87,
+            0x45,
+            0xc0,
+            0xff,
+            0x97,
+            0xb4,
+            0x82,
+            0x01,
+            0xee,
+            0x6d,
+            0xb4,
+            0x47,
+            0xf7,
+            0xc9,
+            0x3b,
+            0x23,
+            0xae,
+            0x24,
+            0xcd,
+            0xc2,
+            0x40,
+            0x0f,
+            0x52,
+            0xfd,
+            0xb0,
+            0x8a,
+            0x1a,
+            0x6a,
+            0xc7,
+            0xec,
+            0x71,
+            0xbf,
+            0x9c,
+            0x9c,
+            0x76,
+            0xe9,
+            0x6e,
+            0xe4,
+            0x67,
+            0x5e,
+            0xbf,
+            0xf6,
+            0x06,
+            0x25,
+            0xaf,
+            0x28,
+            0x71,
+            0x85,
+            0x01,
+            0x04,
+            0x7b,
+            0xfd,
+            0x87,
+            0xb8,
+            0x10,
+            0xc2,
+            0xd2,
+            0x13,
+            0x9b,
+            0x73,
+            0xc2,
+            0x3b,
+            0xd6,
+            0x9d,
+            0xe6,
+            0x63,
+            0x60,
+            0x95,
+            0x3a,
+            0x64,
+            0x2c,
+            0x2a,
+            0x33,
+            0x0a,
+        ];
+
+        check_codec_and_corruption(&coinbase_payload, &coinbase_bytes);
     }
 
     #[test]
@@ -3347,7 +3722,7 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
 
         let tx_stx = StacksTransaction::new(

@@ -468,24 +468,26 @@ impl StacksChainState {
         fee: u64,
         payer_account: StacksAccount,
     ) -> Result<u64, Error> {
-        let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht) = clarity_tx
+        let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht, v3_unlock_ht) = clarity_tx
             .with_clarity_db_readonly(|ref mut db| {
                 (
                     db.get_current_burnchain_block_height(),
                     db.get_v1_unlock_height(),
                     db.get_v2_unlock_height(),
+                    db.get_v3_unlock_height(),
                 )
             });
 
         let consolidated_balance = payer_account
             .stx_balance
             .get_available_balance_at_burn_block(
-                cur_burn_block_height as u64,
+                u64::from(cur_burn_block_height),
                 v1_unlock_ht,
                 v2_unlock_ht,
+                v3_unlock_ht,
             );
 
-        if consolidated_balance < fee as u128 {
+        if consolidated_balance < u128::from(fee) {
             return Err(Error::InvalidFee);
         }
 
@@ -569,7 +571,7 @@ impl StacksChainState {
                         .checked_add(amount_burned)
                         .expect("FATAL: sent waaaaay too much STX");
 
-                    if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
+                    if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                         info!(
                             "Post-condition check failure on STX owned by {}: {:?} {:?} {}",
                             account_principal, amount_sent_condition, condition_code, amount_sent
@@ -615,7 +617,7 @@ impl StacksChainState {
                     let amount_sent = asset_map
                         .get_fungible_tokens(&account_principal, &asset_id)
                         .unwrap_or(0);
-                    if !condition_code.check(*amount_sent_condition as u128, amount_sent) {
+                    if !condition_code.check(u128::from(*amount_sent_condition), amount_sent) {
                         info!("Post-condition check failure on fungible asset {} owned by {}: {} {:?} {}", &asset_id, account_principal, amount_sent_condition, condition_code, amount_sent);
                         return false;
                     }
@@ -828,7 +830,9 @@ impl StacksChainState {
             }
             Some(height) => {
                 if height
-                    .checked_add(MINER_REWARD_MATURITY as u32)
+                    .checked_add(
+                        u32::try_from(MINER_REWARD_MATURITY).expect("FATAL: maturity > 2^32"),
+                    )
                     .expect("BUG: too many blocks")
                     < current_height
                 {
@@ -850,7 +854,7 @@ impl StacksChainState {
             .get_microblock_poison_report(mblock_pubk_height)
         {
             // account for report loaded
-            env.add_memory(TypeSignature::PrincipalType.size() as u64)
+            env.add_memory(u64::from(TypeSignature::PrincipalType.size()))
                 .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
 
             // u128 sequence
@@ -900,7 +904,7 @@ impl StacksChainState {
         let tuple_data = TupleData::from_data(vec![
             (
                 ClarityName::try_from("block_height").expect("BUG: valid string representation"),
-                Value::UInt(mblock_pubk_height as u128),
+                Value::UInt(u128::from(mblock_pubk_height)),
             ),
             (
                 ClarityName::try_from("microblock_pubkey_hash")
@@ -913,7 +917,7 @@ impl StacksChainState {
             ),
             (
                 ClarityName::try_from("sequence").expect("BUG: valid string representation"),
-                Value::UInt(reported_seq as u128),
+                Value::UInt(u128::from(reported_seq)),
             ),
         ])
         .expect("BUG: valid tuple representation");
@@ -956,7 +960,7 @@ impl StacksChainState {
                     .run_stx_transfer(
                         &origin_account.principal,
                         addr,
-                        *amount as u128,
+                        u128::from(*amount),
                         &BuffData {
                             data: Vec::from(memo.0.clone()),
                         },
@@ -8103,7 +8107,7 @@ pub mod test {
         assert_eq!(
             StacksChainState::get_account(&mut conn, &addr.into())
                 .stx_balance
-                .get_available_balance_at_burn_block(0, 0, 0),
+                .get_available_balance_at_burn_block(0, 0, 0, 0),
             (1000000000 - fee) as u128
         );
 
@@ -8544,7 +8548,13 @@ pub mod test {
             fn get_v2_unlock_height(&self) -> u32 {
                 u32::MAX
             }
+            fn get_v3_unlock_height(&self) -> u32 {
+                u32::MAX
+            }
             fn get_pox_3_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+            fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
@@ -8611,7 +8621,8 @@ pub mod test {
                     StacksEpochId::Epoch22 => self.get_stacks_epoch(3),
                     StacksEpochId::Epoch23 => self.get_stacks_epoch(4),
                     StacksEpochId::Epoch24 => self.get_stacks_epoch(5),
-                    StacksEpochId::Epoch30 => self.get_stacks_epoch(6),
+                    StacksEpochId::Epoch25 => self.get_stacks_epoch(6),
+                    StacksEpochId::Epoch30 => self.get_stacks_epoch(7),
                 }
             }
             fn get_pox_payout_addrs(
@@ -8759,7 +8770,13 @@ pub mod test {
             fn get_v2_unlock_height(&self) -> u32 {
                 u32::MAX
             }
+            fn get_v3_unlock_height(&self) -> u32 {
+                u32::MAX
+            }
             fn get_pox_3_activation_height(&self) -> u32 {
+                u32::MAX
+            }
+            fn get_pox_4_activation_height(&self) -> u32 {
                 u32::MAX
             }
             fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
