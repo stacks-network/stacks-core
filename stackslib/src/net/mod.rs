@@ -3597,7 +3597,10 @@ pub mod test {
             };
 
             let missing_pox_anchor_block_hash_opt = if epoch_id < StacksEpochId::Epoch30 {
-                self.coord.handle_new_burnchain_block().unwrap()
+                self.coord
+                    .handle_new_burnchain_block()
+                    .unwrap()
+                    .into_missing_block_hash()
             } else {
                 if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
                     None

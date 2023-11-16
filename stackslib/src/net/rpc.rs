@@ -319,27 +319,31 @@ impl RPCPoxInfoData {
 
         // Note: should always be 0 unless somehow configured to start later
         let pox_1_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.first_block_height as u64)
+            .block_height_to_reward_cycle(u64::from(burnchain.first_block_height))
             .ok_or(net_error::ChainstateError(
                 "PoX-1 first reward cycle begins before first burn block height".to_string(),
             ))?;
 
         let pox_2_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+            .block_height_to_reward_cycle(u64::from(burnchain.pox_constants.v1_unlock_height))
             .ok_or(net_error::ChainstateError(
                 "PoX-2 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
         let pox_3_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
+            .block_height_to_reward_cycle(u64::from(
+                burnchain.pox_constants.pox_3_activation_height,
+            ))
             .ok_or(net_error::ChainstateError(
                 "PoX-3 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
         let pox_4_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.pox_constants.pox_4_activation_height as u64)
+            .block_height_to_reward_cycle(u64::from(
+                burnchain.pox_constants.pox_4_activation_height,
+            ))
             .ok_or(net_error::ChainstateError(
                 "PoX-4 first reward cycle begins before first burn block height".to_string(),
             ))?

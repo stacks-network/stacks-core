@@ -1180,7 +1180,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let mut num_txs = self.runtime.num_mined;
         let mut num_selected = 0;
         let mut tx_events = Vec::new();
-        let deadline = get_epoch_time_ms() + (self.settings.max_miner_time_ms as u128);
+        let deadline = get_epoch_time_ms() + u128::from(self.settings.max_miner_time_ms);
         let mut block_limit_hit = BlockLimitFunction::NO_LIMIT_HIT;
 
         mem_pool.reset_nonce_cache()?;
@@ -1430,7 +1430,7 @@ impl StacksBlockBuilder {
         header
             .consensus_serialize(&mut header_bytes)
             .expect("FATAL: failed to serialize to vec");
-        let bytes_so_far = header_bytes.len() as u64;
+        let bytes_so_far = u64::try_from(header_bytes.len()).expect("header bytes exceeds 2^64");
 
         StacksBlockBuilder {
             chain_tip: parent_chain_tip.clone(),
@@ -1587,7 +1587,7 @@ impl StacksBlockBuilder {
         let mut tx_bytes = vec![];
         tx.consensus_serialize(&mut tx_bytes)
             .map_err(Error::CodecError)?;
-        let tx_len = tx_bytes.len() as u64;
+        let tx_len = u64::try_from(tx_bytes.len()).expect("tx len exceeds 2^64 bytes");
 
         if self.bytes_so_far + tx_len >= MAX_EPOCH_SIZE.into() {
             warn!(
@@ -1690,7 +1690,7 @@ impl StacksBlockBuilder {
         StacksChainState::finish_block(
             clarity_tx,
             self.miner_payouts.as_ref(),
-            self.header.total_work.work as u32,
+            u32::try_from(self.header.total_work.work).expect("FATAL: more than 2^32 blocks"),
             self.header.microblock_pubkey_hash,
         )
         .expect("FATAL: call to `finish_block` failed");
@@ -1835,8 +1835,10 @@ impl StacksBlockBuilder {
         );
 
         let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
-        let burn_tip_height =
-            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height as u32;
+        let burn_tip_height = u32::try_from(
+            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height,
+        )
+        .expect("FATAL: more than 2^32 sortitions");
 
         let parent_microblocks = if StacksChainState::block_crosses_epoch_boundary(
             chainstate.db(),
@@ -1938,7 +1940,8 @@ impl StacksBlockBuilder {
             Some(self.miner_id),
         )?;
         self.miner_payouts = matured_miner_rewards_opt;
-        self.total_confirmed_streamed_fees += microblock_fees as u64;
+        self.total_confirmed_streamed_fees +=
+            u64::try_from(microblock_fees).expect("more than 2^64 microstx microblock fees");
 
         Ok((clarity_tx, microblock_execution_cost))
     }
@@ -2073,8 +2076,8 @@ impl StacksBlockBuilder {
                 0,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &first_block_hash,
-                first_block_height as u32,
-                first_block_ts as u64,
+                u32::try_from(first_block_height).expect("FATAL: first block is over 2^32"),
+                u64::try_from(first_block_ts).expect("FATAL: first block timestamp is over 2^64"),
                 &proof,
                 pubkey_hash,
             )
@@ -2114,8 +2117,10 @@ impl StacksBlockBuilder {
                 0,
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &first_block_hash,
-                BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT as u32,
-                BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP as u64,
+                u32::try_from(BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT)
+                    .expect("first regtest bitcoin block is over 2^32"),
+                u64::try_from(BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP)
+                    .expect("first regtest bitcoin block timestamp is over 2^64"),
                 &proof,
                 pubkey_hash,
             )
@@ -2184,7 +2189,7 @@ impl StacksBlockBuilder {
         let mut invalidated_txs = vec![];
         let mut to_drop_and_blacklist = vec![];
 
-        let deadline = ts_start + (max_miner_time_ms as u128);
+        let deadline = ts_start + u128::from(max_miner_time_ms);
         let mut num_txs = 0;
         let mut blocked = false;
 
@@ -2487,7 +2492,9 @@ impl StacksBlockBuilder {
             );
         }
 
-        set_last_mined_block_transaction_count(block.txs.len() as u64);
+        set_last_mined_block_transaction_count(
+            u64::try_from(block.txs.len()).expect("more than 2^64 txs"),
+        );
         set_last_mined_execution_cost_observed(&consumed, &block_limit);
 
         info!(

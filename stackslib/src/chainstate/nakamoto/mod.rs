@@ -371,7 +371,7 @@ impl NakamotoBlockHeader {
     }
 
     pub fn is_first_mined(&self) -> bool {
-        self.block_id() == StacksBlockId::first_mined()
+        self.parent_block_id == StacksBlockId::first_mined()
     }
 
     /// Sign the block header by the miner
@@ -490,6 +490,8 @@ impl NakamotoBlock {
                     return Err(TenureChangeError::PreviousTenureInvalid);
                 }
 
+                // TODO: check number of blocks in previous tenure
+                // TODO: check tenure change cause
                 tc.validate()
             } else {
                 // placeholder error
@@ -613,8 +615,8 @@ impl NakamotoBlock {
         }
 
         // tenure-changes must all come first, and must be in order
-        for i in 0..tenure_change_positions.len() {
-            if i != tenure_change_positions[i] {
+        for (i, pos) in tenure_change_positions.iter().enumerate() {
+            if &i != pos {
                 // tenure-change is out of place
                 return Some(false);
             }
@@ -818,7 +820,7 @@ impl NakamotoBlock {
         chain_id: u32,
         epoch_id: StacksEpochId,
     ) -> bool {
-        if self.txs.len() == 0 {
+        if self.txs.is_empty() {
             return false;
         }
         if !StacksBlock::validate_transactions_unique(&self.txs) {
@@ -946,7 +948,10 @@ impl NakamotoChainState {
             .query_row_and_then(query, NO_PARAMS, |row| {
                 let data: Vec<u8> = row.get("data")?;
                 let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
-                Ok(Some((block, data.len() as u64)))
+                Ok(Some((
+                    block,
+                    u64::try_from(data.len()).expect("FATAL: block is bigger than a u64"),
+                )))
             })
             .or_else(|e| {
                 if let ChainstateError::DBError(DBError::SqliteError(
@@ -1224,8 +1229,8 @@ impl NakamotoChainState {
         // key register of the winning miner
         let leader_key = db_handle
             .get_leader_key_at(
-                block_commit.key_block_ptr as u64,
-                block_commit.key_vtxindex as u32,
+                u64::from(block_commit.key_block_ptr),
+                u32::from(block_commit.key_vtxindex),
             )?
             .expect("FATAL: have block commit but no leader key");
 
@@ -1588,7 +1593,7 @@ impl NakamotoChainState {
         )
     }
 
-    /// Get the parent header of a Nakamoto block.
+    /// Get the tenure-start block header of a given consensus hash.
     /// It might be an epoch 2.x block header
     pub fn get_block_header_by_consensus_hash(
         chainstate_conn: &Connection,

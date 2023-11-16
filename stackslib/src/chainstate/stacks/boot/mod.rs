@@ -688,7 +688,7 @@ impl StacksChainState {
     ) -> u128 {
         // set the lower limit on reward scaling at 25% of liquid_ustx
         //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
-        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
+        let scale_by = cmp::max(participation, liquid_ustx / u128::from(POX_MAXIMAL_SCALING));
         let threshold_precise = scale_by / reward_slots;
         // compute the threshold as nearest 10k > threshold_precise
         let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
@@ -715,9 +715,10 @@ impl StacksChainState {
 
         // set the lower limit on reward scaling at 25% of liquid_ustx
         //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
-        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
+        let scale_by = cmp::max(participation, liquid_ustx / u128::from(POX_MAXIMAL_SCALING));
 
-        let reward_slots = pox_settings.reward_slots() as u128;
+        let reward_slots = u128::try_from(pox_settings.reward_slots())
+            .expect("FATAL: unreachable: more than 2^128 reward slots");
         let threshold_precise = scale_by / reward_slots;
         // compute the threshold as nearest 10k > threshold_precise
         let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
@@ -738,7 +739,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_1_NAME)? {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_1_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -816,7 +817,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_2_NAME)? {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_2_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -905,7 +906,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_3_NAME)? {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_3_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -996,7 +997,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_4_NAME)? {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle

@@ -52,7 +52,7 @@ impl StacksMessageCodec for TransactionContractCall {
         let contract_name: ContractName = read_next(fd)?;
         let function_name: ClarityName = read_next(fd)?;
         let function_args: Vec<Value> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN as u64);
+            let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_TRANSACTION_LEN));
             read_next(&mut bound_read)
         }?;
 
@@ -585,7 +585,7 @@ impl StacksTransaction {
         let mut tx_bytes = vec![];
         self.consensus_serialize(&mut tx_bytes)
             .expect("BUG: Failed to serialize a transaction object");
-        tx_bytes.len() as u64
+        u64::try_from(tx_bytes.len()).expect("tx len exceeds 2^64 bytes")
     }
 
     pub fn consensus_deserialize_with_len<R: Read>(

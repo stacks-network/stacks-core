@@ -97,6 +97,32 @@ pub enum PoxAnchorBlockStatus {
     NotSelected,
 }
 
+/// The possible outcomes of processing a burnchain block.
+/// Indicates whether or not we're ready to process Stacks blocks, or if not, whether or not we're
+/// blocked on a Stacks 2.x anchor block or a Nakamoto anchor block
+pub enum NewBurnchainBlockStatus {
+    /// Ready to process Stacks blocks
+    Ready,
+    /// Missing 2.x PoX anchor block
+    WaitForPox2x(BlockHeaderHash),
+    /// Missing Nakamoto anchor block. Unlike 2.x, we won't know its hash.
+    WaitForPoxNakamoto,
+}
+
+impl NewBurnchainBlockStatus {
+    /// Test helper to convert this status into the optional hash of the missing PoX anchor block.
+    /// Because there are unit tests that expect a Some(..) result if PoX cannot proceed, the
+    /// missing Nakamoto anchor block case is converted into a placeholder Some(..) value
+    #[cfg(test)]
+    pub fn into_missing_block_hash(self) -> Option<BlockHeaderHash> {
+        match self {
+            Self::Ready => None,
+            Self::WaitForPox2x(block_hash) => Some(block_hash),
+            Self::WaitForPoxNakamoto => Some(BlockHeaderHash([0x00; 32])),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct RewardCycleInfo {
     pub reward_cycle: u64,
@@ -501,14 +527,15 @@ impl<
             signal_mining_blocked(miner_status.clone());
             debug!("Received new burn block notice");
             match self.handle_new_burnchain_block() {
-                Ok(missing_block_opt) => {
-                    if missing_block_opt.is_some() {
-                        debug!(
-                            "Missing canonical anchor block {}",
-                            &missing_block_opt.clone().unwrap()
-                        );
+                Ok(burn_block_status) => match burn_block_status {
+                    NewBurnchainBlockStatus::Ready => {}
+                    NewBurnchainBlockStatus::WaitForPox2x(block_hash) => {
+                        debug!("Missing canonical Stacks 2.x anchor block {}", &block_hash,);
                     }
-                }
+                    NewBurnchainBlockStatus::WaitForPoxNakamoto => {
+                        debug!("Missing canonical Nakamoto anchor block");
+                    }
+                },
                 Err(e) => {
                     warn!("Error processing new burn block: {:?}", e);
                 }
@@ -2262,9 +2289,7 @@ impl<
     /// Outermost call to process a burnchain block.
     /// Will call the Stacks 2.x or Nakamoto handler, depending on whether or not
     /// Not called internally.
-    /// NOTE: in epoch 3.x, we can't determine the hash of the PoX anchor block directly if it's
-    /// missing. If it is missing, then this method would return Some(BlockHeaderHash("0000...0000"))
-    pub fn handle_new_burnchain_block(&mut self) -> Result<Option<BlockHeaderHash>, Error> {
+    pub fn handle_new_burnchain_block(&mut self) -> Result<NewBurnchainBlockStatus, Error> {
         let canonical_burnchain_tip = self.burnchain_blocks_db.get_canonical_chain_tip()?;
         let epochs = SortitionDB::get_stacks_epochs(self.sortition_db.conn())?;
         let target_epoch_index =
@@ -2275,7 +2300,15 @@ impl<
             .expect("FATAL: StacksEpoch::find_epoch() returned an invalid index");
         if target_epoch.epoch_id < StacksEpochId::Epoch30 {
             // burnchain has not yet advanced to epoch 3.0
-            return self.handle_new_epoch2_burnchain_block(&mut HashSet::new());
+            return self
+                .handle_new_epoch2_burnchain_block(&mut HashSet::new())
+                .and_then(|block_hash_opt| {
+                    if let Some(block_hash) = block_hash_opt {
+                        Ok(NewBurnchainBlockStatus::WaitForPox2x(block_hash))
+                    } else {
+                        Ok(NewBurnchainBlockStatus::Ready)
+                    }
+                });
         }
 
         // burnchain has advanced to epoch 3.0, but has our sortition DB?
@@ -2300,12 +2333,12 @@ impl<
 
         // proceed to process sortitions in epoch 3.0
         self.handle_new_nakamoto_burnchain_block()
-            .map(|can_proceed| {
+            .and_then(|can_proceed| {
                 if can_proceed {
-                    None
+                    Ok(NewBurnchainBlockStatus::Ready)
                 } else {
                     // missing PoX anchor block, but unlike in 2.x, we don't know what it is!
-                    Some(BlockHeaderHash([0x00; 32]))
+                    Ok(NewBurnchainBlockStatus::WaitForPoxNakamoto)
                 }
             })
     }

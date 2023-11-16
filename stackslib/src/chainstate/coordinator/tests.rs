@@ -6258,7 +6258,10 @@ fn test_pox_processable_block_in_different_pox_forks() {
         );
 
         loop {
-            let missing_anchor_opt = coord.handle_new_burnchain_block().unwrap();
+            let missing_anchor_opt = coord
+                .handle_new_burnchain_block()
+                .unwrap()
+                .into_missing_block_hash();
             if let Some(missing_anchor) = missing_anchor_opt {
                 eprintln!(
                     "Unblinded database reports missing anchor block {:?} (ix={})",

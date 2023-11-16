@@ -418,9 +418,7 @@ impl TestBurnchainBlock {
             None => SortitionDB::get_first_block_snapshot(ic).unwrap(),
         };
 
-        let new_seed = if let Some(new_seed) = new_seed {
-            new_seed
-        } else {
+        let new_seed = new_seed.unwrap_or_else(|| {
             // prove on the last-ever sortition's hash to produce the new seed
             let proof = miner
                 .make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
@@ -429,9 +427,8 @@ impl TestBurnchainBlock {
                     leader_key.public_key.to_hex()
                 ));
 
-            let new_seed = VRFSeed::from_proof(&proof);
-            new_seed
-        };
+            VRFSeed::from_proof(&proof)
+        });
 
         let get_commit_res = SortitionDB::get_block_commit(
             ic.conn(),

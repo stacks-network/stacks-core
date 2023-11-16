@@ -3620,18 +3620,15 @@ impl SortitionDB {
     ) -> Result<Option<RewardCycleInfo>, db_error> {
         let sql = "SELECT reward_set FROM preprocessed_reward_sets WHERE sortition_id = ?1";
         let args: &[&dyn ToSql] = &[sortition_id];
-        let reward_set_opt: Option<String> = sortdb
-            .query_row(sql, args, |row| row.get(0))
-            .optional()
-            .map_err(db_error::from)?;
+        let reward_set_opt: Option<String> =
+            sortdb.query_row(sql, args, |row| row.get(0)).optional()?;
 
-        if let Some(reward_set_str) = reward_set_opt {
-            let rc_info: RewardCycleInfo =
-                serde_json::from_str(&reward_set_str).map_err(|_| db_error::ParseError)?;
-            Ok(Some(rc_info))
-        } else {
-            Ok(None)
-        }
+        let rc_info = reward_set_opt
+            .map(|reward_set_str| serde_json::from_str(&reward_set_str))
+            .transpose()
+            .map_err(|_| db_error::ParseError)?;
+
+        Ok(rc_info)
     }
 }
 
@@ -5022,17 +5019,6 @@ impl SortitionDB {
         query_row_panic(conn, qry, &args, || {
             format!("FATAL: multiple block commits for {}", &block_hash)
         })
-    }
-
-    /// Get the block-commit for a Nakamoto block, given the block-commit's sortition's consensus
-    /// hash and its given last_tenure_id
-    pub fn get_block_commit_for_nakamoto_block(
-        conn: &Connection,
-        consensus_hash: &ConsensusHash,
-        last_tenure_id: &StacksBlockId,
-    ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
-        let bhh = BlockHeaderHash(last_tenure_id.0.clone());
-        Self::get_block_commit_for_stacks_block(conn, consensus_hash, &bhh)
     }
 
     /// Get a block snapshot for a winning block hash in a given burn chain fork.

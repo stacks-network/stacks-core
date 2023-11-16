@@ -308,8 +308,10 @@ impl NakamotoBlockBuilder {
         debug!("Nakamoto miner tenure begin");
 
         let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
-        let burn_tip_height =
-            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height as u32;
+        let burn_tip_height = u32::try_from(
+            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height,
+        )
+        .expect("block height overflow");
 
         let mainnet = chainstate.config().mainnet;
 

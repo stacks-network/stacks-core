@@ -907,9 +907,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let v1_unlock_height = self.burn_state_db.get_v1_unlock_height();
             let pox_2_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
-                v1_unlock_height as u64,
-                first_block_height as u64,
-                pox_reward_cycle_length as u64,
+                u64::from(v1_unlock_height),
+                u64::from(first_block_height),
+                u64::from(pox_reward_cycle_length),
             )
             .expect("PANIC: PoX-2 first reward cycle begins *before* first burn block height");
 
@@ -994,11 +994,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // set burnchain params
                 let consts_setter = PrincipalData::from(pox_2_contract_id.clone());
                 let params = vec![
-                    Value::UInt(first_block_height as u128),
-                    Value::UInt(pox_prepare_length as u128),
-                    Value::UInt(pox_reward_cycle_length as u128),
-                    Value::UInt(pox_rejection_fraction as u128),
-                    Value::UInt(pox_2_first_cycle as u128),
+                    Value::UInt(u128::from(first_block_height)),
+                    Value::UInt(u128::from(pox_prepare_length)),
+                    Value::UInt(u128::from(pox_reward_cycle_length)),
+                    Value::UInt(u128::from(pox_rejection_fraction)),
+                    Value::UInt(u128::from(pox_2_first_cycle)),
                 ];
 
                 let (_, _, _burnchain_params_events) = tx_conn
@@ -1171,9 +1171,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_3_activation_height = self.burn_state_db.get_pox_3_activation_height();
 
             let pox_3_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
-                pox_3_activation_height as u64,
-                first_block_height as u64,
-                pox_reward_cycle_length as u64,
+                u64::from(pox_3_activation_height),
+                u64::from(first_block_height),
+                u64::from(pox_reward_cycle_length),
             )
             .expect("PANIC: PoX-3 first reward cycle begins *before* first burn block height")
                 + 1;
@@ -1243,11 +1243,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // set burnchain params
                 let consts_setter = PrincipalData::from(pox_3_contract_id.clone());
                 let params = vec![
-                    Value::UInt(first_block_height as u128),
-                    Value::UInt(pox_prepare_length as u128),
-                    Value::UInt(pox_reward_cycle_length as u128),
-                    Value::UInt(pox_rejection_fraction as u128),
-                    Value::UInt(pox_3_first_cycle as u128),
+                    Value::UInt(u128::from(first_block_height)),
+                    Value::UInt(u128::from(pox_prepare_length)),
+                    Value::UInt(u128::from(pox_reward_cycle_length)),
+                    Value::UInt(u128::from(pox_rejection_fraction)),
+                    Value::UInt(u128::from(pox_3_first_cycle)),
                 ];
 
                 let (_, _, _burnchain_params_events) = tx_conn
@@ -1309,9 +1309,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_4_activation_height = self.burn_state_db.get_pox_4_activation_height();
 
             let pox_4_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
-                pox_4_activation_height as u64,
-                first_block_height as u64,
-                pox_reward_cycle_length as u64,
+                u64::from(pox_4_activation_height),
+                u64::from(first_block_height),
+                u64::from(pox_reward_cycle_length),
             )
             .expect("PANIC: PoX-4 first reward cycle begins *before* first burn block height")
                 + 1;
@@ -1381,11 +1381,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // set burnchain params
                 let consts_setter = PrincipalData::from(pox_4_contract_id.clone());
                 let params = vec![
-                    Value::UInt(first_block_height as u128),
-                    Value::UInt(pox_prepare_length as u128),
-                    Value::UInt(pox_reward_cycle_length as u128),
-                    Value::UInt(pox_rejection_fraction as u128),
-                    Value::UInt(pox_4_first_cycle as u128),
+                    Value::UInt(u128::from(first_block_height)),
+                    Value::UInt(u128::from(pox_prepare_length)),
+                    Value::UInt(u128::from(pox_reward_cycle_length)),
+                    Value::UInt(u128::from(pox_rejection_fraction)),
+                    Value::UInt(u128::from(pox_4_first_cycle)),
                 ];
 
                 let (_, _, _burnchain_params_events) = tx_conn
@@ -2606,15 +2606,15 @@ mod tests {
                 self.get_stacks_epoch(0)
             }
 
+            fn get_v1_unlock_height(&self) -> u32 {
+                u32::MAX
+            }
+
             fn get_v2_unlock_height(&self) -> u32 {
                 u32::MAX
             }
 
             fn get_v3_unlock_height(&self) -> u32 {
-                u32::MAX
-            }
-
-            fn get_v1_unlock_height(&self) -> u32 {
                 u32::MAX
             }
 

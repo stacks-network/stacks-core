@@ -399,15 +399,16 @@ impl PoxConstants {
     /// Returns the PoX contract that is "active" at the given burn block height
     pub fn active_pox_contract(&self, burn_height: u64) -> &'static str {
         Self::static_active_pox_contract(
-            self.v1_unlock_height as u64,
-            self.pox_3_activation_height as u64,
-            self.pox_4_activation_height as u64,
+            u64::from(self.v1_unlock_height),
+            u64::from(self.pox_3_activation_height),
+            u64::from(self.pox_4_activation_height),
             burn_height,
         )
     }
 
     pub fn reward_slots(&self) -> u32 {
-        (self.reward_cycle_length - self.prepare_length) * (OUTPUTS_PER_COMMIT as u32)
+        (self.reward_cycle_length - self.prepare_length)
+            * u32::try_from(OUTPUTS_PER_COMMIT).expect("FATAL: > 2^32 outputs per commit")
     }
 
     /// is participating_ustx enough to engage in PoX in the next reward cycle?
@@ -416,7 +417,7 @@ impl PoxConstants {
             .checked_mul(100)
             .expect("OVERFLOW: uSTX overflowed u128")
             > liquid_ustx
-                .checked_mul(self.pox_participation_threshold_pct as u128)
+                .checked_mul(u128::from(self.pox_participation_threshold_pct))
                 .expect("OVERFLOW: uSTX overflowed u128")
     }
 
@@ -522,13 +523,13 @@ impl PoxConstants {
     pub fn is_reward_cycle_start(&self, first_block_height: u64, burn_height: u64) -> bool {
         let effective_height = burn_height - first_block_height;
         // first block of the new reward cycle
-        (effective_height % (self.reward_cycle_length as u64)) == 1
+        (effective_height % u64::from(self.reward_cycle_length)) == 1
     }
 
     pub fn reward_cycle_to_block_height(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
         // mod 0.
-        first_block_height + reward_cycle * (self.reward_cycle_length as u64) + 1
+        first_block_height + reward_cycle * u64::from(self.reward_cycle_length) + 1
     }
 
     pub fn block_height_to_reward_cycle(
@@ -539,15 +540,15 @@ impl PoxConstants {
         Self::static_block_height_to_reward_cycle(
             block_height,
             first_block_height,
-            self.reward_cycle_length as u64,
+            u64::from(self.reward_cycle_length),
         )
     }
 
     pub fn is_in_prepare_phase(&self, first_block_height: u64, block_height: u64) -> bool {
         Self::static_is_in_prepare_phase(
             first_block_height,
-            self.reward_cycle_length as u64,
-            self.prepare_length as u64,
+            u64::from(self.reward_cycle_length),
+            u64::from(self.prepare_length),
             block_height,
         )
     }
@@ -567,7 +568,7 @@ impl PoxConstants {
 
             // NOTE: first block in reward cycle is mod 1, so mod 0 is the last block in the
             // prepare phase.
-            reward_index == 0 || reward_index > ((reward_cycle_length - prepare_length) as u64)
+            reward_index == 0 || reward_index > u64::from(reward_cycle_length - prepare_length)
         }
     }
 

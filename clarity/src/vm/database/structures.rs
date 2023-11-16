@@ -940,22 +940,22 @@ impl STXBalance {
         match self {
             STXBalance::Unlocked { .. } => 0,
             STXBalance::LockedPoxOne { unlock_height, .. } => {
-                if *unlock_height >= (v1_unlock_height as u64) {
-                    v1_unlock_height as u64
+                if *unlock_height >= u64::from(v1_unlock_height) {
+                    u64::from(v1_unlock_height)
                 } else {
                     *unlock_height
                 }
             }
             STXBalance::LockedPoxTwo { unlock_height, .. } => {
-                if *unlock_height >= (v2_unlock_height as u64) {
-                    v2_unlock_height as u64
+                if *unlock_height >= u64::from(v2_unlock_height) {
+                    u64::from(v2_unlock_height)
                 } else {
                     *unlock_height
                 }
             }
             STXBalance::LockedPoxThree { unlock_height, .. } => {
-                if *unlock_height >= (v3_unlock_height as u64) {
-                    v3_unlock_height as u64
+                if *unlock_height >= u64::from(v3_unlock_height) {
+                    u64::from(v3_unlock_height)
                 } else {
                     *unlock_height
                 }
@@ -1210,7 +1210,7 @@ impl STXBalance {
                     return false;
                 }
                 // if unlockable due to Stacks 2.1 early unlock
-                if v1_unlock_height as u64 <= burn_block_height {
+                if u64::from(v1_unlock_height) <= burn_block_height {
                     return false;
                 }
                 true
@@ -1227,7 +1227,7 @@ impl STXBalance {
                     return false;
                 }
                 // if unlockable due to Stacks 2.2 early unlock
-                if v2_unlock_height as u64 <= burn_block_height {
+                if u64::from(v2_unlock_height) <= burn_block_height {
                     return false;
                 }
                 true
@@ -1244,7 +1244,7 @@ impl STXBalance {
                     return false;
                 }
                 // if unlockable due to Stacks 2.5 early unlock
-                if v3_unlock_height as u64 <= burn_block_height {
+                if u64::from(v3_unlock_height) <= burn_block_height {
                     return false;
                 }
                 true
@@ -1287,7 +1287,7 @@ impl STXBalance {
                     return true;
                 }
                 // if unlockable due to Stacks 2.1 early unlock
-                if v1_unlock_height as u64 <= burn_block_height {
+                if u64::from(v1_unlock_height) <= burn_block_height {
                     return true;
                 }
                 false
@@ -1305,7 +1305,7 @@ impl STXBalance {
                     return true;
                 }
                 // if unlockable due to Stacks 2.2 early unlock
-                if v2_unlock_height as u64 <= burn_block_height {
+                if u64::from(v2_unlock_height) <= burn_block_height {
                     return true;
                 }
                 false
@@ -1323,7 +1323,7 @@ impl STXBalance {
                     return true;
                 }
                 // if unlockable due to Stacks 2.5 early unlock
-                if v3_unlock_height as u64 <= burn_block_height {
+                if u64::from(v3_unlock_height) <= burn_block_height {
                     return true;
                 }
                 false

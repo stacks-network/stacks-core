@@ -595,8 +595,11 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.burn_block_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+                self.burn_block_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+                    || self.any_event_observers_lookup.contains(
+                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
+                    )
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -801,8 +804,11 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.microblock_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+                self.microblock_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+                    || self.any_event_observers_lookup.contains(
+                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
+                    )
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -854,8 +860,11 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.mempool_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+                self.mempool_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+                    || self.any_event_observers_lookup.contains(
+                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
+                    )
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -882,7 +891,10 @@ impl EventDispatcher {
             .registered_observers
             .iter()
             .enumerate()
-            .filter(|(obs_id, _observer)| self.miner_observers_lookup.contains(&(*obs_id as u16)))
+            .filter(|(obs_id, _observer)| {
+                self.miner_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+            })
             .collect();
         if interested_observers.len() < 1 {
             return;
@@ -917,7 +929,7 @@ impl EventDispatcher {
             .enumerate()
             .filter(|(obs_id, _observer)| {
                 self.mined_microblocks_observers_lookup
-                    .contains(&(*obs_id as u16))
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -950,7 +962,10 @@ impl EventDispatcher {
             .registered_observers
             .iter()
             .enumerate()
-            .filter(|(obs_id, _observer)| self.miner_observers_lookup.contains(&(*obs_id as u16)))
+            .filter(|(obs_id, _observer)| {
+                self.miner_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+            })
             .collect();
         if interested_observers.len() < 1 {
             return;
@@ -984,7 +999,8 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.stackerdb_observers_lookup.contains(&(*obs_id as u16))
+                self.stackerdb_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -1009,8 +1025,11 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.mempool_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+                self.mempool_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+                    || self.any_event_observers_lookup.contains(
+                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
+                    )
             })
             .collect();
         if interested_observers.len() < 1 {

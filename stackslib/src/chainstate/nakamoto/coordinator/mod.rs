@@ -128,16 +128,15 @@ fn find_prepare_phase_sortitions(
     let sn = SortitionDB::get_block_snapshot(sort_db.conn(), sortition_tip)?
         .ok_or(DBError::NotFoundError)?;
 
-    let mut sns = vec![];
     let mut height = sn.block_height;
-    sns.push(sn);
+    let mut sns = vec![sn];
 
     while burnchain.is_in_prepare_phase(height) && height > 0 {
         let Some(sn) = SortitionDB::get_block_snapshot(
             sort_db.conn(),
             &sns.last()
                 .as_ref()
-                .expect("FATAL; unreachable: sns is never empty")
+                .expect("FATAL: unreachable: sns is never empty")
                 .parent_sortition_id,
         )?
         else {
@@ -355,7 +354,7 @@ pub fn get_nakamoto_next_recipients(
     };
     sort_db
         .get_next_block_recipients(burnchain, sortition_tip, reward_cycle_info.as_ref())
-        .map_err(|e| Error::from(e))
+        .map_err(Error::from)
 }
 
 impl<
@@ -667,7 +666,7 @@ impl<
                 BurnchainDB::get_burnchain_block(&self.burnchain_blocks_db.conn(), &cursor)
                     .map_err(|e| {
                         warn!(
-                            "ChainsCoordinator: could not retrieve  block burnhash={}",
+                            "ChainsCoordinator: could not retrieve block burnhash={}",
                             &cursor
                         );
                         Error::NonContiguousBurnchainBlock(e)
@@ -716,8 +715,8 @@ impl<
             .collect();
 
         debug!(
-            "Unprocessed burn chain blocks [{}]",
-            dbg_burn_header_hashes.join(", ")
+            "Unprocessed burn chain blocks: {:?}",
+            &dbg_burn_header_hashes
         );
 
         // Unlike in Stacks 2.x, there can be neither chain reorgs nor PoX reorgs unless Bitcoin itself

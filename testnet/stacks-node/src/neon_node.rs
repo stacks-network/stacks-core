@@ -517,8 +517,8 @@ impl Globals {
                                 LeaderKeyRegistrationState::Active(RegisteredKey {
                                     target_block_height,
                                     vrf_public_key: op.public_key,
-                                    block_height: op.block_height as u64,
-                                    op_vtxindex: op.vtxindex as u32,
+                                    block_height: u64::from(op.block_height),
+                                    op_vtxindex: u32::from(op.vtxindex),
                                 });
                             activated = true;
                         } else {
@@ -1436,7 +1436,7 @@ impl BlockMinerThread {
             if last_mined_blocks.len() == 1 {
                 debug!("Have only attempted one block; unconditionally trying again");
             }
-            last_mined_blocks.len() as u64 + 1
+            u64::try_from(last_mined_blocks.len()).expect("FATAL: more than 2^64 mined blocks") + 1
         } else {
             let mut best_attempt = 0;
             debug!(
@@ -1801,11 +1801,11 @@ impl BlockMinerThread {
                     // longer
                     if let Some(highest_unprocessed_block_sn) = highest_unprocessed_block_sn_opt {
                         if stacks_tip.anchored_header.height()
-                            + (burnchain.pox_constants.prepare_length as u64)
+                            + u64::from(burnchain.pox_constants.prepare_length)
                             - 1
                             >= highest_unprocessed.height
                             && highest_unprocessed_block_sn.block_height
-                                + (burnchain.pox_constants.prepare_length as u64)
+                                + u64::from(burnchain.pox_constants.prepare_length)
                                 - 1
                                 >= sort_tip.block_height
                         {
