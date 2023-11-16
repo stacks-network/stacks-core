@@ -1,16 +1,15 @@
 use std::io::{Read, Write};
 
-use crate::burnchains::BurnchainTransaction;
-use crate::burnchains::{BurnchainBlockHeader, Txid};
-use crate::chainstate::burn::operations::Error as op_error;
+use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
+
+use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, Txid};
 use crate::chainstate::burn::operations::{
     parse_u128_from_be, parse_u32_from_be, parse_u64_from_be, BlockstackOperationType,
-    DelegateStxOp, PreStxOp,
+    DelegateStxOp, Error as op_error, PreStxOp,
 };
 use crate::chainstate::burn::Opcodes;
 use crate::chainstate::stacks::address::PoxAddress;
-use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 
 struct ParsedData {
     delegated_ustx: u128,
@@ -262,24 +261,21 @@ impl StacksMessageCodec for DelegateStxOp {
 
 #[cfg(test)]
 mod tests {
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
+    use stacks_common::util::hash::*;
+
     use crate::burnchains::bitcoin::address::{
         BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
     };
-    use crate::burnchains::bitcoin::BitcoinTxInputStructured;
     use crate::burnchains::bitcoin::{
-        BitcoinInputType, BitcoinNetworkType, BitcoinTxInput, BitcoinTxOutput,
+        BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput,
+        BitcoinTxInputStructured, BitcoinTxOutput,
     };
-    use crate::burnchains::BurnchainTransaction;
-    use crate::burnchains::{bitcoin::BitcoinTransaction, Txid};
-    use crate::chainstate::burn::operations::DelegateStxOp;
-    use crate::chainstate::burn::operations::Error as op_error;
+    use crate::burnchains::{BurnchainTransaction, Txid};
+    use crate::chainstate::burn::operations::{DelegateStxOp, Error as op_error};
     use crate::chainstate::burn::Opcodes;
-    use crate::chainstate::stacks::address::PoxAddress;
-    use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::hash::*;
+    use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 
     // Parse a DelegateStx op in which the height is set to None.
     #[test]

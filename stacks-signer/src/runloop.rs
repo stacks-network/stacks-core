@@ -1,19 +1,20 @@
-use crate::{config::Config, stacks_client::StacksClient};
+use std::collections::VecDeque;
+use std::sync::mpsc::Sender;
+use std::time::Duration;
+
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use p256k1::ecdsa;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
-use std::{collections::VecDeque, sync::mpsc::Sender, time::Duration};
-use wsts::{
-    common::MerkleRoot,
-    net::{Message, Packet, Signable},
-    state_machine::{
-        coordinator::{Coordinatable, Coordinator as FrostCoordinator},
-        signer::SigningRound,
-        OperationResult, PublicKeys,
-    },
-    v2,
-};
+use wsts::common::MerkleRoot;
+use wsts::net::{Message, Packet, Signable};
+use wsts::state_machine::coordinator::{Coordinatable, Coordinator as FrostCoordinator};
+use wsts::state_machine::signer::SigningRound;
+use wsts::state_machine::{OperationResult, PublicKeys};
+use wsts::v2;
+
+use crate::config::Config;
+use crate::stacks_client::StacksClient;
 
 /// Which operation to perform
 #[derive(PartialEq, Clone)]

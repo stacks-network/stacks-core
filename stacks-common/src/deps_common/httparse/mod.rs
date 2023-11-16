@@ -31,11 +31,7 @@
 //! Originally written by Sean McArthur.
 //!
 //! Modified by Jude Nelson to remove all unsafe code.
-use std::error;
-use std::fmt;
-use std::mem;
-use std::result;
-use std::str;
+use std::{error, fmt, mem, result, str};
 
 macro_rules! next {
     ($bytes:ident) => {{

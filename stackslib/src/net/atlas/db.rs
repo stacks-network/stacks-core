@@ -34,38 +34,26 @@
 //!
 
 use std::collections::HashSet;
-use std::convert::From;
-use std::convert::TryFrom;
+use std::convert::{From, TryFrom};
 use std::fs;
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rusqlite::types::FromSql;
-use rusqlite::types::FromSqlError;
-use rusqlite::types::ToSql;
-use rusqlite::types::ToSqlOutput;
-use rusqlite::types::ValueRef;
-use rusqlite::OptionalExtension;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::types::{FromSql, FromSqlError, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util;
 use stacks_common::util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160};
 use stacks_common::util::log;
 use stacks_common::util::macros::is_big_endian;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
 use crate::burnchains::Txid;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::tx_begin_immediate;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
-    query_count, query_int, query_row, query_rows, u64_to_sql, FromColumn, FromRow,
+    query_count, query_int, query_row, query_rows, sqlite_open, tx_begin_immediate, u64_to_sql,
+    DBConn, Error as db_error, FromColumn, FromRow,
 };
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::StacksBlockId;
 
 pub const ATLASDB_VERSION: &'static str = "2";
 

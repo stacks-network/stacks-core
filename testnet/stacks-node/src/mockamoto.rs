@@ -1,80 +1,51 @@
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::Receiver;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::mpsc::{sync_channel, Receiver};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
 
 use clarity::vm::ast::ASTRules;
+use lazy_static::lazy_static;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::BlockSnapshot;
-use stacks::chainstate::burn::OpsHash;
-use stacks::chainstate::burn::SortitionHash;
+use stacks::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use stacks::chainstate::coordinator::comm::CoordinatorReceivers;
 use stacks::chainstate::coordinator::CoordinatorCommunication;
-use stacks::chainstate::nakamoto::NakamotoBlock;
-use stacks::chainstate::nakamoto::NakamotoBlockHeader;
-use stacks::chainstate::nakamoto::NakamotoChainState;
-use stacks::chainstate::nakamoto::SetupBlockResult;
-use stacks::chainstate::stacks::db::ChainStateBootData;
-use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::nakamoto::{
+    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
+};
+use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::MinerStatus;
-use stacks::chainstate::stacks::CoinbasePayload;
-use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::chainstate::stacks::SchnorrThresholdSignature;
-use stacks::chainstate::stacks::StacksTransaction;
-use stacks::chainstate::stacks::StacksTransactionSigner;
-use stacks::chainstate::stacks::TenureChangeCause;
-use stacks::chainstate::stacks::TenureChangePayload;
-use stacks::chainstate::stacks::TransactionAuth;
-use stacks::chainstate::stacks::TransactionPayload;
-use stacks::chainstate::stacks::TransactionVersion;
-use stacks::chainstate::stacks::MINER_BLOCK_CONSENSUS_HASH;
-use stacks::chainstate::stacks::MINER_BLOCK_HEADER_HASH;
-use stacks::core::StacksEpoch;
-use stacks::core::BLOCK_LIMIT_MAINNET_10;
-use stacks::core::HELIUM_BLOCK_LIMIT_20;
-use stacks::core::PEER_VERSION_EPOCH_1_0;
-use stacks::core::PEER_VERSION_EPOCH_2_0;
-use stacks::core::PEER_VERSION_EPOCH_2_05;
-use stacks::core::PEER_VERSION_EPOCH_2_1;
-use stacks::core::PEER_VERSION_EPOCH_2_2;
-use stacks::core::PEER_VERSION_EPOCH_2_3;
-use stacks::core::PEER_VERSION_EPOCH_2_4;
+use stacks::chainstate::stacks::{
+    CoinbasePayload, Error as ChainstateError, SchnorrThresholdSignature, StacksTransaction,
+    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TransactionAuth,
+    TransactionPayload, TransactionVersion, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+};
+use stacks::core::{
+    StacksEpoch, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
+    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
+    PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
+};
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
-use stacks_common::consts::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks_common::consts::FIRST_STACKS_BLOCK_HASH;
-use stacks_common::consts::STACKS_EPOCH_MAX;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::PoxId;
-use stacks_common::types::chainstate::SortitionId;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::PrivateKey;
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::MerkleTree;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::secp256k1::MessageSignature;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::consts::{
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
+};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksBlockId,
+    StacksPrivateKey, TrieHash,
+};
+use stacks_common::types::{PrivateKey, StacksEpochId};
+use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
 use crate::neon::Counters;
-use crate::neon_node::Globals;
-use crate::neon_node::PeerThread;
-use crate::neon_node::RelayerDirective;
-use crate::neon_node::StacksNode;
-use crate::neon_node::BLOCK_PROCESSOR_STACK_SIZE;
+use crate::neon_node::{
+    Globals, PeerThread, RelayerDirective, StacksNode, BLOCK_PROCESSOR_STACK_SIZE,
+};
 use crate::syncctl::PoxSyncWatchdogComms;
-use crate::Config;
-use crate::EventDispatcher;
-use lazy_static::lazy_static;
+use crate::{Config, EventDispatcher};
 
 lazy_static! {
     pub static ref STACKS_EPOCHS_MOCKAMOTO: [StacksEpoch; 8] = [

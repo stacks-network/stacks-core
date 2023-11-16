@@ -15,12 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::fs;
-use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::{fmt, fs, io};
 
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::analysis::types::ContractAnalysis;
@@ -29,19 +27,15 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::contracts::Contract;
-use clarity::vm::costs::cost_functions;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::runtime_cost;
-use clarity::vm::costs::CostTracker;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::costs::{cost_functions, runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::database::{ClarityBackingStore, ClarityDatabase};
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::representations::ClarityName;
-use clarity::vm::representations::ContractName;
-use clarity::vm::types::StacksAddressExtensions as ClarityStacksAddressExt;
+use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
-    StandardPrincipalData, TupleData, TypeSignature, Value,
+    StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
+    TypeSignature, Value,
 };
 use stacks_common::types::chainstate;
 use stacks_common::util::hash::to_hex;
@@ -49,16 +43,13 @@ use stacks_common::util::hash::to_hex;
 use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{Error, StacksMicroblockHeader, *};
 use crate::clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityTransactionConnection,
     Error as clarity_error,
 };
 use crate::net::Error as net_error;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{query_count, query_rows, DBConn};
+use crate::util_lib::db::{query_count, query_rows, DBConn, Error as db_error};
 use crate::util_lib::strings::{StacksString, VecDisplay};
 
 impl StacksTransactionReceipt {
@@ -1495,10 +1486,8 @@ impl StacksChainState {
 pub mod test {
     use clarity::vm::clarity::TransactionConnection;
     use clarity::vm::contracts::Contract;
-    use clarity::vm::representations::ClarityName;
-    use clarity::vm::representations::ContractName;
-    use clarity::vm::test_util::UnitTestBurnStateDB;
-    use clarity::vm::test_util::TEST_BURN_STATE_DB;
+    use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
     use clarity::vm::types::*;
     use rand::Rng;
@@ -1511,8 +1500,7 @@ pub mod test {
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::index::storage::*;
     use crate::chainstate::stacks::index::*;
-    use crate::chainstate::stacks::Error;
-    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::{Error, *};
     use crate::chainstate::*;
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {

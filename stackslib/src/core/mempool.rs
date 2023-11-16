@@ -19,8 +19,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::hash::Hasher;
 use std::io::{Read, Write};
-use std::ops::Deref;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -28,66 +27,44 @@ use clarity::vm::types::PrincipalData;
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
 use rusqlite::types::ToSql;
-use rusqlite::Connection;
-use rusqlite::Error as SqliteError;
-use rusqlite::OpenFlags;
-use rusqlite::OptionalExtension;
-use rusqlite::Row;
-use rusqlite::Rows;
-use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
+use rusqlite::{
+    Connection, Error as SqliteError, OpenFlags, OptionalExtension, Row, Rows, Transaction,
+    NO_PARAMS,
+};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::index::Error as MarfError;
 use crate::chainstate::stacks::miner::TransactionEvent;
-use crate::chainstate::stacks::StacksBlock;
 use crate::chainstate::stacks::{
-    db::blocks::MemPoolRejection, db::ClarityTx, db::StacksChainState, index::Error as MarfError,
-    Error as ChainstateError, StacksTransaction,
+    Error as ChainstateError, StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
-use crate::chainstate::stacks::{StacksMicroblock, TransactionPayload};
 use crate::clarity_vm::clarity::ClarityConnection;
-use crate::core::ExecutionCost;
-use crate::core::StacksEpochId;
-use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use crate::core::FIRST_STACKS_BLOCK_HASH;
-
-use crate::cost_estimates;
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::metrics::UnitMetric;
-use crate::cost_estimates::CostEstimator;
-use crate::cost_estimates::EstimatorError;
-use crate::cost_estimates::UnitEstimator;
-use crate::monitoring;
-
+use crate::core::{
+    ExecutionCost, StacksEpochId, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
+};
+use crate::cost_estimates::metrics::{CostMetric, UnitMetric};
+use crate::cost_estimates::{CostEstimator, EstimatorError, UnitEstimator};
 use crate::monitoring::increment_stx_mempool_gc;
 use crate::net::stream::TxStreamData;
 use crate::net::MemPoolSyncData;
 use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
-use crate::util_lib::db::query_int;
-use crate::util_lib::db::query_row_columns;
-use crate::util_lib::db::query_rows;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::table_exists;
-use crate::util_lib::db::tx_begin_immediate;
-use crate::util_lib::db::tx_busy_handler;
-use crate::util_lib::db::u64_to_sql;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::FromColumn;
-use crate::util_lib::db::{query_row, Error};
-use crate::util_lib::db::{sql_pragma, DBConn, DBTx, FromRow};
-
-use stacks_common::codec::Error as codec_error;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use crate::util_lib::db::{
+    query_int, query_row, query_row_columns, query_rows, sql_pragma, sqlite_open, table_exists,
+    tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx, Error as db_error, Error,
+    FromColumn, FromRow,
+};
+use crate::{cost_estimates, monitoring};
 
 // maximum number of confirmations a transaction can have before it's garbage-collected
 pub const MEMPOOL_MAX_TRANSACTION_AGE: u64 = 256;

@@ -6,13 +6,10 @@ pub mod strings;
 
 #[cfg(test)]
 pub mod test {
-    use std::panic;
-    use std::process;
     use std::sync::mpsc::sync_channel;
-    use std::thread;
+    use std::{panic, process, thread};
 
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::sleep_ms;
+    use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
     use super::*;
 

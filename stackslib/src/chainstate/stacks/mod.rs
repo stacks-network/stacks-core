@@ -14,17 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
-use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
-use std::ops::Deref;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
+use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::costs::CostErrors;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::Error as clarity_interpreter_error;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
@@ -35,15 +31,14 @@ use rusqlite::Error as RusqliteError;
 use serde_json::json;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
+use stacks_common::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::hash::HASH160_ENCODED_SIZE;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
+    TRIEHASH_ENCODED_SIZE,
+};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use stacks_common::util::secp256k1;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -53,13 +48,11 @@ use crate::chainstate::burn::operations::LeaderBlockCommitOp;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::MinerRewardInfo;
-use crate::chainstate::stacks::db::StacksHeaderInfo;
+use crate::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use crate::chainstate::stacks::index::Error as marf_error;
 use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::net::Error as net_error;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{DBConn, Error as db_error};
 use crate::util_lib::strings::StacksString;
 
 pub mod address;
@@ -996,8 +989,7 @@ pub mod test {
     use stacks_common::util::log;
 
     use super::*;
-    use crate::chainstate::stacks::StacksPublicKey as PubKey;
-    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};
     use crate::core::*;
     use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::codec::*;

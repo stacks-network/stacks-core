@@ -17,15 +17,14 @@
 use std::io;
 use std::io::{Read, Write};
 
-use rand::thread_rng;
-use rand::Rng;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
+use rand::{thread_rng, Rng};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::Error as ChainstateError;
-use crate::chainstate::stacks::{StacksBlock, StacksBlockHeader, StacksMicroblock};
+use crate::chainstate::stacks::{
+    Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock,
+};
 use crate::core::mempool::MemPoolDB;
 use crate::net::MemPoolSyncData;
 

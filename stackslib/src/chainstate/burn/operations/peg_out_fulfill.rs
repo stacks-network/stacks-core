@@ -17,11 +17,8 @@
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use crate::burnchains::BurnchainBlockHeader;
-use crate::burnchains::BurnchainTransaction;
-use crate::burnchains::Txid;
-use crate::chainstate::burn::operations::Error as OpError;
-use crate::chainstate::burn::operations::PegOutFulfillOp;
+use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, Txid};
+use crate::chainstate::burn::operations::{Error as OpError, PegOutFulfillOp};
 use crate::chainstate::burn::Opcodes;
 use crate::types::chainstate::StacksAddress;
 use crate::types::Address;

@@ -1,29 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
-use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
-use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
-    POX_3_NAME,
-};
-use crate::chainstate::stacks::db::{
-    MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
-};
-use crate::chainstate::stacks::index::marf::MarfConnection;
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::chainstate::stacks::*;
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::HeadersDBConn;
-use crate::core::*;
-use crate::util_lib::db::{DBConn, FromRow};
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
-use clarity::vm::costs::CostOverflowingMath;
-use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::costs::{CostOverflowingMath, LimitedCostTracker};
 use clarity::vm::database::*;
 use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
@@ -43,27 +24,34 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::Address;
-use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 
-use super::{test::*, RawRewardSetEntry};
+use super::test::*;
+use super::RawRewardSetEntry;
+use crate::burnchains::Burnchain;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::*;
-use crate::chainstate::stacks::*;
-use crate::clarity_vm::clarity::Error as ClarityError;
-use crate::core::*;
-
-use crate::net::test::TestPeer;
-use crate::util_lib::boot::boot_code_id;
-use crate::{
-    burnchains::Burnchain,
-    chainstate::{
-        burn::db::sortdb::SortitionDB,
-        stacks::{events::TransactionOrigin, tests::make_coinbase},
-    },
-    clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
-    net::test::TestEventObserver,
+use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
+use crate::chainstate::stacks::boot::{
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
+    POX_3_NAME,
 };
+use crate::chainstate::stacks::db::{
+    MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
+};
+use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::tests::make_coinbase;
+use crate::chainstate::stacks::*;
+use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
+use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::clarity_vm::database::HeadersDBConn;
+use crate::core::*;
+use crate::net::test::{TestEventObserver, TestPeer};
+use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::{DBConn, FromRow};
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 

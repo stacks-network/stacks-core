@@ -21,8 +21,7 @@ pub mod signatures;
 
 use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
-use std::{char, str};
-use std::{cmp, fmt};
+use std::{char, cmp, fmt, str};
 
 use regex::Regex;
 use stacks_common::address::c32;

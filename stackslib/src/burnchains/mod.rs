@@ -17,38 +17,32 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::default::Default;
-use std::error;
-use std::fmt;
-use std::io;
 use std::marker::PhantomData;
+use std::{error, fmt, io};
 
 use rusqlite::Error as sqlite_error;
 use stacks_common::address::AddressHashMode;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::PoxId;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::secp256k1::MessageSignature;
-
-use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::chainstate::{
+    BurnchainHeaderHash, ConsensusHash, PoxId, StacksAddress, TrieHash,
+};
 pub use stacks_common::types::{Address, PrivateKey, PublicKey};
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::MessageSignature;
 
 use self::bitcoin::indexer::{
     BITCOIN_MAINNET as BITCOIN_NETWORK_ID_MAINNET, BITCOIN_MAINNET_NAME,
     BITCOIN_REGTEST as BITCOIN_NETWORK_ID_REGTEST, BITCOIN_REGTEST_NAME,
     BITCOIN_TESTNET as BITCOIN_NETWORK_ID_TESTNET, BITCOIN_TESTNET_NAME,
 };
-use self::bitcoin::Error as btc_error;
 use self::bitcoin::{
     BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
+    Error as btc_error,
 };
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
-use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::burn::operations::Error as op_error;
-use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
+use crate::chainstate::burn::operations::{
+    BlockstackOperationType, Error as op_error, LeaderKeyRegisterOp,
+};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::StacksPublicKey;
@@ -739,8 +733,7 @@ impl BurnchainView {
                 ret.insert(i, self.burn_block_hash.clone());
             } else {
                 let data = {
-                    use sha2::Digest;
-                    use sha2::Sha256;
+                    use sha2::{Digest, Sha256};
                     let mut hasher = Sha256::new();
                     hasher.update(&i.to_le_bytes());
                     hasher.finalize()

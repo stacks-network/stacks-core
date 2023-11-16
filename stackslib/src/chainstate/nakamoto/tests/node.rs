@@ -15,30 +15,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::fs;
-use std::io;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::SortitionId;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::VRFSeed;
+use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::VRFProof;
-use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::*;
@@ -48,35 +39,29 @@ use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::*;
-use crate::chainstate::coordinator::ChainsCoordinator;
-use crate::chainstate::coordinator::Error as CoordinatorError;
-use crate::chainstate::coordinator::OnChainRewardSetProvider;
+use crate::chainstate::coordinator::{
+    ChainsCoordinator, Error as CoordinatorError, OnChainRewardSetProvider,
+};
 use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::NakamotoBlock;
-use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
-use crate::chainstate::stacks::Error as ChainstateError;
-use crate::chainstate::stacks::StacksBlock;
-use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::tests::TestStacksNode;
+use crate::chainstate::stacks::{
+    Error as ChainstateError, StacksBlock, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
+};
+use crate::core::{BOOT_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER};
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
-use crate::net::test::*;
+use crate::net::relay::Relayer;
+use crate::net::test::{TestPeer, TestPeerConfig, *};
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
-
-use crate::chainstate::stacks::tests::TestStacksNode;
-
-use crate::net::relay::Relayer;
-use crate::net::test::{TestPeer, TestPeerConfig};
-
-use crate::core::{BOOT_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER};
 
 impl TestBurnchainBlock {
     pub fn add_nakamoto_tenure_commit(

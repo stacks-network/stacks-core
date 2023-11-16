@@ -18,16 +18,13 @@
 use std::char::from_digit;
 use std::cmp::min;
 use std::default::Default;
-use std::error;
-use std::fmt;
 use std::io::{Cursor, Write};
-use std::mem;
+use std::{error, fmt, mem};
 
 use ripemd::Ripemd160;
 #[cfg(feature = "serde")]
 use serde;
-use sha2::Digest;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::network::serialize::{

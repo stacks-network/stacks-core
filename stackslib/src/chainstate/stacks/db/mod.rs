@@ -14,13 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{btree_map::Entry, BTreeMap, HashSet};
-use std::fmt;
-use std::fs;
-use std::io;
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, HashSet};
 use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::{fmt, fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::analysis::run_analysis;
@@ -32,30 +31,21 @@ use clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };
 use clarity::vm::events::*;
-use clarity::vm::representations::ClarityName;
-use clarity::vm::representations::ContractName;
+use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::TupleData;
 use clarity::vm::Value;
 use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
-use rusqlite::Connection;
-use rusqlite::OpenFlags;
-use rusqlite::OptionalExtension;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::util;
 use stacks_common::util::hash::to_hex;
 
 use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
-use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
-use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
+use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn, *};
 use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::burn::ConsensusHashExtensions;
+use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
     NAKAMOTO_CHAINSTATE_SCHEMA_1,
@@ -71,33 +61,26 @@ use crate::chainstate::stacks::index::marf::{
     BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
 };
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, MarfTrieId};
 use crate::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
 };
-use crate::clarity_vm::clarity::PreCommitClarityBlock;
 use crate::clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
-    Error as clarity_error,
+    Error as clarity_error, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::monitoring;
 use crate::net::atlas::BNS_CHARS_REGEX;
-use crate::net::Error as net_error;
-use crate::net::MemPoolSyncData;
+use crate::net::{Error as net_error, MemPoolSyncData};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use crate::util_lib::db::Error as db_error;
 use crate::util_lib::db::{
-    query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
-    IndexDBConn, IndexDBTx,
+    query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, Error as db_error,
+    FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 pub mod accounts;

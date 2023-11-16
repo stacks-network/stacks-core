@@ -29,14 +29,10 @@ pub mod syncctl;
 pub mod tenure;
 
 use std::convert::TryInto;
-use std::env;
-use std::panic;
-use std::process;
+use std::{env, panic, process};
 
 use backtrace::Backtrace;
 use pico_args::Arguments;
-
-use crate::mockamoto::MockamotoNode;
 
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
@@ -47,6 +43,7 @@ pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
+use crate::mockamoto::MockamotoNode;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
@@ -60,8 +57,7 @@ fn main() {
             let pid = process::id();
             eprintln!("Dumping core for pid {}", std::process::id());
 
-            use libc::kill;
-            use libc::SIGQUIT;
+            use libc::{kill, SIGQUIT};
 
             // *should* trigger a core dump, if you run `ulimit -c unlimited` first!
             unsafe { kill(pid.try_into().unwrap(), SIGQUIT) };

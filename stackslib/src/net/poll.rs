@@ -14,35 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::io;
-use std::io::Error as io_error;
-use std::io::ErrorKind;
-use std::io::Read;
-use std::io::Write;
-use std::net;
-use std::net::Shutdown;
-use std::net::SocketAddr;
-use std::time;
+use std::collections::{HashMap, HashSet};
+use std::io::{Error as io_error, ErrorKind, Read, Write};
+use std::net::{Shutdown, SocketAddr};
 use std::time::Duration;
+use std::{io, net, time};
 
-use mio;
-use mio::net as mio_net;
-use mio::PollOpt;
-use mio::Ready;
-use mio::Token;
-use rand;
+use mio::{net as mio_net, PollOpt, Ready, Token};
 use rand::RngCore;
-use stacks_common::util::log;
-use stacks_common::util::sleep_ms;
+use stacks_common::util::{log, sleep_ms};
+use {mio, rand};
 
-use crate::net::Error as net_error;
-use crate::net::Neighbor;
-use crate::net::NeighborKey;
-use crate::net::PeerAddress;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
+use crate::net::{Error as net_error, Neighbor, NeighborKey, PeerAddress};
+use crate::util_lib::db::{DBConn, Error as db_error};
 
 const SERVER: Token = mio::Token(0);
 
@@ -466,10 +450,7 @@ mod test {
     use std::collections::HashSet;
 
     use mio;
-    use mio::net as mio_net;
-    use mio::PollOpt;
-    use mio::Ready;
-    use mio::Token;
+    use mio::{net as mio_net, PollOpt, Ready, Token};
 
     use super::*;
 

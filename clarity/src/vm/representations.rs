@@ -23,8 +23,9 @@ use std::ops::Deref;
 
 use lazy_static::lazy_static;
 use regex::Regex;
-use stacks_common::codec::Error as codec_error;
-use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
+use stacks_common::codec::{
+    read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
+};
 
 use crate::vm::errors::RuntimeErrorType;
 use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};

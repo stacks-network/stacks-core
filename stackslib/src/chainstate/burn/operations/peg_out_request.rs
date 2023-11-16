@@ -14,17 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use stacks_common::address::public_keys_to_address_hash;
-use stacks_common::address::AddressHashMode;
+use stacks_common::address::{public_keys_to_address_hash, AddressHashMode};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::hash::Sha256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
-use crate::burnchains::BurnchainBlockHeader;
-use crate::burnchains::BurnchainTransaction;
-use crate::chainstate::burn::operations::Error as OpError;
-use crate::chainstate::burn::operations::PegOutRequestOp;
+use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction};
+use crate::chainstate::burn::operations::{Error as OpError, PegOutRequestOp};
 use crate::chainstate::burn::Opcodes;
 use crate::types::chainstate::StacksAddress;
 use crate::types::Address;
@@ -180,20 +177,16 @@ impl From<std::array::TryFromSliceError> for ParseError {
 mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-    use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::types::chainstate::StacksPrivateKey;
-    use stacks_common::types::PrivateKey;
-    use stacks_common::types::StacksEpochId;
+    use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksPrivateKey};
+    use stacks_common::types::{PrivateKey, StacksEpochId};
     use stacks_common::util::hash::{hex_bytes, to_hex};
 
     use super::*;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
-    use crate::burnchains::Txid;
-    use crate::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+    use crate::burnchains::{Txid, BLOCKSTACK_MAGIC_MAINNET};
     use crate::chainstate::burn::operations::test;
-    use crate::chainstate::stacks::address::PoxAddress;
-    use crate::chainstate::stacks::address::PoxAddressType32;
+    use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
     use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 
     #[test]

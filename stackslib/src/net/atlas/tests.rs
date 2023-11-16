@@ -16,12 +16,10 @@
 
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
-use std::thread;
-use std::time;
+use std::{thread, time};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::hash::Hash160;
 
 use super::download::{

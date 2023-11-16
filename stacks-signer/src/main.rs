@@ -26,41 +26,35 @@ extern crate serde;
 extern crate serde_json;
 extern crate toml;
 
+use std::fs::File;
+use std::io::{self, BufRead, Write};
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::time::Duration;
+
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
 use slog::slog_debug;
-use stacks_common::{
-    address::{
-        AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    },
-    debug,
-    types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_signer::{
-    cli::{
-        Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs,
-        RunDkgArgs, SignArgs, StackerDBArgs,
-    },
-    config::{Config, Network},
-    runloop::{RunLoop, RunLoopCommand},
-    utils::{build_signer_config_tomls, build_stackerdb_contract},
+use stacks_common::debug;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_signer::cli::{
+    Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
+    SignArgs, StackerDBArgs,
 };
-use std::{
-    fs::File,
-    io::{self, BufRead, Write},
-    net::SocketAddr,
-    path::PathBuf,
-    sync::mpsc::{channel, Receiver, Sender},
-    time::Duration,
-};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use wsts::{
-    state_machine::{coordinator::Coordinator as FrostCoordinator, OperationResult},
-    v2,
-};
+use stacks_signer::config::{Config, Network};
+use stacks_signer::runloop::{RunLoop, RunLoopCommand};
+use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{fmt, EnvFilter};
+use wsts::state_machine::coordinator::Coordinator as FrostCoordinator;
+use wsts::state_machine::OperationResult;
+use wsts::v2;
 
 struct SpawnedSigner {
     running_signer: RunningSigner<StackerDBEventReceiver, Vec<OperationResult>>,

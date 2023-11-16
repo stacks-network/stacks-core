@@ -1,8 +1,6 @@
-use std::{
-    io::{self, Read},
-    net::SocketAddr,
-    path::PathBuf,
-};
+use std::io::{self, Read};
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;

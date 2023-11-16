@@ -5,43 +5,38 @@ use std::time::Duration;
 
 use async_h1::client;
 use async_std::net::TcpStream;
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
+use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
+pub use libsigner::StackerDBChunksEvent;
 use serde_json::json;
-
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use stacks::chainstate::stacks::db::StacksHeaderInfo;
+use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
     StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
-use stacks::chainstate::stacks::TransactionPayload;
 use stacks::chainstate::stacks::{
-    db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
+    StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
-use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock};
-use stacks::core::mempool::MemPoolDropReason;
-use stacks::core::mempool::MemPoolEventDispatcher;
+use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
 use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-
-use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
-use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::util::hash::bytes_to_hex;
 
 use super::config::{EventKeyType, EventObserverConfig};
-
-pub use libsigner::StackerDBChunksEvent;
 
 #[derive(Debug, Clone)]
 struct EventObserver {

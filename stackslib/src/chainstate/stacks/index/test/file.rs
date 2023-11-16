@@ -16,8 +16,7 @@
 
 use std::fs;
 
-use rusqlite::Connection;
-use rusqlite::OpenFlags;
+use rusqlite::{Connection, OpenFlags};
 
 use super::*;
 use crate::chainstate::stacks::index::cache::test::make_test_insert_data;

@@ -733,15 +733,13 @@ pub fn parse_no_stack_limit(input: &str) -> ParseResult<Vec<PreSymbolicExpressio
 
 #[cfg(test)]
 mod test {
-    use crate::vm::ast;
     use crate::vm::ast::errors::{ParseError, ParseErrors};
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
-    use crate::vm::types::TraitIdentifier;
     use crate::vm::types::{
-        CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, Value,
+        CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, Value,
     };
-    use crate::vm::MAX_CALL_STACK_DEPTH;
+    use crate::vm::{ast, MAX_CALL_STACK_DEPTH};
 
     fn make_atom(
         x: &str,

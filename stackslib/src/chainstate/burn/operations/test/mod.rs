@@ -2,18 +2,14 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 use stacks_common::util::hash::Hash160;
 
-use crate::burnchains::BurnchainBlockHeader;
-use crate::burnchains::BurnchainTransaction;
-use crate::burnchains::{
-    bitcoin::{
-        address::{
-            BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
-        },
-        BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInputStructured,
-        BitcoinTxOutput,
-    },
-    Txid,
+use crate::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
 };
+use crate::burnchains::bitcoin::{
+    BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInputStructured,
+    BitcoinTxOutput,
+};
+use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, Txid};
 use crate::chainstate::burn::Opcodes;
 
 mod serialization;

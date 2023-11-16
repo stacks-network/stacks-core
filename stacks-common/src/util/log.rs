@@ -14,12 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::env;
-use std::io;
 use std::io::Write;
 use std::sync::Mutex;
-use std::thread;
 use std::time::{Duration, SystemTime};
+use std::{env, io, thread};
 
 use chrono::prelude::*;
 use lazy_static::lazy_static;

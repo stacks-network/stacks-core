@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
 #[cfg(test)]
 use rstest::rstest;
@@ -25,11 +24,10 @@ use stacks_common::types::StacksEpochId;
 
 use super::CheckResult;
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::type_checker::v2_1::{TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::type_checker::SequenceSubtype;
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::analysis::{mem_type_check as mem_run_analysis, AnalysisDatabase};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
@@ -38,15 +36,15 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::TypeSignature::OptionalType;
 use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
+use crate::vm::types::SequenceSubtype::*;
+use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::Value::Sequence;
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier,
     TraitIdentifier, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
-use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
-use crate::vm::ClarityVersion;
-use crate::vm::{execute_v2, ClarityName};
+use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
 mod assets;
 pub mod contracts;

@@ -1129,11 +1129,9 @@ pub fn parse_collect_diagnostics(
 #[cfg(feature = "developer-mode")]
 mod tests {
     use super::*;
-    use crate::vm::{
-        diagnostic::Level,
-        types::{
-            ASCIIData, CharType, PrincipalData, SequenceData, StandardPrincipalData, UTF8Data,
-        },
+    use crate::vm::diagnostic::Level;
+    use crate::vm::types::{
+        ASCIIData, CharType, PrincipalData, SequenceData, StandardPrincipalData, UTF8Data,
     };
 
     #[test]

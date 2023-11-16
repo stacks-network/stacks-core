@@ -18,13 +18,13 @@ use std::collections::HashMap;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::Environment;
-use clarity::vm::contexts::{AssetMap, AssetMapEntry, GlobalContext, OwnedEnvironment};
+use clarity::vm::contexts::{
+    AssetMap, AssetMapEntry, Environment, GlobalContext, OwnedEnvironment,
+};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::ClarityDatabase;
-use clarity::vm::database::MemoryBackingStore;
+use clarity::vm::database::{ClarityDatabase, MemoryBackingStore};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
@@ -37,13 +37,9 @@ use clarity::vm::tests::test_only_mainnet_to_chain_id;
 use clarity::vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
-use clarity::vm::ClarityVersion;
-use clarity::vm::ContractName;
-
+use clarity::vm::{ClarityVersion, ContractName};
 use lazy_static::lazy_static;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
@@ -51,8 +47,7 @@ use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use crate::core::FIRST_STACKS_BLOCK_HASH;
+use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::boot::boot_code_id;
 
 lazy_static! {

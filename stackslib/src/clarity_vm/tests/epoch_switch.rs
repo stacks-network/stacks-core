@@ -22,9 +22,11 @@ use clarity::vm::database::{
 };
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use rand::thread_rng;
-use rand::RngCore;
+use rand::{thread_rng, RngCore};
 use rusqlite::{Connection, OptionalExtension};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+};
 use stacks_common::util::hash::to_hex;
 
 use crate::burnchains::PoxConstants;
@@ -32,17 +34,12 @@ use crate::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionDBConn, SortitionHandleConn, SortitionHandleTx,
 };
 use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
-
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieMerkleProof};
+use crate::core::{
+    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+    PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
+};
 use crate::util_lib::db::{DBConn, FromRow};
-
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-use stacks_common::types::chainstate::{StacksAddress, VRFSeed};
-
-use crate::core::{StacksEpoch, StacksEpochId, STACKS_EPOCH_MAX};
-use crate::core::{PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05};
 
 fn test_burnstatedb_epoch(
     burnstatedb: &dyn BurnStateDB,

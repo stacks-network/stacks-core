@@ -16,80 +16,28 @@
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
-use std::fmt;
-use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
-use std::mem;
 use std::net::SocketAddr;
-use std::str;
 use std::str::FromStr;
 use std::time::SystemTime;
+use std::{fmt, io, mem, str};
 
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
-use clarity::vm::representations::MAX_STRING_LEN;
-use clarity::vm::types::{StandardPrincipalData, TraitIdentifier};
-use clarity::vm::{
-    representations::{
-        CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
-    },
-    types::{PrincipalData, QualifiedContractIdentifier, BOUND_VALUE_SERIALIZATION_HEX},
-    ClarityName, ContractName, Value,
+use clarity::vm::representations::{
+    CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN, PRINCIPAL_DATA_REGEX_STRING,
+    STANDARD_PRINCIPAL_REGEX_STRING,
 };
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
+    BOUND_VALUE_SERIALIZATION_HEX,
+};
+use clarity::vm::{ClarityName, ContractName, Value};
 use lazy_static::lazy_static;
 use libstackerdb::STACKERDB_MAX_CHUNK_SIZE;
 use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
-use serde_json;
-use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::retry::BoundReader;
-use stacks_common::util::retry::RetryReader;
-use time;
-use url::{form_urlencoded, Url};
-
-use super::FeeRateEstimateRequestBody;
-use crate::burnchains::{Address, Txid};
-use crate::chainstate::burn::{ConsensusHash, Opcodes};
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::{
-    StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction,
-};
-use crate::net::atlas::Attachment;
-use crate::net::ClientError;
-use crate::net::Error as net_error;
-use crate::net::Error::ClarityError;
-use crate::net::ExtendedStacksHeader;
-use crate::net::HttpContentType;
-use crate::net::HttpRequestMetadata;
-use crate::net::HttpRequestPreamble;
-use crate::net::HttpRequestType;
-use crate::net::HttpResponseMetadata;
-use crate::net::HttpResponsePreamble;
-use crate::net::HttpResponseType;
-use crate::net::HttpVersion;
-use crate::net::MemPoolSyncData;
-use crate::net::MessageSequence;
-use crate::net::NeighborAddress;
-use crate::net::PeerAddress;
-use crate::net::PeerHost;
-use crate::net::ProtocolFamily;
-use crate::net::StackerDBChunkData;
-use crate::net::StacksHttpMessage;
-use crate::net::StacksHttpPreamble;
-use crate::net::UnconfirmedTransactionResponse;
-use crate::net::UnconfirmedTransactionStatus;
-use crate::net::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
-use crate::net::HTTP_PREAMBLE_MAX_NUM_HEADERS;
-use crate::net::HTTP_REQUEST_ID_RESERVED;
-use crate::net::MAX_HEADERS;
-use crate::net::MAX_MICROBLOCKS_UNCONFIRMED;
-use crate::net::{CallReadOnlyRequestBody, TipRequest};
-use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse, PostTransactionRequestBody};
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
@@ -97,6 +45,31 @@ use stacks_common::codec::{
 use stacks_common::deps_common::httparse;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::util::chunked_encoding::*;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::util::log;
+use stacks_common::util::retry::{BoundReader, RetryReader};
+use url::{form_urlencoded, Url};
+use {serde_json, time};
+
+use super::FeeRateEstimateRequestBody;
+use crate::burnchains::{Address, Txid};
+use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::stacks::{
+    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPublicKey, StacksTransaction,
+    TransactionPayload,
+};
+use crate::net::atlas::Attachment;
+use crate::net::Error::ClarityError;
+use crate::net::{
+    CallReadOnlyRequestBody, ClientError, Error as net_error, ExtendedStacksHeader,
+    GetAttachmentResponse, GetAttachmentsInvResponse, HttpContentType, HttpRequestMetadata,
+    HttpRequestPreamble, HttpRequestType, HttpResponseMetadata, HttpResponsePreamble,
+    HttpResponseType, HttpVersion, MemPoolSyncData, MessageSequence, NeighborAddress, PeerAddress,
+    PeerHost, PostTransactionRequestBody, ProtocolFamily, StackerDBChunkData, StacksHttpMessage,
+    StacksHttpPreamble, TipRequest, UnconfirmedTransactionResponse, UnconfirmedTransactionStatus,
+    HTTP_PREAMBLE_MAX_ENCODED_SIZE, HTTP_PREAMBLE_MAX_NUM_HEADERS, HTTP_REQUEST_ID_RESERVED,
+    MAX_HEADERS, MAX_MICROBLOCKS_UNCONFIRMED,
+};
 
 lazy_static! {
     static ref PATH_GETINFO: Regex = Regex::new(r#"^/v2/info$"#).unwrap();
@@ -5102,28 +5075,19 @@ mod test {
     use rand;
     use rand::RngCore;
     use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::hash::to_hex;
-    use stacks_common::util::hash::Hash160;
-    use stacks_common::util::hash::MerkleTree;
-    use stacks_common::util::hash::Sha512Trunc256Sum;
+    use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 
     use super::*;
     use crate::burnchains::Txid;
     use crate::chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
     use crate::chainstate::stacks::test::make_codec_test_block;
-    use crate::chainstate::stacks::StacksBlock;
-    use crate::chainstate::stacks::StacksMicroblock;
-    use crate::chainstate::stacks::StacksPrivateKey;
-    use crate::chainstate::stacks::StacksTransaction;
-    use crate::chainstate::stacks::TokenTransferMemo;
-    use crate::chainstate::stacks::TransactionAuth;
-    use crate::chainstate::stacks::TransactionPayload;
-    use crate::chainstate::stacks::TransactionPostConditionMode;
-    use crate::chainstate::stacks::TransactionVersion;
+    use crate::chainstate::stacks::{
+        StacksBlock, StacksMicroblock, StacksPrivateKey, StacksTransaction, TokenTransferMemo,
+        TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+    };
     use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::test::*;
-    use crate::net::RPCNeighbor;
-    use crate::net::RPCNeighborsInfo;
+    use crate::net::{RPCNeighbor, RPCNeighborsInfo};
 
     #[test]
     fn test_parse_reserved_header() {

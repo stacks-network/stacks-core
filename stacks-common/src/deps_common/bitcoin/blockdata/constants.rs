@@ -22,9 +22,8 @@
 use std::default::Default;
 
 use crate::deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
-use crate::deps_common::bitcoin::blockdata::opcodes;
-use crate::deps_common::bitcoin::blockdata::script;
 use crate::deps_common::bitcoin::blockdata::transaction::{OutPoint, Transaction, TxIn, TxOut};
+use crate::deps_common::bitcoin::blockdata::{opcodes, script};
 use crate::deps_common::bitcoin::network::constants::Network;
 use crate::deps_common::bitcoin::util::hash::MerkleRoot;
 use crate::util::hash::hex_bytes;
@@ -142,8 +141,9 @@ pub fn genesis_block(network: Network) -> Block {
 mod test {
     use std::default::Default;
 
-    use crate::deps_common::bitcoin::blockdata::constants::{bitcoin_genesis_tx, genesis_block};
-    use crate::deps_common::bitcoin::blockdata::constants::{COIN_VALUE, MAX_SEQUENCE};
+    use crate::deps_common::bitcoin::blockdata::constants::{
+        bitcoin_genesis_tx, genesis_block, COIN_VALUE, MAX_SEQUENCE,
+    };
     use crate::deps_common::bitcoin::network::constants::Network;
     use crate::deps_common::bitcoin::network::serialize::{serialize, BitcoinHash};
     use crate::util::hash::hex_bytes as hex_decode;

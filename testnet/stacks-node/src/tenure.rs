@@ -7,9 +7,10 @@ use stacks::burnchains::PoxConstants;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::{
-    miner::BlockBuilderSettings, StacksBlock, StacksBlockBuilder, StacksMicroblock,
-    StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
 use stacks_common::types::chainstate::VRFSeed;

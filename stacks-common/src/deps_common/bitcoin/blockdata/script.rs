@@ -28,8 +28,7 @@ use std::default::Default;
 use std::{error, fmt};
 
 use serde;
-use sha2::Digest;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 use crate::deps_common::bitcoin::blockdata::opcodes;
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
@@ -700,8 +699,7 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Script {
 
 #[cfg(test)]
 mod test {
-    use super::build_scriptint;
-    use super::*;
+    use super::{build_scriptint, *};
     use crate::deps_common::bitcoin::blockdata::opcodes;
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
     use crate::util::hash::hex_bytes as hex_decode;

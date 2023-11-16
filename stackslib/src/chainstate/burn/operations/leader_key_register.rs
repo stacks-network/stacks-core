@@ -16,34 +16,27 @@
 
 use std::io::{Read, Write};
 
-use crate::burnchains::Address;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainBlockHeader;
-use crate::burnchains::BurnchainTransaction;
-use crate::burnchains::PublicKey;
-use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::chainstate::burn::operations::Error as op_error;
-use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
-};
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::burn::Opcodes;
-use crate::chainstate::stacks::StacksPrivateKey;
-use crate::chainstate::stacks::StacksPublicKey;
-use crate::net::Error as net_error;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::DBTx;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash,
+};
 use stacks_common::util::hash::{DoubleSha256, Hash160};
 use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use crate::burnchains::{
+    Address, Burnchain, BurnchainBlockHeader, BurnchainTransaction, PublicKey, Txid,
+};
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::chainstate::burn::operations::{
+    BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    UserBurnSupportOp,
+};
+use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
+use crate::net::Error as net_error;
+use crate::util_lib::db::{DBConn, DBTx};
 
 pub struct ParsedData {
     pub consensus_hash: ConsensusHash,
@@ -255,9 +248,9 @@ impl LeaderKeyRegisterOp {
 pub mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::{hex_bytes, to_hex};
-    use stacks_common::util::log;
+    use stacks_common::util::{get_epoch_time_secs, log};
 
     use super::*;
     use crate::burnchains::bitcoin::address::BitcoinAddress;
@@ -273,8 +266,6 @@ pub mod tests {
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::core::StacksEpochId;
-
-    use stacks_common::types::chainstate::SortitionId;
 
     pub struct OpFixture {
         pub txstr: String,

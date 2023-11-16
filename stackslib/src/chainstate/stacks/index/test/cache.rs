@@ -14,13 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::collections::VecDeque;
-use std::fs;
 use std::time::SystemTime;
+use std::{cmp, fs};
 
-use rand::thread_rng;
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use sha2::Digest;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 

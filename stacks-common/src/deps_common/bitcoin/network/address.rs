@@ -18,9 +18,8 @@
 //! network addresses in Bitcoin messages.
 //!
 
-use std::fmt;
-use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::{fmt, io};
 
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};

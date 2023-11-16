@@ -19,10 +19,8 @@
 //! It also defines (de)serialization routines for many primitives.
 //!
 
-use std::error;
-use std::fmt;
-use std::io;
 use std::io::{Cursor, Read, Write};
+use std::{error, fmt, io};
 
 use crate::address;
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};

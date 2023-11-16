@@ -40,11 +40,10 @@ use std::mem;
 use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StandardPrincipalData;
 use clarity::vm::types::{
-    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData, SequenceSubtype,
-    TupleTypeSignature, TypeSignature,
+    BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
+    QualifiedContractIdentifier, SequenceSubtype, StandardPrincipalData, TupleTypeSignature,
+    TypeSignature,
 };
 use clarity::vm::ClarityName;
 use lazy_static::lazy_static;
@@ -60,9 +59,7 @@ use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_err
 use crate::net::stackerdb::{
     StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
-use crate::net::Error as net_error;
-use crate::net::NeighborAddress;
-use crate::net::PeerAddress;
+use crate::net::{Error as net_error, NeighborAddress, PeerAddress};
 
 const MAX_HINT_REPLICAS: u32 = 128;
 

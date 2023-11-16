@@ -27,11 +27,8 @@ pub mod secp256k1;
 pub mod uint;
 pub mod vrf;
 
-use std::error;
-use std::fmt;
-use std::thread;
-use std::time;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{error, fmt, thread, time};
 
 pub fn get_epoch_time_secs() -> u64 {
     let start = SystemTime::now();
@@ -98,8 +95,7 @@ pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
 }
 
 pub mod db_common {
-    use std::thread;
-    use std::time;
+    use std::{thread, time};
 
     use rand::{thread_rng, Rng};
 

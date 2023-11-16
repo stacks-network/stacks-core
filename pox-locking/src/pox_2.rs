@@ -19,13 +19,11 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::Error as ClarityError;
-use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
-use slog::slog_debug;
-use slog::slog_error;
+use slog::{slog_debug, slog_error};
 use stacks_common::{debug, error};
 
 use crate::events::synthesize_pox_2_or_3_event_info;

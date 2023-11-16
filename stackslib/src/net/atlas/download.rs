@@ -14,17 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
-use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
+use std::{cmp, fmt};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use rand::thread_rng;
-use rand::Rng;
+use rand::{thread_rng, Rng};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::hash::{Hash160, MerkleHashFunc};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
@@ -37,16 +36,13 @@ use crate::net::connection::ConnectionOptions;
 use crate::net::dns::*;
 use crate::net::p2p::PeerNetwork;
 use crate::net::server::HttpPeer;
-use crate::net::Error as net_error;
-use crate::net::NeighborKey;
-use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse};
-use crate::net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
+use crate::net::{
+    Error as net_error, GetAttachmentResponse, GetAttachmentsInvResponse, HttpRequestMetadata,
+    HttpRequestType, HttpResponseType, NeighborKey, PeerHost, Requestable,
+};
 use crate::util_lib::db::Error as DBError;
 use crate::util_lib::strings;
 use crate::util_lib::strings::UrlString;
-use stacks_common::types::chainstate::StacksBlockId;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
 
 #[derive(Debug)]
 pub struct AttachmentsDownloader {

@@ -22,16 +22,15 @@
 use std::io::Cursor;
 use std::iter;
 
-use crate::deps_common::bitcoin::blockdata::block;
-use crate::deps_common::bitcoin::blockdata::transaction;
+use crate::deps_common::bitcoin::blockdata::{block, transaction};
 use crate::deps_common::bitcoin::network::address::Address;
-use crate::deps_common::bitcoin::network::encodable::CheckedData;
-use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use crate::deps_common::bitcoin::network::message_blockdata;
-use crate::deps_common::bitcoin::network::message_network;
+use crate::deps_common::bitcoin::network::encodable::{
+    CheckedData, ConsensusDecodable, ConsensusEncodable,
+};
 use crate::deps_common::bitcoin::network::serialize::{
     self, serialize, RawDecoder, SimpleDecoder, SimpleEncoder,
 };
+use crate::deps_common::bitcoin::network::{message_blockdata, message_network};
 
 /// Serializer for command string
 #[derive(PartialEq, Eq, Clone, Debug)]

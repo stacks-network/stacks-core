@@ -19,20 +19,17 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 use std::{fmt, io};
 
-use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData};
-use clarity::vm::types::{TupleData, Value};
+use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value};
 use serde::{Deserialize, Deserializer, Serializer};
-use stacks_common::address::b58;
-use stacks_common::address::c32::c32_address;
-use stacks_common::address::c32::c32_address_decode;
-use stacks_common::address::public_keys_to_address_hash;
-use stacks_common::address::AddressHashMode;
+use stacks_common::address::b58::{check_encode_slice, from_check};
+use stacks_common::address::c32::{c32_address, c32_address_decode};
+use stacks_common::address::{b58, public_keys_to_address_hash, AddressHashMode};
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::deps_common::bitcoin::blockdata::opcodes::All as BtcOp;
 use stacks_common::deps_common::bitcoin::blockdata::script::Builder as BtcScriptBuilder;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::HASH160_ENCODED_SIZE;
+use stacks_common::types::chainstate::{StacksAddress, STACKS_ADDRESS_ENCODED_SIZE};
+use stacks_common::util::hash::{to_hex, Hash160, HASH160_ENCODED_SIZE};
 
 use crate::burnchains::bitcoin::address::{
     legacy_address_type_to_version_byte, legacy_version_byte_to_address_type, to_b58_version_byte,
@@ -41,17 +38,12 @@ use crate::burnchains::bitcoin::address::{
 };
 use crate::burnchains::bitcoin::BitcoinTxOutput;
 use crate::burnchains::{Address, PublicKey};
-use crate::chainstate::stacks::StacksPublicKey;
 use crate::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    StacksPublicKey, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::net::Error as net_error;
 use crate::util_lib::boot::boot_code_addr;
-use stacks_common::address::b58::{check_encode_slice, from_check};
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::STACKS_ADDRESS_ENCODED_SIZE;
 
 pub trait StacksAddressExtensions {
     fn to_b58(self) -> String;

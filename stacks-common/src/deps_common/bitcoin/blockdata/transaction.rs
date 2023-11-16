@@ -675,8 +675,7 @@ mod tests {
     use super::{SigHashType, Transaction, TxIn};
     use crate::deps_common;
     use crate::deps_common::bitcoin::blockdata::script::Script;
-    use crate::deps_common::bitcoin::network::serialize::deserialize;
-    use crate::deps_common::bitcoin::network::serialize::BitcoinHash;
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, BitcoinHash};
     use crate::deps_common::bitcoin::util::hash::Sha256dHash;
     use crate::util::hash::hex_bytes;
 

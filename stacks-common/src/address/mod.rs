@@ -15,11 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryFrom;
-use std::error;
-use std::fmt;
+use std::{error, fmt};
 
-use sha2::Digest;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 use crate::deps_common::bitcoin::blockdata::opcodes::All as btc_opcodes;
 use crate::deps_common::bitcoin::blockdata::script::{Builder, Instruction, Script};

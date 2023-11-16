@@ -14,22 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::mpsc::Sender;
-
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
-use std::net::SocketAddr;
-use std::net::TcpListener;
-use std::net::TcpStream;
-
 use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::StackerDBChunkData;
-
 use serde::{Deserialize, Serialize};
-
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };

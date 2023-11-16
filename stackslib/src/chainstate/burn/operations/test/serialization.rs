@@ -1,9 +1,8 @@
 use clarity::vm::types::PrincipalData;
 use serde_json::Value;
 use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::Address;
 use stacks_common::util::hash::Hash160;
