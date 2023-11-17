@@ -1,10 +1,8 @@
+use std::env;
+use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
-use crate::config::InitialBalance;
-use crate::helium::RunLoop;
-use crate::tests::to_addr;
-use crate::Config;
-
+use clarity::vm::costs::ExecutionCost;
 use stacks::chainstate::burn::operations::BlockstackOperationType::{
     LeaderBlockCommit, LeaderKeyRegister,
 };
@@ -13,9 +11,10 @@ use stacks::core::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
-use clarity::vm::costs::ExecutionCost;
-use std::env;
-use std::io::{BufRead, BufReader};
+use crate::config::InitialBalance;
+use crate::helium::RunLoop;
+use crate::tests::to_addr;
+use crate::Config;
 
 pub enum BitcoinCoreError {
     SpawnFailed(String),

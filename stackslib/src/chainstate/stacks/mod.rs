@@ -14,55 +14,46 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::From;
-use std::convert::TryFrom;
-use std::error;
-use std::fmt;
-use std::io;
+use std::convert::{From, TryFrom};
 use std::io::prelude::*;
 use std::io::{Read, Write};
-use std::ops::Deref;
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
+use std::{error, fmt, io};
 
-use rusqlite::Error as RusqliteError;
-use sha2::{Digest, Sha512_256};
-
-use crate::burnchains::Txid;
-use crate::chainstate::burn::operations::LeaderBlockCommitOp;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::accounts::MinerReward;
-use crate::chainstate::stacks::db::blocks::MemPoolRejection;
-use crate::chainstate::stacks::db::MinerRewardInfo;
-use crate::chainstate::stacks::db::StacksHeaderInfo;
-use crate::chainstate::stacks::index::Error as marf_error;
-use crate::clarity_vm::clarity::Error as clarity_error;
-use crate::net::Error as net_error;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::strings::StacksString;
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::costs::CostErrors;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::Error as clarity_interpreter_error;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
+use rusqlite::Error as RusqliteError;
+use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::hash::HASH160_ENCODED_SIZE;
+use stacks_common::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
+    TRIEHASH_ENCODED_SIZE,
+};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
 use stacks_common::util::secp256k1;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
 
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
-};
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::burnchains::Txid;
+use crate::chainstate::burn::operations::LeaderBlockCommitOp;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::db::accounts::MinerReward;
+use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
+use crate::chainstate::stacks::index::Error as marf_error;
+use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::net::Error as net_error;
+use crate::util_lib::db::{DBConn, Error as db_error};
+use crate::util_lib::strings::StacksString;
 
 pub mod address;
 pub mod auth;
@@ -77,12 +68,11 @@ pub mod transaction;
 #[cfg(test)]
 pub mod tests;
 
-pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-
 pub use stacks_common::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
 pub const STACKS_BLOCK_VERSION: u8 = 6;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
@@ -907,18 +897,17 @@ pub const MAX_MICROBLOCK_SIZE: u32 = 65536;
 
 #[cfg(test)]
 pub mod test {
-    use crate::chainstate::stacks::StacksPublicKey as PubKey;
-    use crate::chainstate::stacks::*;
-    use crate::core::*;
-    use crate::net::codec::test::check_codec_and_corruption;
-    use crate::net::codec::*;
-    use crate::net::*;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::ClarityVersion;
     use stacks_common::util::hash::*;
     use stacks_common::util::log;
 
     use super::*;
+    use crate::chainstate::stacks::{StacksPublicKey as PubKey, *};
+    use crate::core::*;
+    use crate::net::codec::test::check_codec_and_corruption;
+    use crate::net::codec::*;
+    use crate::net::*;
 
     /// Make a representative of each kind of transaction we support
     pub fn codec_all_transactions(
@@ -1343,6 +1332,48 @@ pub mod test {
         StacksBlock {
             header: header,
             txs: txs_anchored,
+        }
+    }
+
+    pub fn make_codec_test_microblock(num_txs: usize) -> StacksMicroblock {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+        let all_txs = codec_all_transactions(
+            &TransactionVersion::Testnet,
+            0x80000000,
+            &TransactionAnchorMode::OffChainOnly,
+            &TransactionPostConditionMode::Allow,
+        );
+
+        let txs_mblock: Vec<_> = all_txs.into_iter().take(num_txs).collect();
+        let txid_vecs = txs_mblock
+            .iter()
+            .map(|tx| tx.txid().as_bytes().to_vec())
+            .collect();
+
+        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
+        let tx_merkle_root = merkle_tree.root();
+
+        let mut header = StacksMicroblockHeader {
+            version: 6,
+            sequence: 1,
+            prev_block: BlockHeaderHash([0x11; 32]),
+            tx_merkle_root,
+            signature: MessageSignature::empty(),
+        };
+
+        header.sign(&privk).unwrap();
+        StacksMicroblock {
+            header: header,
+            txs: txs_mblock,
         }
     }
 }

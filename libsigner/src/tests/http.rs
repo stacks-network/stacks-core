@@ -15,16 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::io;
-use std::io::Read;
-use std::io::Write;
-use std::str;
-
-use crate::error::EventError;
-use crate::error::RPCError;
-use crate::http::{decode_http_body, decode_http_request, decode_http_response, run_http_request};
+use std::io::{Read, Write};
+use std::{io, str};
 
 use stacks_common::util::chunked_encoding::*;
+
+use crate::error::{EventError, RPCError};
+use crate::http::{decode_http_body, decode_http_request, decode_http_response, run_http_request};
 
 #[test]
 fn test_decode_http_request_ok() {

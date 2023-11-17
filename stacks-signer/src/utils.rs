@@ -3,10 +3,8 @@ use std::time::Duration;
 use p256k1::ecdsa;
 use rand_core::OsRng;
 use slog::slog_debug;
-use stacks_common::{
-    debug,
-    types::chainstate::{StacksAddress, StacksPrivateKey},
-};
+use stacks_common::debug;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use wsts::Scalar;
 
 use crate::stacks_client::SLOTS_PER_USER;
@@ -16,7 +14,8 @@ pub fn build_signer_config_tomls(
     signer_stacks_private_keys: &[StacksPrivateKey],
     num_keys: u32,
     node_host: &str,
-    contract_id: &str,
+    stackerdb_contract_id: &str,
+    pox_contract_id: Option<&str>,
     timeout: Option<Duration>,
 ) -> Vec<String> {
     let num_signers = signer_stacks_private_keys.len() as u32;
@@ -75,7 +74,7 @@ stacks_private_key = "{stacks_private_key}"
 node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "testnet"
-stackerdb_contract_id = "{contract_id}"
+stackerdb_contract_id = "{stackerdb_contract_id}"
 signer_id = {id}
 {signers_array}
 "#
@@ -90,8 +89,18 @@ event_timeout = {event_timeout_ms}
 "#
             )
         }
+        if let Some(pox_contract_id) = pox_contract_id {
+            signer_config_toml = format!(
+                r#"
+{signer_config_toml}
+pox_contract_id = "{pox_contract_id}"
+"#
+            );
+        }
+
         signer_config_tomls.push(signer_config_toml);
     }
+
     signer_config_tomls
 }
 

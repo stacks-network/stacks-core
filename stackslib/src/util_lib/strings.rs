@@ -16,17 +16,10 @@
 
 use std::borrow::Borrow;
 use std::convert::TryFrom;
-use std::fmt;
-use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
-use std::ops::Deref;
-use std::ops::DerefMut;
-
-use regex::Regex;
-use url;
-
-use stacks_common::codec::Error as codec_error;
+use std::ops::{Deref, DerefMut};
+use std::{fmt, io};
 
 use clarity::vm::errors::RuntimeErrorType;
 use clarity::vm::representations::{
@@ -36,10 +29,13 @@ use clarity::vm::representations::{
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
-use stacks_common::codec::MAX_MESSAGE_LEN;
+use regex::Regex;
+use stacks_common::codec::{
+    read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
+    MAX_MESSAGE_LEN,
+};
 use stacks_common::util::retry::BoundReader;
-
-use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
+use url;
 
 lazy_static! {
     static ref URL_STRING_REGEX: Regex =
@@ -326,11 +322,10 @@ impl UrlString {
 mod test {
     use std::error::Error;
 
+    use super::*;
     use crate::net::codec::test::check_codec_and_corruption;
     use crate::net::codec::*;
     use crate::net::*;
-
-    use super::*;
 
     #[test]
     fn tx_stacks_strings_codec() {

@@ -14,16 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::net::SocketAddr;
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::str;
 
+use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{
     stackerdb_get_chunk_path, stackerdb_get_metadata_path, stackerdb_post_chunk_path, SlotMetadata,
     StackerDBChunkAckData, StackerDBChunkData,
 };
-
-use clarity::vm::types::QualifiedContractIdentifier;
 
 use crate::error::RPCError;
 use crate::http::run_http_request;

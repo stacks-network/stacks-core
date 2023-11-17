@@ -14,30 +14,41 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{btree_map::Entry, BTreeMap, HashSet};
-use std::fmt;
-use std::fs;
-use std::io;
+use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, HashSet};
 use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::{fmt, fs, io};
 
+use clarity::vm::analysis::analysis_db::AnalysisDatabase;
+use clarity::vm::analysis::run_analysis;
 use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+};
+use clarity::vm::events::*;
+use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::TupleData;
+use clarity::vm::Value;
 use rusqlite::types::ToSql;
-use rusqlite::Connection;
-use rusqlite::OpenFlags;
-use rusqlite::OptionalExtension;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::NO_PARAMS;
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use serde::de::Error as de_Error;
+use serde::Deserialize;
+use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+use stacks_common::util;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
-use crate::chainstate::burn::db::sortdb::BlockHeaderCache;
-use crate::chainstate::burn::db::sortdb::*;
-use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn};
+use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn, *};
 use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
-use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
+use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
 use crate::chainstate::stacks::db::blocks::*;
@@ -48,54 +59,27 @@ use crate::chainstate::stacks::index::marf::{
     BLOCK_HEIGHT_TO_HASH_MAPPING_KEY, MARF,
 };
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, MarfTrieId};
 use crate::chainstate::stacks::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
 };
 use crate::clarity_vm::clarity::{
     ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
-    Error as clarity_error,
+    Error as clarity_error, PreCommitClarityBlock,
 };
+use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::*;
 use crate::monitoring;
 use crate::net::atlas::BNS_CHARS_REGEX;
 use crate::net::Error as net_error;
-use crate::net::MemPoolSyncData;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{
-    query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, FromColumn, FromRow,
-    IndexDBConn, IndexDBTx,
-};
-use clarity::vm::analysis::analysis_db::AnalysisDatabase;
-use clarity::vm::analysis::run_analysis;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
-};
-
-use crate::clarity_vm::clarity::PreCommitClarityBlock;
-use clarity::vm::events::*;
-use clarity::vm::representations::ClarityName;
-use clarity::vm::representations::ContractName;
-use clarity::vm::types::TupleData;
-use stacks_common::util;
-use stacks_common::util::hash::to_hex;
-
-use crate::chainstate::burn::ConsensusHashExtensions;
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue};
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::HeadersDBConn;
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
-use clarity::vm::Value;
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
+use crate::util_lib::db::{
+    query_count, query_row, tx_begin_immediate, tx_busy_handler, DBConn, DBTx, Error as db_error,
+    FromColumn, FromRow, IndexDBConn, IndexDBTx,
+};
 
 pub mod accounts;
 pub mod blocks;
@@ -200,6 +184,57 @@ pub struct StacksEpochReceipt {
     /// in.
     pub evaluated_epoch: StacksEpochId,
     pub epoch_transition: bool,
+}
+
+/// Headers we serve over the network
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtendedStacksHeader {
+    pub consensus_hash: ConsensusHash,
+    #[serde(
+        serialize_with = "ExtendedStacksHeader_StacksBlockHeader_serialize",
+        deserialize_with = "ExtendedStacksHeader_StacksBlockHeader_deserialize"
+    )]
+    pub header: StacksBlockHeader,
+    pub parent_block_id: StacksBlockId,
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_serialize<S: serde::Serializer>(
+    header: &StacksBlockHeader,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let bytes = header.serialize_to_vec();
+    let header_hex = to_hex(&bytes);
+    s.serialize_str(&header_hex.as_str())
+}
+
+/// In ExtendedStacksHeader, encode the StacksBlockHeader as a hex string
+fn ExtendedStacksHeader_StacksBlockHeader_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<StacksBlockHeader, D::Error> {
+    let header_hex = String::deserialize(d)?;
+    let header_bytes = hex_bytes(&header_hex).map_err(de_Error::custom)?;
+    StacksBlockHeader::consensus_deserialize(&mut &header_bytes[..]).map_err(de_Error::custom)
+}
+
+impl StacksMessageCodec for ExtendedStacksHeader {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.header)?;
+        write_next(fd, &self.parent_block_id)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<ExtendedStacksHeader, codec_error> {
+        let ch = read_next(fd)?;
+        let bh = read_next(fd)?;
+        let pbid = read_next(fd)?;
+        Ok(ExtendedStacksHeader {
+            consensus_hash: ch,
+            header: bh,
+            parent_block_id: pbid,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1555,6 +1590,20 @@ impl StacksChainState {
         )
     }
 
+    /// Re-open the chainstate DB
+    pub fn reopen_db(&self) -> Result<DBConn, Error> {
+        let path = PathBuf::from(self.root_path.clone());
+        let header_index_root_path = StacksChainState::header_index_root_path(path);
+        let header_index_root = header_index_root_path
+            .to_str()
+            .ok_or_else(|| Error::DBError(db_error::ParseError))?
+            .to_string();
+
+        let state_index =
+            StacksChainState::open_db(self.mainnet, self.chain_id, &header_index_root)?;
+        Ok(state_index.into_sqlite_conn())
+    }
+
     pub fn blocks_path(mut path: PathBuf) -> PathBuf {
         path.push("blocks");
         path
@@ -2457,14 +2506,13 @@ impl StacksChainState {
 pub mod test {
     use std::{env, fs};
 
-    use crate::chainstate::stacks::db::*;
-    use crate::chainstate::stacks::*;
     use clarity::vm::test_util::TEST_BURN_STATE_DB;
     use stx_genesis::GenesisData;
 
-    use crate::util_lib::boot::boot_code_test_addr;
-
     use super::*;
+    use crate::chainstate::stacks::db::*;
+    use crate::chainstate::stacks::*;
+    use crate::util_lib::boot::boot_code_test_addr;
 
     pub fn instantiate_chainstate(
         mainnet: bool,

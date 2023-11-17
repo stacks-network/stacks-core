@@ -1,11 +1,11 @@
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::net::{TcpListener, TcpStream};
+
 use chrono::{SecondsFormat, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::{json, Value};
-use std::io::prelude::*;
-use std::io::BufReader;
-use std::net::TcpListener;
-use std::net::TcpStream;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:3700";
 

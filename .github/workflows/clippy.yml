@@ -1,5 +1,3 @@
-# Disabled - this workflow needs more work so it's not incredibly chatty
-##
 ## Perform Clippy checks - currently set to defaults
 ##   https://github.com/rust-lang/rust-clippy#usage
 ##   https://rust-lang.github.io/rust-clippy/master/index.html
@@ -17,10 +15,10 @@ on:
     types:
       - opened
       - reopened
+      - synchronize
 
 jobs:
   clippy_check:
-    if: ${{ false }}
     name: Clippy Check
     runs-on: ubuntu-latest
     steps:
@@ -41,4 +39,4 @@ jobs:
         uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
+          args: -p clarity -p libstackerdb -p pox-locking -p stacks-common --no-deps --tests --all-features -- -D warnings

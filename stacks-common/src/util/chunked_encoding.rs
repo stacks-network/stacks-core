@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
-use std::io;
 use std::io::{Read, Write};
+use std::{error, fmt, io};
 
 use crate::codec::MAX_MESSAGE_LEN;
 use crate::deps_common::httparse;
+
+/// NOTE: it is imperative that the given Read and Write impls here _never_ fail with EWOULDBLOCK.
 
 #[derive(Debug)]
 pub enum ChunkedError {
@@ -46,6 +46,7 @@ impl error::Error for ChunkedError {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, PartialEq, Copy)]
 enum HttpChunkedTransferParseMode {
     ChunkBoundary,
@@ -75,7 +76,7 @@ impl HttpChunkedTransferReaderState {
             parse_step: HttpChunkedTransferParseMode::ChunkBoundary,
             chunk_size: 0,
             chunk_read: 0,
-            max_size: max_size,
+            max_size,
             total_size: 0,
             last_chunk_size: u64::MAX, // if this ever becomes 0, then we should expect chunk boundary '0\r\n\r\n' and EOF
             chunk_buffer: [0u8; 18],
@@ -106,10 +107,7 @@ impl<'a, R: Read> HttpChunkedTransferReader<'a, R> {
         r: &'a mut R,
         state: HttpChunkedTransferReaderState,
     ) -> HttpChunkedTransferReader<'a, R> {
-        HttpChunkedTransferReader {
-            fd: r,
-            state: state,
-        }
+        HttpChunkedTransferReader { fd: r, state }
     }
 }
 
@@ -196,12 +194,11 @@ impl HttpChunkedTransferReaderState {
             ));
         }
 
-        let remaining =
-            if self.chunk_size - self.chunk_read <= (self.max_size - self.total_size) as u64 {
-                self.chunk_size - self.chunk_read
-            } else {
-                (self.max_size - self.total_size) as u64
-            };
+        let remaining = if self.chunk_size - self.chunk_read <= (self.max_size - self.total_size) {
+            self.chunk_size - self.chunk_read
+        } else {
+            self.max_size - self.total_size
+        };
 
         let nr = if (buf.len() as u64) < remaining {
             // can fill buffer
@@ -255,7 +252,7 @@ impl HttpChunkedTransferReaderState {
 
         if self.i == 2 {
             // expect '\r\n'
-            if &self.chunk_buffer[0..2] != &[0x0d, 0x0a] {
+            if self.chunk_buffer[0..2] != [0x0d, 0x0a] {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     ChunkedError::DeserializeError("Invalid chunk trailer".to_string()),
@@ -323,9 +320,7 @@ impl<'a, R: Read> Read for HttpChunkedTransferReader<'a, R> {
     /// Read a HTTP chunk-encoded stream.
     /// Returns number of decoded bytes (i.e. number of bytes copied to buf, as expected)
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.state
-            .do_read(self.fd, buf)
-            .and_then(|(decoded, _)| Ok(decoded))
+        self.state.do_read(self.fd, buf).map(|(decoded, _)| decoded)
     }
 }
 
@@ -338,10 +333,14 @@ pub struct HttpChunkedTransferWriterState {
 impl HttpChunkedTransferWriterState {
     pub fn new(chunk_size: usize) -> HttpChunkedTransferWriterState {
         HttpChunkedTransferWriterState {
-            chunk_size: chunk_size,
+            chunk_size,
             chunk_buf: vec![],
             corked: false,
         }
+    }
+
+    pub fn get_chunk_size(&self) -> usize {
+        self.chunk_size
     }
 }
 
@@ -355,10 +354,7 @@ impl<'a, 'state, W: Write> HttpChunkedTransferWriter<'a, 'state, W> {
         fd: &'a mut W,
         state: &'state mut HttpChunkedTransferWriterState,
     ) -> HttpChunkedTransferWriter<'a, 'state, W> {
-        HttpChunkedTransferWriter {
-            fd: fd,
-            state: state,
-        }
+        HttpChunkedTransferWriter { fd, state }
     }
 
     fn send_chunk(fd: &mut W, chunk_size: usize, bytes: &[u8]) -> io::Result<usize> {
@@ -395,7 +391,7 @@ impl<'a, 'state, W: Write> HttpChunkedTransferWriter<'a, 'state, W> {
         to_copy
     }
 
-    pub fn cork(&mut self) -> () {
+    pub fn cork(&mut self) {
         // block future flushes from sending trailing empty chunks -- we're done sending
         self.state.corked = true;
     }
@@ -409,7 +405,7 @@ impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut written = 0;
         while written < buf.len() && !self.state.corked {
-            if self.state.chunk_buf.len() > 0 {
+            if !self.state.chunk_buf.is_empty() {
                 if self.state.chunk_buf.len() < self.state.chunk_size {
                     let nw = self.buf_chunk(&buf[written..]);
                     written += nw;
@@ -417,18 +413,16 @@ impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
                 if self.state.chunk_buf.len() >= self.state.chunk_size {
                     self.flush_chunk()?;
                 }
+            } else if written + self.state.chunk_size < buf.len() {
+                let nw = HttpChunkedTransferWriter::send_chunk(
+                    &mut self.fd,
+                    self.state.chunk_size,
+                    &buf[written..(written + self.state.chunk_size)],
+                )?;
+                written += nw;
             } else {
-                if written + self.state.chunk_size < buf.len() {
-                    let nw = HttpChunkedTransferWriter::send_chunk(
-                        &mut self.fd,
-                        self.state.chunk_size,
-                        &buf[written..(written + self.state.chunk_size)],
-                    )?;
-                    written += nw;
-                } else {
-                    let nw = self.buf_chunk(&buf[written..]);
-                    written += nw;
-                }
+                let nw = self.buf_chunk(&buf[written..]);
+                written += nw;
             }
         }
         Ok(written)
@@ -440,9 +434,7 @@ impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
             self.flush_chunk().and_then(|nw| {
                 if nw > 0 {
                     // send empty chunk
-                    self.fd
-                        .write_all(format!("0\r\n\r\n").as_bytes())
-                        .and_then(|_nw| Ok(()))
+                    self.fd.write_all(b"0\r\n\r\n").map(|_nw| ())
                 } else {
                     Ok(())
                 }
@@ -454,11 +446,12 @@ impl<'a, 'state, W: Write> Write for HttpChunkedTransferWriter<'a, 'state, W> {
 }
 
 mod test {
-    use super::*;
     use std::io;
     use std::io::{Read, Write};
 
     use rand::RngCore;
+
+    use super::*;
 
     /// Simulate reading variable-length segments
     struct SegmentReader {
@@ -470,7 +463,7 @@ mod test {
     impl SegmentReader {
         pub fn new(segments: Vec<Vec<u8>>) -> SegmentReader {
             SegmentReader {
-                segments: segments,
+                segments,
                 i: 0,
                 j: 0,
             }
@@ -738,7 +731,7 @@ mod test {
             let errstr = format!("{:?}", &err);
 
             assert!(
-                errstr.find(expected).is_some(),
+                errstr.contains(expected),
                 "Expected '{}' in '{:?}'",
                 expected,
                 errstr
