@@ -1,3 +1,7 @@
+/* This Clarinet v1 tests have been migrated to the clarinet-sdk */
+/* This file is still executed in the CI in order to avoid false positives or negatives in the CI */
+/* https://github.com/stacks-network/stacks-blockchain/pull/4031#pullrequestreview-1713341208 */
+
 import { Clarinet, Tx, Chain, Account, Contract, types } from 'https://deno.land/x/clarinet@v1.1.0/index.ts';
 import { assertEquals } from "https://deno.land/std@0.90.0/testing/asserts.ts";
 import { createHash } from "https://deno.land/std@0.107.0/hash/mod.ts";

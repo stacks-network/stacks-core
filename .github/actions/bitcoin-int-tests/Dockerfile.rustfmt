@@ -4,9 +4,10 @@ WORKDIR /src
 
 COPY ./rust-toolchain .
 COPY ./Cargo.toml .
+COPY ./.cargo .
 
 RUN rustup component add rustfmt
 
 COPY . .
 
-RUN cargo fmt --all -- --check --config group_imports=StdExternalCrate,imports_granularity=Module
+RUN cargo fmt-stacks --check
