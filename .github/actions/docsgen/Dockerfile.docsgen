@@ -1,4 +1,4 @@
-FROM rust:bullseye as build
+FROM rust:trixie as build
 
 WORKDIR /src
 
