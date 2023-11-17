@@ -658,10 +658,7 @@ pub enum TenureChangeError {
 
 /// Schnorr threshold signature using types from `wsts`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ThresholdSignature {
-    R: wsts::Point,
-    z: wsts::Scalar,
-}
+pub struct ThresholdSignature(pub wsts::common::Signature);
 
 /// A transaction from Stackers to signal new mining tenure
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
