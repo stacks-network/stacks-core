@@ -41,6 +41,7 @@ use stacks_common::util::secp256k1::{
 
 use crate::burnchains::{BurnchainView, PrivateKey, PublicKey};
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksPublicKey, StacksTransaction, MAX_BLOCK_LEN,
 };
@@ -468,6 +469,64 @@ impl StacksMessageCodec for BlocksData {
     }
 }
 
+impl StacksMessageCodec for NakamotoBlocksDatum {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.0)?;
+        write_next(fd, &self.1)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let ch: ConsensusHash = read_next(fd)?;
+        let block = {
+            let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_BLOCK_LEN));
+            read_next(&mut bound_read)
+        }?;
+
+        Ok(Self(ch, block))
+    }
+}
+
+impl NakamotoBlocksData {
+    pub fn new() -> Self {
+        Self { blocks: vec![] }
+    }
+
+    pub fn push(&mut self, ch: ConsensusHash, block: NakamotoBlock) -> () {
+        self.blocks.push(NakamotoBlocksDatum(ch, block))
+    }
+}
+
+impl StacksMessageCodec for NakamotoBlocksData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.blocks)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let blocks: Vec<NakamotoBlocksDatum> = {
+            // loose upper-bound
+            let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_MESSAGE_LEN));
+            read_next_at_most::<_, NakamotoBlocksDatum>(&mut bound_read, BLOCKS_PUSHED_MAX)
+        }?;
+
+        // only valid if there are no dups
+        let mut present = HashSet::new();
+        for NakamotoBlocksDatum(consensus_hash, _block) in blocks.iter() {
+            if present.contains(consensus_hash) {
+                // no dups allowed
+                return Err(codec_error::DeserializeError(
+                    "Invalid NakamotoBlocksData: duplicate block".to_string(),
+                ));
+            }
+
+            present.insert(consensus_hash.clone());
+        }
+
+        Ok(Self { blocks })
+    }
+}
+
 impl StacksMessageCodec for MicroblocksData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.index_anchor_block)?;
@@ -555,14 +614,14 @@ impl HandshakeData {
         };
 
         HandshakeData {
-            addrbytes: addrbytes,
-            port: port,
+            addrbytes,
+            port,
             services: local_peer.services,
             node_public_key: StacksPublicKeyBuffer::from_public_key(
                 &Secp256k1PublicKey::from_private(&local_peer.private_key),
             ),
             expire_block_height: local_peer.private_key_expire,
-            data_url: data_url,
+            data_url,
         }
     }
 }

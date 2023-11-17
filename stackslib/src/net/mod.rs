@@ -66,7 +66,7 @@ use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
-use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::boot::{
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
 };
@@ -875,6 +875,15 @@ pub struct BlocksData {
     pub blocks: Vec<BlocksDatum>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct NakamotoBlocksDatum(pub ConsensusHash, pub NakamotoBlock);
+
+/// Blocks pushed
+#[derive(Debug, Clone, PartialEq)]
+pub struct NakamotoBlocksData {
+    pub blocks: Vec<NakamotoBlocksDatum>,
+}
+
 /// Microblocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksData {
@@ -1387,6 +1396,7 @@ pub struct NetworkResult {
     pub burn_height: u64,
     pub rc_consensus_hash: ConsensusHash,
     pub stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
+    pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<NakamotoBlocksData>>, // all blocks pushed to us
 }
 
 impl NetworkResult {
@@ -1413,9 +1423,10 @@ impl NetworkResult {
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
-            num_state_machine_passes: num_state_machine_passes,
-            num_inv_sync_passes: num_inv_sync_passes,
-            num_download_passes: num_download_passes,
+            pushed_nakamoto_blocks: HashMap::new(),
+            num_state_machine_passes,
+            num_inv_sync_passes,
+            num_download_passes,
             burn_height,
             rc_consensus_hash,
             stacker_db_configs,
