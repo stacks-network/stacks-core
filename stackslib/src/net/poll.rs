@@ -111,7 +111,8 @@ impl NetworkState {
                             sleep_ms(backoff);
                             backoff = count + (rng.next_u64() % count);
                             count += count;
-                            panic!();
+                            error!("Could not bind on {:?}", addr);
+                            panic!("Could not bind on {:?}", addr);
                             continue;
                         }
                         _ => {
