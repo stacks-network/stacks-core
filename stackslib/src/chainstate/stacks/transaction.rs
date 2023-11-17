@@ -29,6 +29,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
+use wsts::curve as p256k1;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::{TransactionPayloadID, *};
@@ -151,17 +152,18 @@ impl StacksMessageCodec for TenureChangeCause {
 
 impl StacksMessageCodec for ThresholdSignature {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        let compressed = self.R.compress();
+        let compressed = self.0.R.compress();
         let bytes = compressed.as_bytes();
         fd.write_all(bytes)
             .map_err(crate::codec::Error::WriteError)?;
-        write_next(fd, &self.z.to_bytes())?;
+        write_next(fd, &self.0.z.to_bytes())?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
-        use p256k1::point::Compressed;
-        use wsts::{Point, Scalar};
+        use p256k1::point::{Compressed, Point};
+        use p256k1::scalar::Scalar;
+        use wsts::common::Signature;
 
         // Read curve point
         let mut buf = [0u8; 33];
@@ -177,17 +179,25 @@ impl StacksMessageCodec for ThresholdSignature {
             .map_err(crate::codec::Error::ReadError)?;
         let z = Scalar::from(buf);
 
-        Ok(Self { R, z })
+        Ok(Self(Signature { R, z }))
     }
 }
 
 impl ThresholdSignature {
+    pub fn verify(&self, public_key: &p256k1::point::Point, msg: &[u8]) -> bool {
+        self.0.verify(public_key, msg)
+    }
+
     /// Create mock data for testing. Not valid data
     pub fn mock() -> Self {
-        Self {
-            R: wsts::Point::G(),
-            z: wsts::Scalar::new(),
-        }
+        use p256k1::point::Point;
+        use p256k1::scalar::Scalar;
+        use wsts::common::Signature;
+
+        Self(Signature {
+            R: Point::G(),
+            z: Scalar::new(),
+        })
     }
 }
 
