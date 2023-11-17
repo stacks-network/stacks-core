@@ -1,4 +1,4 @@
-FROM rust:trixie AS test
+FROM rust:bookworm AS test
 
 WORKDIR /src
 

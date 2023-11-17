@@ -1,4 +1,4 @@
-FROM rust:trixie as build
+FROM rust:bookworm as build
 
 WORKDIR /src
 
