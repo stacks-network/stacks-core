@@ -4614,12 +4614,20 @@ impl SortitionDB {
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             // nakamoto behavior -- look to the stacks_chain_tip table
-            let res: Result<_, db_error> = conn.query_row_and_then(
-                "SELECT consensus_hash,block_hash FROM stacks_chain_tips WHERE sortition_id = ?",
-                &[&sn.sortition_id],
-                |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
-            );
-            return res;
+            //  if the chain tip of the current sortition hasn't been set, have to iterate to parent
+            let mut cursor = sn;
+            loop {
+                let result_at_tip = conn.query_row_and_then(
+                    "SELECT consensus_hash,block_hash FROM stacks_chain_tips WHERE sortition_id = ?",
+                    &[&cursor.sortition_id],
+                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
+                ).optional()?;
+                if let Some(stacks_tip) = result_at_tip {
+                    return Ok(stacks_tip);
+                }
+                cursor = SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id)?
+                    .ok_or_else(|| db_error::NotFoundError)?;
+            }
         }
 
         // epoch 2.x behavior -- look at the snapshot itself
@@ -5294,6 +5302,12 @@ impl<'a> SortitionHandleTx<'a> {
                 canonical_stacks_tip_block_hash,
                 canonical_stacks_tip_height,
             ) = res?;
+            info!(
+                "Setting initial stacks_chain_tips values";
+                "stacks_tip_height" => canonical_stacks_tip_height,
+                "stacks_tip_hash" => %canonical_stacks_tip_block_hash,
+                "stacks_tip_consensus" => %canonical_stacks_tip_consensus_hash
+            );
             sn.canonical_stacks_tip_height = canonical_stacks_tip_height;
             sn.canonical_stacks_tip_hash = canonical_stacks_tip_block_hash;
             sn.canonical_stacks_tip_consensus_hash = canonical_stacks_tip_consensus_hash;
