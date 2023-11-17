@@ -1,5 +1,6 @@
 [alias]
 stacks-node = "run --package stacks-node --"
+fmt-stacks = "fmt -- --config group_imports=StdExternalCrate,imports_granularity=Module"
 
 # Needed by perf to generate flamegraphs.
 #[target.x86_64-unknown-linux-gnu]
