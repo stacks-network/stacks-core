@@ -583,7 +583,11 @@ impl NakamotoBlockBuilder {
             &mut builder,
             mempool,
             parent_stacks_header.stacks_block_height,
+<<<<<<< HEAD
             &initial_txs,
+=======
+            new_tenure_info.as_ref().map(|info| &info.coinbase_tx),
+>>>>>>> d17b257ef (mockamoto mining working with merge)
             settings,
             event_observer,
             ASTRules::PrecheckSize,
