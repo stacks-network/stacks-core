@@ -37,7 +37,6 @@ use clarity::vm::types::{
     StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
-use stacks_common::types::chainstate;
 use stacks_common::util::hash::to_hex;
 
 use crate::chainstate::burn::db::sortdb::*;

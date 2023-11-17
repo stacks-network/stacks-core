@@ -1350,6 +1350,7 @@ pub mod tests {
 
     use rstest::rstest;
     use rstest_reuse::{self, *};
+    use stacks_common::types::StacksEpochId;
 
     use super::super::*;
     use super::SerializationError;

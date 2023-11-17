@@ -21,6 +21,7 @@ pub mod db;
 use std::collections::HashMap;
 
 use stacks_common::address::*;
+use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::*;
 use stacks_common::util::secp256k1::*;
@@ -39,7 +40,6 @@ use crate::chainstate::stacks::*;
 use crate::core::{STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_3_0_MARKER};
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
-use crate::types::chainstate::{BlockHeaderHash, SortitionId, VRFSeed};
 use crate::util_lib::db::*;
 
 // all SPV headers will have this timestamp, so that multiple burnchain nodes will always have the

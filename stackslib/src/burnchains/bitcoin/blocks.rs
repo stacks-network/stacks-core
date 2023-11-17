@@ -43,6 +43,7 @@ use crate::burnchains::{
     MAGIC_BYTES_LENGTH,
 };
 use crate::core::StacksEpochId;
+use crate::deps;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinHeaderIPC {

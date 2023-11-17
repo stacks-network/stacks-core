@@ -52,7 +52,7 @@ fn print_msg_header(mut rd: &mut dyn RecordDecorator, record: &Record) -> io::Re
                 rd,
                 "[{:5}.{:06}]",
                 elapsed.as_secs(),
-                elapsed.subsec_nanos() / 1000
+                elapsed.subsec_micros()
             )?;
         }
         Some(ref format) => {
@@ -239,17 +239,16 @@ fn make_logger() -> Logger {
         let plain = slog_term::PlainSyncDecorator::new(slog_term::TestStdoutWriter);
         let isatty = isatty(Stream::Stdout);
         let drain = TermFormat::new(plain, false, debug, isatty);
-        let logger = Logger::root(drain.ignore_res(), o!());
-        logger
+        Logger::root(drain.ignore_res(), o!())
     }
 }
 
 fn inner_get_loglevel() -> slog::Level {
     if env::var("STACKS_LOG_TRACE") == Ok("1".into()) {
         slog::Level::Trace
-    } else if env::var("STACKS_LOG_DEBUG") == Ok("1".into()) {
-        slog::Level::Debug
-    } else if env::var("BLOCKSTACK_DEBUG") == Ok("1".into()) {
+    } else if env::var("STACKS_LOG_DEBUG") == Ok("1".into())
+        || env::var("BLOCKSTACK_DEBUG") == Ok("1".into())
+    {
         slog::Level::Debug
     } else {
         slog::Level::Info
@@ -337,7 +336,7 @@ enum Stream {
     Stderr,
 }
 
-#[cfg(all(unix))]
+#[cfg(unix)]
 fn isatty(stream: Stream) -> bool {
     let fd = match stream {
         Stream::Stdout => libc::STDOUT_FILENO,

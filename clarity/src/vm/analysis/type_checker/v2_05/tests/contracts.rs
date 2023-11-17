@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use assert_json_diff::assert_json_eq;
-use serde_json;
 use stacks_common::types::StacksEpochId;
+use {assert_json_diff, serde_json};
 
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;

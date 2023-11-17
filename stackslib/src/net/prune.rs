@@ -20,6 +20,7 @@ use std::net::{Shutdown, SocketAddr};
 
 use rand::prelude::*;
 use rand::thread_rng;
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::{get_epoch_time_secs, log};
 
 use crate::net::chat::NeighborStats;

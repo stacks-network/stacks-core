@@ -55,13 +55,12 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
-use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
     PoxStartCycleInfo, COSTS_2_NAME, POX_1_NAME, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
-use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;

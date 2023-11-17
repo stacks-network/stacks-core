@@ -20,21 +20,23 @@ use std::{thread, time};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
+use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::hash::Hash160;
 
 use super::download::{
     AttachmentRequest, AttachmentsBatch, AttachmentsBatchStateContext, AttachmentsInventoryRequest,
     BatchedRequestsResult, ReliabilityReport,
 };
-use super::{AtlasConfig, AtlasDB, Attachment, AttachmentInstance};
+use super::{
+    AtlasConfig, AtlasDB, Attachment, AttachmentInstance, AttachmentPage, GetAttachmentsInvResponse,
+};
 use crate::burnchains::Txid;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::connection::ConnectionOptions;
-use crate::net::{
-    AttachmentPage, GetAttachmentsInvResponse, HttpResponseMetadata, HttpResponseType, HttpVersion,
-    PeerHost, Requestable,
-};
+use crate::net::http::{HttpResponsePayload, HttpResponsePreamble, HttpVersion};
+use crate::net::httpcore::StacksHttpResponse;
+use crate::net::Requestable;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::u64_to_sql;
 use crate::util_lib::strings::UrlString;
@@ -129,8 +131,7 @@ fn new_attachments_inventory_request(
     }
 }
 
-fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> HttpResponseType {
-    let md = HttpResponseMetadata::new(HttpVersion::Http11, 1, None, true, None);
+fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> StacksHttpResponse {
     let pages = pages
         .into_iter()
         .map(|(index, inventory)| AttachmentPage { index, inventory })
@@ -139,7 +140,14 @@ fn new_attachments_inventory_response(pages: Vec<(u32, Vec<u8>)>) -> HttpRespons
         block_id: StacksBlockId([0u8; 32]),
         pages,
     };
-    HttpResponseType::GetAttachmentsInv(md, response)
+
+    let response_json = serde_json::to_value(&response).unwrap();
+    let body = HttpResponsePayload::try_from_json(response_json).unwrap();
+
+    StacksHttpResponse::new(
+        HttpResponsePreamble::raw_ok_json(HttpVersion::Http11, false),
+        body,
+    )
 }
 
 #[test]
@@ -613,25 +621,28 @@ fn test_downloader_context_attachment_inventories_requests() {
     let request = request_queue.pop().unwrap();
     let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:30443");
-    assert_eq!(
-        request_type.request_path(),
-        "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1,2"
+    debug!("request path = {}", request_type.request_path());
+    assert!(
+        request_type.request_path() == "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1%2C2" ||
+        request_type.request_path() == "/v2/attachments/inv?pages_indexes=1%2C2&index_block_hash=0101010101010101010101010101010101010101010101010101010101010101"
     );
 
     let request = request_queue.pop().unwrap();
     let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:20443");
-    assert_eq!(
-        request_type.request_path(),
-        "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1,2"
+    debug!("request path = {}", request_type.request_path());
+    assert!(
+        request_type.request_path() == "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1%2C2" ||
+        request_type.request_path() == "/v2/attachments/inv?pages_indexes=1%2C2&index_block_hash=0101010101010101010101010101010101010101010101010101010101010101"
     );
 
     let request = request_queue.pop().unwrap();
     let request_type = request.make_request_type(localhost.clone());
     assert_eq!(&**request.get_url(), "http://localhost:40443");
-    assert_eq!(
-        request_type.request_path(),
-        "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1,2"
+    debug!("request path = {}", request_type.request_path());
+    assert!(
+        request_type.request_path() == "/v2/attachments/inv?index_block_hash=0101010101010101010101010101010101010101010101010101010101010101&pages_indexes=1%2C2" ||
+        request_type.request_path() == "/v2/attachments/inv?pages_indexes=1%2C2&index_block_hash=0101010101010101010101010101010101010101010101010101010101010101"
     );
 }
 

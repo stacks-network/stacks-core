@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::hex_bytes;
 
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};

@@ -39,6 +39,7 @@ use crate::chainstate::burn::{
 };
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieHashExtension};
+use crate::core::*;
 use crate::util_lib::db::Error as db_error;
 
 impl BlockSnapshot {

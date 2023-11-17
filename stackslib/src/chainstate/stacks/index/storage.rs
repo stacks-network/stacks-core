@@ -1369,6 +1369,10 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         tx_begin_immediate(&mut self.db)
     }
 
+    pub fn into_sqlite_conn(self) -> Connection {
+        self.db
+    }
+
     fn open_opts(
         db_path: &str,
         readonly: bool,

@@ -29,6 +29,7 @@ use clarity::vm::types::BOUND_VALUE_SERIALIZATION_HEX;
 use mio;
 use mio::net as mio_net;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::pipe::*;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
@@ -46,8 +47,7 @@ use crate::net::neighbors::{
     WALK_STATE_TIMEOUT,
 };
 use crate::net::{
-    Error as net_error, HttpRequestPreamble, HttpResponsePreamble, MessageSequence, PeerAddress,
-    Preamble, ProtocolFamily, RelayData, StacksHttp, StacksP2P,
+    Error as net_error, MessageSequence, Preamble, ProtocolFamily, RelayData, StacksHttp, StacksP2P,
 };
 
 /// Receiver notification handle.
@@ -71,7 +71,7 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
 
     /// Send this message to the waiting receiver, consuming this notification handle.
     /// May fail silently.
-    pub fn send(self, msg: P::Message) -> () {
+    pub fn send(self, msg: P::Message) {
         let msg_name = msg.get_message_name().to_string();
         let msg_id = msg.request_id();
         match self.receiver_input.send(msg) {
@@ -223,25 +223,45 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
         }
     }
 
+    /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe if
+    /// `drop_on_success` is true.  Returns `true` if we drained the write end, `false` if not.
+    pub fn try_flush_ex(&mut self, drop_on_success: bool) -> Result<bool, net_error> {
+        let ret;
+        let fd_opt = match self.request_pipe_write.take() {
+            Some(mut fd) => {
+                ret = fd.try_flush().map_err(net_error::WriteError)?;
+                if ret && drop_on_success {
+                    // all data flushed, and we won't send more.
+                    None
+                } else {
+                    // still have data to send, or we will send more.
+                    test_debug!(
+                        "Still have data to send, drop_on_success = {}, ret = {}",
+                        drop_on_success,
+                        ret
+                    );
+                    Some(fd)
+                }
+            }
+            None => {
+                ret = true;
+                None
+            }
+        };
+        self.request_pipe_write = fd_opt;
+        Ok(ret)
+    }
+
     /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe.
     /// Only call this once you're done sending -- this is just to move the data along.
     /// Return true if we're done sending; false if we need to call this again.
     pub fn try_flush(&mut self) -> Result<bool, net_error> {
-        let fd_opt = match self.request_pipe_write.take() {
-            Some(mut fd) => {
-                let res = fd.try_flush().map_err(net_error::WriteError)?;
-                if res {
-                    // all data flushed!
-                    None
-                } else {
-                    // still have data to send
-                    Some(fd)
-                }
-            }
-            None => None,
-        };
-        self.request_pipe_write = fd_opt;
-        Ok(self.request_pipe_write.is_none())
+        self.try_flush_ex(true)
+    }
+
+    /// Get a mutable reference to the inner pipe, if we have it
+    pub fn inner_pipe_out(&mut self) -> Option<&mut PipeWrite> {
+        self.request_pipe_write.as_mut()
     }
 }
 
@@ -363,6 +383,10 @@ pub struct ConnectionOptions {
     pub mempool_max_tx_query: u64,
     /// how long a mempool sync is allowed to take, in total, before timing out
     pub mempool_sync_timeout: u64,
+    /// socket read buffer size
+    pub socket_recv_buffer_size: u32,
+    /// socket write buffer size
+    pub socket_send_buffer_size: u32,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -452,6 +476,8 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_interval: 30, // number of seconds in-between mempool sync
             mempool_max_tx_query: 128, // maximum number of transactions to visit per mempool query
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
+            socket_recv_buffer_size: 131072, // Linux default
+            socket_send_buffer_size: 16384, // Linux default
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -1039,6 +1065,7 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
             let _nr_input = match self.pending_message_fd {
                 Some(ref mut message_fd) => {
                     // consume from message-writer until we're out of data
+                    // TODO: make this configurable
                     let mut buf = [0u8; 8192];
                     let nr_input = match message_fd.read(&mut buf) {
                         Ok(0) => {

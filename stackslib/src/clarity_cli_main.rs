@@ -26,7 +26,7 @@ extern crate serde_json;
 use std::{env, process};
 
 use blockstack_lib::clarity_cli as clarity;
-use blockstack_lib::util::log;
+use stacks_common::util::log;
 
 fn main() {
     let argv: Vec<String> = env::args().collect();

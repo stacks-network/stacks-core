@@ -20,8 +20,7 @@ use std::io::{Read, Write};
 use std::{fmt, io};
 
 use clarity::vm::types::{PrincipalData, SequenceData, StandardPrincipalData, TupleData, Value};
-use serde::{Deserialize, Deserializer, Serializer};
-use stacks_common::address::b58::{check_encode_slice, from_check};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use stacks_common::address::c32::{c32_address, c32_address_decode};
 use stacks_common::address::{b58, public_keys_to_address_hash, AddressHashMode};
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};

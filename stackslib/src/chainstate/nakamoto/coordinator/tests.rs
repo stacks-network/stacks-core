@@ -117,6 +117,8 @@ fn boot_nakamoto(test_name: &str, mut initial_balances: Vec<(PrincipalData, u64)
 fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>) -> TestPeer<'a> {
     let mut replay_config = peer.config.clone();
     replay_config.test_name = format!("{}.replay", &peer.config.test_name);
+    replay_config.server_port = 0;
+    replay_config.http_port = 0;
 
     let mut replay_peer = TestPeer::new(replay_config);
     advance_to_nakamoto(&mut replay_peer);

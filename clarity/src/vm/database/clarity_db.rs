@@ -50,7 +50,7 @@ use crate::vm::errors::{
     RuntimeErrorType,
 };
 use crate::vm::representations::ClarityName;
-use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
+use crate::vm::types::serialization::{SerializationError, NONE_SERIALIZATION_LEN};
 use crate::vm::types::{
     byte_len_of_serialization, OptionalData, PrincipalData, QualifiedContractIdentifier,
     SequenceData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE,

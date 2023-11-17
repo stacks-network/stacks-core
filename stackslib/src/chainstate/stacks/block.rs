@@ -32,11 +32,11 @@ use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
-use super::db::StacksBlockHeaderTypes;
 use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{ConsensusHash, *};
-use crate::chainstate::stacks::{Error, *};
+use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
+use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
 use crate::core::*;
 use crate::net::Error as net_error;
 

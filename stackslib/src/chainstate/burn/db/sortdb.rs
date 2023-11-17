@@ -33,7 +33,6 @@ use rusqlite::{
     Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
     TransactionBehavior, NO_PARAMS,
 };
-use secp256k1::Secp256k1;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
@@ -81,7 +80,7 @@ use crate::core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use crate::net::Error as NetError;
+use crate::net::{Error as NetError, Error};
 use crate::util_lib::db::{
     db_mkdirs, opt_u64_to_sql, query_count, query_row, query_row_columns, query_row_panic,
     query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx,
@@ -6245,6 +6244,7 @@ impl<'a> SortitionHandleTx<'a> {
         let winner = hash_tied
             .first()
             .expect("FATAL: zero-length list of tied block IDs");
+
         let winner_index = *mapping
             .get(&winner)
             .expect("FATAL: winning block ID not mapped");

@@ -207,7 +207,7 @@ pub struct RawDecoder<R> {
 impl<W: Write> RawEncoder<W> {
     /// Constructor
     pub fn new(writer: W) -> RawEncoder<W> {
-        RawEncoder { writer: writer }
+        RawEncoder { writer }
     }
     /// Returns the underlying Writer
     pub fn into_inner(self) -> W {
@@ -218,7 +218,7 @@ impl<W: Write> RawEncoder<W> {
 impl<R: Read> RawDecoder<R> {
     /// Constructor
     pub fn new(reader: R) -> RawDecoder<R> {
-        RawDecoder { reader: reader }
+        RawDecoder { reader }
     }
     /// Returns the underlying Reader
     pub fn into_inner(self) -> R {

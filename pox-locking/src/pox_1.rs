@@ -40,19 +40,19 @@ fn parse_pox_stacking_result_v1(
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
-                .expect(&format!("FATAL: no 'stacker'"))
+                .expect("FATAL: no 'stacker'")
                 .to_owned()
                 .expect_principal();
 
             let lock_amount = tuple_data
                 .get("lock-amount")
-                .expect(&format!("FATAL: no 'lock-amount'"))
+                .expect("FATAL: no 'lock-amount'")
                 .to_owned()
                 .expect_u128();
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
-                .expect(&format!("FATAL: no 'unlock-burn-height'"))
+                .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
                 .try_into()
@@ -119,6 +119,7 @@ pub fn pox_lock_v1(
 }
 
 /// Handle special cases when calling into the PoX v1 contract
+#[allow(clippy::needless_return)]
 pub fn handle_contract_call(
     global_context: &mut GlobalContext,
     _sender_opt: Option<&PrincipalData>,
@@ -158,7 +159,7 @@ pub fn handle_contract_call(
         &mut global_context.database,
         &stacker,
         locked_amount,
-        unlock_height as u64,
+        unlock_height,
     ) {
         Ok(_) => {
             if let Some(batch) = global_context.event_batches.last_mut() {
@@ -171,12 +172,13 @@ pub fn handle_contract_call(
                     }),
                 ));
             }
+            return Ok(());
         }
         Err(LockingError::DefunctPoxContract) => {
             return Err(ClarityError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
-            ))
+            ));
         }
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into both pox-1 and pox-2
@@ -192,6 +194,4 @@ pub fn handle_contract_call(
             );
         }
     }
-
-    Ok(())
 }

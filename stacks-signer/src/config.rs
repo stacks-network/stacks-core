@@ -20,12 +20,17 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use blockstack_lib::chainstate::stacks::TransactionVersion;
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
 use p256k1::ecdsa;
 use p256k1::scalar::Scalar;
 use serde::Deserialize;
-use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use wsts::state_machine::PublicKeys;
 
 /// List of key_ids for each signer_id
@@ -45,6 +50,9 @@ pub enum ConfigError {
     /// A field was malformed
     #[error("identifier={0}, value={1}")]
     BadField(String, String),
+    /// An unsupported address version
+    #[error("Failed to convert private key to address: unsupported address version.")]
+    UnsupportedAddressVersion,
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -55,6 +63,34 @@ pub enum Network {
     Mainnet,
     /// The testnet network
     Testnet,
+    /// The mocknet network
+    Mocknet,
+}
+
+impl Network {
+    /// Converts a Network enum variant to a corresponding chain id
+    pub fn to_chain_id(&self) -> u32 {
+        match self {
+            Self::Mainnet => CHAIN_ID_MAINNET,
+            Self::Testnet | Self::Mocknet => CHAIN_ID_TESTNET,
+        }
+    }
+
+    /// Convert a Network enum variant to a corresponding address version
+    pub fn to_address_version(&self) -> u8 {
+        match self {
+            Self::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+            Self::Testnet | Self::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        }
+    }
+
+    /// Convert a Network enum variant to a Transaction Version
+    pub fn to_transaction_version(&self) -> TransactionVersion {
+        match self {
+            Self::Mainnet => TransactionVersion::Mainnet,
+            Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
+        }
+    }
 }
 
 /// The parsed configuration for the signer
@@ -65,13 +101,17 @@ pub struct Config {
     pub endpoint: SocketAddr,
     /// smart contract that controls the target stackerdb
     pub stackerdb_contract_id: QualifiedContractIdentifier,
+    /// smart contract that controls the target stackerdb
+    pub pox_contract_id: Option<QualifiedContractIdentifier>,
     /// The Scalar representation of the private key for signer communication
     pub message_private_key: Scalar,
     /// The signer's Stacks private key
     pub stacks_private_key: StacksPrivateKey,
+    /// The signer's Stacks address
+    pub stacks_address: StacksAddress,
     /// The network to use. One of "mainnet" or "testnet".
     pub network: Network,
-    /// The signer ID and key ids mapped to a pulbic key
+    /// The signer ID and key ids mapped to a public key
     pub signer_ids_public_keys: PublicKeys,
     /// The signer IDs mapped to their Key IDs
     pub signer_key_ids: SignerKeyIds,
@@ -95,8 +135,11 @@ struct RawConfigFile {
     pub node_host: String,
     /// endpoint to stackerdb receiver
     pub endpoint: String,
-    /// contract identifier
+    // FIXME: these contract's should go away in non testing scenarios. Make them both optionals.
+    /// Stacker db contract identifier
     pub stackerdb_contract_id: String,
+    /// pox contract identifier
+    pub pox_contract_id: Option<String>,
     /// the 32 byte ECDSA private key used to sign blocks, chunks, and transactions
     pub message_private_key: String,
     /// The hex representation of the signer's Stacks private key used for communicating
@@ -176,6 +219,17 @@ impl TryFrom<RawConfigFile> for Config {
                 )
             })?;
 
+        let pox_contract_id = if let Some(id) = raw_data.pox_contract_id.as_ref() {
+            Some(QualifiedContractIdentifier::parse(id).map_err(|_| {
+                ConfigError::BadField(
+                    "pox_contract_id".to_string(),
+                    raw_data.pox_contract_id.unwrap_or("".to_string()),
+                )
+            })?)
+        } else {
+            None
+        };
+
         let message_private_key =
             Scalar::try_from(raw_data.message_private_key.as_str()).map_err(|_| {
                 ConfigError::BadField(
@@ -191,6 +245,14 @@ impl TryFrom<RawConfigFile> for Config {
                     raw_data.stacks_private_key.clone(),
                 )
             })?;
+        let stacks_public_key = StacksPublicKey::from_private(&stacks_private_key);
+        let stacks_address = StacksAddress::from_public_keys(
+            raw_data.network.to_address_version(),
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![stacks_public_key],
+        )
+        .ok_or(ConfigError::UnsupportedAddressVersion)?;
         let mut public_keys = PublicKeys::default();
         let mut signer_key_ids = SignerKeyIds::default();
         for (i, s) in raw_data.signers.iter().enumerate() {
@@ -219,8 +281,10 @@ impl TryFrom<RawConfigFile> for Config {
             node_host,
             endpoint,
             stackerdb_contract_id,
+            pox_contract_id,
             message_private_key,
             stacks_private_key,
+            stacks_address,
             network: raw_data.network,
             signer_ids_public_keys: public_keys,
             signer_id: raw_data.signer_id,

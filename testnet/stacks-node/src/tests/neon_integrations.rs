@@ -14,7 +14,6 @@ use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STA
 use rand::Rng;
 use rusqlite::types::ToSql;
 use serde_json::json;
-use stacks::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
@@ -26,15 +25,15 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
     TransactionSuccessEvent,
 };
 use stacks::chainstate::stacks::{
-    address, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksMicroblockHeader,
-    StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionContractCall,
-    TransactionPayload,
+    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey,
+    StacksPublicKey, StacksTransaction, TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
@@ -43,23 +42,28 @@ use stacks::core::{
     BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
-use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-use stacks::net::{
-    AccountEntryResponse, BurnchainOps, ContractSrcResponse, GetAttachmentResponse,
-    GetAttachmentsInvResponse, PostTransactionRequestBody, RPCFeeEstimateResponse, RPCPeerInfoData,
-    RPCPoxInfoData, StacksBlockAcceptedData, UnconfirmedTransactionResponse,
+use stacks::net::api::getaccount::AccountEntryResponse;
+use stacks::net::api::getcontractsrc::ContractSrcResponse;
+use stacks::net::api::getinfo::RPCPeerInfoData;
+use stacks::net::api::getpoxinfo::RPCPoxInfoData;
+use stacks::net::api::gettransaction_unconfirmed::UnconfirmedTransactionResponse;
+use stacks::net::api::postblock::StacksBlockAcceptedData;
+use stacks::net::api::postfeerate::RPCFeeEstimateResponse;
+use stacks::net::api::posttransaction::PostTransactionRequestBody;
+use stacks::net::atlas::{
+    AtlasConfig, AtlasDB, GetAttachmentResponse, GetAttachmentsInvResponse,
+    MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
+use stacks::net::BurnchainOps;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
+use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
-use stacks_common::types::PrivateKey;
-use stacks_common::util::hash::{
-    bytes_to_hex, hex_bytes, to_hex, Hash160, MerkleTree, Sha512Trunc256Sum,
-};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex, Hash160};
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -71,8 +75,11 @@ use super::{
 use crate::burnchains::bitcoin_regtest_controller::{BitcoinRPCRequest, UTXO};
 use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use crate::operations::BurnchainOpSigner;
+use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::tests::SK_3;
+use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use crate::util::secp256k1::MessageSignature;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
@@ -10916,9 +10923,9 @@ fn test_submit_and_observe_sbtc_ops() {
         StandardPrincipalData::from(recipient_stx_addr).into();
 
     let peg_wallet_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-    let peg_wallet_address = address::PoxAddress::Standard(to_addr(&peg_wallet_sk), None);
+    let peg_wallet_address = PoxAddress::Standard(to_addr(&peg_wallet_sk), None);
 
-    let recipient_btc_addr = address::PoxAddress::Standard(recipient_stx_addr, None);
+    let recipient_btc_addr = PoxAddress::Standard(recipient_stx_addr, None);
 
     let (mut conf, _) = neon_integration_test_conf();
 

@@ -50,7 +50,6 @@ pub mod test_util;
 #[allow(clippy::result_large_err)]
 pub mod clarity;
 
-// publish the non-generic StacksEpoch form for use throughout module
 use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
@@ -71,6 +70,7 @@ use crate::vm::costs::{
     cost_functions, runtime_cost, CostOverflowingMath, CostTracker, LimitedCostTracker,
     MemoryConsumer,
 };
+// publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,

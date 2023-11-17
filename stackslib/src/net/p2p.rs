@@ -30,6 +30,7 @@ use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{PoxId, SortitionId};
+use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log};
@@ -53,15 +54,16 @@ use crate::net::chat::{ConversationP2P, NeighborStats};
 use crate::net::connection::{ConnectionOptions, NetworkReplyHandle, ReplyHandleP2P};
 use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::BlockDownloader;
+use crate::net::http::HttpRequestContents;
+use crate::net::httpcore::StacksHttpRequest;
 use crate::net::inv::*;
 use crate::net::neighbors::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
 use crate::net::prune::*;
 use crate::net::relay::{RelayerStats, *, *};
-use crate::net::rpc::RPCHandlerArgs;
 use crate::net::server::*;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, StackerDBs};
-use crate::net::{Error as net_error, Neighbor, NeighborKey, PeerAddress, *};
+use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// inter-thread request to send a p2p message from another thread in this program.
@@ -362,7 +364,11 @@ impl PeerNetwork {
         >,
         epochs: Vec<StacksEpoch>,
     ) -> PeerNetwork {
-        let http = HttpPeer::new(connection_opts.clone(), 0);
+        let http = HttpPeer::new(
+            connection_opts.clone(),
+            0,
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0),
+        );
         let pub_ip = connection_opts.public_ip_address.clone();
         let pub_ip_learned = pub_ip.is_none();
         local_peer.public_ip_address = pub_ip.clone();
@@ -525,14 +531,14 @@ impl PeerNetwork {
     pub fn bind(&mut self, my_addr: &SocketAddr, http_addr: &SocketAddr) -> Result<(), net_error> {
         let mut net = NetworkState::new(self.connection_opts.max_sockets)?;
 
-        let p2p_handle = net.bind(my_addr)?;
-        let http_handle = net.bind(http_addr)?;
+        let (p2p_handle, bound_p2p_addr) = net.bind(my_addr)?;
+        let (http_handle, bound_http_addr) = net.bind(http_addr)?;
 
         test_debug!(
             "{:?}: bound on p2p {:?}, http {:?}",
             &self.local_peer,
-            my_addr,
-            http_addr
+            bound_p2p_addr,
+            bound_http_addr
         );
 
         self.network = Some(net);
@@ -540,14 +546,14 @@ impl PeerNetwork {
         self.http_network_handle = http_handle;
 
         PeerNetwork::with_http(self, |_, ref mut http| {
-            http.set_server_handle(http_handle);
+            http.set_server_handle(http_handle, bound_http_addr);
         });
 
         self.bind_nk = NeighborKey {
             network_id: self.local_peer.network_id,
             peer_version: self.peer_version,
-            addrbytes: PeerAddress::from_socketaddr(my_addr),
-            port: my_addr.port(),
+            addrbytes: PeerAddress::from_socketaddr(&bound_p2p_addr),
+            port: bound_p2p_addr.port(),
         };
 
         Ok(())
@@ -655,6 +661,16 @@ impl PeerNetwork {
     /// Get a mutable ref to the header cache
     pub fn get_header_cache_mut(&mut self) -> &mut BlockHeaderCache {
         &mut self.header_cache
+    }
+
+    /// Get a ref to the AtlasDB
+    pub fn get_atlasdb(&self) -> &AtlasDB {
+        &self.atlasdb
+    }
+
+    /// Get a mut ref to the AtlasDB
+    pub fn get_atlasdb_mut(&mut self) -> &mut AtlasDB {
+        &mut self.atlasdb
     }
 
     /// Count up the number of outbound StackerDB replicas we talk to,
@@ -1040,7 +1056,11 @@ impl PeerNetwork {
                 return Err(net_error::NotConnected);
             }
             Some(ref mut network) => {
-                let sock = NetworkState::connect(&neighbor.addrbytes.to_socketaddr(neighbor.port))?;
+                let sock = NetworkState::connect(
+                    &neighbor.addrbytes.to_socketaddr(neighbor.port),
+                    self.connection_opts.socket_send_buffer_size,
+                    self.connection_opts.socket_recv_buffer_size,
+                )?;
                 let hint_event_id = network.next_event_id()?;
                 let registered_event_id =
                     network.register(self.p2p_network_handle, hint_event_id, &sock)?;
@@ -2376,14 +2396,13 @@ impl PeerNetwork {
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         ibd: bool,
     ) -> Option<Vec<StacksTransaction>> {
         if ibd {
             return None;
         }
 
-        return match self.do_mempool_sync(dns_client_opt, mempool, chainstate) {
+        return match self.do_mempool_sync(dns_client_opt, mempool) {
             (true, txs_opt) => {
                 // did we run to completion?
                 if let Some(txs) = txs_opt {
@@ -2721,7 +2740,6 @@ impl PeerNetwork {
     fn do_network_block_download(
         &mut self,
         sortdb: &SortitionDB,
-        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client: &mut DNSClient,
         ibd: bool,
@@ -2744,7 +2762,7 @@ impl PeerNetwork {
             mut microblocks,
             mut broken_http_peers,
             mut broken_p2p_peers,
-        ) = match self.download_blocks(sortdb, mempool, chainstate, dns_client, ibd) {
+        ) = match self.download_blocks(sortdb, chainstate, dns_client, ibd) {
             Ok(x) => x,
             Err(net_error::NotConnected) => {
                 // there was simply nothing to do
@@ -3548,26 +3566,19 @@ impl PeerNetwork {
         url: &UrlString,
         addr: &SocketAddr,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         page_id: Txid,
     ) -> Result<(bool, Option<usize>), net_error> {
         let sync_data = mempool.make_mempool_sync_data()?;
-        let request = HttpRequestType::MemPoolQuery(
-            HttpRequestMetadata::from_host(
-                PeerHost::from_socketaddr(addr),
-                Some(self.burnchain_tip.canonical_stacks_tip_height),
-            ),
-            sync_data,
-            Some(page_id),
-        );
-
-        let event_id = self.connect_or_send_http_request(
-            url.clone(),
-            addr.clone(),
-            request,
-            mempool,
-            chainstate,
+        let request = StacksHttpRequest::new_for_peer(
+            PeerHost::from_socketaddr(addr),
+            "POST".into(),
+            "/v2/mempool/query".into(),
+            HttpRequestContents::new()
+                .query_arg("page_id".into(), format!("{}", &page_id))
+                .payload_stacks(&sync_data),
         )?;
+
+        let event_id = self.connect_or_send_http_request(url.clone(), addr.clone(), request)?;
         return Ok((false, Some(event_id)));
     }
 
@@ -3604,15 +3615,15 @@ impl PeerNetwork {
                             );
                             return Ok((false, None, None));
                         }
-                        Some(http_response) => match http_response {
-                            HttpResponseType::MemPoolTxs(_, page_id_opt, txs) => {
+                        Some(http_response) => match http_response.decode_mempool_txs_page() {
+                            Ok((txs, page_id_opt)) => {
                                 debug!("{:?}: Mempool sync received response for {} txs, next page {:?}", &network.local_peer, txs.len(), &page_id_opt);
                                 return Ok((true, page_id_opt, Some(txs)));
                             }
-                            _ => {
+                            Err(e) => {
                                 warn!(
-                                    "{:?}: Mempool sync request received {:?}",
-                                    &network.local_peer, &http_response
+                                    "{:?}: Mempool sync request did not receive a txs page: {:?}",
+                                    &network.local_peer, &e
                                 );
                                 return Ok((true, None, None));
                             }
@@ -3630,7 +3641,6 @@ impl PeerNetwork {
         &mut self,
         dns_client_opt: &mut Option<&mut DNSClient>,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
     ) -> (bool, Option<Vec<StacksTransaction>>) {
         if get_epoch_time_secs() <= self.mempool_sync_deadline {
             debug!(
@@ -3718,13 +3728,7 @@ impl PeerNetwork {
                         "{:?}: Mempool sync will query {} for mempool transactions at {}",
                         &self.local_peer, url, page_id
                     );
-                    match self.mempool_sync_send_query(
-                        url,
-                        addr,
-                        mempool,
-                        chainstate,
-                        page_id.clone(),
-                    ) {
+                    match self.mempool_sync_send_query(url, addr, mempool, page_id.clone()) {
                         Ok((false, Some(event_id))) => {
                             // success! advance
                             debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &self.local_peer, url, page_id, event_id);
@@ -3812,7 +3816,6 @@ impl PeerNetwork {
     fn do_network_work(
         &mut self,
         sortdb: &SortitionDB,
-        mempool: &MemPoolDB,
         chainstate: &mut StacksChainState,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
@@ -4020,7 +4023,6 @@ impl PeerNetwork {
                         Some(ref mut dns_client) => {
                             let done = self.do_network_block_download(
                                 sortdb,
-                                mempool,
                                 chainstate,
                                 *dns_client,
                                 ibd,
@@ -4081,8 +4083,6 @@ impl PeerNetwork {
 
     fn do_attachment_downloads(
         &mut self,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         mut dns_client_opt: Option<&mut DNSClient>,
         network_result: &mut NetworkResult,
     ) {
@@ -4107,7 +4107,7 @@ impl PeerNetwork {
                     self,
                     |network, attachments_downloader| {
                         let mut dead_events = vec![];
-                        match attachments_downloader.run(dns_client, mempool, chainstate, network) {
+                        match attachments_downloader.run(dns_client, network) {
                             Ok((ref mut attachments, ref mut events_to_deregister)) => {
                                 network_result.attachments.append(attachments);
                                 dead_events.append(events_to_deregister);
@@ -5415,7 +5415,6 @@ impl PeerNetwork {
         // an already-used network ID.
         let do_prune = self.do_network_work(
             sortdb,
-            mempool,
             chainstate,
             &mut dns_client_opt,
             download_backpressure,
@@ -5443,14 +5442,12 @@ impl PeerNetwork {
 
         // In parallel, do a mempool sync.
         // Remember any txs we get, so we can feed them to the relayer thread.
-        if let Some(mut txs) =
-            self.do_network_mempool_sync(&mut dns_client_opt, mempool, chainstate, ibd)
-        {
+        if let Some(mut txs) = self.do_network_mempool_sync(&mut dns_client_opt, mempool, ibd) {
             network_result.synced_transactions.append(&mut txs);
         }
 
         // download attachments
-        self.do_attachment_downloads(mempool, chainstate, dns_client_opt, network_result);
+        self.do_attachment_downloads(dns_client_opt, network_result);
 
         // synchronize stacker DBs
         match self.run_stacker_db_sync() {
@@ -5727,15 +5724,9 @@ impl PeerNetwork {
 
         PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             let http_stacks_msgs = PeerNetwork::with_http(network, |ref mut net, ref mut http| {
-                http.run(
-                    network_state,
-                    net,
-                    sortdb,
-                    chainstate,
-                    mempool,
-                    http_poll_state,
-                    handler_args,
-                )
+                let mut node_state =
+                    StacksNodeState::new(net, sortdb, chainstate, mempool, handler_args);
+                http.run(network_state, &mut node_state, http_poll_state)
             });
             network_result.consume_http_uploads(http_stacks_msgs);
             Ok(())

@@ -44,7 +44,7 @@ use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
 
 /// Legacy function
-#[cfg(any(test, features = "testing"))]
+#[cfg(any(test, feature = "testing"))]
 pub fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,

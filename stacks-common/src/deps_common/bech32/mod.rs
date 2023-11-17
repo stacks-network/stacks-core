@@ -59,6 +59,9 @@ assert_eq!(variant, Variant::Bech32);
 #[cfg(all(not(feature = "std"), not(test)))]
 extern crate alloc;
 
+#[cfg(any(test, feature = "std"))]
+extern crate core;
+
 #[cfg(all(not(feature = "std"), not(test)))]
 use alloc::borrow::Cow;
 #[cfg(all(not(feature = "std"), not(test)))]
@@ -371,9 +374,9 @@ fn check_hrp(hrp: &str) -> Result<Case, Error> {
             return Err(Error::InvalidChar(b as char));
         }
 
-        if (b'a'..=b'z').contains(&b) {
+        if b.is_ascii_lowercase() {
             has_lower = true;
-        } else if (b'A'..=b'Z').contains(&b) {
+        } else if b.is_ascii_uppercase() {
             has_upper = true;
         };
 

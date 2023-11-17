@@ -14,6 +14,7 @@ use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
 pub mod chainstate;
+pub mod net;
 
 /// A container for public keys (compressed secp256k1 public keys)
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
@@ -241,7 +242,7 @@ impl Address for StacksAddress {
         let mut hash_bytes = [0u8; 20];
         hash_bytes.copy_from_slice(&bytes[..]);
         Some(StacksAddress {
-            version: version,
+            version,
             bytes: Hash160(hash_bytes),
         })
     }

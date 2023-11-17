@@ -38,7 +38,6 @@ use crate::burnchains::bitcoin::BitcoinNetworkType;
 use crate::burnchains::db::*;
 use crate::burnchains::tests::db::*;
 use crate::burnchains::{BurnchainBlock, BurnchainBlockHeader, Txid, *};
-use crate::chainstate;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
@@ -50,6 +49,7 @@ use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::*;
 use crate::monitoring::increment_stx_blocks_processed_counter;
+use crate::{chainstate, core};
 
 #[test]
 fn affirmation_map_encode_decode() {
