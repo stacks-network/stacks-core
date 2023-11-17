@@ -3383,12 +3383,8 @@ fn get_pox_addrs() {
         .unwrap()
         + 1;
 
-    let (mut peer, keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        function_name!(),
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
@@ -3594,12 +3590,8 @@ fn stack_with_segwit() {
         .unwrap()
         + 1;
 
-    let (mut peer, keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        function_name!(),
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
     peer.config.check_pox_invariants = Some((first_v3_cycle, first_v3_cycle + 10));
 
@@ -4245,12 +4237,8 @@ fn pox_3_delegate_stx_addr_validation() {
         .unwrap()
         + 1;
 
-    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        function_name!(),
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, mut keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
     peer.config.check_pox_invariants = Some((first_v3_cycle, first_v3_cycle + 10));
 
