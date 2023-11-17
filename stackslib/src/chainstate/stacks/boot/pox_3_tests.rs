@@ -183,7 +183,6 @@ fn simple_pox_lockup_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7104,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -585,7 +584,6 @@ fn pox_auto_unlock(alice_first: bool) {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("{}-{}", function_name!(), alice_first),
-        7102 + if alice_first { 0 } else { 20 },
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1011,7 +1009,6 @@ fn delegate_stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7103,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1631,7 +1628,6 @@ fn stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7105,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -2059,7 +2055,6 @@ fn pox_extend_transition() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7110,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -2572,7 +2567,6 @@ fn delegate_extend_pox_3() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7114,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -3058,7 +3052,6 @@ fn pox_3_getters() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7115,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -3393,7 +3386,6 @@ fn get_pox_addrs() {
     let (mut peer, keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7142,
         Some(epochs.clone()),
         None,
     );
@@ -3605,7 +3597,6 @@ fn stack_with_segwit() {
     let (mut peer, keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7120,
         Some(epochs.clone()),
         None,
     );
@@ -3820,7 +3811,6 @@ fn stack_aggregation_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7117,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -4258,7 +4248,6 @@ fn pox_3_delegate_stx_addr_validation() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7100,
         Some(epochs.clone()),
         None,
     );

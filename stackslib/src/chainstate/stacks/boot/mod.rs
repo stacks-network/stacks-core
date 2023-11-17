@@ -1352,19 +1352,17 @@ pub mod test {
     pub fn instantiate_pox_peer<'a>(
         burnchain: &Burnchain,
         test_name: &str,
-        port: u16,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
-        instantiate_pox_peer_with_epoch(burnchain, test_name, port, None, None)
+        instantiate_pox_peer_with_epoch(burnchain, test_name, None, None)
     }
 
     pub fn instantiate_pox_peer_with_epoch<'a>(
         burnchain: &Burnchain,
         test_name: &str,
-        port: u16,
         epochs: Option<Vec<StacksEpoch>>,
         observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
-        let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
+        let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
         peer_config.burnchain = burnchain.clone();
         peer_config.epochs = epochs;
         peer_config.setup_code = format!(
@@ -2032,7 +2030,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!(), 6000);
+        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
@@ -2220,7 +2218,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 1;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6007);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 15;
 
@@ -2335,7 +2333,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6026);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
@@ -2443,7 +2441,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6002);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -2655,7 +2653,7 @@ pub mod test {
         burnchain.pox_constants.anchor_threshold = 1;
         assert_eq!(burnchain.pox_constants.reward_slots(), 4);
 
-        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!(), 6026);
+        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 20;
 
@@ -2913,7 +2911,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6018);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -3179,7 +3177,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6004);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -3394,7 +3392,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6006);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 3;
 
@@ -3606,7 +3604,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6012);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 2;
 
@@ -3846,7 +3844,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6014);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 25;
 
@@ -4370,7 +4368,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6016);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 20;
 
@@ -4820,7 +4818,7 @@ pub mod test {
         //   owned by charlie.
         burnchain.pox_constants.pox_rejection_fraction = 5;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6024);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 15;
 
