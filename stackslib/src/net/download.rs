@@ -47,6 +47,7 @@ use crate::burnchains::Burnchain;
 use crate::burnchains::BurnchainView;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn};
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
 use crate::chainstate::stacks::StacksBlockHeader;
@@ -3294,18 +3295,20 @@ pub mod test {
                     >| {
                         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
-                        let stacks_tip_opt = chainstate.get_stacks_chain_tip(sortdb).unwrap();
+                        let stacks_tip_opt =
+                            NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                                .unwrap();
                         let parent_tip = match stacks_tip_opt {
                             None => {
                                 StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
                             }
-                            Some(staging_block) => {
+                            Some(header) => {
                                 let ic = sortdb.index_conn();
                                 let snapshot =
                                     SortitionDB::get_block_snapshot_for_winning_stacks_block(
                                         &ic,
                                         &tip.sortition_id,
-                                        &staging_block.anchored_block_hash,
+                                        &header.anchored_header.block_hash(),
                                     )
                                     .unwrap()
                                     .unwrap(); // succeeds because we don't fork

@@ -62,7 +62,8 @@ use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::Opcodes;
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
+use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::blocks::CheckError;
 use crate::chainstate::stacks::db::{blocks::MINIMUM_TX_FEE_RATE_PER_BYTE, StacksChainState};
 use crate::chainstate::stacks::Error as chain_error;
@@ -318,22 +319,33 @@ impl RPCPoxInfoData {
 
         // Note: should always be 0 unless somehow configured to start later
         let pox_1_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.first_block_height as u64)
+            .block_height_to_reward_cycle(u64::from(burnchain.first_block_height))
             .ok_or(net_error::ChainstateError(
                 "PoX-1 first reward cycle begins before first burn block height".to_string(),
             ))?;
 
         let pox_2_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
+            .block_height_to_reward_cycle(u64::from(burnchain.pox_constants.v1_unlock_height))
             .ok_or(net_error::ChainstateError(
                 "PoX-2 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
         let pox_3_first_cycle = burnchain
-            .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
+            .block_height_to_reward_cycle(u64::from(
+                burnchain.pox_constants.pox_3_activation_height,
+            ))
             .ok_or(net_error::ChainstateError(
                 "PoX-3 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
+
+        let pox_4_first_cycle = burnchain
+            .block_height_to_reward_cycle(u64::from(
+                burnchain.pox_constants.pox_4_activation_height,
+            ))
+            .ok_or(net_error::ChainstateError(
+                "PoX-4 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
@@ -547,6 +559,14 @@ impl RPCPoxInfoData {
                         .pox_3_activation_height
                         as u64,
                     first_reward_cycle_id: pox_3_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_4_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain
+                        .pox_constants
+                        .pox_4_activation_height
+                        as u64,
+                    first_reward_cycle_id: pox_4_first_cycle,
                 },
             ],
         })
@@ -1378,6 +1398,7 @@ impl ConversationHttp {
                     let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
                     let v1_unlock_height = clarity_db.get_v1_unlock_height();
                     let v2_unlock_height = clarity_db.get_v2_unlock_height();
+                    let v3_unlock_height = clarity_db.get_v3_unlock_height();
                     let (balance, balance_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<STXBalance>(&key)
@@ -1407,11 +1428,13 @@ impl ConversationHttp {
                         burn_block_height,
                         v1_unlock_height,
                         v2_unlock_height,
+                        v3_unlock_height,
                     );
                     let (locked, unlock_height) = balance.get_locked_balance_at_burn_block(
                         burn_block_height,
                         v1_unlock_height,
                         v2_unlock_height,
+                        v3_unlock_height,
                     );
 
                     let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
@@ -2047,10 +2070,10 @@ impl ConversationHttp {
                 if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
                     Ok(Some(unconfirmed_chain_tip))
                 } else {
-                    match chainstate.get_stacks_chain_tip(sortdb)? {
+                    match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
                         Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
                             &tip.consensus_hash,
-                            &tip.anchored_block_hash,
+                            &tip.anchored_header.block_hash(),
                         ))),
                         None => {
                             let response_metadata = HttpResponseMetadata::from_http_request_type(
@@ -2068,24 +2091,26 @@ impl ConversationHttp {
                 }
             }
             TipRequest::SpecificTip(tip) => Ok(Some(*tip).clone()),
-            TipRequest::UseLatestAnchoredTip => match chainstate.get_stacks_chain_tip(sortdb)? {
-                Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
-                    &tip.consensus_hash,
-                    &tip.anchored_block_hash,
-                ))),
-                None => {
-                    let response_metadata = HttpResponseMetadata::from_http_request_type(
-                        req,
-                        Some(canonical_stacks_tip_height),
-                    );
-                    warn!("Failed to load Stacks chain tip");
-                    let response = HttpResponseType::ServerError(
-                        response_metadata,
-                        format!("Failed to load Stacks chain tip"),
-                    );
-                    response.send(http, fd).and_then(|_| Ok(None))
+            TipRequest::UseLatestAnchoredTip => {
+                match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
+                    Some(tip) => Ok(Some(StacksBlockHeader::make_index_block_hash(
+                        &tip.consensus_hash,
+                        &tip.anchored_header.block_hash(),
+                    ))),
+                    None => {
+                        let response_metadata = HttpResponseMetadata::from_http_request_type(
+                            req,
+                            Some(canonical_stacks_tip_height),
+                        );
+                        warn!("Failed to load Stacks chain tip");
+                        let response = HttpResponseType::ServerError(
+                            response_metadata,
+                            format!("Failed to load Stacks chain tip"),
+                        );
+                        response.send(http, fd).and_then(|_| Ok(None))
+                    }
                 }
-            },
+            }
         }
     }
 
@@ -2532,9 +2557,8 @@ impl ConversationHttp {
         let response_metadata =
             HttpResponseMetadata::from_http_request_type(req, Some(canonical_stacks_tip_height));
         let response = HttpResponseType::MemPoolTxStream(response_metadata);
-        let height = chainstate
-            .get_stacks_chain_tip(sortdb)?
-            .map(|blk| blk.height)
+        let height = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)?
+            .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
 
         debug!(
@@ -3103,7 +3127,7 @@ impl ConversationHttp {
                 None
             }
             HttpRequestType::PostTransaction(ref _md, ref tx, ref attachment) => {
-                match chainstate.get_stacks_chain_tip(sortdb)? {
+                match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
                     Some(tip) => {
                         let accepted = ConversationHttp::handle_post_transaction(
                             &mut self.connection.protocol,
@@ -3112,7 +3136,7 @@ impl ConversationHttp {
                             chainstate,
                             sortdb,
                             tip.consensus_hash,
-                            tip.anchored_block_hash,
+                            tip.anchored_header.block_hash(),
                             mempool,
                             tx.clone(),
                             &mut network.atlasdb,
@@ -4310,7 +4334,7 @@ mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None, None),
         );
         tx_coinbase.chain_id = 0x80000000;
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -4865,10 +4889,13 @@ mod test {
                 let mut sortdb = peer_server.sortdb.as_mut().unwrap();
                 let chainstate = &mut peer_server.stacks_node.as_mut().unwrap().chainstate;
                 let stacks_block_id = {
-                    let tip = chainstate.get_stacks_chain_tip(sortdb).unwrap().unwrap();
+                    let tip =
+                        NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                            .unwrap()
+                            .unwrap();
                     StacksBlockHeader::make_index_block_hash(
                         &tip.consensus_hash,
-                        &tip.anchored_block_hash,
+                        &tip.anchored_header.block_hash(),
                     )
                 };
                 let pox_info = RPCPoxInfoData::from_db(

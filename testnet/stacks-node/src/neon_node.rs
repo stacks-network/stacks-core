@@ -166,6 +166,7 @@ use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::StacksHeaderInfo;
@@ -516,8 +517,8 @@ impl Globals {
                                 LeaderKeyRegistrationState::Active(RegisteredKey {
                                     target_block_height,
                                     vrf_public_key: op.public_key,
-                                    block_height: op.block_height as u64,
-                                    op_vtxindex: op.vtxindex as u32,
+                                    block_height: u64::from(op.block_height),
+                                    op_vtxindex: u32::from(op.vtxindex),
                                 });
                             activated = true;
                         } else {
@@ -1270,7 +1271,7 @@ impl BlockMinerThread {
         let mut tx = StacksTransaction::new(
             version,
             tx_auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), recipient_opt),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), recipient_opt, None),
         );
         tx.chain_id = chain_id;
         tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1364,9 +1365,9 @@ impl BlockMinerThread {
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Option<ParentStacksBlockInfo> {
-        if let Some(stacks_tip) = chain_state
-            .get_stacks_chain_tip(burn_db)
-            .expect("FATAL: could not query chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chain_state.db(), burn_db)
+                .expect("FATAL: could not query chain tip")
         {
             let miner_address = self
                 .keychain
@@ -1378,7 +1379,7 @@ impl BlockMinerThread {
                 &self.burn_block,
                 miner_address,
                 &stacks_tip.consensus_hash,
-                &stacks_tip.anchored_block_hash,
+                &stacks_tip.anchored_header.block_hash(),
             ) {
                 Ok(parent_info) => Some(parent_info),
                 Err(Error::BurnchainTipChanged) => {
@@ -1435,7 +1436,7 @@ impl BlockMinerThread {
             if last_mined_blocks.len() == 1 {
                 debug!("Have only attempted one block; unconditionally trying again");
             }
-            last_mined_blocks.len() as u64 + 1
+            u64::try_from(last_mined_blocks.len()).expect("FATAL: more than 2^64 mined blocks") + 1
         } else {
             let mut best_attempt = 0;
             debug!(
@@ -1768,16 +1769,16 @@ impl BlockMinerThread {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not query canonical sortition DB tip");
 
-        if let Some(stacks_tip) = chainstate
-            .get_stacks_chain_tip(sortdb)
-            .expect("FATAL: could not query canonical Stacks chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                .expect("FATAL: could not query canonical Stacks chain tip")
         {
             // if a block hasn't been processed within some deadline seconds of receipt, don't block
             //  mining
             let process_deadline = get_epoch_time_secs() - unprocessed_block_deadline;
             let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
                 chainstate.db(),
-                stacks_tip.height,
+                stacks_tip.anchored_header.height(),
                 process_deadline,
             )
             .expect("FATAL: failed to query staging blocks");
@@ -1799,10 +1800,12 @@ impl BlockMinerThread {
                     // NOTE: this could be None if it's not part of the canonical PoX fork any
                     // longer
                     if let Some(highest_unprocessed_block_sn) = highest_unprocessed_block_sn_opt {
-                        if stacks_tip.height + (burnchain.pox_constants.prepare_length as u64) - 1
+                        if stacks_tip.anchored_header.height()
+                            + u64::from(burnchain.pox_constants.prepare_length)
+                            - 1
                             >= highest_unprocessed.height
                             && highest_unprocessed_block_sn.block_height
-                                + (burnchain.pox_constants.prepare_length as u64)
+                                + u64::from(burnchain.pox_constants.prepare_length)
                                 - 1
                                 >= sort_tip.block_height
                         {
@@ -2012,9 +2015,9 @@ impl BlockMinerThread {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if let Some(stacks_tip) = chain_state
-            .get_stacks_chain_tip(&burn_db)
-            .expect("FATAL: could not query chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chain_state.db(), &burn_db)
+                .expect("FATAL: could not query chain tip")
         {
             let is_miner_blocked = self
                 .globals
@@ -2029,7 +2032,7 @@ impl BlockMinerThread {
                 &chain_state,
                 self.config.miner.unprocessed_block_deadline_secs,
             );
-            if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
+            if stacks_tip.anchored_header.block_hash() != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
                 || cur_burn_chain_tip.burn_header_hash != self.burn_block.burn_header_hash
                 || is_miner_blocked
@@ -2048,7 +2051,7 @@ impl BlockMinerThread {
                     "old_tip_burn_block_height" => self.burn_block.block_height,
                     "old_tip_burn_block_sortition_id" => %self.burn_block.sortition_id,
                     "attempt" => attempt,
-                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_block_hash,
+                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_header.block_hash(),
                     "new_stacks_tip_consensus_hash" => %stacks_tip.consensus_hash,
                     "new_tip_burn_block_height" => cur_burn_chain_tip.block_height,
                     "new_tip_burn_block_sortition_id" => %cur_burn_chain_tip.sortition_id,
@@ -3468,26 +3471,39 @@ impl ParentStacksBlockInfo {
                 .expect("Failed to look up block's parent snapshot");
 
         let parent_sortition_id = &parent_snapshot.sortition_id;
-        let parent_winning_vtxindex =
-            SortitionDB::get_block_winning_vtxindex(burn_db.conn(), parent_sortition_id)
+
+        let (parent_block_height, parent_winning_vtxindex, parent_block_total_burn) = if mine_tip_ch
+            == &FIRST_BURNCHAIN_CONSENSUS_HASH
+        {
+            (0, 0, 0)
+        } else {
+            let parent_winning_vtxindex =
+                SortitionDB::get_block_winning_vtxindex(burn_db.conn(), parent_sortition_id)
+                    .expect("SortitionDB failure.")
+                    .ok_or_else(|| {
+                        error!(
+                            "Failed to find winning vtx index for the parent sortition";
+                            "parent_sortition_id" => %parent_sortition_id
+                        );
+                        Error::WinningVtxNotFoundForChainTip
+                    })?;
+
+            let parent_block = SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
                 .expect("SortitionDB failure.")
                 .ok_or_else(|| {
                     error!(
-                        "Failed to find winning vtx index for the parent sortition";
+                        "Failed to find block snapshot for the parent sortition";
                         "parent_sortition_id" => %parent_sortition_id
                     );
-                    Error::WinningVtxNotFoundForChainTip
+                    Error::SnapshotNotFoundForChainTip
                 })?;
 
-        let parent_block = SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
-            .expect("SortitionDB failure.")
-            .ok_or_else(|| {
-                error!(
-                    "Failed to find block snapshot for the parent sortition";
-                    "parent_sortition_id" => %parent_sortition_id
-                );
-                Error::SnapshotNotFoundForChainTip
-            })?;
+            (
+                parent_block.block_height,
+                parent_winning_vtxindex,
+                parent_block.total_burn,
+            )
+        };
 
         // don't mine off of an old burnchain block
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
@@ -3526,8 +3542,8 @@ impl ParentStacksBlockInfo {
         Ok(ParentStacksBlockInfo {
             stacks_parent_header: stacks_tip_header,
             parent_consensus_hash: mine_tip_ch.clone(),
-            parent_block_burn_height: parent_block.block_height,
-            parent_block_total_burn: parent_block.total_burn,
+            parent_block_burn_height: parent_block_height,
+            parent_block_total_burn: parent_block_total_burn,
             parent_winning_vtxindex,
             coinbase_nonce,
         })

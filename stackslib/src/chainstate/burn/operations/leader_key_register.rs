@@ -83,16 +83,27 @@ impl LeaderKeyRegisterOp {
         self.memo.get(0..20).map(Hash160::from_bytes).flatten()
     }
 
+    /// Set the miner public key hash160 for block-signing
+    pub fn set_nakamoto_signing_key(&mut self, pubkey_hash160: &Hash160) {
+        if self.memo.len() < 20 {
+            let mut new_memo = vec![0; 20];
+            new_memo[0..self.memo.len()].copy_from_slice(&self.memo);
+            self.memo = new_memo;
+        }
+        self.memo[0..20].copy_from_slice(&pubkey_hash160.0);
+    }
+
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
 
-            0      2  3              23                       55                          80
-            |------|--|---------------|-----------------------|---------------------------|
-             magic  op consensus hash   proving public key               memo
-                       (ignored)                                       (ignored)
+            0      2  3              23                       55                      75        80
+            |------|--|---------------|-----------------------|-----------------------|---------|
+             magic  op consensus hash   proving public key      block-signing hash160    memo
+                       (ignored)                                                       (ignored)
 
-             Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
+             Note that `data` is missing the first 3 bytes -- the magic and op have been stripped.
+             `block-signing hash160` is new to Nakamoto.
         */
         // memo can be empty, and magic + op are omitted
         if data.len() < 52 {
@@ -180,10 +191,13 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
     /*
         Wire format:
 
-        0      2  3              23                       55                          80
-        |------|--|---------------|-----------------------|---------------------------|
-         magic  op consensus hash    proving public key               memo
-                   (ignored)                                       (ignored)
+        0      2  3              23                       55                      75        80
+        |------|--|---------------|-----------------------|-----------------------|---------|
+         magic  op consensus hash   proving public key      block-signing hash160    memo
+                   (ignored)                                                       (ignored)
+
+         Note that `data` is missing the first 3 bytes -- the magic and op have been stripped.
+         `block-signing hash160` is new to Nakamoto, and is contained within the first 20 bytes of `memo`
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::LeaderKeyRegister as u8))?;

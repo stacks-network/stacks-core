@@ -147,7 +147,9 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     pox_constants.anchor_threshold = 1;
     pox_constants.v1_unlock_height = (EMPTY_SORTITIONS + EPOCH_2_1_HEIGHT + 1) as u32;
     pox_constants.v2_unlock_height = (EMPTY_SORTITIONS + EPOCH_2_2_HEIGHT + 1) as u32;
+    pox_constants.v3_unlock_height = u32::MAX;
     pox_constants.pox_3_activation_height = (EMPTY_SORTITIONS + EPOCH_2_4_HEIGHT + 1) as u32;
+    pox_constants.pox_4_activation_height = u32::MAX;
 
     (epochs, pox_constants)
 }

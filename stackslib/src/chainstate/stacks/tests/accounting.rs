@@ -203,7 +203,7 @@ fn test_bad_microblock_fees_pre_v210() {
                         let mut tx_coinbase = StacksTransaction::new(
                             TransactionVersion::Testnet,
                             TransactionAuth::from_p2pkh(&pk).unwrap(),
-                            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
+                            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None, None),
                         );
                         tx_coinbase.chain_id = 0x80000000;
                         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -524,7 +524,7 @@ fn test_bad_microblock_fees_fix_transition() {
                         let mut tx_coinbase = StacksTransaction::new(
                             TransactionVersion::Testnet,
                             TransactionAuth::from_p2pkh(&pk).unwrap(),
-                            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
+                            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None, None),
                         );
                         tx_coinbase.chain_id = 0x80000000;
                         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -878,7 +878,7 @@ fn test_get_block_info_v210() {
                         let mut tx_coinbase = StacksTransaction::new(
                             TransactionVersion::Testnet,
                             TransactionAuth::from_p2pkh(&pk).unwrap(),
-                            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
+                            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None, None),
                         );
                         tx_coinbase.chain_id = 0x80000000;
                         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1248,7 +1248,7 @@ fn test_get_block_info_v210_no_microblocks() {
                         let mut tx_coinbase = StacksTransaction::new(
                             TransactionVersion::Testnet,
                             TransactionAuth::from_p2pkh(&pk).unwrap(),
-                            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
+                            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None, None),
                         );
                         tx_coinbase.chain_id = 0x80000000;
                         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1630,6 +1630,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                                 } else {
                                     alt_recipient_id
                                 },
+                                None,
                             ),
                         );
                         tx_coinbase.chain_id = 0x80000000;

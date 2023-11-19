@@ -57,7 +57,8 @@ use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStx
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::chainstate::nakamoto::{
-    HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
+    NAKAMOTO_CHAINSTATE_SCHEMA_1,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -188,14 +189,23 @@ impl From<NakamotoBlockHeader> for StacksBlockHeaderTypes {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StacksHeaderInfo {
+    /// Stacks block header
     pub anchored_header: StacksBlockHeaderTypes,
+    /// Last microblock header (Stacks 2.x only; this is None in Stacks 3.x)
     pub microblock_tail: Option<StacksMicroblockHeader>,
+    /// Height of this Stacks block
     pub stacks_block_height: u64,
+    /// MARF root hash of the headers DB (not consensus critical)
     pub index_root: TrieHash,
+    /// consensus hash of the burnchain block in which this miner was selected to produce this block
     pub consensus_hash: ConsensusHash,
+    /// Hash of the burnchain block in which this miner was selected to produce this block
     pub burn_header_hash: BurnchainHeaderHash,
+    /// Height of the burnchain block
     pub burn_header_height: u32,
+    /// Timestamp of the burnchain block
     pub burn_header_timestamp: u64,
+    /// Size of the block corresponding to `anchored_header` in bytes
     pub anchored_block_size: u64,
 }
 
@@ -250,6 +260,7 @@ impl DBConfig {
             StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
             StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
             StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch25 => self.version == "3" || self.version == "4",
             StacksEpochId::Epoch30 => self.version == "3" || self.version == "4",
         }
     }
@@ -264,13 +275,9 @@ impl StacksBlockHeaderTypes {
     }
 
     pub fn is_first_mined(&self) -> bool {
-        StacksBlockHeader::is_first_block_hash(self.parent())
-    }
-
-    pub fn parent(&self) -> &BlockHeaderHash {
         match self {
-            StacksBlockHeaderTypes::Epoch2(x) => &x.parent_block,
-            StacksBlockHeaderTypes::Nakamoto(x) => &x.parent,
+            StacksBlockHeaderTypes::Epoch2(x) => x.is_first_mined(),
+            StacksBlockHeaderTypes::Nakamoto(x) => x.is_first_mined(),
         }
     }
 
@@ -284,6 +291,13 @@ impl StacksBlockHeaderTypes {
     pub fn as_stacks_epoch2(&self) -> Option<&StacksBlockHeader> {
         match &self {
             StacksBlockHeaderTypes::Epoch2(ref x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn as_stacks_nakamoto(&self) -> Option<&NakamotoBlockHeader> {
+        match &self {
+            StacksBlockHeaderTypes::Nakamoto(ref x) => Some(x),
             _ => None,
         }
     }
@@ -830,6 +844,7 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
+    "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
@@ -1963,9 +1978,9 @@ impl StacksChainState {
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
-        match StacksChainState::has_stacks_block(self.db(), parent_tip) {
-            Ok(true) => {}
-            Ok(false) => {
+        match NakamotoChainState::get_block_header(self.db(), parent_tip) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
                 return None;
             }
             Err(e) => {

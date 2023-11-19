@@ -635,7 +635,7 @@ pub enum TenureChangeCause {
     BlockFound = 0,
     /// No winning block-commits
     NoBlockFound = 1,
-    /// A “null miner” won the block-commit
+    /// A null miner won the block-commit
     NullMiner = 2,
 }
 
@@ -652,7 +652,7 @@ impl TryFrom<u8> for TenureChangeCause {
     }
 }
 
-/// Reasons why a `TenureChange` transaction can fail
+/// Reasons why a `TenureChange` transaction can be bad
 pub enum TenureChangeError {
     /// Not signed by required threshold (>70%)
     SignatureInvalid,
@@ -675,7 +675,7 @@ pub struct TenureChangePayload {
     /// The StacksBlockId of the last block from the previous tenure
     pub previous_tenure_end: StacksBlockId,
     /// The number of blocks produced in the previous tenure
-    pub previous_tenure_blocks: u16,
+    pub previous_tenure_blocks: u32,
     /// A flag to indicate which of the following triggered the tenure change
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
@@ -689,8 +689,9 @@ pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
-    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
-    Coinbase(CoinbasePayload, Option<PrincipalData>),
+    // the previous epoch leader sent two microblocks with the same sequence, and this is proof
+    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
+    Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
     /// Must contain a Schnorr threshold signature from at least 70% of the Stackers
     TenureChange(TenureChangePayload, ThresholdSignature),
 }
@@ -714,9 +715,12 @@ define_u8_enum!(TransactionPayloadID {
     ContractCall = 2,
     PoisonMicroblock = 3,
     Coinbase = 4,
+    // has an alt principal, but no VRF proof
     CoinbaseToAltRecipient = 5,
     VersionedSmartContract = 6,
-    TenureChange = 7
+    TenureChange = 7,
+    // has a VRF proof, and may have an alt principal
+    NakamotoCoinbase = 8
 });
 
 /// Encoding of an asset type identifier
@@ -1239,6 +1243,8 @@ pub mod test {
             version: 1,
             bytes: Hash160([0xff; 20]),
         };
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
         let tx_payloads = vec![
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
@@ -1283,18 +1289,35 @@ pub mod test {
                 },
                 Some(ClarityVersion::Clarity2),
             ),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),
                 Some(PrincipalData::Contract(
                     QualifiedContractIdentifier::transient(),
                 )),
+                None,
             ),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),
                 Some(PrincipalData::Standard(StandardPrincipalData(
                     0x01, [0x02; 20],
                 ))),
+                None,
+            ),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone())),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Contract(
+                    QualifiedContractIdentifier::transient(),
+                )),
+                Some(proof.clone()),
+            ),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Standard(StandardPrincipalData(
+                    0x01, [0x02; 20],
+                ))),
+                Some(proof.clone()),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
             TransactionPayload::TenureChange(
@@ -1358,7 +1381,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
 
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;

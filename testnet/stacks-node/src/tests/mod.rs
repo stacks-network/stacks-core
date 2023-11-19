@@ -355,7 +355,7 @@ pub fn make_poison(
 }
 
 pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> Vec<u8> {
-    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
+    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
     serialize_sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee)
 }
 
