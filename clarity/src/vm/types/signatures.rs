@@ -39,7 +39,7 @@ use crate::vm::types::{
 
 type Result<R> = std::result::Result<R, CheckErrors>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
 pub struct AssetIdentifier {
     pub contract_identifier: QualifiedContractIdentifier,
     pub asset_name: ClarityName,
