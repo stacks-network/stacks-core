@@ -690,15 +690,31 @@ fn trace_profile(query: &str, duration: Duration) {
     );
 }
 
+#[cfg(feature = "profile-sqlite")]
+fn inner_connection_open<P: AsRef<Path>>(
+    path: P,
+    flags: OpenFlags,
+) -> Result<Connection, sqlite_error> {
+    let mut db = Connection::open_with_flags(path, flags)?;
+    db.profile(Some(trace_profile));
+    Ok(db)
+}
+
+#[cfg(not(feature = "profile-sqlite"))]
+fn inner_connection_open<P: AsRef<Path>>(
+    path: P,
+    flags: OpenFlags,
+) -> Result<Connection, sqlite_error> {
+    Connection::open_with_flags(path, flags)
+}
+
 /// Open a database connection and set some typically-used pragmas
 pub fn sqlite_open<P: AsRef<Path>>(
     path: P,
     flags: OpenFlags,
     foreign_keys: bool,
 ) -> Result<Connection, sqlite_error> {
-    let db = Connection::open_with_flags(path, flags)?;
-    #[cfg(feature = "profile-sqlite")]
-    db.profile(Some(trace_profile));
+    let db = inner_connection_open(path, flags)?;
     db.busy_handler(Some(tx_busy_handler))?;
     inner_sql_pragma(&db, "journal_mode", &"WAL")?;
     inner_sql_pragma(&db, "synchronous", &"NORMAL")?;
