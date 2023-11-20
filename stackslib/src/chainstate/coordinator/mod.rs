@@ -400,12 +400,17 @@ impl OnChainRewardSetProvider {
                   "liquid_ustx" => liquid_ustx,
                   "registered_addrs" => registered_addrs.len());
         }
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(current_burn_height)
+            .ok_or(crate::chainstate::stacks::Error::PoxNoRewardCycle)?;
 
+        let aggregate_public_key =
+            chainstate.get_aggregate_public_key_pox_4(sortdb, block_id, reward_cycle)?;
         Ok(StacksChainState::make_reward_set(
             threshold,
             registered_addrs,
             cur_epoch.epoch_id,
-            None,
+            aggregate_public_key,
         ))
     }
 }
