@@ -13,7 +13,7 @@ defaults:
 ## Define which docker arch to build for
 env:
   docker_platforms: linux/amd64
-  docker-org: ${{ github.repository_owner }}
+  docker-org: blockstack
 
 concurrency:
   group: docker-image-source-${{ github.head_ref || github.ref || github.run_id }}
