@@ -13,8 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use p256k1::point::Compressed;
 use rand::{thread_rng, RngCore};
 use secp256k1;
 use secp256k1::ecdsa::{
@@ -29,7 +27,8 @@ use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
 use wsts::common::Signature as WSTSSignature;
-use wsts::{Point, Scalar};
+use wsts::curve::point::{Compressed, Point};
+use wsts::curve::scalar::Scalar;
 
 use super::hash::Sha256Sum;
 use crate::impl_byte_array_message_codec;
@@ -817,6 +816,8 @@ mod tests {
                 .expect("Failed to convert schnorr signature to wsts signature");
             assert_eq!(reverted_signature.R, original_signature.R);
             assert_eq!(reverted_signature.z, original_signature.z);
+            assert!(original_signature.verify(&aggregate_public_key, msg));
+            assert!(reverted_signature.verify(&aggregate_public_key, msg));
         }
     }
 }

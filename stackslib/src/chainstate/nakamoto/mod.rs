@@ -1359,12 +1359,17 @@ impl NakamotoChainState {
             return Ok(false);
         };
 
-        let schnorr_signature = block.header.signer_signature.to_wsts_signature().ok_or({
-            let msg =
-                format!("Received block, signed by miner, but the block has no stacker signature");
-            warn!("{}", msg);
-            ChainstateError::InvalidStacksBlock(msg)
-        })?;
+        let schnorr_signature = block
+            .header
+            .signer_signature
+            .to_wsts_signature()
+            .ok_or_else(|| {
+                let msg = format!(
+                    "Received block, signed by miner, but the block has no stacker signature"
+                );
+                warn!("{}", msg);
+                ChainstateError::InvalidStacksBlock(msg)
+            })?;
 
         if !sortdb.expects_signer_signature(
             &block.header.consensus_hash,

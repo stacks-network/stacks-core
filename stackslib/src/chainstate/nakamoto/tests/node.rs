@@ -28,8 +28,11 @@ use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::Hash160;
+use stacks_common::util::secp256k1::SchnorrSignature;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use wsts::traits::Aggregator;
+use wsts::curve::point::Point;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::*;
@@ -62,6 +65,88 @@ use crate::net::relay::Relayer;
 use crate::net::test::{TestPeer, TestPeerConfig, *};
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
+
+#[derive(Debug, Clone)]
+pub struct TestSigners {
+    /// The parties that will sign the blocks
+    pub signer_parties: Vec<wsts::v2::Party>,
+    /// The commitments to the polynomials for the aggregate public key
+    pub comms: Vec<wsts::common::PolyCommitment>,
+    /// The aggregate public key
+    pub aggregate_public_key: Point,
+    /// The total number of key ids distributed among signer_parties
+    pub num_keys: u32,
+    /// The number of vote shares required to sign a block
+    pub threshold: u32,
+}
+
+impl Default for TestSigners {
+    fn default() -> Self {
+        let mut rng = rand_core::OsRng::default();
+        let num_keys = 10;
+        let threshold = 7;
+        let party_key_ids: Vec<Vec<u32>> =
+            vec![vec![0, 1, 2], vec![3, 4], vec![5, 6, 7], vec![8, 9]];
+        let num_parties = party_key_ids.len().try_into().unwrap();
+
+        // Create the parties
+        let mut signer_parties: Vec<wsts::v2::Party> = party_key_ids
+            .iter()
+            .enumerate()
+            .map(|(pid, pkids)| {
+                wsts::v2::Party::new(
+                    pid.try_into().unwrap(),
+                    pkids,
+                    num_parties,
+                    num_keys,
+                    threshold,
+                    &mut rng,
+                )
+            })
+            .collect();
+
+        // Generate an aggregate public key
+        let comms = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
+            Ok(comms) => comms,
+            Err(secret_errors) => {
+                panic!("Got secret errors from DKG: {:?}", secret_errors);
+            }
+        };
+        let aggregate_public_key = comms
+            .iter()
+            .fold(Point::default(), |s, comm| s + comm.poly[0]);
+        Self {
+            signer_parties,
+            aggregate_public_key,
+            comms,
+            num_keys,
+            threshold,
+        }
+    }
+}
+
+impl TestSigners {
+    pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
+        let mut rng = rand_core::OsRng;
+        let msg = block
+            .header
+            .signer_signature_hash()
+            .expect("Failed to determine the block header signature hash for signers.")
+            .0;
+        let (nonces, sig_shares, key_ids) =
+            wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
+
+        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
+        sig_aggregator
+            .init(self.comms.clone())
+            .expect("aggregator init failed");
+        let signature = sig_aggregator
+            .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
+            .expect("aggregator sig failed");
+        let schnorr_signature = SchnorrSignature::from(&signature);
+        block.header.signer_signature = schnorr_signature;
+    }
+}
 
 impl TestBurnchainBlock {
     pub fn add_nakamoto_tenure_commit(
@@ -397,6 +482,7 @@ impl TestStacksNode {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         miner: &mut TestMiner,
+        signers: &mut TestSigners,
         proof: VRFProof,
         tenure_change_payload: TenureChangePayload,
         coord: &mut ChainsCoordinator<
@@ -473,6 +559,7 @@ impl TestStacksNode {
                 .make_nakamoto_block_from_txs(chainstate, &sortdb.index_conn(), txs)
                 .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
+            signers.sign_nakamoto_block(&mut nakamoto_block);
 
             let block_id = nakamoto_block.block_id();
             debug!(
@@ -771,6 +858,7 @@ impl<'a> TestPeer<'a> {
             &mut stacks_node.chainstate,
             &sortdb,
             &mut self.miner,
+            &mut self.signers,
             vrf_proof,
             tenure_change_payload,
             &mut self.coord,

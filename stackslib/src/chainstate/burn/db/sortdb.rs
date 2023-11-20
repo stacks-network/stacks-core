@@ -26,7 +26,6 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{PrincipalData, Value};
-use p256k1::point::Compressed;
 use rand;
 use rand::RngCore;
 use rusqlite::types::ToSql;
@@ -45,7 +44,7 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::*;
 use stacks_common::util::{get_epoch_time_secs, log};
 use wsts::common::Signature as WSTSSignature;
-use wsts::Point;
+use wsts::curve::point::{Compressed, Point};
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
