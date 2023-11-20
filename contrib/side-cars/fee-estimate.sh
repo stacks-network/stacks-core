@@ -25,8 +25,7 @@ function exit_error() {
 ####################################
 # Dependencies
 ####################################
-# Dependencies
-for cmd in curl jq bc sed date grep; do
+for cmd in curl jq bc sed date grep head tail; do
    command -v "$cmd" >/dev/null 2>&1 || exit_error "Command not found: '$cmd'"
 done
 
@@ -54,7 +53,7 @@ function fee_per_kb_to_fee_per_vbyte() {
 
    # must be an integer
    if ! [[ "$fee_per_kb" =~ ^[0-9]+$ ]]; then
-      exit_error "Did not receive a fee/kb from $fee_endpoint, but got '$fee_per_kb'"
+      return 1
    fi
 
    # NOTE: round up -- get the fractional part, and if it's anything other than 000, then add 1
@@ -70,6 +69,41 @@ function fee_per_kb_to_fee_per_vbyte() {
    return 0
 }
 
+# Query the endpoint and log HTTP errors gracefully 
+# Arguments:
+#   $1 endpoint to query
+# Stdout: the HTTP response body
+# Stderr: an error message, if we failed to query
+# Return:
+#   0 on success
+#   nonzero on error
+function query_fee_endpoint() {
+   local fee_endpoint="$1"
+   local response=
+   local http_status_code=
+
+   response="$(curl -sL -w "\n%{http_code}" "$fee_endpoint" || true)";
+   http_status_code="$(echo "$response" | tail -n 1)";
+   case $http_status_code in 
+      200)
+         ;;
+      429)
+         echo >&2 "WARN[$(date +%s)]: 429 Rate-Limited retreiving ${fee_endpoint}"
+         return 1
+         ;;
+      404)
+         echo >&2 "WARN[$(date +%s)]: 404 Not Found retrieving ${fee_endpoint}"
+         return 1
+         ;;
+      **)
+         echo >&2 "WARN[$(date +%s)]: ${http_status_code} Error retrieving ${fee_endpoint}"
+         return 1
+         ;;
+   esac
+   echo "$response" | head -n -1
+   return 0
+}
+
 # Determine satoshis per vbyte
 # Arguments: none
 # Stdout: the satoshis per vbyte, as an integer
@@ -81,8 +115,10 @@ function get_sats_per_vbyte() {
    local fee_endpoint="https://api.blockcypher.com/v1/btc/main"
    local fee_per_kb=
 
-   fee_per_kb="$(curl -sL "$fee_endpoint" | jq -r '.high_fee_per_kb')"
-   fee_per_kb_to_fee_per_vbyte "$fee_per_kb"
+   fee_per_kb="$(query_fee_endpoint "$fee_endpoint" | jq -r '.high_fee_per_kb')"
+   if ! fee_per_kb_to_fee_per_vbyte "$fee_per_kb"; then
+      return 1
+   fi
    return 0
 }
 
@@ -195,6 +231,10 @@ function main() {
          
          config_path="$2"
          interval="$3"
+
+         if ! [ -f "$config_path" ]; then 
+            exit_error "No such config file: ${config_path}"
+         fi
 
          watch_fees "$config_path" "$interval"
          ;;
