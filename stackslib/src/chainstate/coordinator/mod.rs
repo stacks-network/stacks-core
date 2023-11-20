@@ -328,6 +328,7 @@ impl OnChainRewardSetProvider {
         block_id: &StacksBlockId,
         cur_epoch: StacksEpoch,
     ) -> Result<RewardSet, Error> {
+        let mut aggregate_public_key = None;
         match cur_epoch.epoch_id {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20
@@ -368,6 +369,11 @@ impl OnChainRewardSetProvider {
                     info!("PoX reward cycle defaulting to burn in Epoch 2.5 because cycle start is before PoX-4 activation");
                     return Ok(RewardSet::empty());
                 }
+                let reward_cycle = burnchain
+                    .block_height_to_reward_cycle(current_burn_height)
+                    .ok_or(crate::chainstate::stacks::Error::PoxNoRewardCycle)?;
+                aggregate_public_key =
+                    chainstate.get_aggregate_public_key_pox_4(sortdb, block_id, reward_cycle)?;
             }
         };
 
@@ -400,12 +406,7 @@ impl OnChainRewardSetProvider {
                   "liquid_ustx" => liquid_ustx,
                   "registered_addrs" => registered_addrs.len());
         }
-        let reward_cycle = burnchain
-            .block_height_to_reward_cycle(current_burn_height)
-            .ok_or(crate::chainstate::stacks::Error::PoxNoRewardCycle)?;
 
-        let aggregate_public_key =
-            chainstate.get_aggregate_public_key_pox_4(sortdb, block_id, reward_cycle)?;
         Ok(StacksChainState::make_reward_set(
             threshold,
             registered_addrs,
@@ -681,7 +682,6 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?.expect(
         &format!("FATAL: no epoch defined for burn height {}", burn_height),
     );
-
     let reward_cycle_info = if burnchain.is_reward_cycle_start(burn_height) {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(burn_height)
