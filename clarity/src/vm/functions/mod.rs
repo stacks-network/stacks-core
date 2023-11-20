@@ -74,7 +74,7 @@ mod arithmetic;
 mod assets;
 mod boolean;
 mod conversions;
-mod crypto;
+pub mod crypto;
 mod database;
 #[allow(clippy::result_large_err)]
 pub mod define;
