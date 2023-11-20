@@ -1979,10 +1979,9 @@ impl<'a> SortitionHandleConn<'a> {
         }
 
         // is this consensus hash in this fork?
-        let Some(_bhh) = SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?
-        else {
+        if !SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?.is_some() {
             return Ok(false);
-        };
+        }
 
         // Get the current reward cycle
         let reward_cycle = if let Some(reward_cycle) = self
