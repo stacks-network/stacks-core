@@ -26,79 +26,59 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::fs::{File, OpenOptions};
-use std::io;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::process;
-use std::thread;
-use std::{collections::HashMap, env};
-use std::{convert::TryFrom, fs};
+use std::{env, fs, io, process, thread};
 
-use blockstack_lib::burnchains::bitcoin::indexer::BitcoinIndexer;
-use blockstack_lib::burnchains::bitcoin::indexer::{BitcoinIndexerConfig, BitcoinIndexerRuntime};
-use blockstack_lib::burnchains::bitcoin::spv;
-use blockstack_lib::burnchains::bitcoin::BitcoinNetworkType;
-use blockstack_lib::burnchains::db::BurnchainDB;
-use blockstack_lib::burnchains::Address;
-use blockstack_lib::burnchains::Burnchain;
-use blockstack_lib::burnchains::Txid;
-use blockstack_lib::burnchains::BLOCKSTACK_MAGIC_MAINNET;
+use blockstack_lib::burnchains::bitcoin::indexer::{
+    BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
+};
+use blockstack_lib::burnchains::bitcoin::{spv, BitcoinNetworkType};
+use blockstack_lib::burnchains::db::{BurnchainBlockData, BurnchainDB};
+use blockstack_lib::burnchains::{
+    Address, Burnchain, PoxConstants, Txid, BLOCKSTACK_MAGIC_MAINNET,
+};
+use blockstack_lib::chainstate::burn::db::sortdb::SortitionDB;
 use blockstack_lib::chainstate::burn::ConsensusHash;
 use blockstack_lib::chainstate::nakamoto::NakamotoChainState;
-use blockstack_lib::chainstate::stacks::db::blocks::DummyEventDispatcher;
-use blockstack_lib::chainstate::stacks::db::blocks::StagingBlock;
-use blockstack_lib::chainstate::stacks::db::ChainStateBootData;
-use blockstack_lib::chainstate::stacks::db::StacksBlockHeaderTypes;
-use blockstack_lib::chainstate::stacks::index::marf::MARFOpenOpts;
-use blockstack_lib::chainstate::stacks::index::marf::MarfConnection;
-use blockstack_lib::chainstate::stacks::index::marf::MARF;
+use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
+use blockstack_lib::chainstate::stacks::db::{
+    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+};
+use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
 use blockstack_lib::chainstate::stacks::miner::*;
-use blockstack_lib::chainstate::stacks::StacksBlockHeader;
-use blockstack_lib::chainstate::stacks::*;
+use blockstack_lib::chainstate::stacks::{StacksBlockHeader, *};
 use blockstack_lib::clarity::vm::costs::ExecutionCost;
 use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
 use blockstack_lib::clarity::vm::ClarityVersion;
 use blockstack_lib::clarity_cli;
 use blockstack_lib::clarity_cli::vm_execute;
-use blockstack_lib::core::*;
+use blockstack_lib::core::{MemPoolDB, *};
 use blockstack_lib::cost_estimates::metrics::UnitMetric;
 use blockstack_lib::cost_estimates::UnitEstimator;
+use blockstack_lib::net::db::LocalPeer;
+use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::{db::LocalPeer, p2p::PeerNetwork, PeerAddress};
+use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
-use blockstack_lib::{
-    burnchains::{db::BurnchainBlockData, PoxConstants},
-    chainstate::{
-        burn::db::sortdb::SortitionDB,
-        stacks::db::{StacksChainState, StacksHeaderInfo},
-    },
-    core::MemPoolDB,
-    util_lib::db::sqlite_open,
-};
-
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksBlockId,
-};
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{hex_bytes, to_hex};
-use stacks_common::util::log;
-use stacks_common::util::retry::LogReader;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use stacks_common::util::sleep_ms;
-use stacks_common::util::{hash::Hash160, vrf::VRFProof};
-
 use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
-use rusqlite::Connection;
-use rusqlite::OpenFlags;
-use serde_json::json;
-use serde_json::Value;
+use rusqlite::{Connection, OpenFlags};
+use serde_json::{json, Value};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
+};
+use stacks_common::types::net::PeerAddress;
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::util::retry::LogReader;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::vrf::VRFProof;
+use stacks_common::util::{get_epoch_time_ms, log, sleep_ms};
 
 fn main() {
     let mut argv: Vec<String> = env::args().collect();

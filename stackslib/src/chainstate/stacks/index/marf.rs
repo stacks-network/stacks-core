@@ -14,19 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
-use std::fs;
-use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
 use std::path::PathBuf;
+use std::{error, fmt, fs, io};
 
 use rusqlite::{Connection, Transaction};
 use sha2::Digest;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::{BlockHeaderHash, TrieHash, TRIEHASH_ENCODED_SIZE};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::log;
 
@@ -39,11 +34,9 @@ use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::Error;
-use crate::chainstate::stacks::index::MARFValue;
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::chainstate::stacks::index::TrieHashExtension;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieLeaf, TrieMerkleProof};
+use crate::chainstate::stacks::index::{
+    ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieHashExtension, TrieLeaf, TrieMerkleProof,
+};
 use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -1543,5 +1536,10 @@ impl<T: MarfTrieId> MARF<T> {
     /// Get the root trie hash at a particular block
     pub fn get_root_hash_at(&mut self, block_hash: &T) -> Result<TrieHash, Error> {
         self.storage.connection().get_root_hash_at(block_hash)
+    }
+
+    /// Convert to the inner sqlite connection
+    pub fn into_sqlite_conn(self) -> Connection {
+        self.storage.into_sqlite_conn()
     }
 }

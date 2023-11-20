@@ -18,6 +18,6 @@ RUN case ${TARGETARCH} in \
     && wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip \
     && unzip ${BIN_ARCH}.zip -d /out
 
-FROM --platform=${TARGETPLATFORM} debian:bullseye
+FROM --platform=${TARGETPLATFORM} debian:bookworm
 COPY --from=builder /out/stacks-node /bin/
 CMD ["stacks-node", "mainnet"]

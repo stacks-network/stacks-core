@@ -3,22 +3,18 @@ pub mod neon;
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
-use stacks::burnchains::PoxConstants;
-use stacks::burnchains::Txid;
+use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::events::StacksTransactionReceipt;
-use stacks::chainstate::stacks::StacksBlock;
 use stacks::chainstate::stacks::{
-    TransactionAuth, TransactionPayload, TransactionSpendingCondition,
+    StacksBlock, TransactionAuth, TransactionPayload, TransactionSpendingCondition,
 };
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
 use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::EventDispatcher;
-use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
-
-use stacks_common::types::chainstate::StacksBlockId;
+use crate::{BurnchainController, BurnchainTip, ChainTip, EventDispatcher, Tenure};
 
 macro_rules! info_blue {
     ($($arg:tt)*) => ({

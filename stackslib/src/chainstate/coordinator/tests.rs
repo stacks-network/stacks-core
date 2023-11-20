@@ -15,76 +15,60 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
-use std::collections::BTreeMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
-    mpsc::sync_channel,
-    Arc, RwLock,
-};
+use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::sync_channel;
+use std::sync::{Arc, RwLock};
 
 use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::ClarityVersion;
-use clarity::vm::{
-    costs::{ExecutionCost, LimitedCostTracker},
-    types::PrincipalData,
-    types::QualifiedContractIdentifier,
-    Value,
-};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::{ClarityVersion, Value};
 use lazy_static::lazy_static;
 use rand::RngCore;
 use rusqlite::Connection;
-use stacks_common::address;
 use stacks_common::address::AddressHashMode;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::deps_common::bitcoin::blockdata::block::{BlockHeader, LoneBlockHeader};
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::TrieHash;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
+    TrieHash, VRFSeed,
 };
 use stacks_common::util::hash::{to_hex, Hash160};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
+use stacks_common::{address, types, util};
 
 use crate::burnchains::affirmation::*;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::db::*;
 use crate::burnchains::tests::db::*;
-use crate::burnchains::{db::*, *};
-use crate::chainstate;
+use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
-use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
-use crate::chainstate::stacks::boot::PoxStartCycleInfo;
-use crate::chainstate::stacks::boot::POX_1_NAME;
-use crate::chainstate::stacks::boot::POX_2_NAME;
-use crate::chainstate::stacks::boot::POX_3_NAME;
-use crate::chainstate::stacks::db::{
-    accounts::MinerReward, ClarityTx, StacksChainState, StacksHeaderInfo,
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
+use crate::chainstate::stacks::boot::{
+    PoxStartCycleInfo, COSTS_2_NAME, POX_1_NAME, POX_2_NAME, POX_3_NAME,
 };
-use crate::chainstate::stacks::events::StacksBlockEventData;
+use crate::chainstate::stacks::db::accounts::MinerReward;
+use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
-use crate::core;
 use crate::core::*;
 use crate::monitoring::increment_stx_blocks_processed_counter;
-use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::strings::StacksString;
-
-use crate::chainstate::stacks::boot::COSTS_2_NAME;
-use stacks_common::{types, util};
+use crate::{chainstate, core};
 
 lazy_static! {
     pub static ref BURN_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));

@@ -16,59 +16,45 @@
 
 use std::boxed::Box;
 use std::cmp;
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
-use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::Burnchain;
-use crate::burnchains::{Address, PoxConstants};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::marf::MarfConnection;
-use crate::chainstate::stacks::Error;
-use crate::clarity_vm::clarity::ClarityConnection;
-use crate::clarity_vm::clarity::ClarityTransactionConnection;
-use crate::core::StacksEpochId;
-use crate::core::{POX_MAXIMAL_SCALING, POX_THRESHOLD_STEPS_USTX};
-use crate::util_lib::strings::VecDisplay;
 use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::Error as ClarityError;
-use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
 use clarity::vm::contexts::ContractContext;
-use clarity::vm::costs::{
-    cost_functions::ClarityCostFunction, ClarityCostFunctionReference, CostStateSummary,
-};
-use clarity::vm::database::ClarityDatabase;
-use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use clarity::vm::errors::Error as VmError;
-use clarity::vm::errors::InterpreterError;
+use clarity::vm::costs::cost_functions::ClarityCostFunction;
+use clarity::vm::costs::{ClarityCostFunctionReference, CostStateSummary, LimitedCostTracker};
+use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::errors::{Error as VmError, InterpreterError};
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::representations::ClarityName;
-use clarity::vm::representations::ContractName;
+use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
-use clarity::vm::ClarityVersion;
-use clarity::vm::Environment;
+use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
 use lazy_static::lazy_static;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Hash160;
-
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::clarity_vm::database::HeadersDBConn;
-use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
-use crate::core::CHAIN_ID_MAINNET;
-use crate::util_lib::boot;
-use clarity::vm::{costs::LimitedCostTracker, SymbolicExpression};
 use stacks_common::types;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
+use stacks_common::util::hash::{to_hex, Hash160};
+
+use crate::burnchains::bitcoin::address::BitcoinAddress;
+use crate::burnchains::{Address, Burnchain, PoxConstants};
+use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::marf::MarfConnection;
+use crate::chainstate::stacks::Error;
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
+use crate::clarity_vm::database::HeadersDBConn;
+use crate::core::{
+    StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH, CHAIN_ID_MAINNET, POX_MAXIMAL_SCALING,
+    POX_THRESHOLD_STEPS_USTX,
+};
+use crate::util_lib::boot;
+use crate::util_lib::strings::VecDisplay;
 
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
@@ -1148,8 +1134,7 @@ pub mod test {
     use stacks_common::util::*;
 
     use super::*;
-    use crate::burnchains::Address;
-    use crate::burnchains::PublicKey;
+    use crate::burnchains::{Address, PublicKey};
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::db::*;
     use crate::chainstate::burn::operations::BlockstackOperationType;
@@ -1158,11 +1143,10 @@ pub mod test {
     use crate::chainstate::stacks::db::*;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::*;
-    use crate::chainstate::stacks::Error as chainstate_error;
-    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-    use crate::chainstate::stacks::*;
-    use crate::core::StacksEpochId;
-    use crate::core::*;
+    use crate::chainstate::stacks::{
+        Error as chainstate_error, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
+    };
+    use crate::core::{StacksEpochId, *};
     use crate::net::test::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
 
@@ -1368,19 +1352,17 @@ pub mod test {
     pub fn instantiate_pox_peer<'a>(
         burnchain: &Burnchain,
         test_name: &str,
-        port: u16,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
-        instantiate_pox_peer_with_epoch(burnchain, test_name, port, None, None)
+        instantiate_pox_peer_with_epoch(burnchain, test_name, None, None)
     }
 
     pub fn instantiate_pox_peer_with_epoch<'a>(
         burnchain: &Burnchain,
         test_name: &str,
-        port: u16,
         epochs: Option<Vec<StacksEpoch>>,
         observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
-        let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
+        let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
         peer_config.burnchain = burnchain.clone();
         peer_config.epochs = epochs;
         peer_config.setup_code = format!(
@@ -2048,7 +2030,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!(), 6000);
+        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
@@ -2236,7 +2218,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 1;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6007);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 15;
 
@@ -2351,7 +2333,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6026);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
@@ -2459,7 +2441,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6002);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -2671,7 +2653,7 @@ pub mod test {
         burnchain.pox_constants.anchor_threshold = 1;
         assert_eq!(burnchain.pox_constants.reward_slots(), 4);
 
-        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!(), 6026);
+        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 20;
 
@@ -2929,7 +2911,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6018);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -3195,7 +3177,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6004);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -3410,7 +3392,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6006);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 3;
 
@@ -3622,7 +3604,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6012);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 2;
 
@@ -3862,7 +3844,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6014);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 25;
 
@@ -4386,7 +4368,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6016);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 20;
 
@@ -4836,7 +4818,7 @@ pub mod test {
         //   owned by charlie.
         burnchain.pox_constants.pox_rejection_fraction = 5;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6024);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 15;
 

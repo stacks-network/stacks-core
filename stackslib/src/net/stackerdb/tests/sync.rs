@@ -21,25 +21,21 @@ use clarity::vm::ContractName;
 use libstackerdb::SlotMetadata;
 use rand::prelude::*;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
-use rand::RngCore;
+use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::types::chainstate::{
+    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+};
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use crate::net::relay::Relayer;
-use crate::net::stackerdb::{db::SlotValidation, StackerDBConfig, StackerDBs};
-use crate::net::test::TestPeer;
-use crate::net::test::TestPeerConfig;
-use crate::net::Error as net_error;
-use crate::net::StackerDBChunkData;
+use crate::net::stackerdb::db::SlotValidation;
+use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
+use crate::net::test::{TestPeer, TestPeerConfig};
+use crate::net::{Error as net_error, StackerDBChunkData};
 use crate::util_lib::test::with_timeout;
 
 const BASE_PORT: u16 = 33000;

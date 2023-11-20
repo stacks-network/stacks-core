@@ -1,15 +1,14 @@
 pub mod error;
 pub mod token;
 
-use std::{char, str::Chars};
+use std::char;
+use std::str::Chars;
 
 use token::{PlacedToken, Token};
 
 use self::error::{LexerError, PlacedError};
-use crate::vm::{
-    diagnostic::{DiagnosableError, Level},
-    representations::Span,
-};
+use crate::vm::diagnostic::{DiagnosableError, Level};
+use crate::vm::representations::Span;
 
 pub type LexResult<T> = Result<T, LexerError>;
 

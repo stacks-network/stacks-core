@@ -270,13 +270,11 @@ impl ContractAnalysis {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::vm::{
-        analysis::ContractAnalysis,
-        costs::LimitedCostTracker,
-        types::{
-            signatures::CallableSubtype, FixedFunction, FunctionArg, QualifiedContractIdentifier,
-            StandardPrincipalData,
-        },
+    use crate::vm::analysis::ContractAnalysis;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::types::signatures::CallableSubtype;
+    use crate::vm::types::{
+        FixedFunction, FunctionArg, QualifiedContractIdentifier, StandardPrincipalData,
     };
 
     #[test]

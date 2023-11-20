@@ -15,24 +15,20 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::fs;
-use std::io;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::types::*;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use stacks_common::address::*;
 use stacks_common::consts::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks_common::types::chainstate::SortitionId;
 use stacks_common::util::sleep_ms;
-use stacks_common::util::vrf::VRFProof;
-use stacks_common::util::vrf::VRFPublicKey;
+use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
@@ -47,15 +43,14 @@ use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
-use crate::chainstate::stacks::Error as ChainstateError;
-use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{
+    Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
+};
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
 use crate::net::test::*;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
-use stacks_common::types::chainstate::SortitionId;
 
 pub mod accounting;
 pub mod block_construction;
@@ -252,7 +247,7 @@ impl TestMinerTrace {
             for miner_id in p.miner_node_map.keys() {
                 if let Some(test_name) = p.miner_node_map.get(miner_id) {
                     if !all_test_names.contains(test_name) {
-                        all_test_names.insert(test_name.clone());
+                        all_test_names.insert(test_name.to_owned());
                     }
                 }
             }

@@ -26,13 +26,11 @@ use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use crate::burnchains::Address;
 use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::*;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{Error, *};
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
 use crate::core::StacksEpochId;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::*;
+use crate::util_lib::db::{Error as db_error, *};
 
 /// A record of a coin reward for a miner.  There will be at most two of these for a miner: one for
 /// the coinbase + block-txs + confirmed-mblock-txs, and one for the produced-mblock-txs.  The
@@ -1092,8 +1090,7 @@ mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::db::test::*;
     use crate::chainstate::stacks::index::*;
-    use crate::chainstate::stacks::Error;
-    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::{Error, *};
     use crate::core::StacksEpochId;
 
     fn make_dummy_miner_payment_schedule(

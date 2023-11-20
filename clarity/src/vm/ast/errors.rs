@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
+use std::{error, fmt};
 
 use crate::vm::ast::parser::v2::lexer::error::LexerError;
 use crate::vm::ast::parser::v2::lexer::token::Token;

@@ -23,30 +23,27 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
 use stacks_common::deps_common::bitcoin::network::message as btc_message;
 use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::util::hash::bitcoin_merkle_root;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
-use crate::burnchains::bitcoin::bits;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
-use crate::burnchains::bitcoin::BitcoinInputType;
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::bitcoin::Error as btc_error;
-use crate::burnchains::bitcoin::PeerMessage;
 use crate::burnchains::bitcoin::{
-    BitcoinBlock, BitcoinTransaction, BitcoinTxInput, BitcoinTxOutput,
+    bits, BitcoinBlock, BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput,
+    BitcoinTxOutput, Error as btc_error, PeerMessage,
 };
 use crate::burnchains::indexer::{
     BurnBlockIPC, BurnHeaderIPC, BurnchainBlockDownloader, BurnchainBlockParser,
 };
-use crate::burnchains::Error as burnchain_error;
 use crate::burnchains::{
-    BurnchainBlock, BurnchainTransaction, MagicBytes, Txid, MAGIC_BYTES_LENGTH,
+    BurnchainBlock, BurnchainTransaction, Error as burnchain_error, MagicBytes, Txid,
+    MAGIC_BYTES_LENGTH,
 };
 use crate::core::StacksEpochId;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use crate::deps;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinHeaderIPC {
@@ -550,6 +547,7 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
     use stacks_common::deps_common::bitcoin::network::encodable::VarInt;
     use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::types::chainstate::BurnchainHeaderHash;
     use stacks_common::types::Address;
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::log;
@@ -557,15 +555,12 @@ mod tests {
     use super::BitcoinBlockParser;
     use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
-    use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::bitcoin::{
-        BitcoinBlock, BitcoinInputType, BitcoinTransaction, BitcoinTxInput, BitcoinTxInputRaw,
-        BitcoinTxInputStructured, BitcoinTxOutput,
+        BitcoinBlock, BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInput,
+        BitcoinTxInputRaw, BitcoinTxInputStructured, BitcoinTxOutput,
     };
     use crate::burnchains::{BurnchainBlock, BurnchainTransaction, MagicBytes, Txid};
     use crate::core::StacksEpochId;
-
-    use stacks_common::types::chainstate::BurnchainHeaderHash;
 
     struct TxFixture {
         txstr: String,

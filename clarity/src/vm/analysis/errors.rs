@@ -14,8 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
-use std::fmt;
+use std::{error, fmt};
 
 use crate::vm::costs::{CostErrors, ExecutionCost};
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic};
@@ -217,7 +216,7 @@ impl CheckError {
 
     pub fn set_expressions(&mut self, exprs: &[SymbolicExpression]) {
         self.diagnostic.spans = exprs.iter().map(|e| e.span().clone()).collect();
-        self.expressions.replace(exprs.clone().to_vec());
+        self.expressions.replace(exprs.to_vec());
     }
 }
 

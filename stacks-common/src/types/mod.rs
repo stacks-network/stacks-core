@@ -2,22 +2,19 @@ use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::fmt;
 
-use crate::address::c32::c32_address;
-use crate::address::c32::c32_address_decode;
-use crate::address::public_keys_to_address_hash;
-use crate::address::AddressHashMode;
+use crate::address::c32::{c32_address, c32_address_decode};
 use crate::address::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    public_keys_to_address_hash, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::deps_common::bitcoin::blockdata::transaction::TxOut;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::StacksPublicKey;
+use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
-use crate::util::secp256k1::MessageSignature;
-use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 
 pub mod chainstate;
+pub mod net;
 
 /// A container for public keys (compressed secp256k1 public keys)
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
@@ -245,7 +242,7 @@ impl Address for StacksAddress {
         let mut hash_bytes = [0u8; 20];
         hash_bytes.copy_from_slice(&bytes[..]);
         Some(StacksAddress {
-            version: version,
+            version,
             bytes: Hash160(hash_bytes),
         })
     }

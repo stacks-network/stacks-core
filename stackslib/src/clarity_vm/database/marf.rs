@@ -2,26 +2,25 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::database::SpecialCaseHandler;
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
+    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
+    SqliteConnection,
 };
 use clarity::vm::errors::{
     IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, MARFValue, TrieMerkleProof};
-use crate::chainstate::stacks::index::{Error, MarfTrieId};
+use crate::chainstate::stacks::index::{
+    ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieMerkleProof,
+};
 use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
-use crate::util_lib::db::Error as DatabaseError;
-use crate::util_lib::db::IndexDBConn;
-use stacks_common::codec::StacksMessageCodec;
+use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 
 /// The MarfedKV struct is used to wrap a MARF data structure and side-storage
 ///   for use as a K/V store for ClarityDB or the AnalysisDB.

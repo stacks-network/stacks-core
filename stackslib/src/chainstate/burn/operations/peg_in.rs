@@ -13,21 +13,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::errors::RuntimeErrorType as ClarityRuntimeError;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::ContractName;
 use stacks_common::codec::StacksMessageCodec;
 
-use crate::burnchains::BurnchainBlockHeader;
-use crate::burnchains::BurnchainTransaction;
-use crate::chainstate::burn::operations::Error as OpError;
-use crate::chainstate::burn::operations::PegInOp;
+use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction};
+use crate::chainstate::burn::operations::{Error as OpError, PegInOp};
 use crate::chainstate::burn::Opcodes;
 use crate::types::chainstate::StacksAddress;
 use crate::types::Address;
-
-use clarity::vm::errors::RuntimeErrorType as ClarityRuntimeError;
-use clarity::vm::types::PrincipalData;
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StandardPrincipalData;
-use clarity::vm::ContractName;
 
 /// Transaction structure:
 ///

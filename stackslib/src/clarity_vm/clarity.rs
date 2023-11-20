@@ -15,18 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::convert::TryFrom;
-use std::error;
-use std::fmt;
-use std::thread;
+use std::{error, fmt, thread};
 
-use clarity::vm::analysis;
-use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::analysis::{errors::CheckError, errors::CheckErrors, ContractAnalysis};
-use clarity::vm::ast;
-use clarity::vm::ast::{errors::ParseError, errors::ParseErrors, ASTRules, ContractAST};
-pub use clarity::vm::clarity::ClarityConnection;
-pub use clarity::vm::clarity::Error;
+use clarity::vm::analysis::errors::{CheckError, CheckErrors};
+use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use clarity::vm::ast::errors::{ParseError, ParseErrors};
+use clarity::vm::ast::{ASTRules, ContractAST};
 use clarity::vm::clarity::TransactionConnection;
+pub use clarity::vm::clarity::{ClarityConnection, Error};
 use clarity::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -39,55 +35,35 @@ use clarity::vm::types::{
     AssetIdentifier, BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData,
     TypeSignature, Value,
 };
-use clarity::vm::ClarityVersion;
-use clarity::vm::ContractName;
+use clarity::vm::{analysis, ast, ClarityVersion, ContractName};
 use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash,
+};
 use stacks_common::util::secp256k1::MessageSignature;
 
-use crate::chainstate::stacks::boot::BOOT_CODE_COSTS_2_TESTNET;
-use crate::chainstate::stacks::boot::POX_2_MAINNET_CODE;
-use crate::chainstate::stacks::boot::POX_2_TESTNET_CODE;
-use crate::chainstate::stacks::boot::POX_3_MAINNET_CODE;
-use crate::chainstate::stacks::boot::POX_3_TESTNET_CODE;
-use crate::chainstate::stacks::boot::POX_4_MAINNET_CODE;
-use crate::chainstate::stacks::boot::POX_4_TESTNET_CODE;
+use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3,
+    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, COSTS_2_NAME,
-    COSTS_3_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME,
+    COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
+    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
 };
-use crate::chainstate::stacks::db::StacksAccount;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::index::marf::MARF;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::chainstate::stacks::Error as ChainstateError;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionPublicKeyEncoding;
-use crate::chainstate::stacks::TransactionSmartContract;
-use crate::chainstate::stacks::TransactionSpendingCondition;
-use crate::chainstate::stacks::TransactionVersion;
-use crate::chainstate::stacks::{SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction};
-use crate::core::StacksEpoch;
-use crate::core::{FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
+use crate::chainstate::stacks::{
+    Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition,
+    StacksMicroblockHeader, StacksTransaction, TransactionAuth, TransactionPayload,
+    TransactionPublicKeyEncoding, TransactionSmartContract, TransactionSpendingCondition,
+    TransactionVersion,
+};
+use crate::clarity_vm::database::marf::{MarfedKV, ReadOnlyMarfStore, WritableMarfStore};
+use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as DatabaseError;
 use crate::util_lib::strings::StacksString;
-use crate::{
-    burnchains::Burnchain,
-    burnchains::PoxConstants,
-    clarity_vm::database::marf::{MarfedKV, WritableMarfStore},
-};
-use crate::{clarity_vm::database::marf::ReadOnlyMarfStore, core::StacksEpochId};
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::SortitionId;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::TrieHash;
 
 ///
 /// A high-level interface for interacting with the Clarity VM.

@@ -14,50 +14,34 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::net::test::{TestPeer, TestPeerConfig};
-
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::PrincipalData;
+use rand::prelude::SliceRandom;
+use rand::{thread_rng, RngCore};
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::types::chainstate::{
+    StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+};
+use stacks_common::types::{Address, StacksEpoch};
+use stacks_common::util::vrf::VRFProof;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::coordinator::tests::p2pkh_from;
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::NakamotoBlock;
-use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::make_pox_4_lockup;
-use crate::chainstate::stacks::db::StacksAccount;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::CoinbasePayload;
-use crate::chainstate::stacks::StacksTransaction;
-use crate::chainstate::stacks::StacksTransactionSigner;
-use crate::chainstate::stacks::TenureChangeCause;
-use crate::chainstate::stacks::TokenTransferMemo;
-use crate::chainstate::stacks::TransactionAnchorMode;
-use crate::chainstate::stacks::TransactionAuth;
-use crate::chainstate::stacks::TransactionPayload;
-use crate::chainstate::stacks::TransactionVersion;
-
-use crate::net::relay::Relayer;
-
+use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
+use crate::chainstate::stacks::{
+    CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
+    TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionPayload,
+    TransactionVersion,
+};
 use crate::clarity::vm::types::StacksAddressExtensions;
-
-use stacks_common::address::AddressHashMode;
-use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::types::Address;
-use stacks_common::types::StacksEpoch;
-use stacks_common::util::vrf::VRFProof;
-
 use crate::core::StacksEpochExtension;
-
-use rand::prelude::SliceRandom;
-use rand::thread_rng;
-use rand::RngCore;
+use crate::net::relay::Relayer;
+use crate::net::test::{TestPeer, TestPeerConfig};
 
 /// Bring a TestPeer into the Nakamoto Epoch
 fn advance_to_nakamoto(peer: &mut TestPeer) {
@@ -133,6 +117,8 @@ fn boot_nakamoto(test_name: &str, mut initial_balances: Vec<(PrincipalData, u64)
 fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>) -> TestPeer<'a> {
     let mut replay_config = peer.config.clone();
     replay_config.test_name = format!("{}.replay", &peer.config.test_name);
+    replay_config.server_port = 0;
+    replay_config.http_port = 0;
 
     let mut replay_peer = TestPeer::new(replay_config);
     advance_to_nakamoto(&mut replay_peer);

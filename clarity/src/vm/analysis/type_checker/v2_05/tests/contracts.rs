@@ -15,22 +15,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use assert_json_diff::assert_json_eq;
-use serde_json;
 use stacks_common::types::StacksEpochId;
+use {assert_json_diff, serde_json};
 
+use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::mem_type_check;
-use crate::vm::analysis::type_check;
-use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
+use crate::vm::analysis::{
+    mem_type_check, type_check, AnalysisDatabase, CheckError, ContractAnalysis,
+};
 use crate::vm::ast::parse;
+use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
-use crate::vm::{
-    analysis::{CheckError, ContractAnalysis},
-    costs::LimitedCostTracker,
-    SymbolicExpression,
-};
+use crate::vm::{ClarityVersion, SymbolicExpression};
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
          (define-read-only (my-get-token-balance (account principal))

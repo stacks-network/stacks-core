@@ -23,11 +23,11 @@ use std::mem::replace;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
 
 use super::EvalHook;
-use crate::vm::ast;
-use crate::vm::ast::ASTRules;
-use crate::vm::ast::ContractAST;
+use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -44,15 +44,13 @@ use crate::vm::errors::{
 };
 use crate::vm::events::*;
 use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
-use crate::vm::stx_transfer_consolidated;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, OptionalData, PrincipalData,
     QualifiedContractIdentifier, TraitIdentifier, TypeSignature, Value,
 };
 use crate::vm::version::ClarityVersion;
-use crate::vm::{eval, is_reserved};
-use stacks_common::{types::chainstate::StacksBlockId, types::StacksEpochId};
+use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -1996,13 +1994,9 @@ impl CallStack {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::vm::{
-        callables::DefineType,
-        types::{
-            signatures::CallableSubtype, FixedFunction, FunctionArg, FunctionType,
-            StandardPrincipalData,
-        },
-    };
+    use crate::vm::callables::DefineType;
+    use crate::vm::types::signatures::CallableSubtype;
+    use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
 
     #[test]
     fn test_asset_map_abort() {

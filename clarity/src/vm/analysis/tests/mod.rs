@@ -16,8 +16,7 @@
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
-use crate::vm::analysis::AnalysisDatabase;
-use crate::vm::analysis::{type_check, ContractAnalysis};
+use crate::vm::analysis::{type_check, AnalysisDatabase, ContractAnalysis};
 use crate::vm::ast::parse;
 
 #[test]

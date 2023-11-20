@@ -16,35 +16,30 @@
 
 use rstest::rstest;
 use rstest_reuse::{self, *};
-use stacks_common::address::c32;
-use stacks_common::address::AddressHashMode;
-use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::chainstate::StacksPublicKey;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::vm::ast::parse;
-use crate::vm::ast::ASTRules;
+use crate::vm::ast::{parse, ASTRules};
 use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use crate::vm::tests::execute;
-use crate::vm::tests::test_clarity_versions;
+use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
-use crate::vm::types::StacksAddressExtensions;
-use crate::vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
-use crate::vm::types::{PrincipalData, SequenceData};
-use crate::vm::ClarityVersion;
-use crate::vm::{
-    eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters,
+use crate::vm::types::{
+    ASCIIData, BuffData, CharType, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StacksAddressExtensions, TypeSignature,
 };
-use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
+use crate::vm::{
+    eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters, CallStack,
+    ClarityVersion, ContractContext, Environment, GlobalContext, LocalContext, Value,
+};
 
 #[test]
 fn test_doubly_defined_persisted_vars() {

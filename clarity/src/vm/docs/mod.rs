@@ -2629,39 +2629,33 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
+    use stacks_common::address::AddressHashMode;
     use stacks_common::consts::CHAIN_ID_TESTNET;
-    use stacks_common::types::{StacksEpochId, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
+        StacksBlockId, VRFSeed,
+    };
+    use stacks_common::types::{Address, StacksEpochId, PEER_VERSION_EPOCH_2_1};
     use stacks_common::util::hash::hex_bytes;
 
-    use super::make_json_api_reference;
-    use super::{get_input_type_string, make_all_api_reference};
+    use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
     use crate::vm::analysis::type_check;
     use crate::vm::ast::ASTRules;
+    use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
-    use crate::vm::types::TupleData;
+    use crate::vm::database::{
+        BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
+    };
+    use crate::vm::docs::get_output_type_string;
+    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
+    use crate::vm::types::{
+        BufferLength, FunctionType, PrincipalData, SequenceSubtype, StringSubtype, TupleData,
+        TypeSignature,
+    };
     use crate::vm::{
-        ast,
-        contexts::OwnedEnvironment,
-        database::{BurnStateDB, HeadersDB, STXBalance},
-        docs::get_output_type_string,
-        eval_all, execute,
-        types::{
-            signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40},
-            BufferLength, FunctionType, PrincipalData, SequenceSubtype, StringSubtype,
-            TypeSignature,
-        },
-        ClarityVersion, ContractContext, Error, GlobalContext, LimitedCostTracker,
-        QualifiedContractIdentifier, Value,
+        ast, eval_all, execute, ClarityVersion, ContractContext, Error, GlobalContext,
+        LimitedCostTracker, QualifiedContractIdentifier, StacksEpoch, Value,
     };
-
-    use crate::vm::database::{ClarityDatabase, MemoryBackingStore};
-    use crate::vm::StacksEpoch;
-    use stacks_common::address::AddressHashMode;
-    use stacks_common::types::chainstate::{
-        BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, VRFSeed,
-    };
-    use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId};
-    use stacks_common::types::Address;
 
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};

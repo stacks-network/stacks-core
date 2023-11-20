@@ -22,20 +22,12 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use rand::prelude::*;
 use rand::thread_rng;
 use rusqlite::blob::Blob;
-use rusqlite::Error as sqlite_error;
-use rusqlite::Row;
-use rusqlite::ToSql;
-use rusqlite::NO_PARAMS;
+use rusqlite::{Error as sqlite_error, Row, ToSql, NO_PARAMS};
 use siphasher::sip::SipHasher; // this is SipHash-2-4
-use stacks_common::codec::Error as codec_error;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::codec::{read_next, write_next};
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
 
-use crate::util_lib::db::query_expect_row;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{DBConn, DBTx};
+use crate::util_lib::db::{query_expect_row, DBConn, DBTx, Error as db_error};
 
 /// A field of bits of known length!
 #[derive(Debug, Clone, PartialEq)]

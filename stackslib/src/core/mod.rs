@@ -19,26 +19,20 @@ use std::convert::TryFrom;
 
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
-
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash};
-
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpoch as GenericStacksEpoch;
 pub use stacks_common::types::StacksEpochId;
 use stacks_common::util::log;
 
 pub use self::mempool::MemPoolDB;
-use crate::burnchains::Burnchain;
-use crate::burnchains::Error as burnchain_error;
+use crate::burnchains::{Burnchain, Error as burnchain_error};
 use crate::chainstate::burn::ConsensusHash;
 pub mod mempool;
 
 #[cfg(test)]
 pub mod tests;
 
-use std::cmp::Ord;
-use std::cmp::Ordering;
-use std::cmp::PartialOrd;
+use std::cmp::{Ord, Ordering, PartialOrd};
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 

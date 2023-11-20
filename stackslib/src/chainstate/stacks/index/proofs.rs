@@ -16,20 +16,17 @@
 
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::error;
-use std::fmt;
-use std::fs;
-use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::{error, fmt, fs, io};
 
-use sha2::Digest;
-use sha2::Sha512_256 as TrieHasher;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use sha2::{Digest, Sha512_256 as TrieHasher};
+use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
+};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::slice_partialeq;
 
@@ -44,14 +41,10 @@ use crate::chainstate::stacks::index::node::{
 };
 use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
 use crate::chainstate::stacks::index::trie::Trie;
-use crate::chainstate::stacks::index::Error;
-use crate::chainstate::stacks::index::TrieHashExtension;
-use crate::chainstate::stacks::index::{BlockMap, MarfTrieId};
 use crate::chainstate::stacks::index::{
-    ClarityMarfTrieId, MARFValue, ProofTrieNode, ProofTriePtr, TrieLeaf, TrieMerkleProof,
-    TrieMerkleProofType,
+    BlockMap, ClarityMarfTrieId, Error, MARFValue, MarfTrieId, ProofTrieNode, ProofTriePtr,
+    TrieHashExtension, TrieLeaf, TrieMerkleProof, TrieMerkleProofType,
 };
-use stacks_common::codec::{read_next, Error as codec_error, StacksMessageCodec};
 
 impl<T: MarfTrieId> ConsensusSerializable<()> for ProofTrieNode<T> {
     fn write_consensus_bytes<W: Write>(

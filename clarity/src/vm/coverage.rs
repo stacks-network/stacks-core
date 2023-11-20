@@ -1,12 +1,11 @@
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    fs::File,
-    io::Write,
-};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs::File;
+use std::io::Write;
 
 use serde_json::Value as JsonValue;
 
-use super::{functions::define::DefineFunctionsParsed, EvalHook};
+use super::functions::define::DefineFunctionsParsed;
+use super::EvalHook;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::SymbolicExpression;
 

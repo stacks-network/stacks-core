@@ -1,9 +1,13 @@
 use std::env;
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{PrincipalData, StandardPrincipalData};
+use clarity::vm::Value;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore,
+};
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::chainstate::burn::ConsensusHash;
@@ -14,17 +18,12 @@ use crate::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::core::StacksEpochId;
-use crate::cost_estimates::fee_medians::fee_rate_estimate_from_sorted_weighted_fees;
-use crate::cost_estimates::fee_medians::FeeRateAndWeight;
-use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::metrics::ProportionalDotProduct;
+use crate::cost_estimates::fee_medians::{
+    fee_rate_estimate_from_sorted_weighted_fees, FeeRateAndWeight, WeightedMedianFeeRateEstimator,
+};
+use crate::cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
 use crate::cost_estimates::tests::common::*;
-use crate::cost_estimates::FeeRateEstimate;
-use crate::cost_estimates::{EstimatorError, FeeEstimator};
-use clarity::vm::types::{PrincipalData, StandardPrincipalData};
-use clarity::vm::Value;
-use stacks_common::types::chainstate::StacksAddress;
+use crate::cost_estimates::{EstimatorError, FeeEstimator, FeeRateEstimate};
 
 /// Returns true iff `b` is within `0.1%` of `a`.
 fn is_close_f64(a: f64, b: f64) -> bool {

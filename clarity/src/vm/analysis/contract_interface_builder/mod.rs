@@ -23,8 +23,7 @@ use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
 };
-use crate::vm::ClarityName;
-use crate::vm::ClarityVersion;
+use crate::vm::{ClarityName, ClarityVersion};
 
 pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
     let mut contract_interface =
@@ -180,8 +179,9 @@ impl ContractInterfaceAtomType {
     }
 
     pub fn from_type_signature(sig: &TypeSignature) -> ContractInterfaceAtomType {
+        use crate::vm::types::SequenceSubtype::*;
+        use crate::vm::types::StringSubtype::*;
         use crate::vm::types::TypeSignature::*;
-        use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
 
         match sig {
             NoType => ContractInterfaceAtomType::none,

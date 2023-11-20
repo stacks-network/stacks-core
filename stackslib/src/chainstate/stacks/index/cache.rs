@@ -17,28 +17,23 @@
 use std::char::from_digit;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
-use std::env;
-use std::fmt;
-use std::fs;
 use std::hash::{Hash, Hasher};
-use std::io;
 use std::io::{BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use std::os;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use std::{cmp, error};
+use std::{cmp, env, error, fmt, fs, io, os};
 
+use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
-    types::{FromSql, ToSql},
     Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OpenFlags, OptionalExtension,
     Transaction, NO_PARAMS,
 };
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
+};
 
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
@@ -48,15 +43,11 @@ use crate::chainstate::stacks::index::node::{
     clear_backptr, is_backptr, set_backptr, TrieNode, TrieNode16, TrieNode256, TrieNode4,
     TrieNode48, TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
-use crate::chainstate::stacks::index::Error;
-use crate::chainstate::stacks::index::TrieLeaf;
-use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, MarfTrieId};
-use crate::util_lib::db::sql_pragma;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::tx_begin_immediate;
-use crate::util_lib::db::tx_busy_handler;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::SQLITE_MMAP_SIZE;
+use crate::chainstate::stacks::index::{trie_sql, ClarityMarfTrieId, Error, MarfTrieId, TrieLeaf};
+use crate::util_lib::db::{
+    sql_pragma, sqlite_open, tx_begin_immediate, tx_busy_handler, Error as db_error,
+    SQLITE_MMAP_SIZE,
+};
 
 /// Fully-qualified address of a Trie node.  Includes both the block's blob rowid and the pointer within the
 /// block's blob as to where it is stored.
@@ -343,8 +334,7 @@ pub mod test {
     use std::fs;
     use std::time::SystemTime;
 
-    use rand::thread_rng;
-    use rand::Rng;
+    use rand::{thread_rng, Rng};
     use sha2::Digest;
     use stacks_common::util::hash::Sha512Trunc256Sum;
 

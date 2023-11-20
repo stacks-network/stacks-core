@@ -1,9 +1,10 @@
 use std::cmp;
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::Display;
 use std::iter::FromIterator;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::path::Path;
-use std::{error::Error, fmt::Display};
 
 use clarity::vm::costs::ExecutionCost;
 use rusqlite::Error as SqliteError;

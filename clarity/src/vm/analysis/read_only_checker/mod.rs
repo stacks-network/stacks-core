@@ -24,8 +24,7 @@ pub use super::errors::{
 use super::AnalysisDatabase;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::functions::define::DefineFunctionsParsed;
-use crate::vm::functions::tuples;
-use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::{tuples, NativeFunctions};
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
