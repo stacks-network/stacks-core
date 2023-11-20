@@ -83,11 +83,11 @@ use crate::core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use crate::net::{Error as NetError, Error};
+use crate::net::Error as NetError;
 use crate::util_lib::db::{
-    db_mkdirs, opt_u64_to_sql, query_count, query_row, query_row_columns, query_row_panic,
-    query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx,
-    Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    db_mkdirs, get_ancestor_block_hash, opt_u64_to_sql, query_count, query_row, query_row_columns,
+    query_row_panic, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
+    DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -1980,21 +1980,102 @@ impl<'a> SortitionHandleConn<'a> {
         }
 
         // is this consensus hash in this fork?
-        let Some(bhh) = SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?
+        let Some(_bhh) = SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?
         else {
             return Ok(false);
         };
-        let Some(sortition_id) = self.get_sortition_id_for_bhh(&bhh)? else {
+
+        // Get the current reward cycle
+        let reward_cycle = if let Some(reward_cycle) = self
+            .context
+            .pox_constants
+            .block_height_to_reward_cycle(self.context.first_block_height, sn.block_height)
+        {
+            reward_cycle
+        } else {
+            // can't do anything
+            warn!("Failed to determine reward cycle of block with consensus hash";
+                  "consensus_hash" => %consensus_hash,
+                  "block_height" => ch_sn.block_height
+            );
             return Ok(false);
         };
-        let Some(aggregate_public_key) = self.get_reward_set_aggregate_public_key(&sortition_id)?
-        else {
-            return Ok(false);
-        };
-        Ok(signer_signature.verify(&aggregate_public_key, message))
+        Ok(self
+            .get_reward_cycle_aggregate_public_key(reward_cycle)?
+            .map(|key| signer_signature.verify(&key, message))
+            .unwrap_or(false))
     }
 
-    /// Get the aggregate public key for the current reward set
+    /// Get the aggregate public key for the given reward cycle.
+    pub fn get_reward_cycle_aggregate_public_key(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Option<Point>, db_error> {
+        // Retrieve the the first sortition in the current reward cycle
+        let reward_cycle_block_height = self
+            .context
+            .pox_constants
+            .reward_cycle_to_block_height(self.context.first_block_height, reward_cycle);
+        let reward_cycle_start_sortition_id = self
+            .get_ancestor_block_hash(reward_cycle_block_height, &self.context.chain_tip)?
+            .ok_or_else(|| {
+                warn!(
+                    "reward start height {} does not have a sorition from {}",
+                    reward_cycle_block_height, &self.context.chain_tip
+                );
+                db_error::NotFoundError
+            })?;
+        let reward_cycle_start_snapshot =
+            SortitionDB::get_block_snapshot(self, &reward_cycle_start_sortition_id)?
+                .ok_or(db_error::NotFoundError)
+                .map_err(|e| {
+                    warn!(
+                        "No block snapshot for reward cycle starting sortition id: {:?}",
+                        &reward_cycle_start_sortition_id
+                    );
+                    e
+                })?;
+        // Search for the FIRST sortition in the prepare phase of the PARENT reward cycle
+        let mut prepare_phase_sn = SortitionDB::get_block_snapshot(
+            self,
+            &reward_cycle_start_snapshot.parent_sortition_id,
+        )?
+        .ok_or(db_error::NotFoundError)
+        .map_err(|e| {
+            warn!(
+                "No block snapshot for prepare phase cycle end sortition id: {:?}",
+                &reward_cycle_start_snapshot.parent_sortition_id
+            );
+            e
+        })?;
+        let mut height = prepare_phase_sn.block_height;
+        let mut first_sortition_id = None;
+        while height > 0
+            && self
+                .context
+                .pox_constants
+                .is_in_prepare_phase(self.context.first_block_height, height)
+        {
+            first_sortition_id = Some(prepare_phase_sn.sortition_id.clone());
+            height = prepare_phase_sn.block_height.saturating_sub(1);
+            prepare_phase_sn =
+                SortitionDB::get_block_snapshot(self, &prepare_phase_sn.parent_sortition_id)?
+                    .ok_or(db_error::NotFoundError)
+                    .map_err(|e| {
+                        warn!(
+                            "No sortition for reward cycle starting sortition id: {:?}",
+                            &reward_cycle_start_sortition_id
+                        );
+                        e
+                    })?;
+        }
+        if let Some(first_sortition_id) = first_sortition_id {
+            return self.get_reward_set_aggregate_public_key(&first_sortition_id);
+        }
+        Ok(None)
+    }
+
+    /// Get the aggregate public key for reward set of the given sortition id.
     pub fn get_reward_set_aggregate_public_key(
         &self,
         sortition_id: &SortitionId,
