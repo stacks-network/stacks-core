@@ -9,7 +9,7 @@ use stacks_common::{
     types::chainstate::StacksBlockId,
     util::{
         hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum},
-        secp256k1::{secp256k1_recover, secp256k1_verify},
+        secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey},
     },
 };
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
@@ -22,13 +22,15 @@ use super::{
     database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata, STXBalance},
     errors::RuntimeErrorType,
     events::*,
+    functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2},
     types::{
         ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CharType,
         FixedFunction, FunctionType, ListData, OptionalData, PrincipalData,
-        QualifiedContractIdentifier, ResponseData, SequenceData, StandardPrincipalData,
-        TraitIdentifier, TupleData, TupleTypeSignature, BUFF_1, BUFF_32, BUFF_33,
+        QualifiedContractIdentifier, ResponseData, SequenceData, StacksAddressExtensions,
+        StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, BUFF_1, BUFF_32,
+        BUFF_33,
     },
-    CallStack, ContractName, Environment, SymbolicExpression,
+    CallStack, ClarityVersion, ContractName, Environment, SymbolicExpression,
 };
 use crate::vm::{
     analysis::ContractAnalysis,
@@ -1826,6 +1828,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_sha512_256_fn(linker)?;
     link_secp256k1_recover_fn(linker)?;
     link_secp256k1_verify_fn(linker)?;
+    link_principal_of_fn(linker)?;
 
     link_log(linker)
 }
@@ -5380,6 +5383,92 @@ fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
                 let pk_bytes = read_bytes_from_wasm(memory, &mut caller, pk_offset, pk_length)?;
 
                 Ok(secp256k1_verify(&msg_bytes, &sig_bytes, &pk_bytes).map_or(0i32, |_| 1i32))
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "secp256k1_verify".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `principal_of`, into the Wasm module.
+/// This function is called for the Clarity expression, `principal-of?`.
+fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "principal_of",
+            |mut caller: Caller<'_, ClarityWasmContext>,
+             key_offset: i32,
+             key_length: i32,
+             principal_offset: i32| {
+                // runtime_cost(ClarityCostFunction::PrincipalOf, env, 0)?;
+
+                // Get the memory from the caller
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                // Read the public key from the memory
+                let key_val = read_from_wasm(
+                    memory,
+                    &mut caller,
+                    &BUFF_33.clone(),
+                    key_offset,
+                    key_length,
+                )?;
+
+                let pub_key = match key_val {
+                    Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+                        if data.len() != 33 {
+                            return Err(
+                                CheckErrors::TypeValueError(BUFF_33.clone(), key_val).into()
+                            );
+                        }
+                        data
+                    }
+                    _ => return Err(CheckErrors::TypeValueError(BUFF_33.clone(), key_val).into()),
+                };
+
+                if let Ok(pub_key) = Secp256k1PublicKey::from_slice(&pub_key) {
+                    // Note: Clarity1 had a bug in how the address is computed (issues/2619).
+                    // We want to preserve the old behavior unless the version is greater.
+                    let addr = if *caller.data().contract_context().get_clarity_version()
+                        > ClarityVersion::Clarity1
+                    {
+                        pubkey_to_address_v2(pub_key, caller.data().global_context.mainnet)
+                    } else {
+                        pubkey_to_address_v1(pub_key)
+                    };
+                    let principal = addr.to_account_principal();
+
+                    // Write the principal to the return buffer
+                    write_to_wasm(
+                        &mut caller,
+                        memory,
+                        &TypeSignature::PrincipalType,
+                        principal_offset,
+                        principal_offset,
+                        &Value::Principal(principal),
+                        false,
+                    )?;
+
+                    // (ok principal)
+                    Ok((
+                        1i32,
+                        principal_offset,
+                        STANDARD_PRINCIPAL_BYTES as i32,
+                        0i64,
+                        0i64,
+                    ))
+                } else {
+                    // (err u1)
+                    Ok((0i32, 0i32, 0i32, 1i64, 0i64))
+                }
             },
         )
         .map(|_| ())

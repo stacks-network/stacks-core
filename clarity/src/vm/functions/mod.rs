@@ -70,7 +70,7 @@ mod arithmetic;
 mod assets;
 mod boolean;
 mod conversions;
-mod crypto;
+pub mod crypto;
 mod database;
 pub mod define;
 mod options;
