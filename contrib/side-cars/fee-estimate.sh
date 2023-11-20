@@ -3,9 +3,14 @@
 ####################################
 # Usage
 # 
+# $ # one-shot fee-rate calculation
 # $ ./fee-estimate.sh
 # 161
 # 
+# $ # Check fees every 5 seconds and update `satoshis_per_byte` in `/path/to/miner.toml`
+# $ ./fee-estimate.sh watch /path/to/miner.toml 5
+# 
+# $ # Run unit tests and report result (0 means success)
 # $ ./fee-estimate.sh test; echo $?
 # 0
 ####################################
