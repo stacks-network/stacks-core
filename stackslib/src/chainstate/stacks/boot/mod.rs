@@ -34,6 +34,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
 use lazy_static::lazy_static;
+use p256k1::point::Compressed;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
@@ -1156,10 +1157,11 @@ impl StacksChainState {
             )?
             .expect_optional()
             .map(|value| {
-                let mut bytes = [0_u8; 32];
-                let data = value.expect_buff(bytes.len());
-                bytes.copy_from_slice(&data);
-                Point::from(Scalar::from(bytes))
+                // A point should have 33 bytes exactly.
+                let data = value.expect_buff(33);
+                let msg = "Pox-4 get-aggregate-public-key returned a corrupted value.";
+                let compressed_data = Compressed::try_from(data.as_slice()).expect(msg);
+                Point::try_from(&compressed_data).expect(msg)
             });
         Ok(aggregate_public_key)
     }
@@ -1710,6 +1712,24 @@ pub mod test {
         )
         .unwrap();
 
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_aggregate_key(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        reward_cycle: u64,
+        aggregate_public_key: &Point,
+    ) -> StacksTransaction {
+        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "set-aggregate-public-key",
+            vec![Value::UInt(reward_cycle as u128), aggregate_public_key],
+        )
+        .unwrap();
         make_tx(key, nonce, 0, payload)
     }
 
