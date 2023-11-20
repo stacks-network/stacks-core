@@ -1602,6 +1602,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
+    use crate::chainstate::nakamoto::tests::node::TestSigners;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
@@ -2096,6 +2097,7 @@ pub mod test {
         pub network: PeerNetwork,
         pub sortdb: Option<SortitionDB>,
         pub miner: TestMiner,
+        pub signers: TestSigners,
         pub stacks_node: Option<TestStacksNode>,
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
@@ -2196,7 +2198,7 @@ pub mod test {
             let mut miner_factory = TestMinerFactory::new();
             let mut miner =
                 miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-
+            let signers = TestSigners::default();
             // manually set fees
             miner.test_with_tx_fees = false;
 
@@ -2446,7 +2448,8 @@ pub mod test {
                 config: config,
                 network: peer_network,
                 sortdb: Some(sortdb),
-                miner: miner,
+                miner,
+                signers,
                 stacks_node: Some(stacks_node),
                 relayer: relayer,
                 mempool: Some(mempool),
