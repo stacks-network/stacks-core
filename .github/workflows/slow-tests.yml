@@ -1,0 +1,63 @@
+## Github workflow to run slow tests
+
+name: Tests::Slow
+
+on:
+  workflow_call:
+
+defaults:
+  run:
+    shell: bash
+
+## env vars are transferred to composite action steps
+env:
+  BITCOIND_TEST: 1
+  RUST_BACKTRACE: full
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
+  RETRIES: 3
+  RETRY_DELAY: 10000
+  TEST_TIMEOUT: 30
+  TEST_RETRIES: 2
+
+concurrency:
+  group: slow-tests-${{ github.head_ref || github.ref || github.run_id }}
+  ## Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Slow integration tests with code coverage
+  slow-tests:
+    name: Slow Tests
+    runs-on: ubuntu-latest
+    strategy:
+      ## Continue with the test matrix even if we've had a failure
+      fail-fast: false
+      ## Run a maximum of 2 concurrent tests from the test matrix
+      max-parallel: 2
+      matrix:
+        ## Each of these tests should take ~20 minutes if they are successful
+        test-name:
+          - tests::epoch_21::test_pox_reorg_flap_duel
+          - tests::epoch_21::test_pox_reorg_flap_reward_cycles
+    steps:
+      ## Setup test environment
+      - name: Setup Test Environment
+        id: setup_tests
+        uses: stacks-network/actions/stacks-core/testenv@main
+
+      ## Run test matrix using restored cache of archive file
+      ##   - Test will timeout after env.TEST_TIMEOUT minutes
+      - name: Run Tests
+        id: run_tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: stacks-network/actions/stacks-core/run-tests@main
+        with:
+          test-name: ${{ matrix.test-name }}
+          threads: 1
+
+      ## Create and upload code coverage file
+      - name: Code Coverage
+        id: codecov
+        uses: stacks-network/actions/codecov@main
+        with:
+          test-name: ${{ matrix.test-name }}
