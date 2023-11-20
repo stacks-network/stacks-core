@@ -1,95 +1,138 @@
-##
-## Run tests for tagged releases
-##
+## Github workflow to run full genesis and unit tests
 
-name: Tests
-
-# Only run when:
-#   - manually triggered via the ci.yml workflow
+name: Tests::Stacks Blockchain
 
 on:
   workflow_call:
 
+defaults:
+  run:
+    shell: bash
+
+## env vars are transferred to composite action steps
+env:
+  BITCOIND_TEST: 1
+  RUST_BACKTRACE: full
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
+  RETRIES: 3
+  RETRY_DELAY: 10000
+  TEST_TIMEOUT: 30
+  TEST_RETRIES: 2
+
+concurrency:
+  group: stacks-blockchain-tests-${{ github.head_ref || github.ref || github.run_id }}
+  ## Only cancel in progress if this is for a PR
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  # Run full genesis test
+  # Full genesis test with code coverage
   full-genesis:
     name: Full Genesis Test
     runs-on: ubuntu-latest
+    strategy:
+      ## Continue with the test matrix even if we've had a failure
+      fail-fast: false
+      ## Run a maximum of 2 concurrent tests from the test matrix
+      max-parallel: 2
+      matrix:
+        test-name:
+          - neon_integrations::bitcoind_integration_test
     steps:
-      - name: Checkout the latest code
-        id: git_checkout
-        uses: actions/checkout@v3
-      - name: Single full genesis integration test
-        id: full_genesis_test
-        env:
-          DOCKER_BUILDKIT: 1
-        # Remove .dockerignore file so codecov has access to git info
-        run: |
-          rm .dockerignore
-          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.large-genesis .
-      - name: Large Genesis Codecov
-        id: full_genesis_codecov
-        uses: codecov/codecov-action@v3
+      ## Setup test environment
+      - name: Setup Test Environment
+        id: setup_tests
+        uses: stacks-network/actions/stacks-core/testenv@main
         with:
-          files: ./coverage-output/lcov.info
-          name: large_genesis
-          fail_ci_if_error: false
+          genesis: true
 
-  # Run unit tests with code coverage
+      ## Run test matrix using restored cache of archive file
+      ##   - Test will timeout after env.TEST_TIMEOUT minutes
+      - name: Run Tests
+        id: run_tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: stacks-network/actions/stacks-core/run-tests@main
+        with:
+          test-name: ${{ matrix.test-name }}
+          threads: 1
+          archive-file: /tmp/genesis_archive.tar.zst
+
+      ## Upload code coverage file
+      - name: Code Coverage
+        id: codecov
+        uses: stacks-network/actions/codecov@main
+        with:
+          test-name: large_genesis
+          filename: ./lcov.info
+
+      - name: Status Output
+        run: |
+          echo "run_tests: ${{ steps.run_tests.outputs.status }}"
+          echo "codecov: ${{ steps.codecov.outputs.status }}"
+
+      - name: Check Failures
+        if: steps.run_tests.outputs.status == 'failure' || steps.codecov.outputs.status == 'failure'
+        run: exit 1
+
+  # Unit tests with code coverage
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
+    ## Continue the workflow in case a step fails (ex a single test fails)
+    continue-on-error: true
+    strategy:
+      ## Continue the workflow in case a step fails (ex a single test fails)
+      fail-fast: false
+      matrix:
+        ## Partition the tests into 8 jobs
+        ##   - This is used in a later step when running `cargo nextest run ... --partition count:num/8`
+        partition: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
-      - name: Checkout the latest code
-        id: git_checkout
-        uses: actions/checkout@v3
-      - name: Run unit tests (with coverage)
-        id: unit_tests_codecov
-        env:
-          DOCKER_BUILDKIT: 1
-        # Remove .dockerignore file so codecov has access to git info
-        run: |
-          rm .dockerignore
-          docker build -o coverage-output -f ./.github/actions/bitcoin-int-tests/Dockerfile.code-cov .
-      - name: Run unit tests
-        id: codedov
-        uses: codecov/codecov-action@v3
-        with:
-          files: ./coverage-output/lcov.info
-          name: unit_tests
-          fail_ci_if_error: false
+      ## Setup test environment
+      - name: Setup Test Environment
+        id: setup_tests
+        uses: stacks-network/actions/stacks-core/testenv@main
 
+      ## Run test matrix using restored cache of archive file
+      ##   - Test will timeout after env.TEST_TIMEOUT minutes
+      - name: Run Tests
+        id: run_tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: stacks-network/actions/stacks-core/run-tests/partition@main
+        with:
+          partition: ${{ matrix.partition }}
+          total-partitions: 8
+
+      ## Create and upload code coverage file
+      - name: Code Coverage
+        id: codecov
+        uses: stacks-network/actions/codecov@main
+        with:
+          test-name: ${{ matrix.test-name }}
+
+  ## Generate and upload openapi html artifact
   open-api-validation:
     name: OpenAPI Validation
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout the latest code
-        id: git_checkout
-        uses: actions/checkout@v3
-      - name: Run units tests (with coverage)
-        id: api_codecov
-        env:
-          DOCKER_BUILDKIT: 1
-        run: docker build -o dist/ -f .github/actions/open-api/Dockerfile.open-api-validate .
-      - name: Upload bundled html
-        id: upload_html_artifact
-        uses: actions/upload-artifact@v3
+      - name: OpenAPI
+        id: openapi
+        uses: stacks-network/actions/openapi@main
         with:
-          name: open-api-bundle
-          path: |
-            dist
+          input: ./docs/rpc/openapi.yaml
+          output: ./open-api-docs.html
 
-  # Run net-tests
+  ## Disabled
+  ##   - this test can take several hours to run
   nettest:
-    # disable this job/test for now, since we haven't seen this pass
-    #  on github actions in a while, and the failures can take > 4 hours
     if: ${{ false }}
     name: Net-Test
     runs-on: ubuntu-latest
     steps:
+      ## checkout the code
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
       - name: Run network relay tests
         id: nettest
         env:
@@ -101,17 +144,23 @@ jobs:
     name: Core Contracts Test
     runs-on: ubuntu-latest
     steps:
+      ## Checkout the code
       - name: Checkout the latest code
         id: git_checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      ## Use Clarinet to run contract unit-tests and create code coverage file
       - name: Execute core contract unit tests in Clarinet
         id: clarinet_unit_test
-        uses: docker://hirosystems/clarinet:1.1.0
+        uses: docker://hirosystems/clarinet:1.8.0
         with:
           args: test --coverage --manifest-path=./contrib/core-contract-tests/Clarinet.toml
-      - name: Export code coverage
-        id: clarinet_codecov
-        uses: codecov/codecov-action@v3
+
+      ## Upload code coverage file
+      - name: Code Coverage
+        id: codecov
+        uses: stacks-network/actions/codecov@main
         with:
-          files: ./coverage.lcov
-          verbose: true
+          test-name: ${{ matrix.test-name }}
+          upload-only: true
+          filename: ./coverage.lcov
