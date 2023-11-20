@@ -16,26 +16,22 @@
 
 use std::convert::TryInto;
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::{fmt, fs, path::PathBuf};
+use std::{fmt, fs};
 
 use clarity::vm::costs::ExecutionCost;
 use lazy_static::lazy_static;
 use rusqlite::{OpenFlags, OptionalExtension};
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::{Uint256, Uint512};
 
-use crate::burnchains::BurnchainSigner;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::Error as DatabaseError;
-use crate::{
-    burnchains::Txid,
-    core::MemPoolDB,
-    net::{Error as net_error, HttpRequestType},
-    util_lib::db::{tx_busy_handler, DBConn},
-};
-
-use stacks_common::util::get_epoch_time_secs;
+use crate::burnchains::{BurnchainSigner, Txid};
+use crate::core::MemPoolDB;
+use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
+use crate::net::Error as net_error;
+use crate::util_lib::db::{sqlite_open, tx_busy_handler, DBConn, Error as DatabaseError};
 
 #[cfg(feature = "monitoring_prom")]
 mod prometheus;
@@ -51,17 +47,17 @@ pub fn increment_rpc_calls_counter() {
 }
 
 pub fn instrument_http_request_handler<F, R>(
-    req: HttpRequestType,
+    req: StacksHttpRequest,
     handler: F,
 ) -> Result<R, net_error>
 where
-    F: FnOnce(HttpRequestType) -> Result<R, net_error>,
+    F: FnOnce(StacksHttpRequest) -> Result<R, net_error>,
 {
     #[cfg(feature = "monitoring_prom")]
     increment_rpc_calls_counter();
 
     #[cfg(feature = "monitoring_prom")]
-    let timer = prometheus::new_rpc_call_timer(req.get_path());
+    let timer = prometheus::new_rpc_call_timer(req.request_path());
 
     let res = handler(req);
 

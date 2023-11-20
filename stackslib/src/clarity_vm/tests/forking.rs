@@ -24,12 +24,10 @@ use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
 use clarity::vm::tests::test_clarity_versions;
-use clarity::vm::types::Value;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::version::ClarityVersion;
 use clarity::vm::ContractContext;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::storage::TrieFileStorage;

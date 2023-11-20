@@ -14,24 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::types::StandardPrincipalData;
+use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
 use rand::prelude::*;
 use rand::thread_rng;
 use stacks_common::util::hash::*;
 use stacks_common::util::sleep_ms;
 
-use crate::core::PEER_VERSION_TESTNET;
 use crate::core::{
-    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, STACKS_EPOCH_MAX,
+    StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    PEER_VERSION_TESTNET, STACKS_EPOCH_MAX,
 };
 use crate::net::asn::*;
 use crate::net::chat::*;
 use crate::net::db::*;
 use crate::net::neighbors::*;
 use crate::net::test::*;
-use crate::net::Error as net_error;
-use crate::net::*;
+use crate::net::{Error as net_error, *};
 use crate::util_lib::test::*;
 
 const TEST_IN_OUT_DEGREES: u64 = 0x1;

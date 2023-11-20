@@ -15,16 +15,16 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::VecDeque;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use clarity::vm::database::BurnStateDB;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
+};
+use stacks_common::types::{StacksEpoch, StacksEpochId};
 
-use crate::burnchains::db::BurnchainBlockData;
-use crate::burnchains::db::BurnchainDB;
-use crate::burnchains::db::BurnchainHeaderReader;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
+use crate::burnchains::{Burnchain, BurnchainBlockHeader};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use crate::chainstate::burn::BlockSnapshot;
@@ -32,7 +32,6 @@ use crate::chainstate::coordinator::comm::{
     CoordinatorChannels, CoordinatorCommunication, CoordinatorEvents, CoordinatorNotices,
     CoordinatorReceivers,
 };
-
 use crate::chainstate::coordinator::{
     calculate_paid_rewards, dispatcher_announce_burn_ops, BlockEventDispatcher, ChainsCoordinator,
     Error, OnChainRewardSetProvider, PaidRewards, PoxAnchorBlockStatus, RewardCycleInfo,
@@ -40,28 +39,13 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::RewardSet;
-use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::miner::signal_mining_blocked;
-use crate::chainstate::stacks::miner::signal_mining_ready;
-use crate::chainstate::stacks::miner::MinerStatus;
+use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::Error as ChainstateError;
-
-use crate::cost_estimates::CostEstimator;
-use crate::cost_estimates::FeeEstimator;
-
+use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::monitoring::increment_stx_blocks_processed_counter;
-
 use crate::net::Error as NetError;
-
 use crate::util_lib::db::Error as DBError;
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::SortitionId;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::StacksEpoch;
-use stacks_common::types::StacksEpochId;
 
 #[cfg(test)]
 pub mod tests;

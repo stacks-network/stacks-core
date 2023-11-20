@@ -18,20 +18,17 @@
 /// various conditions, such as ensuring that the right principals get paid and ensuring that fees
 /// are appropriately distributed.
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::fs;
-use std::io;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::types::*;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use stacks_common::address::*;
+use stacks_common::types::chainstate::SortitionId;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::VRFProof;
@@ -49,16 +46,15 @@ use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
-use crate::chainstate::stacks::Error as ChainstateError;
-use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{
+    Error as ChainstateError, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
+};
 use crate::core::*;
 use crate::cost_estimates::metrics::UnitMetric;
 use crate::cost_estimates::UnitEstimator;
 use crate::net::test::*;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
-use stacks_common::types::chainstate::SortitionId;
 
 // test that the bad (pre 2.1) microblock fee payment still works.  we have to support it for
 // eternity :(

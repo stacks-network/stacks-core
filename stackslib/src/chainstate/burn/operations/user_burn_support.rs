@@ -17,31 +17,23 @@
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 
-use crate::burnchains::Address;
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainBlockHeader;
-use crate::burnchains::BurnchainTransaction;
-use crate::burnchains::PublicKey;
-use crate::burnchains::Txid;
-use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::chainstate::burn::operations::Error as op_error;
-use crate::chainstate::burn::operations::{
-    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, UserBurnSupportOp,
-};
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::burn::Opcodes;
-use crate::net::Error as net_error;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::DBTx;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::TrieHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, TrieHash};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPublicKey, VRF};
 
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use crate::burnchains::{
+    Address, Burnchain, BurnchainBlockHeader, BurnchainTransaction, PublicKey, Txid,
+};
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::chainstate::burn::operations::{
+    parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, Error as op_error,
+    LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+};
+use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::net::Error as net_error;
+use crate::util_lib::db::{DBConn, DBTx};
 
 // return type for parse_data (below)
 struct ParsedData {
@@ -301,6 +293,12 @@ impl UserBurnSupportOp {
 
 #[cfg(test)]
 mod tests {
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::types::chainstate::{SortitionId, StacksAddress};
+    use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+    use stacks_common::util::{get_epoch_time_secs, log};
+
     use super::*;
     use crate::burnchains::bitcoin::address::BitcoinAddress;
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
@@ -315,16 +313,6 @@ mod tests {
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::core::StacksEpochId;
-    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
-    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
-    use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::util::get_epoch_time_secs;
-    use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
-    use stacks_common::util::log;
-
-    use stacks_common::types::chainstate::SortitionId;
-
-    use super::*;
 
     struct OpFixture {
         txstr: String,

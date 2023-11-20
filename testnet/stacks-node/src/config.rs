@@ -2,47 +2,37 @@ use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
-
-use lazy_static::lazy_static;
-use rand::RngCore;
+use std::sync::{Arc, Mutex};
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-
+use lazy_static::lazy_static;
+use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::Burnchain;
-use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use stacks::chainstate::stacks::miner::BlockBuilderSettings;
-use stacks::chainstate::stacks::miner::MinerStatus;
+use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochExtension;
-use stacks::core::StacksEpochId;
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
-use stacks::cost_estimates::metrics::CostMetric;
-use stacks::cost_estimates::metrics::ProportionalDotProduct;
-use stacks::cost_estimates::CostEstimator;
-use stacks::cost_estimates::FeeEstimator;
-use stacks::cost_estimates::PessimisticEstimator;
+use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
+use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
-use stacks::net::{Neighbor, NeighborKey, PeerAddress};
+use stacks::net::{Neighbor, NeighborKey};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-const DEFAULT_SATS_PER_VB: u64 = 50;
+pub const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
@@ -51,6 +41,7 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
+    pub __path: Option<String>, // Only used for config file reloads
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
@@ -182,7 +173,9 @@ mod tests {
 impl ConfigFile {
     pub fn from_path(path: &str) -> Result<ConfigFile, String> {
         let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
-        Self::from_str(&content)
+        let mut f = Self::from_str(&content)?;
+        f.__path = Some(path.to_string());
+        Ok(f)
     }
 
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
@@ -390,6 +383,7 @@ impl ConfigFile {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub config_path: Option<String>,
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
@@ -432,6 +426,16 @@ lazy_static! {
 }
 
 impl Config {
+    /// get the up-to-date burnchain from the config
+    pub fn get_burnchain_config(&self) -> Result<BurnchainConfig, String> {
+        if let Some(path) = &self.config_path {
+            let config_file = ConfigFile::from_path(path.as_str())?;
+            let config = Config::from_config_file(config_file)?;
+            Ok(config.burnchain)
+        } else {
+            Ok(self.burnchain.clone())
+        }
+    }
     /// Apply any test settings to this burnchain config struct
     fn apply_test_settings(&self, burnchain: &mut Burnchain) {
         if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Mainnet {
@@ -1216,6 +1220,7 @@ impl Config {
             .map_err(|e| format!("Atlas config error: {e}"))?;
 
         Ok(Config {
+            config_path: config_file.__path,
             node,
             burnchain,
             initial_balances,
@@ -1384,6 +1389,7 @@ impl std::default::Default for Config {
         let mainnet = burnchain.mode == "mainnet";
 
         Config {
+            config_path: None,
             burnchain,
             node,
             initial_balances: vec![],
@@ -1463,7 +1469,6 @@ impl BurnchainConfig {
             ast_precheck_size_height: None,
         }
     }
-
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
         let scheme = match self.rpc_ssl {
             true => "https://",

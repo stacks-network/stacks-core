@@ -14,18 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
 /// This module defines the methods for reading and inserting into a Trie
 use std::fmt;
-use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
+use std::{error, io};
 
 use sha2::Digest;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::TRIEHASH_ENCODED_SIZE;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
+};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::macros::is_trace;
@@ -41,10 +39,9 @@ use crate::chainstate::stacks::index::node::{
 use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection,
 };
-use crate::chainstate::stacks::index::Error;
-use crate::chainstate::stacks::index::TrieHashExtension;
-use crate::chainstate::stacks::index::TrieLeaf;
-use crate::chainstate::stacks::index::{MarfTrieId, TrieHasher};
+use crate::chainstate::stacks::index::{
+    Error, MarfTrieId, TrieHashExtension, TrieHasher, TrieLeaf,
+};
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.

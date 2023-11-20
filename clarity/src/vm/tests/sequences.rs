@@ -14,19 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::{TryFrom, TryInto};
+
 use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::signatures::SequenceSubtype;
 use crate::vm::types::signatures::SequenceSubtype::{BufferType, StringType};
 use crate::vm::types::signatures::StringSubtype::ASCII;
-use crate::vm::types::BufferLength;
 use crate::vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
-use crate::vm::types::{StringSubtype, StringUTF8Length, TypeSignature, Value};
+use crate::vm::types::{BufferLength, StringSubtype, StringUTF8Length, TypeSignature, Value};
 use crate::vm::{execute, execute_v2, ClarityVersion};
 
 #[test]

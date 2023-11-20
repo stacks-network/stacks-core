@@ -26,10 +26,9 @@ use crate::vm::errors::{
     RuntimeErrorType,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{
-    signatures::ListTypeData, CharType, ListData, SequenceData, TypeSignature,
-    TypeSignature::BoolType, Value,
-};
+use crate::vm::types::signatures::ListTypeData;
+use crate::vm::types::TypeSignature::BoolType;
+use crate::vm::types::{CharType, ListData, SequenceData, TypeSignature, Value};
 use crate::vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
 
 pub fn list_cons(

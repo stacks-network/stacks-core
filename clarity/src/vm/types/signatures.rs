@@ -28,9 +28,9 @@ use stacks_common::util::hash;
 
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
-use crate::vm::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
+    CONTRACT_MAX_NAME_LENGTH,
 };
 use crate::vm::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, SequencedValue,
@@ -1950,7 +1950,8 @@ mod test {
 
     use super::CheckErrors::*;
     use super::*;
-    use crate::vm::{execute, tests::test_clarity_versions, ClarityVersion};
+    use crate::vm::tests::test_clarity_versions;
+    use crate::vm::{execute, ClarityVersion};
 
     fn fail_parse(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> CheckErrors {
         use crate::vm::ast::parse;

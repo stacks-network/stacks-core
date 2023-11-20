@@ -15,23 +15,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
-use std::{cmp, fs, io, path::Path};
+use std::path::Path;
+use std::{cmp, fmt, fs, io};
 
-use rusqlite::{
-    types::ToSql, Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS,
-};
+use rusqlite::types::ToSql;
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 use crate::burnchains::affirmation::*;
-use crate::burnchains::Txid;
-use crate::burnchains::{Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError};
-use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::burn::operations::LeaderBlockCommitOp;
+use crate::burnchains::{
+    Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError, Txid,
+};
+use crate::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{
     opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, sqlite_open,

@@ -24,8 +24,7 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::TxOut;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use stacks_common::util::log;
 
-use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::bitcoin::Error as btc_error;
+use crate::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use crate::burnchains::Address;
 use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,

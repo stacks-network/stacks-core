@@ -14,27 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::mem;
+use std::collections::{HashMap, HashSet};
+use std::{cmp, mem};
 
 use stacks_common::types::chainstate::StacksPublicKey;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::log;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use crate::burnchains::Address;
-use crate::burnchains::PublicKey;
+use crate::burnchains::{Address, PublicKey};
 use crate::core::PEER_VERSION_TESTNET;
+use crate::net::connection::{ConnectionOptions, ReplyHandleP2P};
+use crate::net::db::{LocalPeer, PeerDB};
+use crate::net::neighbors::{
+    NeighborWalk, NeighborWalkDB, NeighborWalkResult, MAX_NEIGHBOR_BLOCK_DELAY,
+    NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
+};
+use crate::net::p2p::PeerNetwork;
 use crate::net::{
-    connection::{ConnectionOptions, ReplyHandleP2P},
-    db::{LocalPeer, PeerDB},
-    neighbors::{
-        NeighborWalk, NeighborWalkDB, NeighborWalkResult, MAX_NEIGHBOR_BLOCK_DELAY,
-        NEIGHBOR_MINIMUM_CONTACT_INTERVAL,
-    },
-    p2p::PeerNetwork,
     Error as net_error, HandshakeData, Neighbor, NeighborAddress, NeighborKey, PeerAddress,
     StacksMessage, StacksMessageType, NUM_NEIGHBORS,
 };

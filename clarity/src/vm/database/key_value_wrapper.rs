@@ -14,9 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::clone::Clone;
+use std::cmp::Eq;
 use std::collections::HashMap;
-use std::{clone::Clone, cmp::Eq, hash::Hash};
+use std::hash::Hash;
 
+use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
@@ -29,7 +32,6 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
 };
 use crate::vm::{StacksEpoch, Value};
-use stacks_common::types::chainstate::StacksBlockId;
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;

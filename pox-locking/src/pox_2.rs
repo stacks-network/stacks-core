@@ -19,13 +19,11 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::Error as ClarityError;
-use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
-use slog::slog_debug;
-use slog::slog_error;
+use slog::{slog_debug, slog_error};
 use stacks_common::{debug, error};
 
 use crate::events::synthesize_pox_2_or_3_event_info;
@@ -70,19 +68,19 @@ pub fn parse_pox_stacking_result(
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
-                .expect(&format!("FATAL: no 'stacker'"))
+                .expect("FATAL: no 'stacker'")
                 .to_owned()
                 .expect_principal();
 
             let lock_amount = tuple_data
                 .get("lock-amount")
-                .expect(&format!("FATAL: no 'lock-amount'"))
+                .expect("FATAL: no 'lock-amount'")
                 .to_owned()
                 .expect_u128();
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
-                .expect(&format!("FATAL: no 'unlock-burn-height'"))
+                .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
                 .try_into()
@@ -104,13 +102,13 @@ pub fn parse_pox_extend_result(result: &Value) -> std::result::Result<(Principal
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
-                .expect(&format!("FATAL: no 'stacker'"))
+                .expect("FATAL: no 'stacker'")
                 .to_owned()
                 .expect_principal();
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
-                .expect(&format!("FATAL: no 'unlock-burn-height'"))
+                .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
                 .try_into()
@@ -133,13 +131,13 @@ pub fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData,
             let tuple_data = res.expect_tuple();
             let stacker = tuple_data
                 .get("stacker")
-                .expect(&format!("FATAL: no 'stacker'"))
+                .expect("FATAL: no 'stacker'")
                 .to_owned()
                 .expect_principal();
 
             let total_locked = tuple_data
                 .get("total-locked")
-                .expect(&format!("FATAL: no 'total-locked'"))
+                .expect("FATAL: no 'total-locked'")
                 .to_owned()
                 .expect_u128();
 
@@ -274,6 +272,7 @@ fn pox_lock_v2(
 }
 
 /// Handle responses from stack-stx and delegate-stack-stx -- functions that *lock up* STX
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_pox_v2(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -302,7 +301,7 @@ fn handle_stack_lockup_pox_v2(
         &mut global_context.database,
         &stacker,
         locked_amount,
-        unlock_height as u64,
+        unlock_height,
     ) {
         Ok(_) => {
             let event =
@@ -338,6 +337,7 @@ fn handle_stack_lockup_pox_v2(
 
 /// Handle responses from stack-extend and delegate-stack-extend -- functions that *extend
 /// already-locked* STX.
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_extension_pox_v2(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -370,7 +370,7 @@ fn handle_stack_lockup_extension_pox_v2(
         }
     };
 
-    match pox_lock_extend_v2(&mut global_context.database, &stacker, unlock_height as u64) {
+    match pox_lock_extend_v2(&mut global_context.database, &stacker, unlock_height) {
         Ok(locked_amount) => {
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
@@ -385,7 +385,7 @@ fn handle_stack_lockup_extension_pox_v2(
             return Err(ClarityError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
-            ))
+            ));
         }
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
@@ -401,6 +401,7 @@ fn handle_stack_lockup_extension_pox_v2(
 
 /// Handle responses from stack-increase and delegate-stack-increase -- functions that *increase
 /// already-locked* STX amounts.
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_increase_pox_v2(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -447,7 +448,7 @@ fn handle_stack_lockup_increase_pox_v2(
             return Err(ClarityError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
-            ))
+            ));
         }
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because

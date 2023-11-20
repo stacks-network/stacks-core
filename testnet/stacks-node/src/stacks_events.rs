@@ -1,7 +1,6 @@
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::net::TcpListener;
-use std::net::TcpStream;
+use std::net::{TcpListener, TcpStream};
 
 use chrono::{SecondsFormat, Utc};
 use lazy_static::lazy_static;

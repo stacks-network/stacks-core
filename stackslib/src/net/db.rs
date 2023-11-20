@@ -15,61 +15,39 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashSet;
-use std::convert::From;
-use std::convert::TryFrom;
-use std::fmt;
-use std::fs;
+use std::convert::{From, TryFrom};
+use std::{fmt, fs};
 
-use clarity::vm::types::QualifiedContractIdentifier;
-use clarity::vm::types::StacksAddressExtensions;
-use clarity::vm::types::StandardPrincipalData;
+use clarity::vm::types::{
+    QualifiedContractIdentifier, StacksAddressExtensions, StandardPrincipalData,
+};
 use rand::seq::SliceRandom;
-use rand::thread_rng;
-use rand::Rng;
-use rand::RngCore;
+use rand::{thread_rng, Rng, RngCore};
 use rusqlite::types::ToSql;
-use rusqlite::OptionalExtension;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
+use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util;
-use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{
     bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum,
 };
-use stacks_common::util::log;
 use stacks_common::util::macros::is_big_endian;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::{get_epoch_time_secs, log};
 
-use crate::burnchains::PrivateKey;
-use crate::burnchains::PublicKey;
-use crate::chainstate::stacks::StacksPrivateKey;
-use crate::chainstate::stacks::StacksPublicKey;
+use crate::burnchains::{PrivateKey, PublicKey};
+use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::core::NETWORK_P2P_PORT;
 use crate::net::asn::ASEntry4;
-use crate::net::Neighbor;
-use crate::net::NeighborAddress;
-use crate::net::NeighborKey;
-use crate::net::PeerAddress;
-use crate::net::ServiceFlags;
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::tx_begin_immediate;
-use crate::util_lib::db::tx_busy_handler;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
-use crate::util_lib::db::{query_count, query_row, query_rows, u64_to_sql, FromColumn, FromRow};
+use crate::net::{Neighbor, NeighborAddress, NeighborKey, ServiceFlags};
+use crate::util_lib::db::{
+    query_count, query_row, query_rows, sqlite_open, tx_begin_immediate, tx_busy_handler,
+    u64_to_sql, DBConn, Error as db_error, FromColumn, FromRow,
+};
 use crate::util_lib::strings::UrlString;
 
 pub const PEERDB_VERSION: &'static str = "2";
 
 const NUM_SLOTS: usize = 8;
-
-impl PeerAddress {
-    pub fn to_bin(&self) -> String {
-        to_bin(&self.0)
-    }
-}
 
 impl FromColumn<PeerAddress> for PeerAddress {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<PeerAddress, db_error> {
@@ -1349,7 +1327,7 @@ impl PeerDB {
     }
 
     /// Get a peer's advertized stacker DBs
-    fn static_get_peer_stacker_dbs(
+    pub fn static_get_peer_stacker_dbs(
         conn: &Connection,
         neighbor: &Neighbor,
     ) -> Result<Vec<QualifiedContractIdentifier>, db_error> {
@@ -1820,15 +1798,13 @@ impl PeerDB {
 
 #[cfg(test)]
 mod test {
-    use clarity::vm::types::StacksAddressExtensions;
-    use clarity::vm::types::StandardPrincipalData;
+    use clarity::vm::types::{StacksAddressExtensions, StandardPrincipalData};
     use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::types::net::{PeerAddress, PeerHost};
     use stacks_common::util::hash::Hash160;
 
     use super::*;
-    use crate::net::Neighbor;
-    use crate::net::NeighborKey;
-    use crate::net::PeerAddress;
+    use crate::net::{Neighbor, NeighborKey};
 
     /// Test storage, retrieval, and mutation of LocalPeer, including its stacker DB contract IDs
     #[test]

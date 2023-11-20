@@ -21,10 +21,9 @@ use stacks_common::types::StacksEpochId;
 use super::MemoryEnvironmentGenerator;
 use crate::vm::ast::ASTRules;
 use crate::vm::errors::{CheckErrors, Error};
-use crate::vm::tests::env_factory;
-use crate::vm::tests::test_clarity_versions;
-use crate::vm::tests::test_epochs;
-use crate::vm::tests::{execute, symbols_from_values};
+use crate::vm::tests::{
+    env_factory, execute, symbols_from_values, test_clarity_versions, test_epochs,
+};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
 use crate::vm::ContractContext;

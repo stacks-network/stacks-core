@@ -5,6 +5,7 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
+#![allow(clippy::assertions_on_constants)]
 
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
@@ -33,8 +34,7 @@ pub mod deps_common;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
 pub mod consts {
-    use crate::types::chainstate::BlockHeaderHash;
-    use crate::types::chainstate::ConsensusHash;
+    use crate::types::chainstate::{BlockHeaderHash, ConsensusHash};
 
     pub const TOKEN_TRANSFER_MEMO_LENGTH: usize = 34; // same as it is in Stacks v1
 

@@ -335,7 +335,7 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
                 pox_addr = &args[3],
             )
         }
-        _ => format!("{{ data: {{ unimplemented: true }} }}"),
+        _ => "{{ data: {{ unimplemented: true }} }}".into(),
     }
 }
 

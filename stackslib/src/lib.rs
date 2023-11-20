@@ -45,10 +45,7 @@ extern crate stacks_common;
 #[macro_use]
 pub extern crate clarity;
 
-pub use stacks_common::address;
-pub use stacks_common::codec;
-pub use stacks_common::types;
-pub use stacks_common::util;
+pub use stacks_common::{address, codec, types, util};
 
 #[macro_use]
 pub mod util_lib;

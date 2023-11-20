@@ -32,14 +32,11 @@ use stacks_common::codec::{
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
 };
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::types::chainstate::VRFSeed;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, TrieHash,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, StacksPrivateKey,
+    StacksPublicKey, TrieHash, VRFSeed,
 };
-use stacks_common::types::PrivateKey;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
@@ -59,28 +56,21 @@ use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
     TenureChangeError, TenureChangePayload, TransactionPayload,
 };
-use crate::burnchains::PoxConstants;
-use crate::burnchains::Txid;
+use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::operations::LeaderBlockCommitOp;
-use crate::chainstate::burn::operations::LeaderKeyRegisterOp;
+use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::db::DBConfig as ChainstateConfig;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH};
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
+use crate::core::BOOT_BLOCK_HASH;
 use crate::monitoring;
+use crate::net::Error as net_error;
 use crate::util_lib::db::{
     query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
-
-use crate::core::BOOT_BLOCK_HASH;
-
-use crate::chainstate::coordinator::BlockEventDispatcher;
-use crate::chainstate::coordinator::Error;
-
-use crate::net::Error as net_error;
 
 pub mod coordinator;
 pub mod miner;

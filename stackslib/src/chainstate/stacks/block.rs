@@ -19,29 +19,24 @@ use std::io;
 use std::io::prelude::*;
 use std::io::{Read, Write};
 
-use sha2::Digest;
-use sha2::Sha512_256;
-use stacks_common::codec::MAX_MESSAGE_LEN;
-use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
+use sha2::{Digest, Sha512_256};
+use stacks_common::codec::{
+    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksWorkScore, TrieHash, VRFSeed,
+};
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::MerkleTree;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 
-use super::db::StacksBlockHeaderTypes;
-use crate::burnchains::PrivateKey;
-use crate::burnchains::PublicKey;
+use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::operations::*;
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::burn::*;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
+use crate::chainstate::burn::{ConsensusHash, *};
+use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
+use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
 use crate::core::*;
 use crate::net::Error as net_error;
 
@@ -944,13 +939,10 @@ mod test {
     use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::bitcoin::BitcoinNetworkType;
-    use crate::burnchains::BurnchainBlockHeader;
-    use crate::burnchains::BurnchainSigner;
-    use crate::burnchains::Txid;
+    use crate::burnchains::{BurnchainBlockHeader, BurnchainSigner, Txid};
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
-    use crate::chainstate::stacks::test::make_codec_test_block;
-    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::test::{make_codec_test_block, *};
     use crate::chainstate::stacks::*;
     use crate::net::codec::test::*;
     use crate::net::codec::*;

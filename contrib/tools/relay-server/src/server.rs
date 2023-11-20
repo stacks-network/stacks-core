@@ -1,9 +1,10 @@
-use std::{
-    io::{Error, ErrorKind, Read, Write},
-    net::TcpStream,
-};
+use std::io::{Error, ErrorKind, Read, Write};
+use std::net::TcpStream;
 
-use crate::{http::RequestEx, state::State, to_io_result::ToIoResult, url::QueryEx};
+use crate::http::RequestEx;
+use crate::state::State;
+use crate::to_io_result::ToIoResult;
+use crate::url::QueryEx;
 
 pub trait Stream {
     type Read: Read;
@@ -61,10 +62,12 @@ impl<T: Stream> ServerEx for T {}
 
 #[cfg(test)]
 mod test {
-    use std::{io::Cursor, str::from_utf8};
+    use std::io::Cursor;
+    use std::str::from_utf8;
 
     use super::Stream;
-    use crate::{server::ServerEx, state::State};
+    use crate::server::ServerEx;
+    use crate::state::State;
 
     struct MockStream {
         i: Cursor<&'static str>,

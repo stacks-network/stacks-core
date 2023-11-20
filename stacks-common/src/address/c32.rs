@@ -16,8 +16,7 @@
 
 use std::convert::TryFrom;
 
-use sha2::Digest;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 use super::Error;
 
@@ -196,8 +195,8 @@ fn c32_encode(input_bytes: &[u8]) -> String {
         if carry_bits >= 5 {
             let c32_value = carry & ((1 << 5) - 1);
             result.push(C32_CHARACTERS[c32_value as usize]);
-            carry_bits = carry_bits - 5;
-            carry = carry >> 5;
+            carry_bits -= 5;
+            carry >>= 5;
         }
     }
 
@@ -242,9 +241,8 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
     let mut iter_c32_digits = Vec::<u8>::with_capacity(input_str.len());
 
     for x in input_str.as_bytes().iter().rev() {
-        match C32_CHARACTERS_MAP.get(*x as usize) {
-            Some(&Some(x)) => iter_c32_digits.push(x),
-            _ => {}
+        if let Some(Some(x)) = C32_CHARACTERS_MAP.get(*x as usize) {
+            iter_c32_digits.push(*x)
         }
     }
 
@@ -260,7 +258,7 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
         if carry_bits >= 8 {
             result.push((carry & ((1 << 8) - 1)) as u8);
             carry_bits -= 8;
-            carry = carry >> 8;
+            carry >>= 8;
         }
     }
 
@@ -464,17 +462,15 @@ mod test {
             ],
         ];
 
-        for i in 0..hex_strs.len() {
-            for j in 0..versions.len() {
-                let h = hex_strs[i];
-                let v = versions[j];
+        for (i, h) in hex_strs.iter().enumerate() {
+            for (j, v) in versions.iter().enumerate() {
                 let b = hex_bytes(h).unwrap();
-                let z = c32_address(v, &b).unwrap();
+                let z = c32_address(*v, &b).unwrap();
 
                 assert_eq!(z, c32_addrs[j][i]);
 
                 let (decoded_version, decoded_bytes) = c32_address_decode(&z).unwrap();
-                assert_eq!(decoded_version, v);
+                assert_eq!(decoded_version, *v);
                 assert_eq!(decoded_bytes, b);
             }
         }
@@ -568,11 +564,9 @@ mod test {
 
     #[test]
     fn test_ascii_only() {
-        match c32_address_decode("S\u{1D7D8}2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE") {
-            Err(Error::InvalidCrockford32) => {}
-            _ => {
-                assert!(false);
-            }
-        }
+        assert!(matches!(
+            c32_address_decode("S\u{1D7D8}2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKPVKG2CE"),
+            Err(Error::InvalidCrockford32)
+        ));
     }
 }

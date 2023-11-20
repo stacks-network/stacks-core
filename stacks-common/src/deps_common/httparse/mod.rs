@@ -31,11 +31,7 @@
 //! Originally written by Sean McArthur.
 //!
 //! Modified by Jude Nelson to remove all unsafe code.
-use std::error;
-use std::fmt;
-use std::mem;
-use std::result;
-use std::str;
+use std::{error, fmt, mem, result, str};
 
 macro_rules! next {
     ($bytes:ident) => {{
@@ -105,7 +101,7 @@ impl<'a> Bytes<'a> {
     #[inline]
     pub fn new(slice: &'a [u8]) -> Bytes<'a> {
         Bytes {
-            slice: slice,
+            slice,
             pos: 0,
             skipped_pos: 0,
         }
@@ -123,7 +119,7 @@ impl<'a> Bytes<'a> {
 
     #[inline]
     pub fn bump(&mut self) {
-        assert!(self.pos + 1 <= self.slice_peek().len(), "overflow");
+        assert!(self.pos < self.slice_peek().len(), "overflow");
         self.pos += 1;
     }
 
@@ -137,6 +133,11 @@ impl<'a> Bytes<'a> {
     #[inline]
     pub fn len(&self) -> usize {
         self.slice_peek().len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.slice_peek().is_empty()
     }
 
     #[inline]
@@ -230,10 +231,7 @@ impl<'a, 'b: 'a> Bytes8<'a, 'b> {
 
     #[inline]
     fn new(bytes: &'a mut Bytes<'b>) -> Bytes8<'a, 'b> {
-        Bytes8 {
-            bytes: bytes,
-            pos: 0,
-        }
+        Bytes8 { bytes, pos: 0 }
     }
 
     #[inline]
@@ -246,7 +244,7 @@ impl<'a, 'b: 'a> Bytes8<'a, 'b> {
 #[inline]
 fn shrink<T>(slice: &mut &mut [T], len: usize) {
     assert!(slice.len() >= len);
-    let full = mem::replace(slice, &mut []);
+    let full = mem::take(slice);
     *slice = &mut full[..len];
 }
 
@@ -453,7 +451,7 @@ impl<'h, 'b> Request<'h, 'b> {
             method: None,
             path: None,
             version: None,
-            headers: headers,
+            headers,
         }
     }
 
@@ -520,7 +518,7 @@ impl<'h, 'b> Response<'h, 'b> {
             version: None,
             code: None,
             reason: None,
-            headers: headers,
+            headers,
         }
     }
 
@@ -645,7 +643,7 @@ fn parse_reason<'a>(bytes: &mut Bytes<'a>) -> Result<&'a str> {
         } else if b == b'\n' {
             let res = str::from_utf8(bytes.slice_skip(1)).map_err(|_e| Error::Status)?;
             return Ok(Status::Complete(res));
-        } else if !((b >= 0x20 && b <= 0x7E) || b == b'\t') {
+        } else if !((0x20..=0x7E).contains(&b) || b == b'\t') {
             return Err(Error::Status);
         }
     }
@@ -704,10 +702,7 @@ pub fn parse_headers<'b: 'h, 'h>(
 }
 
 #[inline]
-fn parse_headers_iter<'a, 'b>(
-    headers: &mut &mut [Header<'a>],
-    bytes: &'b mut Bytes<'a>,
-) -> Result<usize> {
+fn parse_headers_iter<'a>(headers: &mut &mut [Header<'a>], bytes: &mut Bytes<'a>) -> Result<usize> {
     let mut num_headers: usize = 0;
     let mut count: usize = 0;
     let mut result = Err(Error::TooManyHeaders);
@@ -1208,7 +1203,7 @@ mod tests {
         }
     }
 
-    static RESPONSE_REASON_WITH_OBS_TEXT_BYTE: &'static [u8] = b"HTTP/1.1 200 X\xFFZ\r\n\r\n";
+    static RESPONSE_REASON_WITH_OBS_TEXT_BYTE: &[u8] = b"HTTP/1.1 200 X\xFFZ\r\n\r\n";
     res! {
         test_response_reason_with_obsolete_text_byte,
         RESPONSE_REASON_WITH_OBS_TEXT_BYTE,

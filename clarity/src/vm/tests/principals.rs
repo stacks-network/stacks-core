@@ -4,25 +4,15 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
 use crate::vm::ast::ASTRules;
-use crate::vm::callables::{DefineType, DefinedFunction};
-use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
-};
-use crate::vm::execute;
-use crate::vm::execute_with_parameters;
+use crate::vm::errors::CheckErrors;
 use crate::vm::functions::principals::PrincipalConstructErrorCode;
-use crate::vm::types::BufferLength;
-use crate::vm::types::SequenceSubtype::{BufferType, StringType};
-use crate::vm::types::StringSubtype::ASCII;
-use crate::vm::types::TypeSignature::{PrincipalType, SequenceType};
-use crate::vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
+use crate::vm::types::TypeSignature::PrincipalType;
 use crate::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TupleData, TypeSignature, BUFF_1, BUFF_20,
+    ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value, BUFF_1,
+    BUFF_20,
 };
-use crate::vm::{eval, ClarityVersion};
+use crate::vm::{execute_with_parameters, ClarityVersion};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {

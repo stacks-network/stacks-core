@@ -19,20 +19,17 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::Error as ClarityError;
-use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
-use slog::slog_debug;
-use slog::slog_error;
+use slog::{slog_debug, slog_error};
 use stacks_common::{debug, error};
 
 use crate::events::synthesize_pox_2_or_3_event_info;
 // Note: PoX-3 uses the same contract-call result parsing routines as PoX-2
 use crate::pox_2::{parse_pox_extend_result, parse_pox_increase, parse_pox_stacking_result};
-use crate::LockingError;
-use crate::POX_3_NAME;
+use crate::{LockingError, POX_3_NAME};
 
 /////////////////////// PoX-3 /////////////////////////////////
 
@@ -156,6 +153,7 @@ pub fn pox_lock_increase_v3(
 /////////////// PoX-3 //////////////////////////////////////////
 
 /// Handle responses from stack-stx and delegate-stack-stx in pox-3 -- functions that *lock up* STX
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -186,7 +184,7 @@ fn handle_stack_lockup_pox_v3(
         &mut global_context.database,
         &stacker,
         locked_amount,
-        unlock_height as u64,
+        unlock_height,
     ) {
         Ok(_) => {
             let event =
@@ -222,6 +220,7 @@ fn handle_stack_lockup_pox_v3(
 
 /// Handle responses from stack-extend and delegate-stack-extend in pox-3 -- functions that *extend
 /// already-locked* STX.
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_extension_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -254,7 +253,7 @@ fn handle_stack_lockup_extension_pox_v3(
         }
     };
 
-    match pox_lock_extend_v3(&mut global_context.database, &stacker, unlock_height as u64) {
+    match pox_lock_extend_v3(&mut global_context.database, &stacker, unlock_height) {
         Ok(locked_amount) => {
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
@@ -269,7 +268,7 @@ fn handle_stack_lockup_extension_pox_v3(
             return Err(ClarityError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
-            ))
+            ));
         }
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because
@@ -285,6 +284,7 @@ fn handle_stack_lockup_extension_pox_v3(
 
 /// Handle responses from stack-increase and delegate-stack-increase in PoX-3 -- functions
 /// that *increase already-locked* STX amounts.
+#[allow(clippy::needless_return)]
 fn handle_stack_lockup_increase_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
@@ -330,7 +330,7 @@ fn handle_stack_lockup_increase_pox_v3(
             return Err(ClarityError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
-            ))
+            ));
         }
         Err(e) => {
             // Error results *other* than a DefunctPoxContract panic, because

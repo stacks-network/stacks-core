@@ -17,12 +17,11 @@
 // This module is concerned with the implementation of the BitcoinIndexer
 // structure and its methods and traits.
 
-use std::error;
-use std::fmt;
-use std::io;
 use std::sync::Arc;
+use std::{error, fmt, io};
 
 use stacks_common::deps_common::bitcoin::network::serialize::Error as btc_serialize_error;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::util::HexError as btc_hex_error;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
@@ -31,8 +30,6 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::deps;
 use crate::util_lib::db::Error as db_error;
-
-use stacks_common::types::chainstate::BurnchainHeaderHash;
 
 pub mod address;
 pub mod bits;

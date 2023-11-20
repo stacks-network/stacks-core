@@ -14,34 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
-use std::thread;
-use std::time;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{io, thread, time};
 
 use rand::{thread_rng, Rng};
-use stacks_common::deps_common::bitcoin::network::address as btc_network_address;
-use stacks_common::deps_common::bitcoin::network::constants as btc_constants;
 use stacks_common::deps_common::bitcoin::network::encodable::{
     ConsensusDecodable, ConsensusEncodable,
 };
-use stacks_common::deps_common::bitcoin::network::message as btc_message;
-use stacks_common::deps_common::bitcoin::network::message_blockdata as btc_message_blockdata;
-use stacks_common::deps_common::bitcoin::network::message_network as btc_message_network;
-use stacks_common::deps_common::bitcoin::network::serialize as btc_serialize;
 use stacks_common::deps_common::bitcoin::network::serialize::{RawDecoder, RawEncoder};
+use stacks_common::deps_common::bitcoin::network::{
+    address as btc_network_address, constants as btc_constants, message as btc_message,
+    message_blockdata as btc_message_blockdata, message_network as btc_message_network,
+    serialize as btc_serialize,
+};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::log;
+use stacks_common::util::{get_epoch_time_secs, log};
 
 use crate::burnchains::bitcoin::indexer::{network_id_to_bytes, BitcoinIndexer};
 use crate::burnchains::bitcoin::messages::BitcoinMessageHandler;
-use crate::burnchains::bitcoin::Error as btc_error;
-use crate::burnchains::bitcoin::PeerMessage;
+use crate::burnchains::bitcoin::{Error as btc_error, PeerMessage};
 use crate::burnchains::indexer::BurnchainIndexer;
 
 // Based on Andrew Poelstra's rust-bitcoin library.

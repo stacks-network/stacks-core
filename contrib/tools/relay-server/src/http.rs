@@ -1,7 +1,5 @@
-use std::{
-    collections::HashMap,
-    io::{Error, Read},
-};
+use std::collections::HashMap;
+use std::io::{Error, Read};
 
 use crate::to_io_result::ToIoResult;
 
@@ -81,7 +79,8 @@ impl<T: Read> RequestEx for T {}
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Cursor, str::from_utf8};
+    use std::io::Cursor;
+    use std::str::from_utf8;
 
     use crate::http::RequestEx;
 

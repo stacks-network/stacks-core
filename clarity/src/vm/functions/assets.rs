@@ -16,6 +16,8 @@
 
 use std::convert::{TryFrom, TryInto};
 
+use stacks_common::types::StacksEpochId;
+
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
 use crate::vm::database::{ClarityDatabase, ClaritySerializable, STXBalance};
@@ -25,14 +27,11 @@ use crate::vm::errors::{
 };
 use crate::vm::functions::tuples;
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::TupleData;
 use crate::vm::types::{
     AssetIdentifier, BlockInfoProperty, BuffData, CharType, OptionalData, PrincipalData,
-    SequenceData, TypeSignature, Value,
+    SequenceData, TupleData, TypeSignature, Value,
 };
 use crate::vm::{eval, Environment, LocalContext};
-
-use stacks_common::types::StacksEpochId;
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,

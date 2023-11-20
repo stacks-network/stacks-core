@@ -7,8 +7,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::io;
-use std::ptr;
+use std::{io, ptr};
 
 use winapi::ctypes::c_long;
 use winapi::shared::minwindef::{BOOL, DWORD, FALSE, TRUE};

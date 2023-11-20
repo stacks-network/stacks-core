@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
@@ -25,10 +24,12 @@ use clarity::vm::types::{
 use clarity::vm::version::ClarityVersion;
 use lazy_static::lazy_static;
 use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
+};
+use stacks_common::util::hash::{to_hex, Sha256Sum, Sha512Trunc256Sum};
 
-use crate::burnchains::Burnchain;
+use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{
@@ -36,31 +37,18 @@ use crate::chainstate::stacks::boot::{
     POX_2_TESTNET_CODE,
 };
 use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
-use crate::chainstate::stacks::index::MarfTrieId;
-use crate::chainstate::stacks::index::{ClarityMarfTrieId, TrieMerkleProof};
-use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use crate::chainstate::stacks::*;
-use crate::clarity_vm::clarity::Error as ClarityError;
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::core::PEER_VERSION_EPOCH_1_0;
-use crate::core::POX_TESTNET_CYCLE_LENGTH;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieMerkleProof};
+use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
+use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
+use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::core::{
-    BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
-    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
-    POX_REWARD_CYCLE_LENGTH,
+    StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
+    BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, PEER_VERSION_EPOCH_1_0,
+    POX_REWARD_CYCLE_LENGTH, POX_TESTNET_CYCLE_LENGTH,
 };
-use crate::util_lib::boot::boot_code_addr;
-use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::{DBConn, FromRow};
-use crate::{
-    burnchains::PoxConstants,
-    clarity_vm::{clarity::ClarityBlockConnection, database::marf::WritableMarfStore},
-    core::StacksEpoch,
-    core::StacksEpochId,
-};
-use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
-};
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 

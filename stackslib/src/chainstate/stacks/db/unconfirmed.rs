@@ -21,11 +21,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::BurnStateDB;
-use clarity::vm::database::HeadersDB;
-use clarity::vm::database::NULL_BURN_STATE_DB;
-use clarity::vm::database::NULL_HEADER_DB;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use clarity::vm::database::{BurnStateDB, HeadersDB, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::accounts::*;
@@ -33,15 +30,12 @@ use crate::chainstate::stacks::db::blocks::*;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::*;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{Error, *};
 use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::*;
 use crate::net::Error as net_error;
 use crate::util_lib::db::Error as db_error;
-
-use stacks_common::types::chainstate::StacksBlockId;
 
 pub type UnconfirmedTxMap = HashMap<Txid, (StacksTransaction, BlockHeaderHash, u16)>;
 
@@ -660,8 +654,7 @@ mod test {
     use crate::chainstate::stacks::index::*;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::make_coinbase;
-    use crate::chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-    use crate::chainstate::stacks::*;
+    use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
     use crate::core::mempool::*;
     use crate::core::*;
     use crate::net::relay::*;
