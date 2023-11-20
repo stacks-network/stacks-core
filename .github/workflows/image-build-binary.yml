@@ -22,7 +22,7 @@ defaults:
 ## Define which docker arch to build for
 env:
   docker_platforms: "linux/arm64, linux/arm/v7, linux/amd64, linux/amd64/v2, linux/amd64/v3"
-  docker-org: ${{ github.repository_owner }}
+  docker-org: blockstack
 
 concurrency:
   group: docker-image-binary-${{ github.head_ref || github.ref || github.run_id }}
@@ -85,6 +85,7 @@ jobs:
           tags: ${{ steps.docker_metadata.outputs.tags }}
           labels: ${{ steps.docker_metadata.outputs.labels }}
           build-args: |
+            TAG=${{ inputs.tag }}
             REPO=${{ github.repository_owner }}/${{ github.event.repository.name }}
             STACKS_NODE_VERSION=${{ inputs.tag || env.GITHUB_SHA_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
