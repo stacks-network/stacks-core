@@ -1786,13 +1786,12 @@ mod test {
             previous_tenure_blocks: 0,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0x00; 20]),
-            signature: SchnorrThresholdSignature::empty(),
             signers: vec![],
         };
         let tx_tenure_change = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::TenureChange(tenure_change_payload),
+            TransactionPayload::TenureChange(tenure_change_payload, ThresholdSignature::mock()),
         );
 
         let dup_txs = vec![

@@ -54,7 +54,7 @@ use super::stacks::db::{
 use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
-    TenureChangeError, TenureChangePayload, TransactionPayload,
+    TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
 };
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -475,14 +475,14 @@ impl NakamotoBlock {
         }
 
         let validate = |tc: &StacksTransaction| -> Result<(), TenureChangeError> {
-            if let TransactionPayload::TenureChange(tc) = &tc.payload {
+            if let TransactionPayload::TenureChange(tc, signature) = &tc.payload {
                 if tc.previous_tenure_end != self.header.parent_block_id {
                     return Err(TenureChangeError::PreviousTenureInvalid);
                 }
 
                 // TODO: check number of blocks in previous tenure
                 // TODO: check tenure change cause
-                tc.validate()
+                tc.validate(signature)
             } else {
                 // placeholder error
                 Err(TenureChangeError::NotNakamoto)

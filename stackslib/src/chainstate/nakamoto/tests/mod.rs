@@ -47,8 +47,8 @@ use crate::chainstate::stacks::db::{
     StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, SchnorrThresholdSignature, StacksBlock, StacksBlockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
+    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
+    TenureChangeCause, TenureChangePayload, ThresholdSignature, TokenTransferMemo,
     TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionVersion,
 };
 use crate::core;
@@ -149,24 +149,28 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         stacker_signature: MessageSignature::empty(),
     };
 
-    let tenure_change_payload = TransactionPayload::TenureChange(TenureChangePayload {
-        previous_tenure_end: header.parent_block_id.clone(),
-        previous_tenure_blocks: 1,
-        cause: TenureChangeCause::BlockFound,
-        pubkey_hash: Hash160([0x02; 20]),
-        signature: SchnorrThresholdSignature {},
-        signers: vec![],
-    });
+    let tenure_change_payload = TransactionPayload::TenureChange(
+        TenureChangePayload {
+            previous_tenure_end: header.parent_block_id.clone(),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0x02; 20]),
+            signers: vec![],
+        },
+        ThresholdSignature::mock(),
+    );
 
-    let invalid_tenure_change_payload = TransactionPayload::TenureChange(TenureChangePayload {
-        // bad parent block ID
-        previous_tenure_end: StacksBlockId([0x00; 32]),
-        previous_tenure_blocks: 1,
-        cause: TenureChangeCause::BlockFound,
-        pubkey_hash: Hash160([0x02; 20]),
-        signature: SchnorrThresholdSignature {},
-        signers: vec![],
-    });
+    let invalid_tenure_change_payload = TransactionPayload::TenureChange(
+        TenureChangePayload {
+            // bad parent block ID
+            previous_tenure_end: StacksBlockId([0x00; 32]),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0x02; 20]),
+            signers: vec![],
+        },
+        ThresholdSignature::mock(),
+    );
 
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
     let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
@@ -458,14 +462,17 @@ pub fn test_load_store_update_nakamoto_blocks() {
         runtime: 104,
     };
 
-    let tenure_change_payload = TransactionPayload::TenureChange(TenureChangePayload {
-        previous_tenure_end: epoch2_parent_block_id.clone(),
-        previous_tenure_blocks: 1,
-        cause: TenureChangeCause::BlockFound,
-        pubkey_hash: Hash160([0x02; 20]),
-        signature: SchnorrThresholdSignature {},
-        signers: vec![],
-    });
+    let tenure_change_payload = TransactionPayload::TenureChange(
+        TenureChangePayload {
+            previous_tenure_end: epoch2_parent_block_id.clone(),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0x02; 20]),
+            signers: vec![],
+        },
+        ThresholdSignature::mock(),
+    );
+
     let mut tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),

@@ -149,19 +149,64 @@ impl StacksMessageCodec for TenureChangeCause {
     }
 }
 
-impl StacksMessageCodec for SchnorrThresholdSignature {
-    fn consensus_serialize<W: Write>(&self, _fd: &mut W) -> Result<(), codec_error> {
+impl StacksMessageCodec for ThresholdSignature {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        let compressed = self.R.compress();
+        let bytes = compressed.as_bytes();
+        fd.write_all(bytes)
+            .map_err(crate::codec::Error::WriteError)?;
+        write_next(fd, &self.z.to_bytes())?;
         Ok(())
     }
 
-    fn consensus_deserialize<R: Read>(_fd: &mut R) -> Result<Self, codec_error> {
-        Ok(Self {})
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        use p256k1::point::Compressed;
+        use wsts::{Point, Scalar};
+
+        // Read curve point
+        let mut buf = [0u8; 33];
+        fd.read_exact(&mut buf)
+            .map_err(crate::codec::Error::ReadError)?;
+        let R = Point::try_from(&Compressed::from(buf)).map_err(|_| {
+            crate::codec::Error::DeserializeError("Failed to read curve point".into())
+        })?;
+
+        // Read scalar
+        let mut buf = [0u8; 32];
+        fd.read_exact(&mut buf)
+            .map_err(crate::codec::Error::ReadError)?;
+        let z = Scalar::from(buf);
+
+        Ok(Self { R, z })
+    }
+}
+
+impl ThresholdSignature {
+    /// Create mock data for testing. Not valid data
+    pub fn mock() -> Self {
+        Self {
+            R: wsts::Point::G(),
+            z: wsts::Scalar::new(),
+        }
     }
 }
 
 impl TenureChangePayload {
-    pub fn validate(&self) -> Result<(), TenureChangeError> {
+    pub fn validate(&self, signature: &ThresholdSignature) -> Result<(), TenureChangeError> {
+        // TODO
         Ok(())
+    }
+
+    /// Create mock data for testing. Not valid data (yet)
+    #[cfg(test)]
+    pub fn mock() -> Self {
+        Self {
+            previous_tenure_end: StacksBlockId([0x55u8; 32]),
+            previous_tenure_blocks: 0x3579,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0xAAu8; 20]),
+            signers: vec![],
+        }
     }
 }
 
@@ -171,7 +216,6 @@ impl StacksMessageCodec for TenureChangePayload {
         write_next(fd, &self.previous_tenure_blocks)?;
         write_next(fd, &self.cause)?;
         write_next(fd, &self.pubkey_hash)?;
-        write_next(fd, &self.signature)?;
         write_next(fd, &self.signers)
     }
 
@@ -181,7 +225,6 @@ impl StacksMessageCodec for TenureChangePayload {
             previous_tenure_blocks: read_next(fd)?,
             cause: read_next(fd)?,
             pubkey_hash: read_next(fd)?,
-            signature: read_next(fd)?,
             signers: read_next(fd)?,
         })
     }
@@ -250,9 +293,10 @@ impl StacksMessageCodec for TransactionPayload {
                     }
                 }
             }
-            TransactionPayload::TenureChange(tc) => {
+            TransactionPayload::TenureChange(tc, sig) => {
                 write_next(fd, &(TransactionPayloadID::TenureChange as u8))?;
                 tc.consensus_serialize(fd)?;
+                sig.consensus_serialize(fd)?;
             }
         }
         Ok(())
@@ -322,10 +366,6 @@ impl StacksMessageCodec for TransactionPayload {
 
                 TransactionPayload::Coinbase(payload, Some(recipient), None)
             }
-            TransactionPayloadID::TenureChange => {
-                let payload: TenureChangePayload = read_next(fd)?;
-                TransactionPayload::TenureChange(payload)
-            }
             // TODO: gate this!
             TransactionPayloadID::NakamotoCoinbase => {
                 let payload: CoinbasePayload = read_next(fd)?;
@@ -350,6 +390,11 @@ impl StacksMessageCodec for TransactionPayload {
                     ));
                 };
                 TransactionPayload::Coinbase(payload, recipient_opt, Some(vrf_proof))
+            }
+            TransactionPayloadID::TenureChange => {
+                let payload: TenureChangePayload = read_next(fd)?;
+                let signature: ThresholdSignature = read_next(fd)?;
+                TransactionPayload::TenureChange(payload, signature)
             }
         };
 
@@ -1659,7 +1704,15 @@ mod test {
                     vrf_proof_opt.clone(),
                 )
             }
-            TransactionPayload::TenureChange(_) => todo!(),
+            TransactionPayload::TenureChange(ref tc, ref sig) => {
+                let mut hash = tc.pubkey_hash.as_bytes().clone();
+                hash[8] ^= 0x04; // Flip one bit
+                let corrupt_tc = TenureChangePayload {
+                    pubkey_hash: hash.into(),
+                    ..tc.clone()
+                };
+                TransactionPayload::TenureChange(corrupt_tc, sig.clone())
+            }
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
 
@@ -3736,12 +3789,22 @@ mod test {
             TransactionPayload::PoisonMicroblock(header_1, header_2),
         );
 
+        let tx_tenure_change = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            auth.clone(),
+            TransactionPayload::TenureChange(
+                TenureChangePayload::mock(),
+                ThresholdSignature::mock(),
+            ),
+        );
+
         let txs = vec![
             tx_contract_call,
             tx_smart_contract,
             tx_coinbase,
             tx_stx,
             tx_poison,
+            tx_tenure_change,
         ];
         txs
     }

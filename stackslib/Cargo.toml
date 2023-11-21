@@ -55,6 +55,8 @@ stacks-common = { path = "../stacks-common" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
+wsts = "4.0.0"
+p256k1 = "5.5.0"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

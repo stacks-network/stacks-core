@@ -625,9 +625,9 @@ impl_byte_array_serde!(TokenTransferMemo);
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TenureChangeCause {
-    /// A valid winning block-commit, end current tenure
+    /// A valid winning block-commit
     BlockFound = 0,
-    /// No winning block-commits, extend current tenure
+    /// No winning block-commits
     NoBlockFound = 1,
     /// A null miner won the block-commit
     NullMiner = 2,
@@ -646,27 +646,21 @@ impl TryFrom<u8> for TenureChangeCause {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SchnorrThresholdSignature {
-    //pub point: wsts::Point,
-    //pub scalar: wsts::Scalar,
-}
-
-impl SchnorrThresholdSignature {
-    pub fn empty() -> SchnorrThresholdSignature {
-        SchnorrThresholdSignature {}
-    }
-}
-
 /// Reasons why a `TenureChange` transaction can be bad
 pub enum TenureChangeError {
-    SignatureInvalid,
     /// Not signed by required threshold (>70%)
-    SignatureThresholdNotReached,
+    SignatureInvalid,
     /// `previous_tenure_end` does not match parent block
     PreviousTenureInvalid,
     /// Block is not a Nakamoto block
     NotNakamoto,
+}
+
+/// Schnorr threshold signature using types from `wsts`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThresholdSignature {
+    R: wsts::Point,
+    z: wsts::Scalar,
 }
 
 /// A transaction from Stackers to signal new mining tenure
@@ -680,8 +674,6 @@ pub struct TenureChangePayload {
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
-    /// A Schnorr signature from at least 70% of the Stackers
-    pub signature: SchnorrThresholdSignature,
     /// A bitmap of which Stackers signed
     pub signers: Vec<u8>,
 }
@@ -694,7 +686,8 @@ pub enum TransactionPayload {
     // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
     Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
-    TenureChange(TenureChangePayload),
+    /// Must contain a Schnorr threshold signature from at least 70% of the Stackers
+    TenureChange(TenureChangePayload, ThresholdSignature),
 }
 
 impl TransactionPayload {
@@ -1320,6 +1313,10 @@ pub mod test {
                 Some(proof.clone()),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
+            TransactionPayload::TenureChange(
+                TenureChangePayload::mock(),
+                ThresholdSignature::mock(),
+            ),
         ];
 
         // create all kinds of transactions
@@ -1346,8 +1343,8 @@ pub mod test {
 
                     let tx = StacksTransaction {
                         version: (*version).clone(),
-                        chain_id: chain_id,
-                        auth: auth,
+                        chain_id,
+                        auth,
                         anchor_mode: (*anchor_mode).clone(),
                         post_condition_mode: (*post_condition_mode).clone(),
                         post_conditions: tx_post_condition.clone(),
@@ -1436,7 +1433,7 @@ pub mod test {
         };
 
         StacksBlock {
-            header: header,
+            header,
             txs: txs_anchored,
         }
     }

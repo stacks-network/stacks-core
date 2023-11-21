@@ -3618,6 +3618,7 @@ dependencies = [
  "libstackerdb",
  "mio 0.6.23",
  "nix",
+ "p256k1",
  "percent-encoding",
  "pox-locking",
  "prometheus",
@@ -3645,6 +3646,7 @@ dependencies = [
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
+ "wsts",
 ]
 
 [[package]]

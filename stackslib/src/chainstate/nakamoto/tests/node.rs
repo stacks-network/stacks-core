@@ -132,7 +132,7 @@ impl TestMiner {
             TransactionVersion::Testnet,
             // TODO: this needs to be a schnorr signature
             self.as_transaction_auth().unwrap(),
-            TransactionPayload::TenureChange(tenure_change),
+            TransactionPayload::TenureChange(tenure_change, ThresholdSignature::mock()),
         );
         tx_tenure_change.chain_id = 0x80000000;
         tx_tenure_change.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -374,7 +374,6 @@ impl TestStacksNode {
             previous_tenure_blocks,
             cause: tenure_change_cause,
             pubkey_hash: miner.nakamoto_miner_hash160(),
-            signature: SchnorrThresholdSignature::empty(),
             signers: vec![],
         };
 
