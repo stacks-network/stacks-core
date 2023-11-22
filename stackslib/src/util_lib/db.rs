@@ -353,7 +353,7 @@ fn log_sql_eqp(conn: &Connection, sql_query: &str) {
         return;
     }
 
-    let mut parts = sql_query.clone().split(" ");
+    let mut parts = sql_query.split(" ");
     let mut full_sql = if let Some(part) = parts.next() {
         part.to_string()
     } else {

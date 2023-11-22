@@ -331,8 +331,8 @@ mod test {
     fn tx_stacks_strings_codec() {
         let s = "hello-world";
         let stacks_str = StacksString::from_str(&s).unwrap();
-        let clarity_str = ClarityName::try_from(s.clone()).unwrap();
-        let contract_str = ContractName::try_from(s.clone()).unwrap();
+        let clarity_str = ClarityName::try_from(s).unwrap();
+        let contract_str = ContractName::try_from(s).unwrap();
 
         assert_eq!(stacks_str[..], s.as_bytes().to_vec()[..]);
         let s2 = stacks_str.to_string();

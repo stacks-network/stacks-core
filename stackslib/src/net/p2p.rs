@@ -3483,7 +3483,7 @@ impl PeerNetwork {
             if let Some(ref mut dns_client) = dns_client_opt {
                 // begin DNS query
                 match dns_client.queue_lookup(
-                    domain.clone(),
+                    domain,
                     port,
                     get_epoch_time_ms() + self.connection_opts.dns_timeout,
                 ) {
