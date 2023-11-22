@@ -236,7 +236,7 @@ impl<'a> Parser<'a> {
                         Token::Rparen => {
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
-                            let out_nodes: Vec<_> = nodes.drain(..).collect();
+                            let out_nodes: Vec<_> = std::mem::take(nodes);
                             let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
                             e.copy_span(span);
                             Ok(Some(e))
@@ -253,7 +253,7 @@ impl<'a> Parser<'a> {
                             )?;
                             span.end_line = token.span.end_line;
                             span.end_column = token.span.end_column;
-                            let out_nodes: Vec<_> = nodes.drain(..).collect();
+                            let out_nodes: Vec<_> = std::mem::take(nodes);
                             let mut e = PreSymbolicExpression::list(out_nodes.into_boxed_slice());
                             e.copy_span(span);
                             Ok(Some(e))
@@ -1128,14 +1128,11 @@ pub fn parse_collect_diagnostics(
 #[cfg(test)]
 #[cfg(feature = "developer-mode")]
 mod tests {
-    use crate::vm::{
-        diagnostic::Level,
-        types::{
-            ASCIIData, CharType, PrincipalData, SequenceData, StandardPrincipalData, UTF8Data,
-        },
-    };
-
     use super::*;
+    use crate::vm::diagnostic::Level;
+    use crate::vm::types::{
+        ASCIIData, CharType, PrincipalData, SequenceData, StandardPrincipalData, UTF8Data,
+    };
 
     #[test]
     fn test_parse_int() {

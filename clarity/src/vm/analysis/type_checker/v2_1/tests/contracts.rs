@@ -17,14 +17,18 @@
 use std::convert::TryFrom;
 use std::fs::read_to_string;
 
-use assert_json_diff;
-use serde_json;
+use stacks_common::types::StacksEpochId;
+use {assert_json_diff, serde_json};
 
+use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
-use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
-use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, CheckResult};
+use crate::vm::analysis::{
+    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError, CheckResult,
+    ContractAnalysis,
+};
 use crate::vm::ast::parse;
+use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::Error;
 use crate::vm::tests::test_clarity_versions;
@@ -32,13 +36,7 @@ use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature,
 };
-use crate::vm::ContractName;
-use crate::vm::{
-    analysis::{CheckError, ContractAnalysis},
-    costs::LimitedCostTracker,
-    ClarityVersion, SymbolicExpression,
-};
-use stacks_common::types::StacksEpochId;
+use crate::vm::{ClarityVersion, ContractName, SymbolicExpression};
 
 fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())

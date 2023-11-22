@@ -21,6 +21,8 @@ StackerDB replicas in their config files.
 - Message definitions and codecs for Stacker DB, a replicated off-chain DB
   hosted by subscribed Stacks nodes and controlled by smart contracts
 - Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
+- satoshis_per_byte can be changed in the config file and miners will always use
+  the most up to date value
 
 ### Changed
 

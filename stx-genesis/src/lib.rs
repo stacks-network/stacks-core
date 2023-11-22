@@ -1,5 +1,5 @@
-use std::io::{self, BufReader};
-use std::io::{prelude::*, Cursor, Lines};
+use std::io::prelude::*;
+use std::io::{self, BufReader, Cursor, Lines};
 
 use libflate::deflate::{self, Decoder};
 

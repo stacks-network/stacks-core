@@ -1,50 +1,32 @@
 use std::fmt;
-use std::io::Read;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::str::FromStr;
 
 use curve25519_dalek::digest::Digest;
-use sha2::Sha256;
-use sha2::{Digest as Sha2Digest, Sha512_256};
-
-use crate::util::hash::{to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
-use crate::util::secp256k1::MessageSignature;
-use crate::util::uint::Uint256;
-use crate::util::vrf::VRFProof;
-
-use serde::de::Deserialize;
-use serde::de::Error as de_Error;
+use rand::{Rng, SeedableRng};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
-
-use crate::util::secp256k1::Secp256k1PrivateKey;
-use crate::util::secp256k1::Secp256k1PublicKey;
-use crate::util::vrf::VRF_PROOF_ENCODED_SIZE;
+use sha2::{Digest as Sha2Digest, Sha256, Sha512_256};
 
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
-
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
-use rand::Rng;
-use rand::SeedableRng;
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
-
-use crate::util::hash::DoubleSha256;
+use crate::util::hash::{to_hex, DoubleSha256, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
+use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use crate::util::uint::Uint256;
+use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 
 pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
+#[derive(Default)]
 pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
 impl_array_hexstring_fmt!(TrieHash);
 impl_byte_array_newtype!(TrieHash, u8, 32);
 impl_byte_array_serde!(TrieHash);
-
-impl Default for TrieHash {
-    fn default() -> TrieHash {
-        TrieHash([0x00; 32])
-    }
-}
 
 pub const TRIEHASH_ENCODED_SIZE: usize = 32;
 
@@ -96,7 +78,7 @@ impl SortitionId {
 
     pub fn new(bhh: &BurnchainHeaderHash, pox: &PoxId) -> SortitionId {
         if pox == &PoxId::stubbed() {
-            SortitionId(bhh.0.clone())
+            SortitionId(bhh.0)
         } else {
             let mut hasher = Sha512_256::new();
             hasher.update(bhh);
@@ -143,6 +125,10 @@ impl PoxId {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn bit_slice(&self, start: usize, len: usize) -> (Vec<u8>, u64) {
@@ -232,7 +218,7 @@ impl StacksMessageCodec for StacksAddress {
         let version: u8 = read_next(fd)?;
         let hash160: Hash160 = read_next(fd)?;
         Ok(StacksAddress {
-            version: version,
+            version,
             bytes: hash160,
         })
     }

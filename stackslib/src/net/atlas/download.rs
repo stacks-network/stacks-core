@@ -17,38 +17,29 @@
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
-use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
+use std::{cmp, fmt};
 
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::stacks::db::StacksChainState;
-use crate::net::atlas::MAX_RETRY_DELAY;
-use crate::net::connection::ConnectionOptions;
-use crate::net::dns::*;
-use crate::net::p2p::PeerNetwork;
-use crate::net::server::HttpPeer;
-use crate::net::Error as net_error;
-use crate::net::NeighborKey;
-use crate::net::{GetAttachmentResponse, GetAttachmentsInvResponse};
-use crate::net::{HttpRequestMetadata, HttpRequestType, HttpResponseType, PeerHost, Requestable};
-use crate::types::chainstate::StacksBlockId;
-use crate::util_lib::db::Error as DBError;
-use crate::util_lib::strings;
-use crate::util_lib::strings::UrlString;
 use clarity::vm::types::QualifiedContractIdentifier;
+use rand::{thread_rng, Rng};
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::hash::{Hash160, MerkleHashFunc};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
-use crate::types::chainstate::BlockHeaderHash;
-
 use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
-
-use rand::thread_rng;
-use rand::Rng;
-use std::cmp;
-
-use crate::core::mempool::MemPoolDB;
+use crate::chainstate::burn::ConsensusHash;
+use crate::net::atlas::{GetAttachmentResponse, GetAttachmentsInvResponse, MAX_RETRY_DELAY};
+use crate::net::connection::ConnectionOptions;
+use crate::net::dns::*;
+use crate::net::http::HttpRequestContents;
+use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
+use crate::net::p2p::PeerNetwork;
+use crate::net::server::HttpPeer;
+use crate::net::{Error as net_error, NeighborKey, PeerHost, Requestable};
+use crate::util_lib::db::Error as DBError;
+use crate::util_lib::strings;
+use crate::util_lib::strings::UrlString;
 
 #[derive(Debug)]
 pub struct AttachmentsDownloader {
@@ -105,8 +96,6 @@ impl AttachmentsDownloader {
     pub fn run(
         &mut self,
         dns_client: &mut DNSClient,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         network: &mut PeerNetwork,
     ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
         let mut resolved_attachments = vec![];
@@ -160,13 +149,8 @@ impl AttachmentsDownloader {
             }
         };
 
-        let mut progress = AttachmentsBatchStateMachine::try_proceed(
-            ongoing_fsm,
-            dns_client,
-            network,
-            mempool,
-            chainstate,
-        );
+        let mut progress =
+            AttachmentsBatchStateMachine::try_proceed(ongoing_fsm, dns_client, network);
 
         match progress {
             AttachmentsBatchStateMachine::Done(ref mut context) => {
@@ -522,7 +506,15 @@ impl AttachmentsBatchStateContext {
                 .peers
                 .get_mut(request.get_url())
                 .expect("Atlas: unable to retrieve reliability report for peer");
-            if let Some(HttpResponseType::GetAttachmentsInv(_, response)) = response {
+
+            let response = if let Some(r) = response {
+                r
+            } else {
+                report.bump_failed_requests();
+                continue;
+            };
+
+            if let Ok(response) = response.decode_atlas_attachments_inv_response() {
                 let peer_url = request.get_url().clone();
                 match self.inventories.entry(request.key()) {
                     Entry::Occupied(responses) => {
@@ -558,7 +550,15 @@ impl AttachmentsBatchStateContext {
                 .peers
                 .get_mut(request.get_url())
                 .expect("Atlas: unable to retrieve reliability report for peer");
-            if let Some(HttpResponseType::GetAttachment(_, response)) = response {
+
+            let response = if let Some(r) = response {
+                r
+            } else {
+                report.bump_failed_requests();
+                continue;
+            };
+
+            if let Ok(response) = response.decode_atlas_get_attachment() {
                 self.attachments.insert(response.attachment);
                 report.bump_successful_requests();
             } else {
@@ -607,8 +607,6 @@ impl AttachmentsBatchStateMachine {
         fsm: AttachmentsBatchStateMachine,
         dns_client: &mut DNSClient,
         network: &mut PeerNetwork,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
     ) -> AttachmentsBatchStateMachine {
         match fsm {
             AttachmentsBatchStateMachine::Initialized(context) => {
@@ -643,8 +641,6 @@ impl AttachmentsBatchStateMachine {
                     attachments_invs_requests,
                     &context.dns_lookups,
                     network,
-                    mempool,
-                    chainstate,
                     &context.connection_options,
                 ) {
                     BatchedRequestsState::Done(ref mut results) => {
@@ -668,8 +664,6 @@ impl AttachmentsBatchStateMachine {
                     attachments_requests,
                     &context.dns_lookups,
                     network,
-                    mempool,
-                    chainstate,
                     &context.connection_options,
                 ) {
                     BatchedRequestsState::Done(ref mut results) => {
@@ -845,8 +839,6 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
         fsm: BatchedRequestsState<T>,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         network: &mut PeerNetwork,
-        mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
         connection_options: &ConnectionOptions,
     ) -> BatchedRequestsState<T> {
         let mut fsm = fsm;
@@ -868,13 +860,8 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                     if let Some(requestable) = queue.pop() {
                         let mut requestables = VecDeque::new();
                         requestables.push_back(requestable);
-                        let res = PeerNetwork::begin_request(
-                            network,
-                            dns_lookups,
-                            &mut requestables,
-                            mempool,
-                            chainstate,
-                        );
+                        let res =
+                            PeerNetwork::begin_request(network, dns_lookups, &mut requestables);
                         if let Some((request, event_id)) = res {
                             results.remaining.insert(event_id, request);
                         }
@@ -929,14 +916,13 @@ impl<T: Ord + Requestable + fmt::Display + std::hash::Hash> BatchedRequestsState
                                     }
                                     Some(response) => {
                                         let peer_url = request.get_url().clone();
-
-                                        if let HttpResponseType::NotFound(_, _) = response {
+                                        if response.preamble().status_code == 404 {
                                             state.faulty_peers.insert(event_id, peer_url);
                                             continue;
                                         }
                                         debug!(
-                                            "Atlas: Request {} (event_id: {}) received response {:?}",
-                                            request, event_id, response
+                                            "Atlas: Request {} (event_id: {}) received HTTP 200",
+                                            request, event_id
                                         );
                                         state.succeeded.insert(request, Some(response));
                                     }
@@ -990,7 +976,7 @@ struct BatchedRequestsInitializedState<T: Ord + Requestable> {
 #[derive(Debug, Default)]
 pub struct BatchedRequestsResult<T: Requestable> {
     pub remaining: HashMap<usize, T>,
-    pub succeeded: HashMap<T, Option<HttpResponseType>>,
+    pub succeeded: HashMap<T, Option<StacksHttpResponse>>,
     pub errors: HashMap<T, net_error>,
     pub faulty_peers: HashMap<usize, UrlString>,
 }
@@ -1062,16 +1048,28 @@ impl Requestable for AttachmentsInventoryRequest {
         &self.url
     }
 
-    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
-        let mut pages_indexes = HashSet::new();
+    fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest {
+        let mut page_indexes = HashSet::new();
         for page in self.pages.iter() {
-            pages_indexes.insert(*page);
+            page_indexes.insert(*page);
         }
-        HttpRequestType::GetAttachmentsInv(
-            HttpRequestMetadata::from_host(peer_host, self.canonical_stacks_tip_height),
-            self.index_block_hash,
-            pages_indexes,
+        let mut page_list: Vec<String> = page_indexes
+            .into_iter()
+            .map(|i| format!("{}", &i))
+            .collect();
+        page_list.sort();
+        StacksHttpRequest::new_for_peer(
+            peer_host,
+            "GET".into(),
+            "/v2/attachments/inv".into(),
+            HttpRequestContents::new()
+                .query_arg(
+                    "index_block_hash".into(),
+                    format!("{}", &self.index_block_hash),
+                )
+                .query_arg("pages_indexes".into(), page_list[..].join(",")),
         )
+        .expect("FATAL: failed to create an HTTP request for infallible data")
     }
 }
 
@@ -1127,11 +1125,14 @@ impl Requestable for AttachmentRequest {
         url
     }
 
-    fn make_request_type(&self, peer_host: PeerHost) -> HttpRequestType {
-        HttpRequestType::GetAttachment(
-            HttpRequestMetadata::from_host(peer_host, self.canonical_stacks_tip_height),
-            self.content_hash,
+    fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            peer_host,
+            "GET".to_string(),
+            format!("/v2/attachments/{}", &self.content_hash),
+            HttpRequestContents::new(),
         )
+        .expect("FATAL: failed to create an HTTP request for infallible data")
     }
 }
 

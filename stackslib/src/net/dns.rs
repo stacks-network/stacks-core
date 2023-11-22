@@ -14,39 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::mpsc::sync_channel;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::RecvError;
-use std::sync::mpsc::RecvTimeoutError;
-use std::sync::mpsc::SyncSender;
-use std::sync::mpsc::TryRecvError;
-use std::sync::mpsc::TrySendError;
-
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
-use std::net::ToSocketAddrs;
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::mpsc::{
+    sync_channel, Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
+};
+
+use stacks_common::types::net::PeerAddress;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, log, sleep_ms};
 
 use crate::net::asn::ASEntry4;
-use crate::net::Error as net_error;
-use crate::net::Neighbor;
-use crate::net::NeighborKey;
-use crate::net::PeerAddress;
-
 use crate::net::codec::*;
-use crate::net::*;
-
+use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::db::Error as db_error;
-use stacks_common::util::sleep_ms;
-
-use std::net::SocketAddr;
-
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
 
 /// In Rust, there's no easy way to do non-blocking DNS lookups (I blame getaddrinfo), so do it in
 /// a separate thread, and implement a way for the block downloader to periodically poll for
@@ -375,10 +357,12 @@ impl DNSClient {
 
 #[cfg(test)]
 mod test {
-    use crate::net::test::*;
-    use stacks_common::util::*;
     use std::collections::HashMap;
     use std::error::Error;
+
+    use stacks_common::util::*;
+
+    use crate::net::test::*;
 
     #[test]
     fn dns_start_stop() {

@@ -14,64 +14,42 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
-use std::io::Read;
-use std::io::Write;
-use std::mem;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::{cmp, mem};
 
+use clarity::vm::types::QualifiedContractIdentifier;
 use rand;
-use rand::thread_rng;
-use rand::Rng;
+use rand::{thread_rng, Rng};
+use stacks_common::types::chainstate::PoxId;
+use stacks_common::types::net::PeerAddress;
+use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::{get_epoch_time_secs, log};
 
-use crate::burnchains::Burnchain;
-use crate::burnchains::BurnchainView;
-use crate::burnchains::PublicKey;
+use crate::burnchains::{Burnchain, BurnchainView, PublicKey};
 use crate::chainstate::burn::db::sortdb;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::core::PEER_VERSION_EPOCH_2_2;
-use crate::core::PEER_VERSION_EPOCH_2_3;
+use crate::core::{StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3};
 use crate::monitoring;
 use crate::net::asn::ASEntry4;
 use crate::net::codec::*;
-use crate::net::connection::ConnectionOptions;
-use crate::net::connection::ConnectionP2P;
-use crate::net::connection::ReplyHandleP2P;
-use crate::net::db::PeerDB;
-use crate::net::db::*;
+use crate::net::connection::{ConnectionOptions, ConnectionP2P, ReplyHandleP2P};
+use crate::net::db::{PeerDB, *};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
 use crate::net::relay::*;
 use crate::net::stackerdb::StackerDBs;
-use crate::net::Error as net_error;
-use crate::net::GetBlocksInv;
-use crate::net::GetPoxInv;
-use crate::net::Neighbor;
-use crate::net::NeighborKey;
-use crate::net::PeerAddress;
-use crate::net::StacksMessage;
-use crate::net::StacksP2P;
-use crate::net::GETPOXINV_MAX_BITLEN;
-use crate::net::*;
-use crate::util_lib::db::DBConn;
-use crate::util_lib::db::Error as db_error;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use crate::core::StacksEpoch;
-use crate::types::chainstate::PoxId;
-use crate::types::StacksPublicKeyBuffer;
-
-use clarity::vm::types::QualifiedContractIdentifier;
+use crate::net::{
+    Error as net_error, GetBlocksInv, GetPoxInv, Neighbor, NeighborKey, StacksMessage, StacksP2P,
+    GETPOXINV_MAX_BITLEN, *,
+};
+use crate::util_lib::db::{DBConn, Error as db_error};
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -724,7 +702,7 @@ impl ConversationP2P {
                 return false;
             }
         };
-        if *bhh != *their_burn_header_hash {
+        if bhh != their_burn_header_hash {
             test_debug!(
                 "Burn header hash mismatch in preamble: {} != {}",
                 bhh,
@@ -2713,11 +2691,17 @@ impl ConversationP2P {
 mod test {
     use std::fs;
     use std::io::prelude::*;
-    use std::io::Read;
-    use std::io::Write;
-    use std::net::SocketAddr;
-    use std::net::SocketAddrV4;
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, SocketAddrV4};
 
+    use clarity::vm::costs::ExecutionCost;
+    use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
+    use stacks_common::util::pipe::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::sleep_ms;
+    use stacks_common::util::uint::*;
+
+    use super::*;
     use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
     use crate::burnchains::burnchain::*;
     use crate::burnchains::*;
@@ -2733,15 +2717,6 @@ mod test {
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
-    use clarity::vm::costs::ExecutionCost;
-    use stacks_common::util::pipe::*;
-    use stacks_common::util::secp256k1::*;
-    use stacks_common::util::sleep_ms;
-    use stacks_common::util::uint::*;
-
-    use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
-
-    use super::*;
 
     const DEFAULT_SERVICES: u16 = (ServiceFlags::RELAY as u16) | (ServiceFlags::RPC as u16);
     const STACKERDB_SERVICES: u16 = (ServiceFlags::RELAY as u16)
@@ -3349,7 +3324,6 @@ mod test {
     }
 
     #[test]
-    #[ignore]
     fn convo_handshake_accept() {
         with_timeout(100, || {
             let conn_opts = ConnectionOptions::default();

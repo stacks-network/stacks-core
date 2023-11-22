@@ -3,7 +3,8 @@ use std::fmt::Display;
 use stacks_common::util::hash;
 
 use super::error::LexerError;
-use crate::vm::{representations::Span, types::UTF8Data};
+use crate::vm::representations::Span;
+use crate::vm::types::UTF8Data;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {

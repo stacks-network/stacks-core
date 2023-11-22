@@ -14,93 +14,59 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
-use std::env;
+use std::convert::{TryFrom, TryInto};
 use std::ffi::OsStr;
-use std::fs;
-use std::io;
 use std::io::{Read, Write};
 use std::iter::Iterator;
 use std::path::PathBuf;
-use std::process;
+use std::str::FromStr;
+use std::{env, fs, io, process};
 
-use clarity::util::get_epoch_time_ms;
 use clarity::vm::coverage::CoverageReporter;
 use rand::Rng;
 use rusqlite::types::ToSql;
-use rusqlite::Row;
-use rusqlite::Transaction;
-use rusqlite::{Connection, OpenFlags, NO_PARAMS};
-
-use crate::chainstate::stacks::index::{storage::TrieFileStorage, MarfTrieId};
-use crate::util_lib::db::sqlite_open;
-use crate::util_lib::db::FromColumn;
+use rusqlite::{Connection, OpenFlags, Row, Transaction, NO_PARAMS};
+use serde::Serialize;
+use serde_json::json;
 use stacks_common::address::c32::c32_address;
-use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
-
-use crate::clarity::{
-    vm::analysis,
-    vm::analysis::contract_interface_builder::build_contract_interface,
-    vm::analysis::{errors::CheckError, errors::CheckResult, AnalysisDatabase, ContractAnalysis},
-    vm::ast,
-    vm::ast::build_ast_with_rules,
-    vm::ast::ASTRules,
-    vm::contexts::GlobalContext,
-    vm::contexts::{AssetMap, OwnedEnvironment},
-    vm::costs::ExecutionCost,
-    vm::costs::LimitedCostTracker,
-    vm::database::{
-        BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
-    },
-    vm::errors::{Error, InterpreterResult, RuntimeErrorType},
-    vm::eval_all,
-    vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier},
-    vm::ClarityVersion,
-    vm::ContractContext,
-    vm::ContractName,
-    vm::{SymbolicExpression, SymbolicExpressionType, Value},
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed, *,
 };
-use stacks_common::util::log;
+use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::{get_epoch_time_ms, log};
 
-use crate::burnchains::PoxConstants;
-use crate::burnchains::Txid;
-use stacks_common::types::chainstate::*;
-
+use crate::burnchains::{Address, PoxConstants, Txid};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
     BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET,
     BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
-
-use crate::util_lib::boot::{boot_code_addr, boot_code_id};
-
-use crate::burnchains::Address;
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::core::BLOCK_LIMIT_MAINNET_205;
-use crate::core::HELIUM_BLOCK_LIMIT_20;
-
-use crate::util_lib::strings::StacksString;
-use serde::Serialize;
-use serde_json::json;
-
-use stacks_common::codec::StacksMessageCodec;
-
-use std::convert::TryFrom;
-
-use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::marf::WritableMarfStore;
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
+use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use crate::clarity::vm::analysis::errors::{CheckError, CheckResult};
+use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use crate::clarity::vm::ast::{build_ast_with_rules, ASTRules};
+use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
+use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use crate::clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+};
+use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
+use crate::clarity::vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
+use crate::clarity::vm::{
+    analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
+    SymbolicExpressionType, Value,
+};
+use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::StacksEpochId;
-use stacks_common::consts::CHAIN_ID_MAINNET;
-use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::ConsensusHash;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::VRFSeed;
-use std::str::FromStr;
+use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
+use crate::util_lib::boot::{boot_code_addr, boot_code_id};
+use crate::util_lib::db::{sqlite_open, FromColumn};
+use crate::util_lib::strings::StacksString;
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [

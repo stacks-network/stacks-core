@@ -17,27 +17,23 @@
  along with Blockstack. If not, see <http://www.gnu.org/licenses/>.
 */
 
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, TrieHash};
+
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
 };
-use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionHandleTx};
-use crate::chainstate::burn::operations::{
-    leader_block_commit::{MissedBlockCommit, RewardSetInfo},
-    BlockstackOperationType, Error as OpError,
-};
+use crate::chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionDB, SortitionHandleTx};
+use crate::chainstate::burn::operations::leader_block_commit::{MissedBlockCommit, RewardSetInfo};
+use crate::chainstate::burn::operations::{BlockstackOperationType, Error as OpError};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::RewardCycleInfo;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::{
-    marf::MARF, storage::TrieFileStorage, Error as MARFError, MARFValue, MarfTrieId,
-};
+use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
 use crate::core::INITIAL_MINING_BONUS_WINDOW;
 use crate::util_lib::db::Error as DBError;
-use stacks_common::address::AddressHashMode;
-
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId};
 
 impl<'a> SortitionHandleTx<'a> {
     /// Run a blockstack operation's "check()" method and return the result.
@@ -367,22 +363,23 @@ impl<'a> SortitionHandleTx<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::burnchains::bitcoin::{address::BitcoinAddress, BitcoinNetworkType};
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
+    use stacks_common::util::hash::hex_bytes;
+    use stacks_common::util::vrf::VRFPublicKey;
+
+    use super::*;
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
     use crate::burnchains::*;
-    use crate::chainstate::burn::db::sortdb::{tests::test_append_snapshot, SortitionDB};
-    use crate::chainstate::burn::operations::{
-        leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    };
+    use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
+    use crate::chainstate::burn::db::sortdb::SortitionDB;
+    use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+    use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
     use crate::chainstate::burn::*;
     use crate::chainstate::stacks::address::StacksAddressExtensions;
     use crate::chainstate::stacks::index::TrieHashExtension;
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::MICROSTACKS_PER_STACKS;
-    use stacks_common::util::{hash::hex_bytes, vrf::VRFPublicKey};
-
-    use crate::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
-
-    use super::*;
 
     #[test]
     fn test_initial_block_reward() {

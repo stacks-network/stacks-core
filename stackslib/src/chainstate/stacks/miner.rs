@@ -14,68 +14,56 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cmp;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::From;
-use std::fs;
-use std::mem;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
+use std::{cmp, fs, mem};
 
-use crate::burnchains::PrivateKey;
-use crate::burnchains::PublicKey;
+use clarity::vm::analysis::{CheckError, CheckErrors};
+use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::types::TypeSignature;
+use serde::Deserialize;
+use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
+};
+use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::vrf::*;
+
+use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::db::blocks::{MemPoolRejection, SetupBlockResult};
 use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{
-    blocks::MemPoolRejection, ChainstateTx, ClarityTx, MinerRewardInfo, StacksChainState,
-    MINER_REWARD_MATURITY,
+    ChainstateTx, ClarityTx, MinerRewardInfo, StacksChainState, MINER_REWARD_MATURITY,
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
-use crate::chainstate::stacks::Error;
-use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::CostEstimator;
-use crate::net::relay::Relayer;
-use crate::net::Error as net_error;
-use crate::types::StacksPublicKeyBuffer;
-use clarity::vm::database::BurnStateDB;
-use serde::Deserialize;
-use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::MerkleTree;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
-use stacks_common::util::vrf::*;
-
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::db::blocks::SetupBlockResult;
-use crate::chainstate::stacks::StacksBlockHeader;
-use crate::chainstate::stacks::StacksMicroblockHeader;
-use crate::codec::{read_next, write_next, StacksMessageCodec};
 use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
-use crate::types::chainstate::BurnchainHeaderHash;
-use crate::types::chainstate::StacksBlockId;
-use crate::types::chainstate::TrieHash;
-use crate::types::chainstate::{BlockHeaderHash, StacksAddress, StacksWorkScore};
-use clarity::vm::analysis::{CheckError, CheckErrors};
-use clarity::vm::ast::errors::ParseErrors;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::TypeSignature;
+use crate::net::relay::Relayer;
+use crate::net::Error as net_error;
 
 /// System status for mining.
 /// The miner can be Ready, in which case a miner is allowed to run

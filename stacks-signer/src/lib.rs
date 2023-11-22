@@ -7,8 +7,6 @@ Usage documentation can be found in the [README](https://github.com/Trust-Machin
 pub mod cli;
 /// The configuration module for the signer
 pub mod config;
-/// All crypto related modules
-pub mod crypto;
 /// The primary runloop for the signer
 pub mod runloop;
 /// The signer client for communicating with stackerdb/stacks nodes

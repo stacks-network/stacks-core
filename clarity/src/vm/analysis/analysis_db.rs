@@ -26,7 +26,6 @@ use crate::vm::database::{
 use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
-
 use crate::vm::ClarityVersion;
 
 pub struct AnalysisDatabase<'a> {

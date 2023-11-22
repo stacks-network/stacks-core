@@ -1,37 +1,32 @@
-use std::{env, path::PathBuf};
-use time::Instant;
+use std::env;
+use std::path::PathBuf;
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{PrincipalData, StandardPrincipalData};
+use clarity::vm::Value;
 use rand::seq::SliceRandom;
 use rand::Rng;
-
-use crate::cost_estimates::metrics::CostMetric;
-use crate::cost_estimates::{EstimatorError, FeeEstimator};
-use clarity::vm::costs::ExecutionCost;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksWorkScore, TrieHash,
+};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
+use stacks_common::util::vrf::VRFProof;
+use time::Instant;
 
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::{StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksWorkScore};
-
-use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
-use stacks_common::util::vrf::VRFProof;
-
-use crate::chainstate::stacks::StacksBlockHeader;
 use crate::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, TokenTransferMemo, TransactionAuth,
+    CoinbasePayload, StacksBlockHeader, StacksTransaction, TokenTransferMemo, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionSpendingCondition, TransactionVersion,
 };
-use crate::core::StacksEpochId;
-use crate::core::BLOCK_LIMIT_MAINNET_20;
+use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_20};
 use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
+use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::tests::common::*;
-use crate::cost_estimates::CostEstimator;
-use crate::cost_estimates::FeeRateEstimate;
-use crate::cost_estimates::PessimisticEstimator;
-use crate::vm::types::{PrincipalData, StandardPrincipalData};
-use crate::vm::Value;
+use crate::cost_estimates::{
+    CostEstimator, EstimatorError, FeeEstimator, FeeRateEstimate, PessimisticEstimator,
+};
 
 fn instantiate_test_db() -> PessimisticEstimator {
     let mut path = env::temp_dir();

@@ -14,45 +14,38 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::chainstate::burn::ConsensusHashExtensions;
-use crate::chainstate::stacks::address::StacksAddressExtensions;
-use crate::chainstate::stacks::index::TrieHashExtension;
 use ed25519_dalek::Keypair as VRFKeypair;
 use rand::rngs::ThreadRng;
 use rand::thread_rng;
 use serde::Serialize;
 use sha2::Sha512;
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, TrieHash, VRFSeed,
+};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::uint::{BitArray, Uint256, Uint512};
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey};
+use stacks_common::util::{get_epoch_time_secs, log};
 
 use crate::burnchains::bitcoin::address::*;
 use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
 use crate::burnchains::bitcoin::*;
-use crate::burnchains::Txid;
-use crate::burnchains::*;
+use crate::burnchains::{Txid, *};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
+use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use crate::chainstate::burn::operations::{
-    leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS, BlockstackOperationType, LeaderBlockCommitOp,
-    LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+use crate::chainstate::burn::{
+    BlockSnapshot, ConsensusHash, ConsensusHashExtensions, OpsHash, SortitionHash,
+};
+use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::index::TrieHashExtension;
 use crate::chainstate::stacks::StacksPublicKey;
-use crate::types::chainstate::StacksAddress;
-use crate::types::chainstate::TrieHash;
 use crate::util_lib::db::Error as db_error;
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::get_epoch_time_secs;
-use stacks_common::util::hash::hex_bytes;
-use stacks_common::util::hash::to_hex;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::log;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use stacks_common::util::uint::BitArray;
-use stacks_common::util::uint::Uint256;
-use stacks_common::util::uint::Uint512;
-use stacks_common::util::vrf::VRFPrivateKey;
-use stacks_common::util::vrf::VRFPublicKey;
-
-use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, VRFSeed};
 
 #[test]
 fn test_process_block_ops() {

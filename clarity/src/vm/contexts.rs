@@ -20,11 +20,16 @@ use std::convert::TryInto;
 use std::fmt;
 use std::mem::replace;
 
-use crate::vm::ast;
-use crate::vm::ast::ASTRules;
-use crate::vm::ast::ContractAST;
+use serde::Serialize;
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
+
+use super::EvalHook;
+use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     cost_functions, runtime_cost, ClarityCostFunctionReference, CostErrors, CostTracker,
     ExecutionCost, LimitedCostTracker,
@@ -38,23 +43,13 @@ use crate::vm::errors::{
 };
 use crate::vm::events::*;
 use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
-use crate::vm::stx_transfer_consolidated;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, OptionalData, PrincipalData,
     QualifiedContractIdentifier, TraitIdentifier, TypeSignature, Value,
 };
-use crate::vm::{eval, is_reserved};
-use crate::{types::chainstate::StacksBlockId, types::StacksEpochId};
-
-use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::version::ClarityVersion;
-
-use stacks_common::consts::CHAIN_ID_TESTNET;
-
-use serde::Serialize;
-
-use super::EvalHook;
+use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -1997,15 +1992,10 @@ impl CallStack {
 
 #[cfg(test)]
 mod test {
-    use crate::vm::{
-        callables::DefineType,
-        types::{
-            signatures::CallableSubtype, FixedFunction, FunctionArg, FunctionType,
-            StandardPrincipalData,
-        },
-    };
-
     use super::*;
+    use crate::vm::callables::DefineType;
+    use crate::vm::types::signatures::CallableSubtype;
+    use crate::vm::types::{FixedFunction, FunctionArg, FunctionType, StandardPrincipalData};
 
     #[test]
     fn test_asset_map_abort() {

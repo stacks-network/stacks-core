@@ -21,8 +21,12 @@ use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
 use serde_json::Value as JSONValue;
+use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::util::retry::BoundReader;
 
+use super::{ListTypeData, TupleTypeSignature};
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
 use crate::vm::errors::{
     CheckErrors, Error as ClarityError, IncomparableError, InterpreterError, InterpreterResult,
@@ -31,18 +35,11 @@ use crate::vm::errors::{
 use crate::vm::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
-    BufferLength, CallableData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
-    ResponseData, SequenceData, SequenceSubtype, StandardPrincipalData, StringSubtype,
-    StringUTF8Length, TupleData, TypeSignature, Value, BOUND_VALUE_SERIALIZATION_BYTES,
-    MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
+    byte_len_of_serialization, BufferLength, CallableData, CharType, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, ResponseData, SequenceData, SequenceSubtype,
+    StandardPrincipalData, StringSubtype, StringUTF8Length, TupleData, TypeSignature, Value,
+    BOUND_VALUE_SERIALIZATION_BYTES, MAX_TYPE_DEPTH, MAX_VALUE_SIZE,
 };
-use stacks_common::util::hash::{hex_bytes, to_hex};
-use stacks_common::util::retry::BoundReader;
-
-use crate::codec::{Error as codec_error, StacksMessageCodec};
-use crate::vm::types::byte_len_of_serialization;
-
-use super::{ListTypeData, TupleTypeSignature};
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
@@ -1348,20 +1345,19 @@ impl std::hash::Hash for Value {
 
 #[cfg(test)]
 pub mod tests {
-    use rstest::rstest;
-    use rstest_reuse::{self, *};
-
     use std::io::Write;
 
+    use rstest::rstest;
+    use rstest_reuse::{self, *};
+    use stacks_common::types::StacksEpochId;
+
+    use super::super::*;
+    use super::SerializationError;
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
     use crate::vm::errors::Error;
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::types::TypeSignature::{BoolType, IntType};
-
-    use super::super::*;
-    use super::SerializationError;
     use crate::vm::ClarityVersion;
-    use stacks_common::types::StacksEpochId;
 
     fn buff_type(size: u32) -> TypeSignature {
         TypeSignature::SequenceType(SequenceSubtype::BufferType(size.try_into().unwrap()))

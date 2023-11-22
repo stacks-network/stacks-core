@@ -11,9 +11,10 @@
 
 mod error;
 mod platform;
-pub use self::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+
+pub use self::error::Error;
 
 #[cfg(test)]
 mod tests;
@@ -63,7 +64,7 @@ static INIT: AtomicBool = AtomicBool::new(false);
 ///
 pub fn set_handler<F>(mut user_handler: F) -> Result<(), Error>
 where
-    F: FnMut(SignalId) -> () + 'static + Send,
+    F: FnMut(SignalId) + 'static + Send,
 {
     if INIT
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)

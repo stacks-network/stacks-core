@@ -14,7 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::callables::{CallableType, NativeHandle};
+use stacks_common::address::AddressHashMode;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash;
+
+use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
@@ -24,7 +29,6 @@ use crate::vm::errors::{
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
-use crate::vm::is_reserved;
 use crate::vm::representations::SymbolicExpressionType::{Atom, List};
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
@@ -32,14 +36,7 @@ use crate::vm::types::{
     BUFF_33, BUFF_65,
 };
 use crate::vm::Value::CallableContract;
-use crate::vm::{eval, Environment, LocalContext};
-use stacks_common::address::AddressHashMode;
-use stacks_common::util::hash;
-
-use crate::types::chainstate::StacksAddress;
-use crate::vm::callables::cost_input_sized_vararg;
-
-use stacks_common::types::StacksEpochId;
+use crate::vm::{eval, is_reserved, Environment, LocalContext};
 
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {

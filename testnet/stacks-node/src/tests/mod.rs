@@ -2,41 +2,36 @@ use std::convert::TryInto;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::BurnStateDB;
+use clarity::vm::events::STXEventType;
+use clarity::vm::types::PrincipalData;
+use clarity::vm::{ClarityName, ContractName, Value};
 use rand::RngCore;
-
 use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::events::StacksTransactionEvent;
+use stacks::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use stacks::chainstate::stacks::{
-    db::StacksChainState, miner::BlockBuilderSettings, miner::StacksMicroblockBuilder,
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey,
     StacksPublicKey, StacksTransaction, StacksTransactionSigner, TokenTransferMemo,
     TransactionAnchorMode, TransactionAuth, TransactionContractCall, TransactionPayload,
     TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
     TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks::codec::StacksMessageCodec;
-use stacks::core::CHAIN_ID_TESTNET;
-use stacks::types::chainstate::StacksAddress;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::hex_bytes;
+use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::util_lib::strings::StacksString;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::database::BurnStateDB;
-use stacks::vm::events::STXEventType;
-use stacks::vm::types::PrincipalData;
-use stacks::vm::{ClarityName, ContractName, Value};
-use stacks::{address::AddressHashMode, util::hash::to_hex};
-
-use crate::helium::RunLoop;
-use crate::tests::neon_integrations::get_chain_info;
-use crate::tests::neon_integrations::next_block_and_wait;
-use crate::BitcoinRegtestController;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochExtension;
-use stacks::core::StacksEpochId;
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use super::Config;
+use crate::helium::RunLoop;
+use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
+use crate::BitcoinRegtestController;
 
 mod atlas;
 mod bitcoin_regtest;

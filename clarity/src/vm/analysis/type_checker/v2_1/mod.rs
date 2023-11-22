@@ -17,8 +17,22 @@
 pub mod contexts;
 pub mod natives;
 
+use std::collections::{BTreeMap, HashMap};
+use std::convert::TryInto;
+
 use stacks_common::types::StacksEpochId;
 
+use self::contexts::ContractContext;
+pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
+use super::contexts::{TypeMap, TypingContext};
+use super::{AnalysisPass, ContractAnalysis};
+pub use crate::vm::analysis::errors::{
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
+    CheckErrors, CheckResult,
+};
+use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::contexts::Environment;
+use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
@@ -39,24 +53,7 @@ use crate::vm::types::{
     TypeSignature, Value, MAX_TYPE_DEPTH,
 };
 use crate::vm::variables::NativeVariables;
-use std::collections::{BTreeMap, HashMap};
-use std::convert::TryInto;
-
 use crate::vm::ClarityVersion;
-
-use self::contexts::ContractContext;
-use super::contexts::{TypeMap, TypingContext};
-use super::{AnalysisPass, ContractAnalysis};
-use crate::vm::analysis::AnalysisDatabase;
-
-pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
-
-pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
-    CheckErrors, CheckResult,
-};
-use crate::vm::contexts::Environment;
-use crate::vm::costs::cost_functions::ClarityCostFunction;
 
 #[cfg(test)]
 pub mod tests;

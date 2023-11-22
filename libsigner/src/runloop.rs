@@ -24,12 +24,11 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::events::{EventReceiver, EventStopSignaler, StackerDBChunksEvent};
-
-use crate::error::EventError;
-
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
+
+use crate::error::EventError;
+use crate::events::{EventReceiver, EventStopSignaler, StackerDBChunksEvent};
 
 /// Some libcs, like musl, have a very small stack size.
 /// Make sure it's big enough.
@@ -134,6 +133,12 @@ impl<EV: EventReceiver, R> RunningSigner<EV, R> {
         // kill event receiver
         self.stop_signal.send();
 
+        self.join()
+    }
+
+    /// Wait for the signer to terminate, and get the final state.
+    /// WARNING: This will hang forever if the event receiver stop signal was never sent/no error occurs.
+    pub fn join(self) -> Option<R> {
         debug!("Try join event loop...");
         // wait for event receiver join
         let _ = self.event_join.join().map_err(|thread_panic| {

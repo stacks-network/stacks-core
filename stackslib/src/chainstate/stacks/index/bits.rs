@@ -14,30 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::error;
 /// This file contains low-level methods for reading and manipulating Trie node data.
 use std::fmt;
-use std::io;
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::{error, io};
 
-use sha2::Digest;
-use sha2::Sha512_256 as TrieHasher;
-
-use crate::chainstate::stacks::index::node::{
-    clear_backptr, ConsensusSerializable, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
-    TrieNodeID, TrieNodeType, TriePtr, TRIEPTR_SIZE,
+use sha2::{Digest, Sha512_256 as TrieHasher};
+use stacks_common::types::chainstate::{
+    TrieHash, BLOCK_HEADER_HASH_ENCODED_SIZE, TRIEHASH_ENCODED_SIZE,
 };
-use crate::chainstate::stacks::index::node::{TrieNode, TRIEPATH_MAX_LEN};
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
-use crate::chainstate::stacks::index::Error;
-use crate::chainstate::stacks::index::TrieLeaf;
-use crate::chainstate::stacks::index::{BlockMap, MarfTrieId};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 use stacks_common::util::macros::is_trace;
 
-use stacks_common::types::chainstate::BLOCK_HEADER_HASH_ENCODED_SIZE;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::chainstate::stacks::index::node::{
+    clear_backptr, ConsensusSerializable, TrieNode, TrieNode16, TrieNode256, TrieNode4, TrieNode48,
+    TrieNodeID, TrieNodeType, TriePtr, TRIEPATH_MAX_LEN, TRIEPTR_SIZE,
+};
+use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieStorageConnection};
+use crate::chainstate::stacks::index::{BlockMap, Error, MarfTrieId, TrieLeaf};
 
 /// Get the size of a Trie path (note that a Trie path is 32 bytes long, and can definitely _not_
 /// be over 255 bytes).

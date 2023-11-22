@@ -26,37 +26,35 @@ extern crate serde;
 extern crate serde_json;
 extern crate toml;
 
+use std::fs::File;
+use std::io::{self, BufRead, Write};
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::time::Duration;
+
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
 use slog::slog_debug;
-use stacks_common::{
-    address::{
-        AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    },
-    debug,
-    types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_signer::{
-    cli::{
-        Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs,
-        RunDkgArgs, SignArgs, StackerDBArgs,
-    },
-    config::{Config, Network},
-    crypto::{frost::Coordinator as FrostCoordinator, OperationResult},
-    runloop::{RunLoop, RunLoopCommand},
-    utils::{build_signer_config_tomls, build_stackerdb_contract},
+use stacks_common::debug;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_signer::cli::{
+    Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
+    SignArgs, StackerDBArgs,
 };
-use std::{
-    fs::File,
-    io::{self, BufRead, Write},
-    net::SocketAddr,
-    path::PathBuf,
-    sync::mpsc::{channel, Receiver, Sender},
-    time::Duration,
-};
+use stacks_signer::config::{Config, Network};
+use stacks_signer::runloop::{RunLoop, RunLoopCommand};
+use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{fmt, EnvFilter};
+use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::OperationResult;
+use wsts::v2;
 
 struct SpawnedSigner {
     running_signer: RunningSigner<StackerDBEventReceiver, Vec<OperationResult>>,
@@ -90,14 +88,14 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator> = RunLoop::from(&config);
+    let runloop: RunLoop<FrostCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        RunLoop<FrostCoordinator>,
+        RunLoop<FrostCoordinator<v2::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
-    let endpoint = config.node_host;
+    let endpoint = config.endpoint;
     let running_signer = signer.spawn(endpoint).unwrap();
     SpawnedSigner {
         running_signer,
@@ -114,10 +112,16 @@ fn process_dkg_result(dkg_res: &[OperationResult]) {
         OperationResult::Dkg(point) => {
             println!("Received aggregate group key: {point}");
         }
-        OperationResult::Sign(signature, schnorr_proof) => {
+        OperationResult::Sign(signature) => {
             panic!(
-                "Received unexpected signature ({},{}) and schnorr proof ({},{})",
-                &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
+                "Received unexpected signature ({},{})",
+                &signature.R, &signature.z,
+            );
+        }
+        OperationResult::SignTaproot(schnorr_proof) => {
+            panic!(
+                "Received unexpected schnorr proof ({},{})",
+                &schnorr_proof.r, &schnorr_proof.s,
             );
         }
     }
@@ -131,10 +135,16 @@ fn process_sign_result(sign_res: &[OperationResult]) {
         OperationResult::Dkg(point) => {
             panic!("Received unexpected aggregate group key: {point}");
         }
-        OperationResult::Sign(signature, schnorr_proof) => {
-            println!(
-                "Received good signature ({},{}) and schnorr proof ({},{})",
-                &signature.R, &signature.z, &schnorr_proof.r, &schnorr_proof.s
+        OperationResult::Sign(signature) => {
+            panic!(
+                "Received bood signature ({},{})",
+                &signature.R, &signature.z,
+            );
+        }
+        OperationResult::SignTaproot(schnorr_proof) => {
+            panic!(
+                "Received unexpected schnorr proof ({},{})",
+                &schnorr_proof.r, &schnorr_proof.s,
             );
         }
     }
@@ -164,7 +174,7 @@ fn handle_list_chunks(args: StackerDBArgs) {
 fn handle_put_chunk(args: PutChunkArgs) {
     debug!("Putting chunk...");
     let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
-    let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data.clone());
+    let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
     chunk.sign(&args.private_key).unwrap();
     let chunk_ack = session.put_chunk(chunk).unwrap();
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
@@ -176,7 +186,7 @@ fn handle_dkg(args: RunDkgArgs) {
     spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_sign(args: SignArgs) {
@@ -184,11 +194,15 @@ fn handle_sign(args: SignArgs) {
     let spawned_signer = spawn_running_signer(&args.config);
     spawned_signer
         .cmd_send
-        .send(RunLoopCommand::Sign { message: args.data })
+        .send(RunLoopCommand::Sign {
+            message: args.data,
+            is_taproot: false,
+            merkle_root: None,
+        })
         .unwrap();
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_dkg_sign(args: SignArgs) {
@@ -198,19 +212,25 @@ fn handle_dkg_sign(args: SignArgs) {
     spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
     spawned_signer
         .cmd_send
-        .send(RunLoopCommand::Sign { message: args.data })
+        .send(RunLoopCommand::Sign {
+            message: args.data,
+            is_taproot: false,
+            merkle_root: None,
+        })
         .unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
-    spawned_signer.running_signer.stop().unwrap();
+    spawned_signer.running_signer.stop();
 }
 
 fn handle_run(args: RunDkgArgs) {
     debug!("Running signer...");
-    let _spawned_signer = spawn_running_signer(&args.config);
-    println!("Signer spawned successfully. Waiting for messages to process.");
+    let spawned_signer = spawn_running_signer(&args.config);
+    println!("Signer spawned successfully. Waiting for messages to process...");
+    // Wait for the spawned signer to stop (will only occur if an error occurs)
+    let _ = spawned_signer.running_signer.join();
 }
 
 fn handle_generate_files(args: GenerateFilesArgs) {
@@ -249,6 +269,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         args.num_keys,
         &args.db_args.host.to_string(),
         &args.db_args.contract.to_string(),
+        None,
         args.timeout.map(Duration::from_millis),
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
@@ -275,6 +296,12 @@ fn handle_generate_files(args: GenerateFilesArgs) {
 
 fn main() {
     let cli = Cli::parse();
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
     match cli.command {
         Command::GetChunk(args) => {
             handle_get_chunk(args);
@@ -309,7 +336,7 @@ fn main() {
 fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
     let version = match network {
         Network::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        Network::Testnet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        Network::Testnet | Network::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
     };
     StacksAddress::from_public_keys(
         version,

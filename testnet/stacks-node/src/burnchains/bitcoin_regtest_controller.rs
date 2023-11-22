@@ -1,24 +1,19 @@
+use std::cmp;
+use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+
 use async_h1::client;
 use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use base64::encode;
 use http_types::{Method, Request, Url};
-use std::io::Cursor;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use std::time::Instant;
-
 use serde::Serialize;
 use serde_json::value::RawValue;
-
-use std::cmp;
-
-use super::super::operations::BurnchainOpSigner;
-use super::super::Config;
-use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-
+use stacks::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
+};
 use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
@@ -26,48 +21,41 @@ use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::BurnchainStateTransitionOps;
-use stacks::burnchains::Error as burnchain_error;
-use stacks::burnchains::PoxConstants;
-use stacks::burnchains::PublicKey;
 use stacks::burnchains::{
-    bitcoin::address::{
-        BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
-    },
-    Txid,
+    Burnchain, BurnchainParameters, BurnchainStateTransitionOps, Error as burnchain_error,
+    PoxConstants, PublicKey, Txid,
 };
-use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
     TransferStxOp, UserBurnSupportOp,
 };
+#[cfg(test)]
+use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpoch, StacksEpochId};
-use stacks::util::hash::{hex_bytes, Hash160};
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::util::sleep_ms;
+use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-
 #[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
-
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
 
-use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
-
-#[cfg(test)]
-use stacks::chainstate::burn::Opcodes;
-use stacks::types::chainstate::BurnchainHeaderHash;
+use super::super::operations::BurnchainOpSigner;
+use super::super::Config;
+use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -166,6 +154,44 @@ pub fn make_bitcoin_indexer(
     burnchain_indexer
 }
 
+pub fn get_satoshis_per_byte(config: &Config) -> u64 {
+    match config.get_burnchain_config() {
+        Ok(s) => s.satoshis_per_byte,
+        Err(_) => {
+            info!("No config found. Using previous configuration.");
+            config.burnchain.satoshis_per_byte
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::DEFAULT_SATS_PER_VB;
+
+    use super::*;
+    use std::env::temp_dir;
+    use std::fs::File;
+    use std::io::Write;
+
+    #[test]
+    fn test_get_satoshis_per_byte() {
+        let dir = temp_dir();
+        let file_path = dir.as_path().join("config.toml");
+
+        let mut config = Config::default();
+
+        let satoshis_per_byte = get_satoshis_per_byte(&config);
+        assert_eq!(satoshis_per_byte, DEFAULT_SATS_PER_VB);
+
+        let mut file = File::create(&file_path).unwrap();
+        writeln!(file, "[burnchain]").unwrap();
+        writeln!(file, "satoshis_per_byte = 51").unwrap();
+        config.config_path = Some(file_path.to_str().unwrap().to_string());
+
+        assert_eq!(get_satoshis_per_byte(&config), 51);
+    }
+}
+
 impl LeaderBlockCommitFees {
     pub fn fees_from_previous_tx(
         &self,
@@ -194,7 +220,7 @@ impl LeaderBlockCommitFees {
         let value_per_transfer = payload.burn_fee / number_of_transfers;
         let sortition_fee = value_per_transfer * number_of_transfers;
         let spent_in_attempts = 0;
-        let fee_rate = config.burnchain.satoshis_per_byte;
+        let fee_rate = get_satoshis_per_byte(config);
         let default_tx_size = config.burnchain.block_commit_tx_estimated_size;
 
         LeaderBlockCommitFees {
@@ -808,8 +834,9 @@ impl BitcoinRegtestController {
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
 
-        let btc_miner_fee = self.config.burnchain.leader_key_tx_estimated_size
-            * self.config.burnchain.satoshis_per_byte;
+        // reload the config to find satoshis_per_byte changes
+        let satoshis_per_byte = get_satoshis_per_byte(&self.config);
+        let btc_miner_fee = self.config.burnchain.leader_key_tx_estimated_size * satoshis_per_byte;
         let budget_for_outputs = DUST_UTXO_LIMIT;
         let total_required = btc_miner_fee + budget_for_outputs;
 
@@ -837,7 +864,7 @@ impl BitcoinRegtestController {
 
         tx.output = vec![consensus_output];
 
-        let fee_rate = self.config.burnchain.satoshis_per_byte;
+        let fee_rate = satoshis_per_byte;
 
         self.finalize_tx(
             epoch_id,
@@ -931,7 +958,7 @@ impl BitcoinRegtestController {
     ) -> Option<Transaction> {
         let public_key = signer.get_public_key();
         let max_tx_size = 230;
-
+        let satoshis_per_byte = get_satoshis_per_byte(&self.config);
         let (mut tx, mut utxos) = if let Some(utxo) = utxo_to_use {
             (
                 Transaction {
@@ -949,7 +976,7 @@ impl BitcoinRegtestController {
             self.prepare_tx(
                 epoch_id,
                 &public_key,
-                DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte,
+                DUST_UTXO_LIMIT + max_tx_size * satoshis_per_byte,
                 None,
                 None,
                 0,
@@ -977,13 +1004,14 @@ impl BitcoinRegtestController {
                 .to_bitcoin_tx_out(DUST_UTXO_LIMIT),
         );
 
+        let satoshis_per_byte = get_satoshis_per_byte(&self.config);
         self.finalize_tx(
             epoch_id,
             &mut tx,
             DUST_UTXO_LIMIT,
             0,
             max_tx_size,
-            self.config.burnchain.satoshis_per_byte,
+            satoshis_per_byte,
             &mut utxos,
             signer,
         )?;
@@ -1032,7 +1060,7 @@ impl BitcoinRegtestController {
             self.prepare_tx(
                 epoch_id,
                 &public_key,
-                DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte,
+                DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(&self.config),
                 None,
                 None,
                 0,
@@ -1066,7 +1094,7 @@ impl BitcoinRegtestController {
             DUST_UTXO_LIMIT,
             0,
             max_tx_size,
-            self.config.burnchain.satoshis_per_byte,
+            get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
         )?;
@@ -1101,7 +1129,7 @@ impl BitcoinRegtestController {
         let public_key = signer.get_public_key();
         let max_tx_size = 280;
 
-        let output_amt = DUST_UTXO_LIMIT + max_tx_size * self.config.burnchain.satoshis_per_byte;
+        let output_amt = DUST_UTXO_LIMIT + max_tx_size * get_satoshis_per_byte(&self.config);
         let (mut tx, mut utxos) =
             self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
 
@@ -1130,7 +1158,7 @@ impl BitcoinRegtestController {
             output_amt,
             0,
             max_tx_size,
-            self.config.burnchain.satoshis_per_byte,
+            get_satoshis_per_byte(&self.config),
             &mut utxos,
             signer,
         )?;
@@ -1331,7 +1359,7 @@ impl BitcoinRegtestController {
 
         // Stop as soon as the fee_rate is ${self.config.burnchain.max_rbf} percent higher, stop RBF
         if ongoing_op.fees.fee_rate
-            > (self.config.burnchain.satoshis_per_byte * self.config.burnchain.max_rbf / 100)
+            > (get_satoshis_per_byte(&self.config) * self.config.burnchain.max_rbf / 100)
         {
             warn!(
                 "RBF'd block commits reached {}% satoshi per byte fee rate, not resubmitting",
