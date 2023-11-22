@@ -109,25 +109,21 @@ fn find_prepare_phase_sortitions(
     burnchain: &Burnchain,
     sortition_tip: &SortitionId,
 ) -> Result<Vec<BlockSnapshot>, Error> {
-    let sn = SortitionDB::get_block_snapshot(sort_db.conn(), sortition_tip)?
+    let mut prepare_phase_sn = SortitionDB::get_block_snapshot(sort_db.conn(), sortition_tip)?
         .ok_or(DBError::NotFoundError)?;
 
-    let mut height = sn.block_height;
-    let mut sns = vec![sn];
+    let mut height = prepare_phase_sn.block_height;
+    let mut sns = vec![];
 
     while burnchain.is_in_prepare_phase(height) && height > 0 {
-        let Some(sn) = SortitionDB::get_block_snapshot(
-            sort_db.conn(),
-            &sns.last()
-                .as_ref()
-                .expect("FATAL: unreachable: sns is never empty")
-                .parent_sortition_id,
-        )?
+        let parent_sortition_id = prepare_phase_sn.parent_sortition_id;
+        sns.push(prepare_phase_sn);
+        let Some(sn) = SortitionDB::get_block_snapshot(sort_db.conn(), &parent_sortition_id)?
         else {
             break;
         };
-        height = sn.block_height.saturating_sub(1);
-        sns.push(sn);
+        prepare_phase_sn = sn;
+        height = height.saturating_sub(1);
     }
 
     sns.reverse();
