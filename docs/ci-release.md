@@ -79,7 +79,7 @@ There are also 2 different methods in use with regard to running tests:
 A matrix is used when there are several known tests that need to be run. Partitions (shards) are used when there is a large and unknown number of tests to run (ex: `cargo test` to run all tests).
 
 There is also a workflow designed to run tests that are manually triggered: [Standalone Tests](../.github/workflows/standalone-tests.yml).
-This workflow requires you to select which test(s) you want to run, which then triggers a reusbale workflow via conditional. For example, selecting "Epoch Tests" will run the tests defined in [Epoch Tests](../.github/workflows/epoch-tests.yml). Likewise, selecting `Release Tests` will run the same tests as a release workflow.
+This workflow requires you to select which test(s) you want to run, which then triggers a reusable workflow via conditional. For example, selecting "Epoch Tests" will run the tests defined in [Epoch Tests](../.github/workflows/epoch-tests.yml). Likewise, selecting `Release Tests` will run the same tests as a release workflow.
 
 Files:
 
