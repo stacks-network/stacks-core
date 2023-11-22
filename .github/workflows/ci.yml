@@ -6,6 +6,7 @@ on:
     branches:
       - master
       - develop
+      - next
     paths-ignore:
       - "**.md"
       - "**.yml"
@@ -145,8 +146,9 @@ jobs:
           github.event_name == 'pull_request_target' ||
           (
             contains('
-              refs/heads/develoment
               refs/heads/master
+              refs/heads/develop
+              refs/heads/next
             ', github.event.pull_request.head.ref) &&
             github.event_name == 'push'
           )
