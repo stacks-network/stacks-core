@@ -166,12 +166,12 @@ pub fn get_satoshis_per_byte(config: &Config) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::DEFAULT_SATS_PER_VB;
-
-    use super::*;
     use std::env::temp_dir;
     use std::fs::File;
     use std::io::Write;
+
+    use super::*;
+    use crate::config::DEFAULT_SATS_PER_VB;
 
     #[test]
     fn test_get_satoshis_per_byte() {
