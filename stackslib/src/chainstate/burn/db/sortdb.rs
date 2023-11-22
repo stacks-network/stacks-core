@@ -1998,10 +1998,12 @@ impl<'a> SortitionHandleConn<'a> {
             );
             return Ok(false);
         };
-        Ok(self
-            .get_reward_cycle_aggregate_public_key(reward_cycle)?
-            .map(|key| signer_signature.verify(&key, message))
-            .unwrap_or(false))
+        if let Some(key) = self.get_reward_cycle_aggregate_public_key(reward_cycle)? {
+            return Ok(signer_signature.verify(&key, message));
+        } else {
+            warn!("No known aggregate public key for reward cycle {reward_cycle}");
+            return Ok(false);
+        }
     }
 
     /// Get the aggregate public key for the given reward cycle.
@@ -2009,68 +2011,23 @@ impl<'a> SortitionHandleConn<'a> {
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Point>, db_error> {
-        // Retrieve the the first sortition in the current reward cycle
-        let reward_cycle_block_height = self
+        let prev_reward_cycle = reward_cycle - 1;
+        // Get the first sortition in the prepare phase of the PARENT reward cycle
+        let prepare_phase_start = self
             .context
             .pox_constants
-            .reward_cycle_to_block_height(self.context.first_block_height, reward_cycle);
-        let reward_cycle_start_sortition_id = self
-            .get_ancestor_block_hash(reward_cycle_block_height, &self.context.chain_tip)?
-            .ok_or_else(|| {
-                warn!(
-                    "reward start height {} does not have a sorition from {}",
-                    reward_cycle_block_height, &self.context.chain_tip
-                );
-                db_error::NotFoundError
-            })?;
-        let reward_cycle_start_snapshot =
-            SortitionDB::get_block_snapshot(self, &reward_cycle_start_sortition_id)?
-                .ok_or(db_error::NotFoundError)
-                .map_err(|e| {
+            .prepare_phase_start(self.context.first_block_height, prev_reward_cycle);
+        let first_prepare_sn =
+            SortitionDB::get_ancestor_snapshot(self, prepare_phase_start, &self.context.chain_tip)?
+                .ok_or_else(|| {
                     warn!(
-                        "No block snapshot for reward cycle starting sortition id: {:?}",
-                        &reward_cycle_start_sortition_id
+                        "Prepare phase for reward cycle {} does not have a sorition from {}",
+                        prev_reward_cycle, &self.context.chain_tip
                     );
-                    e
+                    db_error::NotFoundError
                 })?;
-        // Search for the FIRST sortition in the prepare phase of the PARENT reward cycle
-        let mut prepare_phase_sn = SortitionDB::get_block_snapshot(
-            self,
-            &reward_cycle_start_snapshot.parent_sortition_id,
-        )?
-        .ok_or(db_error::NotFoundError)
-        .map_err(|e| {
-            warn!(
-                "No block snapshot for prepare phase cycle end sortition id: {:?}",
-                &reward_cycle_start_snapshot.parent_sortition_id
-            );
-            e
-        })?;
-        let mut height = prepare_phase_sn.block_height;
-        let mut first_sortition_id = None;
-        while height > 0
-            && self
-                .context
-                .pox_constants
-                .is_in_prepare_phase(self.context.first_block_height, height)
-        {
-            first_sortition_id = Some(prepare_phase_sn.sortition_id.clone());
-            height = prepare_phase_sn.block_height.saturating_sub(1);
-            prepare_phase_sn =
-                SortitionDB::get_block_snapshot(self, &prepare_phase_sn.parent_sortition_id)?
-                    .ok_or(db_error::NotFoundError)
-                    .map_err(|e| {
-                        warn!(
-                            "No sortition for reward cycle starting sortition id: {:?}",
-                            &reward_cycle_start_sortition_id
-                        );
-                        e
-                    })?;
-        }
-        if let Some(first_sortition_id) = first_sortition_id {
-            return self.get_reward_set_aggregate_public_key(&first_sortition_id);
-        }
-        Ok(None)
+
+        self.get_reward_set_aggregate_public_key(&first_prepare_sn.sortition_id)
     }
 
     /// Get the aggregate public key for reward set of the given sortition id.

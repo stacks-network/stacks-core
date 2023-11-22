@@ -396,7 +396,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
         // do a stx transfer in each block to a given recipient
         let recipient_addr =
             StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
-
+        let aggregate_public_key = test_signers.aggregate_public_key.clone();
         let blocks_and_sizes = peer.make_nakamoto_tenure(
             &consensus_hash,
             tenure_change,
@@ -418,7 +418,13 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
                         &recipient_addr,
                     );
 
-                    vec![stx_transfer]
+                    let aggregate_tx = make_pox_4_aggregate_key(
+                        &private_key,
+                        account.nonce + 1,
+                        7 + i,
+                        &aggregate_public_key,
+                    );
+                    vec![stx_transfer, aggregate_tx]
                 } else {
                     vec![]
                 }
