@@ -287,7 +287,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockHeader {
     pub version: u8,
     /// The total number of StacksBlock and NakamotoBlocks preceding
@@ -343,7 +343,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
     pub txs: Vec<StacksTransaction>,
