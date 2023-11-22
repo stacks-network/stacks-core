@@ -2021,12 +2021,11 @@ impl<'a> SortitionHandleConn<'a> {
             SortitionDB::get_ancestor_snapshot(self, prepare_phase_start, &self.context.chain_tip)?
                 .ok_or_else(|| {
                     warn!(
-                        "Prepare phase for reward cycle {} does not have a sorition from {}",
+                        "Prepare phase for reward cycle {} does not have a sortition from {}",
                         prev_reward_cycle, &self.context.chain_tip
                     );
                     db_error::NotFoundError
                 })?;
-
         self.get_reward_set_aggregate_public_key(&first_prepare_sn.sortition_id)
     }
 
