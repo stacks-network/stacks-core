@@ -130,7 +130,9 @@
         ;;  previous stack-stx calls, or prior to an extend)
         reward-set-indexes: (list 12 uint),
         ;; principal of the delegate, if stacker has delegated
-        delegated-to: (optional principal)
+        delegated-to: (optional principal),
+        ;; signing key for Nakamoto+, only 'none' when delegated & before delegate calls 'stack-aggregation-commit-indexed
+        signing-key: (optional (buff 33))
     }
 )
 
@@ -151,6 +153,13 @@
 (define-map allowance-contract-callers
     { sender: principal, contract-caller: principal }
     { until-burn-ht: (optional uint) })
+
+;; The signing key slots for a reward cycle
+;; Written by a Stacks node as part of processing the first tenure-start-block after last tenure-start-block in previous reward cycle
+(define-map reward-cycle-signing-keys
+    { reward-cycle: uint, signer-address: principal }
+    { num-slots: uint }
+)
 
 ;; How many uSTX are stacked in a given reward cycle.
 ;; Updated when a new PoX address is registered, or when more STX are granted
