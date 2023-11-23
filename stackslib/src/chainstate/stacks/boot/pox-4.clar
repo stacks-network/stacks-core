@@ -507,7 +507,9 @@
 
 ;; Is the current burn block height in the prepare phase?
 (define-read-only (check-not-prepare-phase)
-    (/ (- burn-block-height (var-get first-burnchain-block-height) (var-get pox-prepare-cycle-length)) > 100))
+    (> (mod (+ (- burn-block-height (var-get first-burnchain-block-height)) (var-get pox-prepare-cycle-length))
+            (var-get pox-reward-cycle-length))
+        (var-get pox-prepare-cycle-length)))
 
 ;; Evaluate if a participant can stack an amount of STX for a given period.
 ;; This method is designed as a read-only method so that it can be used as
