@@ -1,3 +1,26 @@
+;; PoX testnet constants
+;; Min/max number of reward cycles uSTX can be locked for
+(define-constant MIN_POX_REWARD_CYCLES u1)
+(define-constant MAX_POX_REWARD_CYCLES u12)
+
+;; Default length of the PoX registration window, in burnchain blocks.
+(define-constant PREPARE_CYCLE_LENGTH u50)
+
+;; Default length of the PoX reward cycle, in burnchain blocks.
+(define-constant REWARD_CYCLE_LENGTH u1050)
+
+;; Valid values for burnchain address versions.
+;; These correspond to address hash modes in Stacks 2.0.
+(define-constant ADDRESS_VERSION_P2PKH 0x00)
+(define-constant ADDRESS_VERSION_P2SH 0x01)
+(define-constant ADDRESS_VERSION_P2WPKH 0x02)
+(define-constant ADDRESS_VERSION_P2WSH 0x03)
+
+;; Stacking thresholds
+(define-constant STACKING_THRESHOLD_25 u8000)
+(define-constant STACKING_THRESHOLD_100 u2000)
+
+
 ;; The .pox-4 contract
 ;; Error codes
 (define-constant ERR_STACKING_UNREACHABLE 255)
@@ -507,7 +530,9 @@
 
 ;; Is the current burn block height in the prepare phase?
 (define-read-only (check-not-prepare-phase)
-    (/ (- burn-block-height (var-get first-burnchain-block-height) (var-get pox-prepare-cycle-length)) > 100))
+    (> (mod (+ (- burn-block-height (var-get first-burnchain-block-height)) (var-get pox-prepare-cycle-length))
+            (var-get pox-reward-cycle-length))
+        (var-get pox-prepare-cycle-length)))
 
 ;; Evaluate if a participant can stack an amount of STX for a given period.
 ;; This method is designed as a read-only method so that it can be used as
