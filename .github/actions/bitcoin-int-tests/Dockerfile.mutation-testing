@@ -1,0 +1,29 @@
+FROM rust:bullseye
+
+# Set the working directory in the container
+WORKDIR /src
+
+# Copy all the files into the container
+COPY . .
+
+# Update rustup and build the project
+RUN rustup update
+
+# Install cargo-mutants
+RUN cargo install cargo-mutants
+
+# Make a directory for mutants
+RUN mkdir -p mutants
+
+# Run mutants for different packages
+RUN cargo mutants --package clarity --output mutants/clarity
+RUN cargo mutants --package libsigner --output mutants/libsigner 
+# RUN cargo mutants --package libstackerdb --output mutants/libstackerdb 
+# RUN cargo mutants --package pox-locking --output mutants/pox-locking 
+# RUN cargo mutants --package stacks-common --output mutants/stacks-common
+# RUN cargo mutants --package stx-genesis --output mutants/stx-genesis
+
+# Comment out the commands for 'stacks-node' and 'stackslib' following the mutants.sh script
+# RUN cargo mutants --package stacks-signer --output mutants/stacks-signer
+# RUN cargo mutants --package stacks-node --output mutants/stacks-node
+# RUN cargo mutants --package stackslib --output mutants/stackslib
