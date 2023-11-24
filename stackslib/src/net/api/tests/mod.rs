@@ -301,7 +301,7 @@ impl<'a> TestRPC<'a> {
         let tx_coinbase_signed = tx_signer.get_tx().unwrap();
 
         // next the contract
-        let contract = TEST_CONTRACT.clone();
+        let contract = TEST_CONTRACT;
         let mut tx_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
@@ -343,7 +343,7 @@ impl<'a> TestRPC<'a> {
         };
 
         // make an unconfirmed contract
-        let unconfirmed_contract = TEST_CONTRACT_UNCONFIRMED.clone();
+        let unconfirmed_contract = TEST_CONTRACT_UNCONFIRMED;
         let mut tx_unconfirmed_contract = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
