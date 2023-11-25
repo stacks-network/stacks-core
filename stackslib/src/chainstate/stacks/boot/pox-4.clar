@@ -598,7 +598,7 @@
                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                           (signing-key (buff 33))
                           (start-burn-ht uint)
-                          (lock-period uint))
+                          (lock-period uint)))
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
           (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht))))
