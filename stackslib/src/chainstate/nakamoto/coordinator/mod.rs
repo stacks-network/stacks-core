@@ -77,8 +77,13 @@ impl OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
+        let cycle = burnchain
+            .block_height_to_reward_cycle(current_burn_height)
+            .expect("FATAL: no reward cycle for burn height")
+            + 1;
+
         let registered_addrs =
-            chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
+            chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
 
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
@@ -734,6 +739,14 @@ impl<
             debug!(
                 "Process burn block {} reward cycle {} in {}",
                 header.block_height, reward_cycle, &self.burnchain.working_dir,
+            );
+
+            info!(
+                "Process burn block {} reward cycle {} in {}",
+                header.block_height, reward_cycle, &self.burnchain.working_dir;
+                "in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height),
+                "is_rc_start" => self.burnchain.is_reward_cycle_start(header.block_height),
+                "is_prior_in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height.saturating_sub(2)),
             );
 
             // calculate paid rewards during this burnchain block if we announce

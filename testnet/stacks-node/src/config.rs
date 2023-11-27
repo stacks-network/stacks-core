@@ -271,6 +271,45 @@ impl ConfigFile {
     }
 
     pub fn mockamoto() -> ConfigFile {
+        let epochs = vec![
+            StacksEpochConfigFile {
+                epoch_name: "1.0".into(),
+                start_height: 0,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.0".into(),
+                start_height: 0,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.05".into(),
+                start_height: 1,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.1".into(),
+                start_height: 2,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.2".into(),
+                start_height: 3,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.3".into(),
+                start_height: 4,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.4".into(),
+                start_height: 5,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.5".into(),
+                start_height: 6,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "3.0".into(),
+                start_height: 7,
+            },
+        ];
+
         let burnchain = BurnchainConfigFile {
             mode: Some("mockamoto".into()),
             rpc_port: Some(8332),
@@ -279,6 +318,9 @@ impl ConfigFile {
             username: Some("blockstack".into()),
             password: Some("blockstacksystem".into()),
             magic_bytes: Some("M3".into()),
+            epochs: Some(epochs),
+            pox_prepare_length: Some(2),
+            pox_reward_length: Some(36),
             ..BurnchainConfigFile::default()
         };
 
@@ -460,6 +502,16 @@ impl Config {
             return;
         }
 
+        if let Some(pox_prepare_length) = self.burnchain.pox_prepare_length {
+            debug!("Override pox_prepare_length to {pox_prepare_length}");
+            burnchain.pox_constants.prepare_length = pox_prepare_length;
+        }
+
+        if let Some(pox_reward_length) = self.burnchain.pox_reward_length {
+            debug!("Override pox_reward_length to {pox_reward_length}");
+            burnchain.pox_constants.reward_cycle_length = pox_reward_length;
+        }
+
         if let Some(v1_unlock_height) = self.burnchain.pox_2_activation {
             debug!(
                 "Override v1_unlock_height from {} to {}",
@@ -470,6 +522,19 @@ impl Config {
 
         if let Some(epochs) = &self.burnchain.epochs {
             // Iterate through the epochs vector and find the item where epoch_id == StacksEpochId::Epoch22
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch21)
+            {
+                // Override v1_unlock_height to the start_height of epoch2.1
+                debug!(
+                    "Override v2_unlock_height from {} to {}",
+                    burnchain.pox_constants.v1_unlock_height,
+                    epoch.start_height + 1
+                );
+                burnchain.pox_constants.v1_unlock_height = epoch.start_height as u32 + 1;
+            }
+
             if let Some(epoch) = epochs
                 .iter()
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch22)
@@ -493,6 +558,19 @@ impl Config {
                     burnchain.pox_constants.pox_3_activation_height, epoch.start_height
                 );
                 burnchain.pox_constants.pox_3_activation_height = epoch.start_height as u32;
+            }
+
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
+            {
+                // Override pox_3_activation_height to the start_height of epoch2.5
+                debug!(
+                    "Override pox_4_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_4_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
+                burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
             }
         }
 
@@ -601,6 +679,10 @@ impl Config {
                 Ok(StacksEpochId::Epoch23)
             } else if epoch_name == EPOCH_CONFIG_2_4_0 {
                 Ok(StacksEpochId::Epoch24)
+            } else if epoch_name == EPOCH_CONFIG_2_5_0 {
+                Ok(StacksEpochId::Epoch25)
+            } else if epoch_name == EPOCH_CONFIG_3_0_0 {
+                Ok(StacksEpochId::Epoch30)
             } else {
                 Err(format!("Unknown epoch name specified: {}", epoch_name))
             }?;
@@ -920,6 +1002,12 @@ impl Config {
                     wallet_name: burnchain
                         .wallet_name
                         .unwrap_or(default_burnchain_config.wallet_name.clone()),
+                    pox_reward_length: burnchain
+                        .pox_reward_length
+                        .or(default_burnchain_config.pox_reward_length),
+                    pox_prepare_length: burnchain
+                        .pox_prepare_length
+                        .or(default_burnchain_config.pox_prepare_length),
                 };
 
                 if let BitcoinNetworkType::Mainnet = result.get_bitcoin_network().1 {
@@ -1446,6 +1534,8 @@ pub struct BurnchainConfig {
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
     pub pox_2_activation: Option<u32>,
+    pub pox_reward_length: Option<u32>,
+    pub pox_prepare_length: Option<u32>,
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,
     pub wallet_name: String,
@@ -1479,6 +1569,8 @@ impl BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             pox_2_activation: None,
+            pox_prepare_length: None,
+            pox_reward_length: None,
             sunset_start: None,
             sunset_end: None,
             wallet_name: "".to_string(),
@@ -1535,6 +1627,8 @@ pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
 pub const EPOCH_CONFIG_2_2_0: &'static str = "2.2";
 pub const EPOCH_CONFIG_2_3_0: &'static str = "2.3";
 pub const EPOCH_CONFIG_2_4_0: &'static str = "2.4";
+pub const EPOCH_CONFIG_2_5_0: &'static str = "2.5";
+pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
@@ -1559,6 +1653,8 @@ pub struct BurnchainConfigFile {
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
+    pub pox_prepare_length: Option<u32>,
+    pub pox_reward_length: Option<u32>,
     pub pox_2_activation: Option<u32>,
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,

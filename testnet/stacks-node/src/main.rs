@@ -190,6 +190,7 @@ fn main() {
             process::exit(1);
         }
     };
+
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);

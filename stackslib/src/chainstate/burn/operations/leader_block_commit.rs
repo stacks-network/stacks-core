@@ -57,6 +57,7 @@ use stacks_common::util::log;
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 // return type from parse_data below
+#[derive(Debug)]
 struct ParsedData {
     block_header_hash: BlockHeaderHash,
     new_seed: VRFSeed,
@@ -894,7 +895,8 @@ impl LeaderBlockCommitOp {
 
         let is_already_committed = tx.expects_stacks_block_in_fork(&self.block_header_hash)?;
 
-        if is_already_committed {
+        // in Epoch3.0+, block commits can include Stacks blocks already accepted in the fork.
+        if is_already_committed && epoch_id < StacksEpochId::Epoch30 {
             warn!(
                 "Invalid block commit: already committed to {}",
                 self.block_header_hash;
