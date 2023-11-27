@@ -3922,6 +3922,7 @@ mod test {
             0,
             &TransactionAnchorMode::OnChainOnly,
             &TransactionPostConditionMode::Deny,
+            StacksEpochId::latest(),
         );
         for tx in all_txs.iter() {
             let mut tx_bytes = vec![

@@ -31,6 +31,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
     VRFSeed,
 };
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, *};
 use stacks_common::util::secp256k1::{MessageSignature, *};
 use stacks_common::util::vrf::VRFProof;
@@ -192,6 +193,7 @@ fn mempool_walk_over_fork() {
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
 
     let blocks_to_broadcast_in = [&b_1, &b_2, &b_4];
@@ -603,6 +605,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
 
     // Load 24 transactions into the mempool, alternating whether or not they have a fee-rate.
@@ -799,6 +802,7 @@ fn test_iterate_candidates_skipped_transaction() {
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
 
     // Load 3 transactions into the mempool
@@ -912,6 +916,7 @@ fn test_iterate_candidates_processing_error_transaction() {
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
 
     // Load 3 transactions into the mempool
@@ -1027,6 +1032,7 @@ fn test_iterate_candidates_problematic_transaction() {
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
 
     // Load 3 transactions into the mempool
@@ -1142,6 +1148,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
 
     let mut expected_addr_nonces = HashMap::new();
@@ -1300,6 +1307,7 @@ fn mempool_do_not_replace_tx() {
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
     let mut tx = txs.pop().unwrap();
 
@@ -1396,6 +1404,7 @@ fn mempool_db_load_store_replace_tx() {
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
     let num_txs = txs.len() as u64;
 

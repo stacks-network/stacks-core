@@ -862,6 +862,20 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<StacksBlock>, Error> {
+        StacksChainState::load_block_with_epoch(
+            blocks_dir,
+            consensus_hash,
+            block_hash,
+            StacksEpochId::latest(),
+        )
+    }
+
+    pub fn load_block_with_epoch(
+        blocks_dir: &str,
+        consensus_hash: &ConsensusHash,
+        block_hash: &BlockHeaderHash,
+        epoch_id: StacksEpochId,
+    ) -> Result<Option<StacksBlock>, Error> {
         let block_path = StacksChainState::get_block_path(blocks_dir, consensus_hash, block_hash)?;
         let sz = StacksChainState::get_file_size(&block_path)?;
         if sz == 0 {
@@ -870,7 +884,7 @@ impl StacksChainState {
         }
 
         let block: StacksBlock =
-            StacksChainState::consensus_load_with_epoch(&block_path, StacksEpochId::latest())?;
+            StacksChainState::consensus_load_with_epoch(&block_path, epoch_id)?;
         Ok(Some(block))
     }
 
@@ -1077,7 +1091,7 @@ impl StacksChainState {
 
                 match StacksBlock::consensus_deserialize_with_epoch(
                     &mut &staging_block.block_data[..],
-                    StacksEpochId::latest(),
+                    StacksEpochId::Epoch25,
                 ) {
                     Ok(block) => Ok(Some(block)),
                     Err(e) => Err(Error::CodecError(e)),
@@ -7088,10 +7102,11 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
-        assert!(StacksChainState::load_block(
+        assert!(StacksChainState::load_block_with_epoch(
             &chainstate.blocks_path,
             consensus_hash,
-            &block.block_hash()
+            &block.block_hash(),
+            StacksEpochId::Epoch25,
         )
         .unwrap()
         .is_none());
@@ -7149,18 +7164,20 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
-        assert!(StacksChainState::load_block(
+        assert!(StacksChainState::load_block_with_epoch(
             &chainstate.blocks_path,
             consensus_hash,
-            &block.block_hash()
+            &block.block_hash(),
+            StacksEpochId::Epoch25,
         )
         .unwrap()
         .is_some());
         assert_eq!(
-            StacksChainState::load_block(
+            StacksChainState::load_block_with_epoch(
                 &chainstate.blocks_path,
                 consensus_hash,
-                &block.block_hash()
+                &block.block_hash(),
+                StacksEpochId::Epoch25,
             )
             .unwrap()
             .unwrap(),
@@ -7422,10 +7439,11 @@ pub mod test {
             &BlockHeaderHash([2u8; 32])
         )
         .unwrap());
-        assert!(StacksChainState::load_block(
+        assert!(StacksChainState::load_block_with_epoch(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
-            &BlockHeaderHash([2u8; 32])
+            &BlockHeaderHash([2u8; 32]),
+            StacksEpochId::Epoch25,
         )
         .unwrap()
         .is_none());
@@ -7492,18 +7510,20 @@ pub mod test {
         )
         .unwrap());
 
-        assert!(StacksChainState::load_block(
+        assert!(StacksChainState::load_block_with_epoch(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
-            &block.block_hash()
+            &block.block_hash(),
+            StacksEpochId::Epoch25,
         )
         .unwrap()
         .is_some());
         assert_eq!(
-            StacksChainState::load_block(
+            StacksChainState::load_block_with_epoch(
                 &chainstate.blocks_path,
                 &ConsensusHash([1u8; 20]),
-                &block.block_hash()
+                &block.block_hash(),
+                StacksEpochId::Epoch25,
             )
             .unwrap()
             .unwrap(),
@@ -7534,10 +7554,11 @@ pub mod test {
             &block.block_hash()
         )
         .unwrap());
-        assert!(StacksChainState::load_block(
+        assert!(StacksChainState::load_block_with_epoch(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
-            &block.block_hash()
+            &block.block_hash(),
+            StacksEpochId::Epoch25,
         )
         .unwrap()
         .is_none());
@@ -7576,10 +7597,11 @@ pub mod test {
         )
         .unwrap());
 
-        assert!(StacksChainState::load_block(
+        assert!(StacksChainState::load_block_with_epoch(
             &chainstate.blocks_path,
             &ConsensusHash([1u8; 20]),
-            &block.block_hash()
+            &block.block_hash(),
+            StacksEpochId::Epoch25,
         )
         .unwrap()
         .is_none());

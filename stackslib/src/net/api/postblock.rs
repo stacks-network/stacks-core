@@ -76,7 +76,7 @@ impl RPCPostBlockRequestHandler {
     /// Decode a bare block from the body
     fn parse_postblock_octets(mut body: &[u8]) -> Result<StacksBlock, Error> {
         let block =
-            StacksBlock::consensus_deserialize_with_epoch(&mut body, StacksEpochId::latest())
+            StacksBlock::consensus_deserialize_with_epoch(&mut body, StacksEpochId::Epoch25)
                 .map_err(|e| {
                     if let CodecError::DeserializeError(msg) = e {
                         Error::DecodeError(format!(

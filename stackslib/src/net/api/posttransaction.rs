@@ -18,7 +18,9 @@ use std::io::{Read, Write};
 
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
-use stacks_common::codec::{DeserializeWithEpoch, Error as CodecError, MAX_PAYLOAD_LEN, StacksMessageCodec};
+use stacks_common::codec::{
+    DeserializeWithEpoch, Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN,
+};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
 };

@@ -21,7 +21,8 @@ use std::io::{Read, Write};
 
 use sha2::{Digest, Sha512_256};
 use stacks_common::codec::{
-    read_next, write_next, read_next_at_most_with_epoch, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN, DeserializeWithEpoch
+    read_next, read_next_at_most_with_epoch, write_next, DeserializeWithEpoch,
+    Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksWorkScore, TrieHash, VRFSeed,
@@ -920,7 +921,7 @@ impl DeserializeWithEpoch for StacksMicroblock {
         let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, MAX_MESSAGE_LEN as u64);
             // The latest epoch where StacksMicroblock exist is Epoch24
-            read_next_at_most_with_epoch(&mut bound_read, u32::MAX, StacksEpochId::Epoch24)
+            read_next_at_most_with_epoch(&mut bound_read, u32::MAX, epoch_id)
         }?;
 
         if txs.len() == 0 {
@@ -1245,6 +1246,7 @@ mod test {
             0x80000000,
             &TransactionAnchorMode::OffChainOnly,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
 
         // remove all coinbases
@@ -1860,7 +1862,7 @@ mod test {
 
         for epoch_id in epoch_list.iter() {
             let block_to_check =
-                if *epoch_id >= StacksEpochId::Epoch30 || need_to_include_coinbase_nakamoto {
+                if *epoch_id >= StacksEpochId::Epoch30 && need_to_include_coinbase_nakamoto {
                     block_with_coinbase_tx_nakamoto.clone()
                 } else if *epoch_id >= StacksEpochId::Epoch21
                     && *epoch_id < StacksEpochId::Epoch30
@@ -1902,11 +1904,10 @@ mod test {
                         .find("target epoch is not activated")
                         .is_some()
                 );
-            } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id {
+            } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
+            {
                 assert!(StacksBlock::validate_transactions_static_epoch(
-                    &txs,
-                    *epoch_id,
-                    false,
+                    &txs, *epoch_id, false,
                 ));
 
                 for tx in txs.iter() {
@@ -1925,16 +1926,16 @@ mod test {
 
                     let _ = StacksTransaction::consensus_deserialize_with_epoch(
                         &mut &bytes[..],
-                        *epoch_id
-                    ).unwrap_err();
+                        *epoch_id,
+                    )
+                    .unwrap_err();
                 }
 
-                let _ = StacksBlock::consensus_deserialize_with_epoch(&mut &bytes[..], *epoch_id).unwrap_err();
+                let _ = StacksBlock::consensus_deserialize_with_epoch(&mut &bytes[..], *epoch_id)
+                    .unwrap_err();
 
                 assert!(!StacksBlock::validate_transactions_static_epoch(
-                    &txs,
-                    *epoch_id,
-                    false,
+                    &txs, *epoch_id, false,
                 ));
             }
         }

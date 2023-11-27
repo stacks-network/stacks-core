@@ -3399,7 +3399,7 @@ fn test_contract_call_across_clarity_versions() {
                         let contract = format!("
                         (impl-trait .chain-id-trait-v1.trait-v1)
                         (impl-trait .chain-id-trait-v2.trait-v2)
-                        
+
                         (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
                         (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
 
@@ -3438,7 +3438,7 @@ fn test_contract_call_across_clarity_versions() {
                             )
                         )
                         (define-read-only (test-at-block-recursive)
-                            (at-block 0x{} 
+                            (at-block 0x{}
                                 (begin
                                     ;; this only works in clarity2
                                     (print {{ tenure: u{}, version: u2, chain: chain-id, func: \"test-at-block-func-recursive-v2\" }})
@@ -3517,7 +3517,7 @@ fn test_contract_call_across_clarity_versions() {
                         let contract = format!("
                         (impl-trait .chain-id-trait-v1.trait-v1)
                         (impl-trait .chain-id-trait-v2.trait-v2)
-                        
+
                         (use-trait chain-info-v1 .chain-id-trait-v1.trait-v1)
                         (use-trait chain-info-v2 .chain-id-trait-v2.trait-v2)
 
@@ -3553,14 +3553,14 @@ fn test_contract_call_across_clarity_versions() {
                             )
                         )
                         (define-read-only (test-at-block-recursive)
-                            (at-block 0x{} 
+                            (at-block 0x{}
                                 (begin
                                     (print {{ tenure: u{}, version: u1, func: \"test-at-block-func-recursive-v1\" }})
                                     (contract-call? .test-{} test-at-block-recursive)
                                 )
                             )
                         )
-                        
+
                         (define-read-only (get-call-count)
                             (var-get call-count)
                         )
@@ -4706,6 +4706,7 @@ fn paramaterized_mempool_walk_test(
         0x80000000,
         &TransactionAnchorMode::Any,
         &TransactionPostConditionMode::Allow,
+        StacksEpochId::latest(),
     );
 
     let mut transaction_counter = 0;

@@ -1042,6 +1042,7 @@ pub mod test {
         chain_id: u32,
         anchor_mode: &TransactionAnchorMode,
         post_condition_mode: &TransactionPostConditionMode,
+        epoch_id: StacksEpochId,
     ) -> Vec<StacksTransaction> {
         let addr = StacksAddress {
             version: 1,
@@ -1075,7 +1076,7 @@ pub mod test {
             signature: MessageSignature([3u8; 65]),
         };
 
-        let spending_conditions = vec![
+        let mut spending_conditions = vec![
             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
                 signer: Hash160([0x11; 20]),
                 hash_mode: SinglesigHashMode::P2PKH,
@@ -1116,30 +1117,6 @@ pub mod test {
                 ],
                 signatures_required: 2
             }),
-            TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: OrderIndependentMultisigHashMode::P2SH,
-                nonce: 345,
-                tx_fee: 678,
-                fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
-                ],
-                signatures_required: 2
-            }),
-            TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: OrderIndependentMultisigHashMode::P2SH,
-                nonce: 456,
-                tx_fee: 789,
-                fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
-                ],
-                signatures_required: 2
-            }),
             TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
                 signer: Hash160([0x11; 20]),
                 hash_mode: SinglesigHashMode::P2WPKH,
@@ -1160,19 +1137,48 @@ pub mod test {
                 ],
                 signatures_required: 2
             }),
-            TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
-                signer: Hash160([0x11; 20]),
-                hash_mode: OrderIndependentMultisigHashMode::P2WSH,
-                nonce: 678,
-                tx_fee: 901,
-                fields: vec![
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
-                    TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
-                    TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
-                ],
-                signatures_required: 2
-            })
         ];
+
+        if epoch_id >= StacksEpochId::Epoch30 {
+            spending_conditions.append(&mut vec![
+                TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
+                    signer: Hash160([0x11; 20]),
+                    hash_mode: OrderIndependentMultisigHashMode::P2WSH,
+                    nonce: 678,
+                    tx_fee: 901,
+                    fields: vec![
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
+                    ],
+                    signatures_required: 2
+                }),
+                TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
+                    signer: Hash160([0x11; 20]),
+                    hash_mode: OrderIndependentMultisigHashMode::P2SH,
+                    nonce: 345,
+                    tx_fee: 678,
+                    fields: vec![
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::PublicKey(PubKey::from_hex("04ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c771f112f919b00a6c6c5f51f7c63e1762fe9fac9b66ec75a053db7f51f4a52712b").unwrap()),
+                    ],
+                    signatures_required: 2
+                }),
+                TransactionSpendingCondition::OrderIndependentMultisig(OrderIndependentMultisigSpendingCondition {
+                    signer: Hash160([0x11; 20]),
+                    hash_mode: OrderIndependentMultisigHashMode::P2SH,
+                    nonce: 456,
+                    tx_fee: 789,
+                    fields: vec![
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xff; 65])),
+                        TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, MessageSignature::from_raw(&vec![0xfe; 65])),
+                        TransactionAuthField::PublicKey(PubKey::from_hex("03ef2340518b5867b23598a9cf74611f8b98064f7d55cdb8c107c67b5efcbc5c77").unwrap())
+                    ],
+                    signatures_required: 2
+                }),
+            ])
+        }
 
         let mut tx_auths = vec![];
         for i in 0..spending_conditions.len() {
@@ -1321,7 +1327,7 @@ pub mod test {
         };
         let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
         let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
-        let tx_payloads = vec![
+        let mut tx_payloads = vec![
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
                 123,
@@ -1365,42 +1371,54 @@ pub mod test {
                 },
                 Some(ClarityVersion::Clarity2),
             ),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None),
-            TransactionPayload::Coinbase(
-                CoinbasePayload([0x12; 32]),
-                Some(PrincipalData::Contract(
-                    QualifiedContractIdentifier::transient(),
-                )),
-                None,
-            ),
-            TransactionPayload::Coinbase(
-                CoinbasePayload([0x12; 32]),
-                Some(PrincipalData::Standard(StandardPrincipalData(
-                    0x01, [0x02; 20],
-                ))),
-                None,
-            ),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone())),
-            TransactionPayload::Coinbase(
-                CoinbasePayload([0x12; 32]),
-                Some(PrincipalData::Contract(
-                    QualifiedContractIdentifier::transient(),
-                )),
-                Some(proof.clone()),
-            ),
-            TransactionPayload::Coinbase(
-                CoinbasePayload([0x12; 32]),
-                Some(PrincipalData::Standard(StandardPrincipalData(
-                    0x01, [0x02; 20],
-                ))),
-                Some(proof.clone()),
-            ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
-            TransactionPayload::TenureChange(
-                TenureChangePayload::mock(),
-                ThresholdSignature::mock(),
-            ),
         ];
+
+        if epoch_id >= StacksEpochId::Epoch30 {
+            tx_payloads.append(&mut vec![
+                TransactionPayload::TenureChange(
+                    TenureChangePayload::mock(),
+                    ThresholdSignature::mock(),
+                ),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    None,
+                    Some(proof.clone()),
+                ),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    Some(PrincipalData::Contract(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                    Some(proof.clone()),
+                ),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    Some(PrincipalData::Standard(StandardPrincipalData(
+                        0x01, [0x02; 20],
+                    ))),
+                    Some(proof.clone()),
+                ),
+            ])
+        } else {
+            tx_payloads.append(&mut vec![
+                TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    Some(PrincipalData::Contract(
+                        QualifiedContractIdentifier::transient(),
+                    )),
+                    None,
+                ),
+                TransactionPayload::Coinbase(
+                    CoinbasePayload([0x12; 32]),
+                    Some(PrincipalData::Standard(StandardPrincipalData(
+                        0x01, [0x02; 20],
+                    ))),
+                    None,
+                ),
+            ])
+        }
 
         // create all kinds of transactions
         let mut all_txs = vec![];
@@ -1472,6 +1490,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::OnChainOnly,
             &TransactionPostConditionMode::Allow,
+            epoch_id,
         );
 
         // remove all coinbases, except for an initial coinbase
@@ -1547,6 +1566,7 @@ pub mod test {
             0x80000000,
             &TransactionAnchorMode::OffChainOnly,
             &TransactionPostConditionMode::Allow,
+            StacksEpochId::latest(),
         );
 
         let txs_mblock: Vec<_> = all_txs.into_iter().take(num_txs).collect();

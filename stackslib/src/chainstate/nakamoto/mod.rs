@@ -27,7 +27,8 @@ use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::codec::{
-    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN, DeserializeWithEpoch, read_next_at_most_with_epoch
+    read_next, read_next_at_most_with_epoch, write_next, DeserializeWithEpoch, Error as CodecError,
+    StacksMessageCodec, MAX_MESSAGE_LEN,
 };
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
@@ -938,7 +939,10 @@ impl NakamotoChainState {
         staging_db_conn
             .query_row_and_then(query, NO_PARAMS, |row| {
                 let data: Vec<u8> = row.get("data")?;
-                let block = NakamotoBlock::consensus_deserialize_with_epoch(&mut data.as_slice(), epoch_id)?;
+                let block = NakamotoBlock::consensus_deserialize_with_epoch(
+                    &mut data.as_slice(),
+                    epoch_id,
+                )?;
                 Ok(Some((
                     block,
                     u64::try_from(data.len()).expect("FATAL: block is bigger than a u64"),
@@ -970,8 +974,11 @@ impl NakamotoChainState {
                 rusqlite::params![consensus_hash, block_hash],
                 |row| {
                     let data: Vec<u8> = row.get("data")?;
-                    let block = NakamotoBlock::consensus_deserialize_with_epoch(&mut data.as_slice(), epoch_id)
-                        .map_err(|_| DBError::ParseError)?;
+                    let block = NakamotoBlock::consensus_deserialize_with_epoch(
+                        &mut data.as_slice(),
+                        epoch_id,
+                    )
+                    .map_err(|_| DBError::ParseError)?;
                     if &block.header.block_hash() != block_hash {
                         error!(
                             "Staging DB corruption: expected {}, got {}",

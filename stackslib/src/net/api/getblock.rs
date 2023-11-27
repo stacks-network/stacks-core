@@ -20,7 +20,7 @@ use std::{fs, io};
 
 use regex::{Captures, Regex};
 use serde::de::Error as de_Error;
-use stacks_common::codec::{StacksMessageCodec, DeserializeWithEpoch, MAX_MESSAGE_LEN};
+use stacks_common::codec::{DeserializeWithEpoch, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksEpochId;
@@ -304,8 +304,20 @@ impl StacksHttpResponse {
         let block_bytes: Vec<u8> = contents.try_into()?;
         let block = StacksBlock::consensus_deserialize_with_epoch(
             &mut &block_bytes[..],
-            StacksEpochId::latest(),
+            StacksEpochId::Epoch25,
         )?;
+
+        Ok(block)
+    }
+
+    /// Decode an HTTP response into a block.
+    /// If it fails, return Self::Error(..)
+    pub fn decode_block_with_epoch(self, epoch_id: StacksEpochId) -> Result<StacksBlock, NetError> {
+        let contents = self.get_http_payload_ok()?;
+
+        // contents will be raw bytes
+        let block_bytes: Vec<u8> = contents.try_into()?;
+        let block = StacksBlock::consensus_deserialize_with_epoch(&mut &block_bytes[..], epoch_id)?;
 
         Ok(block)
     }

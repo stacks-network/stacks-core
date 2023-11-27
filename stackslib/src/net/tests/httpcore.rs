@@ -21,11 +21,11 @@ use std::str;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::types::net::{PeerAddress, PeerHost};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::chunked_encoding::{
     HttpChunkedTransferWriter, HttpChunkedTransferWriterState,
 };
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
-use stacks_common::types::StacksEpochId;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
