@@ -17,6 +17,7 @@
 use std::convert::TryInto;
 use std::path::PathBuf;
 
+#[cfg(feature = "sqlite")]
 use rusqlite::Connection;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
@@ -241,6 +242,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't retrieve data")
     }
 
+    #[cfg(feature = "sqlite")]
     fn get_side_store(&mut self) -> &Connection {
         panic!("NullBackingStore has no side store")
     }

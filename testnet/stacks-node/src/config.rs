@@ -863,29 +863,265 @@ impl Config {
     }
 
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        if config_file.burnchain.as_ref().map(|b| b.mode.clone()) == Some(Some("mockamoto".into()))
-        {
-            // in the case of mockamoto, use `ConfigFile::mockamoto()` as the default for
-            //  processing a user-supplied config
-            let default = Self::from_config_default(ConfigFile::mockamoto(), Config::default())?;
-            Self::from_config_default(config_file, default)
-        } else {
-            Self::from_config_default(config_file, Config::default())
-        }
-    }
+        let default_node_config = NodeConfig::default();
+        let mut has_require_affirmed_anchor_blocks = false;
+        let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
+            Some(node) => {
+                let rpc_bind = node.rpc_bind.unwrap_or(default_node_config.rpc_bind);
+                let node_config = NodeConfig {
+                    name: node.name.unwrap_or(default_node_config.name),
+                    seed: match node.seed {
+                        Some(seed) => hex_bytes(&seed)
+                            .map_err(|_e| format!("node.seed should be a hex encoded string"))?,
+                        None => default_node_config.seed,
+                    },
+                    working_dir: std::env::var("STACKS_WORKING_DIR")
+                        .unwrap_or(node.working_dir.unwrap_or(default_node_config.working_dir)),
+                    rpc_bind: rpc_bind.clone(),
+                    p2p_bind: node.p2p_bind.unwrap_or(default_node_config.p2p_bind),
+                    p2p_address: node.p2p_address.unwrap_or(rpc_bind.clone()),
+                    bootstrap_node: vec![],
+                    deny_nodes: vec![],
+                    data_url: match node.data_url {
+                        Some(data_url) => data_url,
+                        None => format!("http://{}", rpc_bind),
+                    },
+                    local_peer_seed: match node.local_peer_seed {
+                        Some(seed) => hex_bytes(&seed).map_err(|_e| {
+                            format!("node.local_peer_seed should be a hex encoded string")
+                        })?,
+                        None => default_node_config.local_peer_seed,
+                    },
+                    miner: node.miner.unwrap_or(default_node_config.miner),
+                    mock_mining: node.mock_mining.unwrap_or(default_node_config.mock_mining),
+                    mine_microblocks: node
+                        .mine_microblocks
+                        .unwrap_or(default_node_config.mine_microblocks),
+                    microblock_frequency: node
+                        .microblock_frequency
+                        .unwrap_or(default_node_config.microblock_frequency),
+                    max_microblocks: node
+                        .max_microblocks
+                        .unwrap_or(default_node_config.max_microblocks),
+                    wait_time_for_microblocks: node
+                        .wait_time_for_microblocks
+                        .unwrap_or(default_node_config.wait_time_for_microblocks),
+                    wait_time_for_blocks: node
+                        .wait_time_for_blocks
+                        .unwrap_or(default_node_config.wait_time_for_blocks),
+                    prometheus_bind: node.prometheus_bind,
+                    marf_cache_strategy: node.marf_cache_strategy,
+                    marf_defer_hashing: node
+                        .marf_defer_hashing
+                        .unwrap_or(default_node_config.marf_defer_hashing),
+                    pox_sync_sample_secs: node
+                        .pox_sync_sample_secs
+                        .unwrap_or(default_node_config.pox_sync_sample_secs),
+                    use_test_genesis_chainstate: node.use_test_genesis_chainstate,
+                    always_use_affirmation_maps: node
+                        .always_use_affirmation_maps
+                        .unwrap_or(default_node_config.always_use_affirmation_maps),
+                    // miners should always try to mine, even if they don't have the anchored
+                    // blocks in the canonical affirmation map. Followers, however, can stall.
+                    require_affirmed_anchor_blocks: match node.require_affirmed_anchor_blocks {
+                        Some(x) => {
+                            has_require_affirmed_anchor_blocks = true;
+                            x
+                        }
+                        None => {
+                            has_require_affirmed_anchor_blocks = false;
+                            !node.miner.unwrap_or(!default_node_config.miner)
+                        }
+                    },
+                    // chainstate fault_injection activation for hide_blocks.
+                    // you can't set this in the config file.
+                    fault_injection_hide_blocks: false,
+                    chain_liveness_poll_time_secs: node
+                        .chain_liveness_poll_time_secs
+                        .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+                    stacker_dbs: node
+                        .stacker_dbs
+                        .unwrap_or(vec![])
+                        .iter()
+                        .filter_map(|contract_id| {
+                            QualifiedContractIdentifier::parse(contract_id).ok()
+                        })
+                        .collect(),
+                };
+                (node_config, node.bootstrap_node, node.deny_nodes)
+            }
+            None => (default_node_config, None, None),
+        };
 
-    fn from_config_default(config_file: ConfigFile, default: Config) -> Result<Config, String> {
-        let Config {
-            node: default_node_config,
-            burnchain: default_burnchain_config,
-            miner: miner_default_config,
-            estimation: default_estimator,
-            ..
-        } = default;
+        let default_burnchain_config = BurnchainConfig::default();
 
-        // First parse the burnchain config
         let burnchain = match config_file.burnchain {
-            Some(burnchain) => burnchain.into_config_default(default_burnchain_config)?,
+            Some(mut burnchain) => {
+                if burnchain.mode.as_deref() == Some("xenon") {
+                    if burnchain.magic_bytes.is_none() {
+                        burnchain.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
+                    }
+                }
+
+                let burnchain_mode = burnchain.mode.unwrap_or(default_burnchain_config.mode);
+
+                if &burnchain_mode == "mainnet" {
+                    // check magic bytes and set if not defined
+                    let mainnet_magic = ConfigFile::mainnet().burnchain.unwrap().magic_bytes;
+                    if burnchain.magic_bytes.is_none() {
+                        burnchain.magic_bytes = mainnet_magic.clone();
+                    }
+                    if burnchain.magic_bytes != mainnet_magic {
+                        return Err(format!(
+                            "Attempted to run mainnet node with bad magic bytes '{}'",
+                            burnchain.magic_bytes.as_ref().unwrap()
+                        ));
+                    }
+                    if node.use_test_genesis_chainstate == Some(true) {
+                        return Err(format!(
+                            "Attempted to run mainnet node with `use_test_genesis_chainstate`"
+                        ));
+                    }
+                    if let Some(ref balances) = config_file.ustx_balance {
+                        if balances.len() > 0 {
+                            return Err(format!(
+                                "Attempted to run mainnet node with specified `initial_balances`"
+                            ));
+                        }
+                    }
+                } else {
+                    // testnet requires that we use the 2.05 rules for anchor block affirmations,
+                    // because reward cycle 360 (and possibly future ones) has a different anchor
+                    // block choice in 2.05 rules than in 2.1 rules.
+                    if !has_require_affirmed_anchor_blocks {
+                        debug!("Set `require_affirmed_anchor_blocks` to `false` for non-mainnet config");
+                        node.require_affirmed_anchor_blocks = false;
+                    }
+                }
+
+                let mut result = BurnchainConfig {
+                    chain: burnchain.chain.unwrap_or(default_burnchain_config.chain),
+                    chain_id: match burnchain.chain_id {
+                        Some(chain_id) => chain_id,
+                        None => {
+                            if &burnchain_mode == "mainnet" {
+                                CHAIN_ID_MAINNET
+                            } else {
+                                CHAIN_ID_TESTNET
+                            }
+                        }
+                    },
+                    peer_version: if &burnchain_mode == "mainnet" {
+                        PEER_VERSION_MAINNET
+                    } else {
+                        PEER_VERSION_TESTNET
+                    },
+                    mode: burnchain_mode,
+                    burn_fee_cap: burnchain
+                        .burn_fee_cap
+                        .unwrap_or(default_burnchain_config.burn_fee_cap),
+                    commit_anchor_block_within: burnchain
+                        .commit_anchor_block_within
+                        .unwrap_or(default_burnchain_config.commit_anchor_block_within),
+                    peer_host: match burnchain.peer_host {
+                        Some(peer_host) => {
+                            // Using std::net::LookupHost would be preferable, but it's
+                            // unfortunately unstable at this point.
+                            // https://doc.rust-lang.org/1.6.0/std/net/struct.LookupHost.html
+                            let mut sock_addrs = format!("{}:1", &peer_host)
+                                .to_socket_addrs()
+                                .map_err(|e| format!("Invalid burnchain.peer_host: {}", &e))?;
+                            let sock_addr = match sock_addrs.next() {
+                                Some(addr) => addr,
+                                None => {
+                                    return Err(format!(
+                                        "No IP address could be queried for '{}'",
+                                        &peer_host
+                                    ));
+                                }
+                            };
+                            format!("{}", sock_addr.ip())
+                        }
+                        None => default_burnchain_config.peer_host,
+                    },
+                    peer_port: burnchain
+                        .peer_port
+                        .unwrap_or(default_burnchain_config.peer_port),
+                    rpc_port: burnchain
+                        .rpc_port
+                        .unwrap_or(default_burnchain_config.rpc_port),
+                    rpc_ssl: burnchain
+                        .rpc_ssl
+                        .unwrap_or(default_burnchain_config.rpc_ssl),
+                    username: burnchain.username,
+                    password: burnchain.password,
+                    timeout: burnchain
+                        .timeout
+                        .unwrap_or(default_burnchain_config.timeout),
+                    magic_bytes: burnchain
+                        .magic_bytes
+                        .map(|magic_ascii| {
+                            assert_eq!(magic_ascii.len(), 2, "Magic bytes must be length-2");
+                            assert!(magic_ascii.is_ascii(), "Magic bytes must be ASCII");
+                            MagicBytes::from(magic_ascii.as_bytes())
+                        })
+                        .unwrap_or(default_burnchain_config.magic_bytes),
+                    local_mining_public_key: burnchain.local_mining_public_key,
+                    process_exit_at_block_height: burnchain.process_exit_at_block_height,
+                    poll_time_secs: burnchain
+                        .poll_time_secs
+                        .unwrap_or(default_burnchain_config.poll_time_secs),
+                    satoshis_per_byte: burnchain
+                        .satoshis_per_byte
+                        .unwrap_or(default_burnchain_config.satoshis_per_byte),
+                    max_rbf: burnchain
+                        .max_rbf
+                        .unwrap_or(default_burnchain_config.max_rbf),
+                    leader_key_tx_estimated_size: burnchain
+                        .leader_key_tx_estimated_size
+                        .unwrap_or(default_burnchain_config.leader_key_tx_estimated_size),
+                    block_commit_tx_estimated_size: burnchain
+                        .block_commit_tx_estimated_size
+                        .unwrap_or(default_burnchain_config.block_commit_tx_estimated_size),
+                    rbf_fee_increment: burnchain
+                        .rbf_fee_increment
+                        .unwrap_or(default_burnchain_config.rbf_fee_increment),
+                    // will be overwritten below
+                    epochs: default_burnchain_config.epochs,
+                    ast_precheck_size_height: burnchain.ast_precheck_size_height,
+                    pox_2_activation: burnchain
+                        .pox_2_activation
+                        .or(default_burnchain_config.pox_2_activation),
+                    sunset_start: burnchain
+                        .sunset_start
+                        .or(default_burnchain_config.sunset_start),
+                    sunset_end: burnchain.sunset_end.or(default_burnchain_config.sunset_end),
+                    wallet_name: burnchain
+                        .wallet_name
+                        .unwrap_or(default_burnchain_config.wallet_name.clone()),
+                };
+
+                if let BitcoinNetworkType::Mainnet = result.get_bitcoin_network().1 {
+                    // check that pox_2_activation hasn't been set in mainnet
+                    if result.pox_2_activation.is_some()
+                        || result.sunset_start.is_some()
+                        || result.sunset_end.is_some()
+                    {
+                        return Err("PoX-2 parameters are not configurable in mainnet".into());
+                    }
+                }
+
+                if let Some(ref conf_epochs) = burnchain.epochs {
+                    result.epochs = Some(Self::make_epochs(
+                        conf_epochs,
+                        &result.mode,
+                        result.get_bitcoin_network().1,
+                        burnchain.pox_2_activation,
+                    )?);
+                }
+
+                result
+            }
             None => default_burnchain_config,
         };
 
@@ -1363,6 +1599,7 @@ pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
+    pub chain_id: Option<u32>,
     pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
     pub commit_anchor_block_within: Option<u64>,
