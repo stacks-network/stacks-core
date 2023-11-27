@@ -1067,7 +1067,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch24,
                 start_height: first_burnchain_height + 20,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 24,
                 block_limit: ExecutionCost {
                     write_length: 210210,
                     write_count: 210210,
@@ -1170,7 +1170,7 @@ impl StacksEpochExtension for StacksEpoch {
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch24,
                 start_height: first_burnchain_height + 20,
-                end_height: STACKS_EPOCH_MAX,
+                end_height: first_burnchain_height + 24,
                 block_limit: ExecutionCost {
                     write_length: 210210,
                     write_count: 210210,

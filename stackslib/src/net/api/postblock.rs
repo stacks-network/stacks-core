@@ -18,11 +18,12 @@ use std::io::{Read, Write};
 
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
-use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
+use stacks_common::codec::{DeserializeWithEpoch, Error as CodecError, MAX_PAYLOAD_LEN};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, Hash160, Sha256Sum};
 use stacks_common::util::retry::BoundReader;
@@ -74,13 +75,18 @@ impl RPCPostBlockRequestHandler {
 
     /// Decode a bare block from the body
     fn parse_postblock_octets(mut body: &[u8]) -> Result<StacksBlock, Error> {
-        let block = StacksBlock::consensus_deserialize(&mut body).map_err(|e| {
-            if let CodecError::DeserializeError(msg) = e {
-                Error::DecodeError(format!("Failed to deserialize posted transaction: {}", msg))
-            } else {
-                e.into()
-            }
-        })?;
+        let block =
+            StacksBlock::consensus_deserialize_with_epoch(&mut body, StacksEpochId::latest())
+                .map_err(|e| {
+                    if let CodecError::DeserializeError(msg) = e {
+                        Error::DecodeError(format!(
+                            "Failed to deserialize posted transaction: {}",
+                            msg
+                        ))
+                    } else {
+                        e.into()
+                    }
+                })?;
         Ok(block)
     }
 }

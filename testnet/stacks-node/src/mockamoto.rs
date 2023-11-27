@@ -489,7 +489,7 @@ impl MockamotoNode {
         let (mut chainstate_tx, clarity_instance) = self.chainstate.chainstate_tx_begin()?;
         let pox_constants = self.sortdb.pox_constants.clone();
         let mut sortdb_tx = self.sortdb.tx_begin_at_tip();
-        let Some((next_block, _)) = NakamotoChainState::next_ready_nakamoto_block(&chainstate_tx)?
+        let Some((next_block, _)) = NakamotoChainState::next_ready_nakamoto_block(&chainstate_tx, StacksEpochId::latest())?
         else {
             return Ok(false);
         };

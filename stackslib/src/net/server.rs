@@ -21,6 +21,7 @@ use std::sync::mpsc::{sync_channel, Receiver, RecvError, SendError, SyncSender, 
 use mio::net as mio_net;
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::get_epoch_time_secs;
+use stacks_common::types::StacksEpochId;
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -883,7 +884,7 @@ mod test {
             1,
             0,
             |client_id, ref mut chainstate| {
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::latest());
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,
@@ -916,7 +917,7 @@ mod test {
                 // should be a Block
                 let http_response_bytes = http_response_bytes_res.unwrap();
 
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::latest());
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,
@@ -951,7 +952,7 @@ mod test {
             10,
             0,
             |client_id, ref mut chainstate| {
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::latest());
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,
@@ -984,7 +985,7 @@ mod test {
                 // should be a Block
                 let http_response_bytes = http_response_bytes_res.unwrap();
 
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::latest());
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,
@@ -1300,7 +1301,7 @@ mod test {
             1,
             600,
             |client_id, ref mut chainstate| {
-                let peer_server_block = make_codec_test_block(25);
+                let peer_server_block = make_codec_test_block(25, StacksEpochId::latest());
                 let peer_server_consensus_hash = ConsensusHash([(client_id + 1) as u8; 20]);
                 let index_block_hash = StacksBlockHeader::make_index_block_hash(
                     &peer_server_consensus_hash,

@@ -27,7 +27,7 @@ use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::codec::{
-    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
+    read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN, DeserializeWithEpoch, read_next_at_most_with_epoch
 };
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
@@ -134,7 +134,7 @@ lazy_static! {
 
                      -- block data
                      data BLOB NOT NULL,
-                    
+
                      PRIMARY KEY(block_hash,consensus_hash)
     );"#.into(),
     r#"
@@ -144,7 +144,7 @@ lazy_static! {
                      block_height INTEGER NOT NULL,
                      -- root hash of the internal, not-consensus-critical MARF that allows us to track chainstate/fork metadata
                      index_root TEXT NOT NULL,
-                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can 
+                     -- burn header hash corresponding to the consensus hash (NOT guaranteed to be unique, since we can
                      --    have 2+ blocks per burn block if there's a PoX fork)
                      burn_header_hash TEXT NOT NULL,
                      -- height of the burnchain block header that generated this consensus hash
@@ -178,7 +178,7 @@ lazy_static! {
                      header_type TEXT NOT NULL,
                      -- hash of the block
                      block_hash TEXT NOT NULL,
-                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it, 
+                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it,
                      -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                      -- index_block_hash is the block hash fed into the MARF index.
                      index_block_hash TEXT NOT NULL,
@@ -831,7 +831,7 @@ impl NakamotoBlock {
                 return false;
             }
         }
-        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id) {
+        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id, true) {
             return false;
         }
         match self.is_wellformed_first_tenure_block() {
@@ -927,6 +927,7 @@ impl NakamotoChainState {
     /// Returns (the block, the size of the block)
     pub fn next_ready_nakamoto_block(
         staging_db_conn: &Connection,
+        epoch_id: StacksEpochId,
     ) -> Result<Option<(NakamotoBlock, u64)>, ChainstateError> {
         let query = "SELECT data FROM nakamoto_staging_blocks
                      WHERE burn_attachable = 1
@@ -937,7 +938,7 @@ impl NakamotoChainState {
         staging_db_conn
             .query_row_and_then(query, NO_PARAMS, |row| {
                 let data: Vec<u8> = row.get("data")?;
-                let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
+                let block = NakamotoBlock::consensus_deserialize_with_epoch(&mut data.as_slice(), epoch_id)?;
                 Ok(Some((
                     block,
                     u64::try_from(data.len()).expect("FATAL: block is bigger than a u64"),
@@ -960,6 +961,7 @@ impl NakamotoChainState {
         staging_db_conn: &Connection,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
+        epoch_id: StacksEpochId,
     ) -> Result<Option<NakamotoBlock>, ChainstateError> {
         let query = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2";
         staging_db_conn
@@ -968,7 +970,7 @@ impl NakamotoChainState {
                 rusqlite::params![consensus_hash, block_hash],
                 |row| {
                     let data: Vec<u8> = row.get("data")?;
-                    let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())
+                    let block = NakamotoBlock::consensus_deserialize_with_epoch(&mut data.as_slice(), epoch_id)
                         .map_err(|_| DBError::ParseError)?;
                     if &block.header.block_hash() != block_hash {
                         error!(
@@ -1006,7 +1008,7 @@ impl NakamotoChainState {
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
         let Some((next_ready_block, block_size)) =
-            Self::next_ready_nakamoto_block(&chainstate_tx.tx)?
+            Self::next_ready_nakamoto_block(&chainstate_tx.tx, StacksEpochId::latest())?
         else {
             // no more blocks
             return Ok(None);
@@ -2714,12 +2716,22 @@ impl StacksMessageCodec for NakamotoBlock {
     }
 
     fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let (header, txs) = {
+        panic!("NakamotoBlock should be deserialized with consensus_deserialize_with_epoch instead")
+    }
+}
+
+impl DeserializeWithEpoch for NakamotoBlock {
+    fn consensus_deserialize_with_epoch<R: std::io::Read>(
+        fd: &mut R,
+        epoch_id: StacksEpochId,
+    ) -> Result<NakamotoBlock, CodecError> {
+        let header: NakamotoBlockHeader = read_next(fd)?;
+
+        let txs: Vec<StacksTransaction> = {
             let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_MESSAGE_LEN));
-            let header: NakamotoBlockHeader = read_next(&mut bound_read)?;
-            let txs: Vec<_> = read_next(&mut bound_read)?;
-            (header, txs)
-        };
+            // The latest epoch where StacksMicroblock exist is Epoch25
+            read_next_at_most_with_epoch(&mut bound_read, u32::MAX, epoch_id)
+        }?;
 
         // all transactions are unique
         if !StacksBlock::validate_transactions_unique(&txs) {

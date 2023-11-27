@@ -47,8 +47,9 @@ use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use stacks_common::address::{b58, AddressHashMode};
-use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
+use stacks_common::codec::{DeserializeWithEpoch, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 
@@ -315,8 +316,10 @@ fn sign_transaction_single_sig_standard(
     transaction: &str,
     secret_key: &StacksPrivateKey,
 ) -> Result<StacksTransaction, CliError> {
-    let transaction =
-        StacksTransaction::consensus_deserialize(&mut io::Cursor::new(&hex_bytes(transaction)?))?;
+    let transaction = StacksTransaction::consensus_deserialize_with_epoch(
+        &mut io::Cursor::new(&hex_bytes(transaction)?),
+        StacksEpochId::latest(),
+    )?;
 
     let mut tx_signer = StacksTransactionSigner::new(&transaction);
     tx_signer.sign_origin(secret_key)?;
@@ -663,7 +666,10 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
     let mut cursor = io::Cursor::new(&tx_str);
     let mut debug_cursor = LogReader::from_reader(&mut cursor);
 
-    match StacksTransaction::consensus_deserialize(&mut debug_cursor) {
+    match StacksTransaction::consensus_deserialize_with_epoch(
+        &mut debug_cursor,
+        StacksEpochId::latest(),
+    ) {
         Ok(tx) => Ok(serde_json::to_string(&tx).expect("Failed to serialize transaction to JSON")),
         Err(e) => {
             let mut ret = String::new();
@@ -739,7 +745,8 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
     let mut cursor = io::Cursor::new(&block_data);
     let mut debug_cursor = LogReader::from_reader(&mut cursor);
 
-    match StacksBlock::consensus_deserialize(&mut debug_cursor) {
+    match StacksBlock::consensus_deserialize_with_epoch(&mut debug_cursor, StacksEpochId::latest())
+    {
         Ok(block) => Ok(serde_json::to_string(&block).expect("Failed to serialize block to JSON")),
         Err(e) => {
             let mut ret = String::new();

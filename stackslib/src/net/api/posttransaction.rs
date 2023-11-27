@@ -18,11 +18,12 @@ use std::io::{Read, Write};
 
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
-use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
+use stacks_common::codec::{DeserializeWithEpoch, Error as CodecError, MAX_PAYLOAD_LEN, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::StacksEpochId;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
 use stacks_common::util::retry::BoundReader;
@@ -68,13 +69,18 @@ impl RPCPostTransactionRequestHandler {
 
     /// Decode a bare transaction from the body
     fn parse_posttransaction_octets(mut body: &[u8]) -> Result<StacksTransaction, Error> {
-        let tx = StacksTransaction::consensus_deserialize(&mut body).map_err(|e| {
-            if let CodecError::DeserializeError(msg) = e {
-                Error::DecodeError(format!("Failed to deserialize posted transaction: {}", msg))
-            } else {
-                e.into()
-            }
-        })?;
+        let tx =
+            StacksTransaction::consensus_deserialize_with_epoch(&mut body, StacksEpochId::latest())
+                .map_err(|e| {
+                    if let CodecError::DeserializeError(msg) = e {
+                        Error::DecodeError(format!(
+                            "Failed to deserialize posted transaction: {}",
+                            msg
+                        ))
+                    } else {
+                        e.into()
+                    }
+                })?;
         Ok(tx)
     }
 
@@ -88,7 +94,11 @@ impl RPCPostTransactionRequestHandler {
         let tx = {
             let tx_bytes = hex_bytes(&body.tx)
                 .map_err(|_e| Error::DecodeError("Failed to parse tx".into()))?;
-            StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).map_err(|e| {
+            StacksTransaction::consensus_deserialize_with_epoch(
+                &mut &tx_bytes[..],
+                StacksEpochId::latest(),
+            )
+            .map_err(|e| {
                 if let CodecError::DeserializeError(msg) = e {
                     Error::DecodeError(format!("Failed to deserialize posted transaction: {}", msg))
                 } else {

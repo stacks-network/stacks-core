@@ -570,12 +570,18 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx.commit().unwrap();
     }
 
+    let epoch_id = SortitionDB::get_stacks_epoch(chainstate.db(), nakamoto_header.chain_length)
+        .unwrap()
+        .unwrap()
+        .epoch_id;
+
     // can load Nakamoto block, but only the Nakamoto block
     assert_eq!(
         NakamotoChainState::load_nakamoto_block(
             chainstate.db(),
             &nakamoto_header.consensus_hash,
-            &nakamoto_header.block_hash()
+            &nakamoto_header.block_hash(),
+            epoch_id,
         )
         .unwrap()
         .unwrap(),
@@ -585,7 +591,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
         NakamotoChainState::load_nakamoto_block(
             chainstate.db(),
             &epoch2_header_info.consensus_hash,
-            &epoch2_header.block_hash()
+            &epoch2_header.block_hash(),
+            epoch_id,
         )
         .unwrap(),
         None
@@ -802,14 +809,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
     {
         let tx = chainstate.db_tx_begin().unwrap();
         assert_eq!(
-            NakamotoChainState::next_ready_nakamoto_block(&tx).unwrap(),
+            NakamotoChainState::next_ready_nakamoto_block(&tx, StacksEpochId::latest()).unwrap(),
             None
         );
 
         // set burn processed, but this isn't enough
         NakamotoChainState::set_burn_block_processed(&tx, &nakamoto_header.consensus_hash).unwrap();
         assert_eq!(
-            NakamotoChainState::next_ready_nakamoto_block(&tx).unwrap(),
+            NakamotoChainState::next_ready_nakamoto_block(&tx, StacksEpochId::latest()).unwrap(),
             None
         );
 
@@ -819,7 +826,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // this works now
         assert_eq!(
-            NakamotoChainState::next_ready_nakamoto_block(&tx)
+            NakamotoChainState::next_ready_nakamoto_block(&tx, StacksEpochId::latest())
                 .unwrap()
                 .unwrap()
                 .0,

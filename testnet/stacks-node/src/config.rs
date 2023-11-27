@@ -583,6 +583,10 @@ impl Config {
                 Ok(StacksEpochId::Epoch23)
             } else if epoch_name == EPOCH_CONFIG_2_4_0 {
                 Ok(StacksEpochId::Epoch24)
+            } else if epoch_name == EPOCH_CONFIG_2_5_0 {
+                Ok(StacksEpochId::Epoch25)
+            } else if epoch_name == EPOCH_CONFIG_3_0_0 {
+                Ok(StacksEpochId::Epoch30)
             } else {
                 Err(format!("Unknown epoch name specified: {}", epoch_name))
             }?;
@@ -1518,6 +1522,8 @@ pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
 pub const EPOCH_CONFIG_2_2_0: &'static str = "2.2";
 pub const EPOCH_CONFIG_2_3_0: &'static str = "2.3";
 pub const EPOCH_CONFIG_2_4_0: &'static str = "2.4";
+pub const EPOCH_CONFIG_2_5_0: &'static str = "2.5";
+pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {

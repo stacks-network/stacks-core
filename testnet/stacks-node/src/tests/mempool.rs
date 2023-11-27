@@ -14,13 +14,13 @@ use stacks::chainstate::stacks::{
     TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionSpendingCondition,
     TransactionVersion, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
 };
+use stacks::codec::{DeserializeWithEpoch, StacksMessageCodec};
 use stacks::core::mempool::MemPoolDB;
 use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::net::Error as NetError;
 use stacks_common::address::AddressHashMode;
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::hash::*;
 use stacks_common::util::secp256k1::*;
@@ -237,8 +237,11 @@ fn mempool_setup_chainstate() {
                 // first a couple valid ones:
                 let tx_bytes =
                     make_contract_publish(&contract_sk, 5, 1000, "bar_contract", FOO_CONTRACT);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -258,8 +261,11 @@ fn mempool_setup_chainstate() {
                     "bar",
                     &[Value::UInt(1)],
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -271,8 +277,11 @@ fn mempool_setup_chainstate() {
                     .unwrap();
 
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -285,8 +294,11 @@ fn mempool_setup_chainstate() {
 
                 // bad signature
                 let tx_bytes = make_bad_stacks_transfer(&contract_sk, 5, 200, &other_addr, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -327,8 +339,11 @@ fn mempool_setup_chainstate() {
                     "bar",
                     &[Value::UInt(1), Value::Int(2)],
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -356,8 +371,11 @@ fn mempool_setup_chainstate() {
                 .into();
 
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 200, &bad_addr, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -375,8 +393,11 @@ fn mempool_setup_chainstate() {
 
                 // bad fees
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 0, &other_addr, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -395,8 +416,11 @@ fn mempool_setup_chainstate() {
 
                 // bad nonce
                 let tx_bytes = make_stacks_transfer(&contract_sk, 0, 200, &other_addr, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -415,8 +439,11 @@ fn mempool_setup_chainstate() {
 
                 // not enough funds
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -436,8 +463,11 @@ fn mempool_setup_chainstate() {
                 // sender == recipient
                 let contract_princ = PrincipalData::from(contract_addr.clone());
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &contract_princ, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -459,8 +489,11 @@ fn mempool_setup_chainstate() {
                 mainnet_recipient.version = C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
                 let mainnet_princ = mainnet_recipient.into();
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &mainnet_princ, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -492,8 +525,11 @@ fn mempool_setup_chainstate() {
                     TransactionAnchorMode::OnChainOnly,
                     TransactionVersion::Mainnet,
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -512,8 +548,11 @@ fn mempool_setup_chainstate() {
 
                 // send amount must be positive
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 300, &other_addr, 0);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -532,8 +571,11 @@ fn mempool_setup_chainstate() {
 
                 // not enough funds
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 110000, &other_addr, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -551,8 +593,11 @@ fn mempool_setup_chainstate() {
                 });
 
                 let tx_bytes = make_stacks_transfer(&contract_sk, 5, 99700, &other_addr, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -578,8 +623,11 @@ fn mempool_setup_chainstate() {
                     "bar",
                     &[Value::UInt(1)],
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -605,8 +653,11 @@ fn mempool_setup_chainstate() {
                     "foobar",
                     &[Value::UInt(1)],
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -632,8 +683,11 @@ fn mempool_setup_chainstate() {
                     "bar",
                     &[Value::UInt(1), Value::Int(2)],
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -652,8 +706,11 @@ fn mempool_setup_chainstate() {
 
                 let tx_bytes =
                     make_contract_publish(&contract_sk, 5, 1000, "foo_contract", FOO_CONTRACT);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -687,8 +744,11 @@ fn mempool_setup_chainstate() {
                 };
 
                 let tx_bytes = make_poison(&contract_sk, 5, 1000, microblock_1, microblock_2);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -724,8 +784,11 @@ fn mempool_setup_chainstate() {
                 };
 
                 let tx_bytes = make_poison(&contract_sk, 5, 1000, microblock_1, microblock_2);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -762,8 +825,11 @@ fn mempool_setup_chainstate() {
                 microblock_2.sign(&other_sk).unwrap();
 
                 let tx_bytes = make_poison(&contract_sk, 5, 1000, microblock_1, microblock_2);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -783,8 +849,11 @@ fn mempool_setup_chainstate() {
                 );
 
                 let tx_bytes = make_coinbase(&contract_sk, 5, 1000);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -841,8 +910,11 @@ fn mempool_setup_chainstate() {
                 microblock_2.sign(&secret_key).unwrap();
 
                 let tx_bytes = make_poison(&contract_sk, 5, 1000, microblock_1, microblock_2);
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -868,8 +940,11 @@ fn mempool_setup_chainstate() {
                     "baz",
                     &[Value::Principal(contract_principal)],
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,
@@ -895,8 +970,11 @@ fn mempool_setup_chainstate() {
                     "baz",
                     &[Value::Principal(contract_principal)],
                 );
-                let tx =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+                let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut tx_bytes.as_slice(),
+                    StacksEpochId::Epoch25,
+                )
+                .unwrap();
                 let e = chain_state
                     .will_admit_mempool_tx(
                         &NULL_BURN_STATE_DB,

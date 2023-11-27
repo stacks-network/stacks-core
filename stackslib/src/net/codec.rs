@@ -1494,7 +1494,8 @@ impl ProtocolFamily for StacksP2P {
 
 #[cfg(test)]
 pub mod test {
-    use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
+    use stacks_common::codec::{DeserializeWithEpoch, NEIGHBOR_ADDRESS_ENCODED_SIZE};
+    use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::secp256k1::*;
 
@@ -1583,6 +1584,62 @@ pub mod test {
             short_buf.truncate(short_len);
 
             let underflow_res = T::consensus_deserialize(&mut &short_buf[..]);
+            match underflow_res {
+                Ok(oops) => {
+                    test_debug!(
+                        "\nMissing Underflow: Parsed {:?}\nFrom {:?}\n",
+                        &oops,
+                        &write_buf[0..short_len].to_vec()
+                    );
+                }
+                Err(codec_error::ReadError(io_error)) => match io_error.kind() {
+                    io::ErrorKind::UnexpectedEof => {}
+                    _ => {
+                        test_debug!("Got unexpected I/O error: {:?}", &io_error);
+                        assert!(false);
+                    }
+                },
+                Err(e) => {
+                    test_debug!("Got unexpected Net error: {:?}", &e);
+                    assert!(false);
+                }
+            };
+        }
+    }
+
+    pub fn check_codec_and_corruption_with_epoch<
+        T: StacksMessageCodec + fmt::Debug + Clone + PartialEq + DeserializeWithEpoch,
+    >(
+        obj: &T,
+        bytes: &Vec<u8>,
+        epoch_id: StacksEpochId,
+    ) -> () {
+        // obj should serialize to bytes
+        let mut write_buf: Vec<u8> = Vec::with_capacity(bytes.len());
+        obj.consensus_serialize(&mut write_buf).unwrap();
+        assert_eq!(write_buf, *bytes);
+
+        // bytes should deserialize to obj
+        let read_buf: Vec<u8> = write_buf.clone();
+        let res = T::consensus_deserialize_with_epoch(&mut &read_buf[..], epoch_id);
+        match res {
+            Ok(out) => {
+                assert_eq!(out, *obj);
+            }
+            Err(e) => {
+                test_debug!("\nFailed to parse to {:?}: {:?}", obj, bytes);
+                test_debug!("error: {:?}", &e);
+                assert!(false);
+            }
+        }
+
+        // short message shouldn't parse, but should EOF
+        if write_buf.len() > 0 {
+            let mut short_buf = write_buf.clone();
+            let short_len = short_buf.len() - 1;
+            short_buf.truncate(short_len);
+
+            let underflow_res = T::consensus_deserialize_with_epoch(&mut &short_buf[..], epoch_id);
             match underflow_res {
                 Ok(oops) => {
                     test_debug!(

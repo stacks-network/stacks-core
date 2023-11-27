@@ -20,10 +20,10 @@ use stacks::chainstate::stacks::{
     TransactionPostConditionMode, TransactionSmartContract, TransactionSpendingCondition,
     TransactionVersion, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
+use stacks::codec::{DeserializeWithEpoch, StacksMessageCodec};
 use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::util_lib::strings::StacksString;
 use stacks_common::address::AddressHashMode;
-use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, to_hex};
@@ -446,6 +446,7 @@ fn make_microblock(
 pub fn select_transactions_where(
     blocks: &Vec<serde_json::Value>,
     test_fn: fn(&StacksTransaction) -> bool,
+    epoch_id: StacksEpochId,
 ) -> Vec<StacksTransaction> {
     let mut result = vec![];
     for block in blocks {
@@ -453,7 +454,9 @@ pub fn select_transactions_where(
         for tx in transactions.iter() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            let parsed =
+                StacksTransaction::consensus_deserialize_with_epoch(&mut &tx_bytes[..], epoch_id)
+                    .unwrap();
             if test_fn(&parsed) {
                 result.push(parsed);
             }
@@ -551,7 +554,7 @@ fn should_succeed_mining_valid_txs() {
             },
             3 => {
                 // On round 3, publish a "set:foo=bar" transaction
-                // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 10 2 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\" 
+                // ./blockstack-cli --testnet contract-call 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 10 2 STGT7GSMZG7EA0TS6MVSKT5JC1DCDFGZWJJZXN8A store set-value -e \"foo\" -e \"bar\"
                 let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000002000000000000000a010142a01caf6a32b367664869182f0ebc174122a5a980937ba259d44cc3ebd280e769a53dd3913c8006ead680a6e1c98099fcd509ce94b0a4e90d9f4603b101922d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
                 tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec(),
                                 &ExecutionCost::max_value(),

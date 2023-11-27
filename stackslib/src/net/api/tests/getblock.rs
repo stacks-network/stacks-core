@@ -18,12 +18,12 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityName, ContractName};
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey,
 };
 use stacks_common::types::net::PeerHost;
-use stacks_common::types::Address;
+use stacks_common::types::{Address, StacksEpochId};
 
 use super::TestRPC;
 use crate::chainstate::stacks::db::blocks::test::*;
@@ -159,7 +159,11 @@ fn test_stream_blocks() {
     }
 
     // should decode back into the block
-    let staging_block = StacksBlock::consensus_deserialize(&mut &all_block_bytes[..]).unwrap();
+    let staging_block = StacksBlock::consensus_deserialize_with_epoch(
+        &mut &all_block_bytes[..],
+        StacksEpochId::latest(),
+    )
+    .unwrap();
     assert_eq!(staging_block, block);
 
     // accept it
@@ -184,6 +188,10 @@ fn test_stream_blocks() {
     }
 
     // should decode back into the block
-    let staging_block = StacksBlock::consensus_deserialize(&mut &all_block_bytes[..]).unwrap();
+    let staging_block = StacksBlock::consensus_deserialize_with_epoch(
+        &mut &all_block_bytes[..],
+        StacksEpochId::latest(),
+    )
+    .unwrap();
     assert_eq!(staging_block, block);
 }

@@ -69,7 +69,7 @@ use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{DeserializeWithEpoch, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
@@ -188,8 +188,9 @@ fn main() {
 
         let mut cursor = io::Cursor::new(&tx_bytes);
         let mut debug_cursor = LogReader::from_reader(&mut cursor);
+        let epoch_id = parse_input_epoch(3);
 
-        let tx = StacksTransaction::consensus_deserialize(&mut debug_cursor)
+        let tx = StacksTransaction::consensus_deserialize_with_epoch(&mut debug_cursor, epoch_id)
             .map_err(|e| {
                 eprintln!("Failed to decode transaction: {:?}", &e);
                 eprintln!("Bytes consumed:");
@@ -215,13 +216,17 @@ fn main() {
 
         let block_path = &argv[2];
         let block_data = fs::read(block_path).expect(&format!("Failed to open {}", block_path));
+        let epoch_id = parse_input_epoch(3);
 
-        let block = StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_data))
-            .map_err(|_e| {
-                eprintln!("Failed to decode block");
-                process::exit(1);
-            })
-            .unwrap();
+        let block = StacksBlock::consensus_deserialize_with_epoch(
+            &mut io::Cursor::new(&block_data),
+            epoch_id,
+        )
+        .map_err(|_e| {
+            eprintln!("Failed to decode block");
+            process::exit(1);
+        })
+        .unwrap();
 
         println!("{:#?}", &block);
         process::exit(0);
@@ -256,13 +261,17 @@ fn main() {
         .unwrap()
         .expect("No such block");
 
-        let block =
-            StacksBlock::consensus_deserialize(&mut io::Cursor::new(&block_info.block_data))
-                .map_err(|_e| {
-                    eprintln!("Failed to decode block");
-                    process::exit(1);
-                })
-                .unwrap();
+        let epoch_id = parse_input_epoch(4);
+
+        let block = StacksBlock::consensus_deserialize_with_epoch(
+            &mut io::Cursor::new(&block_info.block_data),
+            epoch_id,
+        )
+        .map_err(|_e| {
+            eprintln!("Failed to decode block");
+            process::exit(1);
+        })
+        .unwrap();
 
         let microblocks =
             StacksChainState::find_parent_microblock_stream(chainstate.db(), &block_info)
@@ -361,7 +370,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
                 "Usage: {} can-download-microblock <working-dir>
 
 Given a <working-dir>, obtain a 2100 header hash inventory (with an empty header cache), and then
-check if the associated microblocks can be downloaded 
+check if the associated microblocks can be downloaded
 ",
                 argv[0]
             );
@@ -1246,6 +1255,7 @@ simulating a miner.
     let events_file = &argv[3];
     let mine_tip_height: u64 = argv[4].parse().expect("Could not parse mine_tip_height");
     let mine_max_txns: u64 = argv[5].parse().expect("Could not parse mine-num-txns");
+    let epoch_id = parse_input_epoch(6);
 
     let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
         .expect(&format!("Failed to open {}", &sort_db_path));
@@ -1347,7 +1357,9 @@ simulating a miner.
                     let raw_tx_hex = item.as_str().unwrap();
                     let raw_tx_bytes = hex_bytes(&raw_tx_hex[2..]).unwrap();
                     let mut cursor = io::Cursor::new(&raw_tx_bytes);
-                    let raw_tx = StacksTransaction::consensus_deserialize(&mut cursor).unwrap();
+                    let raw_tx =
+                        StacksTransaction::consensus_deserialize_with_epoch(&mut cursor, epoch_id)
+                            .unwrap();
                     if found_block_height {
                         if submit_tx_count >= mine_max_txns {
                             info!("Reached mine_max_txns {}", submit_tx_count);
@@ -1458,4 +1470,24 @@ simulating a miner.
     }
 
     process::exit(0);
+}
+
+fn parse_input_epoch(epoch_arg_index: usize) -> StacksEpochId {
+    let argv: Vec<String> = env::args().collect();
+
+    let mut epoch_id = StacksEpochId::latest();
+
+    if argv.len() > epoch_arg_index {
+        let epoch_id_u32 = argv[epoch_arg_index]
+            .parse::<u32>()
+            .expect("Failed to parse epoch id");
+        epoch_id = StacksEpochId::try_from(epoch_id_u32)
+            .map_err(|_e| {
+                eprintln!("Failed to match epoch number");
+                process::exit(1);
+            })
+            .unwrap();
+    }
+
+    return epoch_id;
 }

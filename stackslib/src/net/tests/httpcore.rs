@@ -25,6 +25,7 @@ use stacks_common::util::chunked_encoding::{
     HttpChunkedTransferWriter, HttpChunkedTransferWriterState,
 };
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::types::StacksEpochId;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::blocks::test::make_sample_microblock_stream;
@@ -442,7 +443,7 @@ fn test_http_response_type_codec() {
         "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
     )
     .unwrap();
-    let test_block_info = make_codec_test_block(5);
+    let test_block_info = make_codec_test_block(5, StacksEpochId::latest());
     let test_microblock_info = make_sample_microblock_stream(&privk, &test_block_info.block_hash());
 
     let mut test_block_info_bytes = vec![];

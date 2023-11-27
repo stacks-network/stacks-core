@@ -11,6 +11,7 @@ use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks::util_lib::boot::boot_code_id;
+use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::Hash160;
@@ -539,8 +540,11 @@ fn disable_pox() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed =
-                StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
+                &mut tx_bytes.as_slice(),
+                StacksEpochId::Epoch22,
+            )
+            .unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
             if &tx_sender == &spender_addr
                 && parsed.auth.get_origin_nonce() == aborted_increase_nonce
@@ -1195,8 +1199,11 @@ fn pox_2_unlock_all() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed =
-                StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
+                &mut tx_bytes.as_slice(),
+                StacksEpochId::Epoch22,
+            )
+            .unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
             if &tx_sender == &spender_addr
                 && parsed.auth.get_origin_nonce() == nonce_of_2_2_unlock_ht_call

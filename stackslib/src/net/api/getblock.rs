@@ -20,9 +20,10 @@ use std::{fs, io};
 
 use regex::{Captures, Regex};
 use serde::de::Error as de_Error;
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::{StacksMessageCodec, DeserializeWithEpoch, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 use {serde, serde_json};
 
@@ -301,7 +302,10 @@ impl StacksHttpResponse {
 
         // contents will be raw bytes
         let block_bytes: Vec<u8> = contents.try_into()?;
-        let block = StacksBlock::consensus_deserialize(&mut &block_bytes[..])?;
+        let block = StacksBlock::consensus_deserialize_with_epoch(
+            &mut &block_bytes[..],
+            StacksEpochId::latest(),
+        )?;
 
         Ok(block)
     }

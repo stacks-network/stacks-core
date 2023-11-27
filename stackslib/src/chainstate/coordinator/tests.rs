@@ -674,7 +674,7 @@ fn make_genesis_block_with_recipients(
         ),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_4_MARKER],
+        memo: vec![STACKS_EPOCH_3_0_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -945,7 +945,7 @@ fn make_stacks_block_with_input(
         ),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_4_MARKER],
+        memo: vec![STACKS_EPOCH_3_0_MARKER],
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -4663,7 +4663,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
         &committers,
         pox_consts.clone(),
         None,
-        StacksEpochId::Epoch24,
+        StacksEpochId::Epoch30,
     );
 
     let mut coord = make_coordinator(path, Some(burnchain_conf));
@@ -4777,7 +4777,9 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
             x if x >= 8 && x < 12 => StacksEpochId::Epoch21,
             x if x >= 12 && x < 16 => StacksEpochId::Epoch22,
             x if x >= 16 && x < 20 => StacksEpochId::Epoch23,
-            _ => StacksEpochId::Epoch24,
+            x if x >= 20 && x < 24 => StacksEpochId::Epoch24,
+            x if x >= 24 && x < 28 => StacksEpochId::Epoch25,
+            _ => StacksEpochId::Epoch30,
         };
         assert_eq!(
             chainstate

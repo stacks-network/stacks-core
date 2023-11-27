@@ -33,7 +33,8 @@ use rusqlite::{
 };
 use siphasher::sip::SipHasher; // this is SipHash-2-4
 use stacks_common::codec::{
-    read_next, write_next, Error as codec_error, StacksMessageCodec, MAX_MESSAGE_LEN,
+    read_next, write_next, DeserializeWithEpoch, Error as codec_error, StacksMessageCodec,
+    MAX_MESSAGE_LEN,
 };
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
@@ -523,8 +524,11 @@ impl FromRow<MemPoolTxInfo> for MemPoolTxInfo {
     fn from_row<'a>(row: &'a Row) -> Result<MemPoolTxInfo, db_error> {
         let md = MemPoolTxMetadata::from_row(row)?;
         let tx_bytes: Vec<u8> = row.get_unwrap("tx");
-        let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
-            .map_err(|_e| db_error::ParseError)?;
+        let tx = StacksTransaction::consensus_deserialize_with_epoch(
+            &mut &tx_bytes[..],
+            StacksEpochId::latest(),
+        )
+        .map_err(|_e| db_error::ParseError)?;
 
         if tx.txid() != md.txid {
             return Err(db_error::ParseError);
@@ -1902,7 +1906,7 @@ impl MemPoolDB {
         nonce: u64,
     ) -> Result<Option<MemPoolTxMetadata>, db_error> {
         let sql = format!(
-            "SELECT 
+            "SELECT
                           txid,
                           origin_address,
                           origin_nonce,
@@ -2331,8 +2335,11 @@ impl MemPoolDB {
         block_limit: &ExecutionCost,
         stacks_epoch_id: &StacksEpochId,
     ) -> Result<(), MemPoolRejection> {
-        let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
-            .map_err(MemPoolRejection::DeserializationFailure)?;
+        let tx = StacksTransaction::consensus_deserialize_with_epoch(
+            &mut &tx_bytes[..],
+            StacksEpochId::latest(),
+        )
+        .map_err(MemPoolRejection::DeserializationFailure)?;
 
         if self.is_tx_blacklisted(&tx.txid())? {
             // don't re-store this transaction
@@ -2696,8 +2703,11 @@ impl MemPoolDB {
             }
 
             let tx_bytes: Vec<u8> = row.get_unwrap("tx");
-            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
-                .map_err(|_e| db_error::ParseError)?;
+            let tx = StacksTransaction::consensus_deserialize_with_epoch(
+                &mut &tx_bytes[..],
+                StacksEpochId::latest(),
+            )
+            .map_err(|_e| db_error::ParseError)?;
 
             test_debug!("Returning txid {}", &txid);
             ret.push(tx);

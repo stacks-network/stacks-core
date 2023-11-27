@@ -20,6 +20,7 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
+use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::util::sleep_ms;
 
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -510,8 +511,11 @@ fn trait_invocation_behavior() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed =
-                StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
+                &mut tx_bytes.as_slice(),
+                StacksEpochId::Epoch23,
+            )
+            .unwrap();
             let tx_sender = PrincipalData::from(parsed.auth.origin().address_testnet());
             if &tx_sender == &spender_addr {
                 let contract_call = match &parsed.payload {

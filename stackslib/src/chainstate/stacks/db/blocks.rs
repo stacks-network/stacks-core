@@ -38,7 +38,7 @@ use rand::{thread_rng, Rng, RngCore};
 use rusqlite::{Connection, DatabaseName, Error as sqlite_error, OptionalExtension};
 use serde::Serialize;
 use serde_json::json;
-use stacks_common::codec::{read_next, write_next, MAX_MESSAGE_LEN};
+use stacks_common::codec::{read_next, write_next, DeserializeWithEpoch, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
 };
@@ -575,6 +575,28 @@ impl StacksChainState {
         Ok(inst)
     }
 
+    pub fn consensus_load_with_epoch<T: DeserializeWithEpoch>(
+        path: &str,
+        epoch_id: StacksEpochId,
+    ) -> Result<T, Error> {
+        let mut fd = fs::OpenOptions::new()
+            .read(true)
+            .write(false)
+            .open(path)
+            .map_err(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    Error::DBError(db_error::NotFoundError)
+                } else {
+                    Error::DBError(db_error::IOError(e))
+                }
+            })?;
+
+        let mut bound_reader = BoundReader::from_reader(&mut fd, MAX_MESSAGE_LEN as u64);
+        let inst = T::consensus_deserialize_with_epoch(&mut bound_reader, epoch_id)
+            .map_err(Error::CodecError)?;
+        Ok(inst)
+    }
+
     /// Do we have a stored a block in the chunk store?
     /// Will be true even if it's invalid.
     pub fn has_block_indexed(
@@ -847,7 +869,8 @@ impl StacksChainState {
             return Ok(None);
         }
 
-        let block: StacksBlock = StacksChainState::consensus_load(&block_path)?;
+        let block: StacksBlock =
+            StacksChainState::consensus_load_with_epoch(&block_path, StacksEpochId::latest())?;
         Ok(Some(block))
     }
 
@@ -1052,7 +1075,10 @@ impl StacksChainState {
                     return Ok(None);
                 }
 
-                match StacksBlock::consensus_deserialize(&mut &staging_block.block_data[..]) {
+                match StacksBlock::consensus_deserialize_with_epoch(
+                    &mut &staging_block.block_data[..],
+                    StacksEpochId::latest(),
+                ) {
                     Ok(block) => Ok(Some(block)),
                     Err(e) => Err(Error::CodecError(e)),
                 }
@@ -4493,10 +4519,10 @@ impl StacksChainState {
                         // strictly speaking this check is defensive. It will never be the case
                         // that a `miner_reward` has a `recipient_contract` that is `Some(..)`
                         // unless the block was mined in Epoch 2.1.  But you can't be too
-                        // careful... 
+                        // careful...
                         if evaluated_epoch >= StacksEpochId::Epoch21 {
                             // in 2.1 or later, the coinbase may optionally specify a contract into
-                            // which the tokens get sent.  If this is not given, then they are sent 
+                            // which the tokens get sent.  If this is not given, then they are sent
                             // to the miner address.
                             miner_reward.recipient.clone()
                         }
@@ -5735,10 +5761,16 @@ impl StacksChainState {
     }
 
     /// Extract and parse the block from a loaded staging block, and verify its integrity.
-    fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
+    fn extract_stacks_block(
+        next_staging_block: &StagingBlock,
+        epoch_id: StacksEpochId,
+    ) -> Result<StacksBlock, Error> {
         let block = {
-            StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
-                .map_err(Error::CodecError)?
+            StacksBlock::consensus_deserialize_with_epoch(
+                &mut &next_staging_block.block_data[..],
+                epoch_id,
+            )
+            .map_err(Error::CodecError)?
         };
 
         let block_hash = block.block_hash();
@@ -5869,7 +5901,13 @@ impl StacksChainState {
             None => return Ok((None, None)),
         };
 
-        let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
+        let epoch_id = SortitionDB::get_stacks_epoch(sort_tx, burn_header_height as u64)?
+            .expect(&format!(
+                "FATAL: no epoch defined at burn height {}",
+                burn_header_height
+            ))
+            .epoch_id;
+        let block = StacksChainState::extract_stacks_block(&next_staging_block, epoch_id)?;
         let block_size = u64::try_from(next_staging_block.block_data.len())
             .expect("FATAL: more than 2^64 transactions");
 
@@ -6434,7 +6472,19 @@ impl StacksChainState {
             ));
         }
 
-        // 4: the account nonces must be correct
+        // 4: check if transaction is valid in the current epoch
+        let epoch = clarity_connection.get_epoch().clone();
+
+        let is_transaction_valid_in_epoch =
+            StacksBlock::validate_transactions_static_epoch(&vec![tx.clone()], epoch, true);
+
+        if !is_transaction_valid_in_epoch {
+            return Err(MemPoolRejection::Other(
+                "Transaction is not supported in this epoch".to_string(),
+            ));
+        }
+
+        // 5: the account nonces must be correct
         let (origin, payer) =
             match StacksChainState::check_transaction_nonces(clarity_connection, &tx, true) {
                 Ok(x) => x,
@@ -6493,7 +6543,7 @@ impl StacksChainState {
                 )
             });
 
-        // 5: the paying account must have enough funds
+        // 6: the paying account must have enough funds
         if !payer.stx_balance.can_transfer_at_burn_block(
             u128::from(fee),
             block_height,
@@ -6519,7 +6569,7 @@ impl StacksChainState {
             }
         }
 
-        // 6: payload-specific checks
+        // 7: payload-specific checks
         match &tx.payload {
             TransactionPayload::TokenTransfer(addr, amount, _memo) => {
                 // version byte matches?
@@ -6622,7 +6672,7 @@ impl StacksChainState {
                 }
 
                 if let Some(_version) = version_opt.as_ref() {
-                    if clarity_connection.get_epoch() < StacksEpochId::Epoch21 {
+                    if epoch < StacksEpochId::Epoch21 {
                         return Err(MemPoolRejection::Other(
                             "Versioned smart contract transactions are not supported in this epoch"
                                 .to_string(),

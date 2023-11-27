@@ -25,6 +25,7 @@ use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
 use rand::prelude::*;
 use rand::{thread_rng, Rng};
+use stacks_common::address::public_keys_to_address_hash;
 use stacks_common::codec::MAX_PAYLOAD_LEN;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, StacksBlockId};
 use stacks_common::types::StacksEpochId;
@@ -1405,7 +1406,7 @@ impl Relayer {
     /// Verify that a relayed microblock is not problematic -- i.e. it doesn't contain any
     /// problematic transactions. This is a static check -- we only look at the microblock
     /// contents.
-    ///  
+    ///
     /// Returns true if the check passed -- i.e. no problems.
     /// Returns false if not
     pub fn static_check_problematic_relayed_microblock(
@@ -2574,6 +2575,7 @@ pub mod test {
     use crate::chainstate::stacks::test::codec_all_transactions;
     use crate::chainstate::stacks::tests::{
         make_coinbase, make_coinbase_with_nonce, make_smart_contract_with_version,
+        make_stacks_transfer_order_independent_p2sh, make_stacks_transfer_order_independent_p2wsh,
         make_user_stacks_transfer,
     };
     use crate::chainstate::stacks::{Error as ChainstateError, *};
@@ -5745,21 +5747,8 @@ pub mod test {
 
             let sortdb = peer.sortdb.take().unwrap();
             let mut node = peer.stacks_node.take().unwrap();
-            match Relayer::process_new_anchored_block(
-                &sortdb.index_conn(),
-                &mut node.chainstate,
-                &consensus_hash,
-                &stacks_block,
-                123,
-            ) {
-                Ok(x) => {
-                    panic!("Stored pay-to-contract stacks block before epoch 2.1");
-                }
-                Err(chainstate_error::InvalidStacksBlock(_)) => {}
-                Err(e) => {
-                    panic!("Got unexpected error {:?}", &e);
-                }
-            };
+            // transaction with versioned contract was filtered and no error in the block will appear
+            assert_eq!(stacks_block.txs.len(), 1);
             peer.sortdb = Some(sortdb);
             peer.stacks_node = Some(node);
         }
@@ -5771,6 +5760,8 @@ pub mod test {
 
         let sortdb = peer.sortdb.take().unwrap();
         let mut node = peer.stacks_node.take().unwrap();
+        // no filtered transactions in epoch 2.1, all valid
+        assert_eq!(stacks_block.txs.len(), 2);
         match Relayer::process_new_anchored_block(
             &sortdb.index_conn(),
             &mut node.chainstate,
@@ -5785,6 +5776,332 @@ pub mod test {
                 panic!("Got unexpected error {:?}", &e);
             }
         };
+        peer.sortdb = Some(sortdb);
+        peer.stacks_node = Some(node);
+    }
+
+    #[test]
+    fn test_block_order_independent_multisig_mempool_rejection_until_v210() {
+        let mut peer_config = TestPeerConfig::new(function_name!(), 4250, 4251);
+
+        let privk_1 = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let privk_2 = StacksPrivateKey::from_hex(
+            "2a584d899fed1d24e26b524f202763c8ab30260167429f157f1c119f550fa6af01",
+        )
+        .unwrap();
+        let privk_3 = StacksPrivateKey::from_hex(
+            "d5200dee706ee53ae98a03fba6cf4fdcc5084c30cfa9e1b3462dcdeaa3e0f1d201",
+        )
+        .unwrap();
+        let num_sigs = 2;
+
+        let first_multisig = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+            &AddressHashMode::SerializeP2SH,
+            num_sigs,
+            &vec![
+                StacksPublicKey::from_private(&privk_1),
+                StacksPublicKey::from_private(&privk_2),
+                StacksPublicKey::from_private(&privk_3),
+            ],
+        )
+        .unwrap()
+        .to_account_principal();
+        let second_multisig = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+            &AddressHashMode::SerializeP2WSH,
+            num_sigs,
+            &vec![
+                StacksPublicKey::from_private(&privk_1),
+                StacksPublicKey::from_private(&privk_2),
+                StacksPublicKey::from_private(&privk_3),
+            ],
+        )
+        .unwrap()
+        .to_account_principal();
+        let initial_balances = vec![
+            (
+                PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
+                1000000,
+            ),
+            (first_multisig.clone(), 1000000),
+            (second_multisig.clone(), 1000000),
+        ];
+
+        let epochs = vec![
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: 28, // NOTE: the first 25 burnchain blocks have no sortition
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: 28,
+                end_height: 29,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch24,
+                start_height: 29,
+                end_height: 30,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch30,
+                start_height: 30,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_3_0,
+            },
+        ];
+
+        peer_config.epochs = Some(epochs);
+        peer_config.initial_balances = initial_balances;
+
+        let mut peer = TestPeer::new(peer_config);
+        let order_independent_p2sh_opt: RefCell<Option<StacksTransaction>> = RefCell::new(None);
+        let order_independent_p2wsh_opt: RefCell<Option<StacksTransaction>> = RefCell::new(None);
+        let nonce: RefCell<u64> = RefCell::new(0);
+
+        let mut make_tenure =
+            |miner: &mut TestMiner,
+             sortdb: &mut SortitionDB,
+             chainstate: &mut StacksChainState,
+             vrfproof: VRFProof,
+             parent_opt: Option<&StacksBlock>,
+             microblock_parent_opt: Option<&StacksMicroblockHeader>| {
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+                let stacks_tip_opt =
+                    NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                        .unwrap();
+                let parent_tip = match stacks_tip_opt {
+                    None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
+                    Some(header_tip) => {
+                        let ic = sortdb.index_conn();
+                        let snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &tip.sortition_id,
+                            &header_tip.anchored_header.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap(); // succeeds because we don't fork
+                        StacksChainState::get_anchored_block_header_info(
+                            chainstate.db(),
+                            &snapshot.consensus_hash,
+                            &snapshot.winning_stacks_block_hash,
+                        )
+                        .unwrap()
+                        .unwrap()
+                    }
+                };
+
+                let parent_header_hash = parent_tip.anchored_header.block_hash();
+                let parent_consensus_hash = parent_tip.consensus_hash.clone();
+                let parent_index_hash = StacksBlockHeader::make_index_block_hash(
+                    &parent_consensus_hash,
+                    &parent_header_hash,
+                );
+
+                let next_nonce = *nonce.borrow();
+                let coinbase_tx = make_coinbase_with_nonce(
+                    miner,
+                    parent_tip.stacks_block_height as usize,
+                    next_nonce,
+                    None,
+                );
+
+                let order_independent_p2sh = make_stacks_transfer_order_independent_p2sh(
+                    &[privk_1, privk_2, privk_3],
+                    num_sigs,
+                    next_nonce,
+                    1000,
+                    &second_multisig,
+                    100,
+                );
+
+                let order_independent_p2wsh = make_stacks_transfer_order_independent_p2wsh(
+                    &[privk_1, privk_2, privk_3],
+                    num_sigs,
+                    next_nonce,
+                    1000,
+                    &first_multisig,
+                    100,
+                );
+
+                *order_independent_p2sh_opt.borrow_mut() = Some(order_independent_p2sh);
+                *order_independent_p2wsh_opt.borrow_mut() = Some(order_independent_p2wsh);
+                *nonce.borrow_mut() = next_nonce + 1;
+
+                let mut mblock_pubkey_hash_bytes = [0u8; 20];
+                mblock_pubkey_hash_bytes.copy_from_slice(&coinbase_tx.txid()[0..20]);
+
+                let builder = StacksBlockBuilder::make_block_builder(
+                    chainstate.mainnet,
+                    &parent_tip,
+                    vrfproof,
+                    tip.total_burn,
+                    Hash160(mblock_pubkey_hash_bytes),
+                )
+                .unwrap();
+
+                let anchored_block = StacksBlockBuilder::make_anchored_block_from_txs(
+                    builder,
+                    chainstate,
+                    &sortdb.index_conn(),
+                    vec![coinbase_tx],
+                )
+                .unwrap();
+
+                eprintln!("{:?}", &anchored_block.0);
+                (anchored_block.0, vec![])
+            };
+
+        for i in 0..4 {
+            let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+            let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+            let sortdb = peer.sortdb.take().unwrap();
+            let mut node = peer.stacks_node.take().unwrap();
+
+            // the empty block should be accepted
+            match Relayer::process_new_anchored_block(
+                &sortdb.index_conn(),
+                &mut node.chainstate,
+                &consensus_hash,
+                &stacks_block,
+                123,
+            ) {
+                Ok(x) => {
+                    assert!(x, "Did not accept valid block");
+                }
+                Err(e) => {
+                    panic!("Got unexpected error {:?}", &e);
+                }
+            };
+
+            // process it
+            peer.coord.handle_new_stacks_block().unwrap();
+
+            // the mempool would reject both order independent multisig transactions, since we're not yet at tenure 30
+            let order_independent_p2sh = (*order_independent_p2sh_opt.borrow()).clone().unwrap();
+            let order_independent_p2sh_len = order_independent_p2sh.serialize_to_vec().len();
+            match node.chainstate.will_admit_mempool_tx(
+                &sortdb.index_conn(),
+                &consensus_hash,
+                &stacks_block.block_hash(),
+                &order_independent_p2sh,
+                order_independent_p2sh_len as u64,
+            ) {
+                Err(MemPoolRejection::Other(msg)) => {
+                    assert!(msg.find("not supported in this epoch").is_some());
+                }
+                Err(e) => {
+                    panic!("will_admit_mempool_tx {:?}", &e);
+                }
+                Ok(_) => {
+                    panic!("will_admit_mempool_tx succeeded");
+                }
+            };
+
+            let order_independent_p2wsh = (*order_independent_p2wsh_opt.borrow()).clone().unwrap();
+            let order_independent_p2wsh_len = order_independent_p2wsh.serialize_to_vec().len();
+            match node.chainstate.will_admit_mempool_tx(
+                &sortdb.index_conn(),
+                &consensus_hash,
+                &stacks_block.block_hash(),
+                &order_independent_p2wsh,
+                order_independent_p2wsh_len as u64,
+            ) {
+                Err(MemPoolRejection::Other(msg)) => {
+                    assert!(msg.find("not supported in this epoch").is_some());
+                }
+                Err(e) => {
+                    panic!("will_admit_mempool_tx {:?}", &e);
+                }
+                Ok(_) => {
+                    panic!("will_admit_mempool_tx succeeded");
+                }
+            };
+
+            peer.sortdb = Some(sortdb);
+            peer.stacks_node = Some(node);
+        }
+
+        // *now* it should succeed, since tenure 30 was in epoch 3.0
+        let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
+        let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+
+        let sortdb = peer.sortdb.take().unwrap();
+        let mut node = peer.stacks_node.take().unwrap();
+        match Relayer::process_new_anchored_block(
+            &sortdb.index_conn(),
+            &mut node.chainstate,
+            &consensus_hash,
+            &stacks_block,
+            123,
+        ) {
+            Ok(x) => {
+                assert!(x, "Failed to process valid versioned smart contract block");
+            }
+            Err(e) => {
+                panic!("Got unexpected error {:?}", &e);
+            }
+        };
+
+        peer.coord.handle_new_stacks_block().unwrap();
+
+        let order_independent_p2sh = (*order_independent_p2sh_opt.borrow()).clone().unwrap();
+        let order_independent_p2sh_len = order_independent_p2sh.serialize_to_vec().len();
+        match node.chainstate.will_admit_mempool_tx(
+            &sortdb.index_conn(),
+            &consensus_hash,
+            &stacks_block.block_hash(),
+            &order_independent_p2sh,
+            order_independent_p2sh_len as u64,
+        ) {
+            Err(e) => {
+                panic!("will_admit_mempool_tx {:?}", &e);
+            }
+            Ok(_) => {}
+        };
+
+        let order_independent_p2wsh = (*order_independent_p2wsh_opt.borrow()).clone().unwrap();
+        let order_independent_p2wsh_len = order_independent_p2wsh.serialize_to_vec().len();
+        match node.chainstate.will_admit_mempool_tx(
+            &sortdb.index_conn(),
+            &consensus_hash,
+            &stacks_block.block_hash(),
+            &order_independent_p2wsh,
+            order_independent_p2wsh_len as u64,
+        ) {
+            Err(e) => {
+                panic!("will_admit_mempool_tx {:?}", &e);
+            }
+            Ok(_) => {}
+        };
+
         peer.sortdb = Some(sortdb);
         peer.stacks_node = Some(node);
     }

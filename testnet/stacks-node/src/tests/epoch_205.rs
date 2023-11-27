@@ -19,7 +19,7 @@ use stacks::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
     PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::DeserializeWithEpoch;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
 };
@@ -232,7 +232,11 @@ fn test_exact_block_costs() {
             .filter_map(|tx| {
                 let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                let parsed = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut &tx_bytes[..],
+                    StacksEpochId::Epoch2_05,
+                )
+                .unwrap();
                 if let TransactionPayload::ContractCall(ref cc) = &parsed.payload {
                     if cc.function_name.as_str() == "db-get2" {
                         Some(parsed)
@@ -422,7 +426,11 @@ fn test_dynamic_db_method_costs() {
                 continue;
             }
             let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize_with_epoch(
+                &mut &tx_bytes[..],
+                StacksEpochId::Epoch2_05,
+            )
+            .unwrap();
 
             if let TransactionPayload::ContractCall(ref cc) = parsed.payload {
                 assert_eq!(
@@ -823,6 +831,7 @@ fn test_cost_limit_switch_version205() {
             }
             _ => false,
         },
+        StacksEpochId::Epoch2_05,
     );
     assert_eq!(increment_contract_defines.len(), 1);
 
@@ -854,6 +863,7 @@ fn test_cost_limit_switch_version205() {
             }
             _ => false,
         },
+        StacksEpochId::Epoch2_05,
     );
     assert_eq!(increment_calls_alice.len(), 1);
 
@@ -887,6 +897,7 @@ fn test_cost_limit_switch_version205() {
             }
             _ => false,
         },
+        StacksEpochId::Epoch2_05,
     );
     assert_eq!(increment_calls_bob.len(), 0);
 
@@ -920,7 +931,7 @@ fn bigger_microblock_streams_in_2_05() {
                 &format!("large-{}", ix),
                 &format!("
                     ;; a single one of these transactions consumes over half the runtime budget
-                    (define-constant BUFF_TO_BYTE (list 
+                    (define-constant BUFF_TO_BYTE (list
                        0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 0x09 0x0a 0x0b 0x0c 0x0d 0x0e 0x0f
                        0x10 0x11 0x12 0x13 0x14 0x15 0x16 0x17 0x18 0x19 0x1a 0x1b 0x1c 0x1d 0x1e 0x1f
                        0x20 0x21 0x22 0x23 0x24 0x25 0x26 0x27 0x28 0x29 0x2a 0x2b 0x2c 0x2d 0x2e 0x2f
@@ -1163,7 +1174,11 @@ fn bigger_microblock_streams_in_2_05() {
                     continue;
                 }
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+                let parsed = StacksTransaction::consensus_deserialize_with_epoch(
+                    &mut &tx_bytes[..],
+                    StacksEpochId::Epoch2_05,
+                )
+                .unwrap();
                 if let TransactionPayload::SmartContract(tsc, ..) = parsed.payload {
                     if tsc.name.to_string().find("costs-2").is_some() {
                         in_205 = true;
