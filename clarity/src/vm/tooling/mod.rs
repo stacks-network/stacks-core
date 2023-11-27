@@ -1,43 +1,64 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::iter::FromIterator;
 
-use stacks_common::consts::CHAIN_ID_TESTNET;
-use stacks_common::types::StacksEpochId;
-
-use crate::vm::analysis::{mem_type_check, ContractAnalysis};
+use super::{
+    analysis::ContractAnalysis,
+    contexts::GlobalContext,
+    docs::contracts::{make_func_ref, ContractRef, ErrorCode, DOCS_GENERATION_EPOCH},
+    eval_all,
+    types::TypeSignature,
+    ClarityVersion, ContractContext, Error as VmError, Value,
+};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
-use crate::vm::contexts::GlobalContext;
-use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
-use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
-use crate::vm::version::ClarityVersion;
-use crate::vm::{self, ContractContext};
+use crate::vm::{
+    analysis::{run_analysis, CheckResult},
+    costs::LimitedCostTracker,
+    database::MemoryBackingStore,
+    types::QualifiedContractIdentifier,
+};
+use stacks_common::{consts::CHAIN_ID_TESTNET, types::StacksEpochId};
 
-pub const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
+/// Used by CLI tools like the docs generator. Not used in production
+pub fn mem_type_check(
+    snippet: &str,
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    let mut contract = build_ast_with_rules(
+        &contract_identifier,
+        snippet,
+        &mut (),
+        version,
+        epoch,
+        ASTRules::PrecheckSize,
+    )
+    .unwrap()
+    .expressions;
 
-#[derive(Serialize)]
-pub struct ContractRef {
-    pub public_functions: Vec<FunctionRef>,
-    pub read_only_functions: Vec<FunctionRef>,
-    pub error_codes: Vec<ErrorCode>,
-}
-
-#[derive(Serialize)]
-pub struct FunctionRef {
-    name: String,
-    input_type: String,
-    output_type: String,
-    signature: String,
-    description: String,
-}
-
-#[derive(Serialize)]
-pub struct ErrorCode {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub value_type: String,
-    pub value: String,
+    let mut marf = MemoryBackingStore::new();
+    let mut analysis_db = marf.as_analysis_db();
+    let cost_tracker = LimitedCostTracker::new_free();
+    match run_analysis(
+        &QualifiedContractIdentifier::transient(),
+        &mut contract,
+        &mut analysis_db,
+        false,
+        cost_tracker,
+        epoch,
+        version,
+    ) {
+        Ok(x) => {
+            // return the first type result of the type checker
+            let first_type = x
+                .type_map
+                .as_ref()
+                .unwrap()
+                .get_type(&x.expressions.last().unwrap())
+                .cloned();
+            Ok((first_type, x))
+        }
+        Err((e, _)) => Err(e),
+    }
 }
 
 pub struct ContractSupportDocs {
@@ -45,28 +66,7 @@ pub struct ContractSupportDocs {
     pub skip_func_display: HashSet<&'static str>,
 }
 
-pub fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -> FunctionRef {
-    let input_type = get_input_type_string(func_type);
-    let output_type = get_output_type_string(func_type);
-    let signature = get_signature(func_name, func_type)
-        .expect("BUG: failed to build signature for boot contract");
-    FunctionRef {
-        input_type,
-        output_type,
-        signature,
-        name: func_name.to_string(),
-        description: description.to_string(),
-    }
-}
-
-fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
-    let to_eval = format!("{}\n{}", contract_content, var_name);
-    doc_execute(&to_eval)
-        .expect("BUG: failed to evaluate contract for constant value")
-        .expect("BUG: failed to return constant value")
-}
-
-fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
+fn doc_execute(program: &str) -> Result<Option<Value>, VmError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
     let mut marf = MemoryBackingStore::new();
@@ -79,7 +79,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
         DOCS_GENERATION_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = vm::ast::build_ast_with_rules(
+        let parsed = build_ast_with_rules(
             &contract_id,
             program,
             &mut (),
@@ -88,7 +88,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
             ASTRules::PrecheckSize,
         )?
         .expressions;
-        vm::eval_all(&parsed, &mut contract_context, g, None)
+        eval_all(&parsed, &mut contract_context, g, None)
     })
 }
 
@@ -110,7 +110,7 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
             let description = support_docs
                 .descriptions
                 .get(func_name.as_str())
-                .unwrap_or_else(|| panic!("BUG: no description for {}", func_name.as_str()));
+                .expect(&format!("BUG: no description for {}", func_name.as_str()));
             make_func_ref(func_name, func_type, description)
         })
         .collect();
@@ -122,7 +122,7 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
             let description = support_docs
                 .descriptions
                 .get(func_name.as_str())
-                .unwrap_or_else(|| panic!("BUG: no description for {}", func_name.as_str()));
+                .expect(&format!("BUG: no description for {}", func_name.as_str()));
             make_func_ref(func_name, func_type, description)
         })
         .collect();

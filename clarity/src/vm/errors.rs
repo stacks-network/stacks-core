@@ -17,6 +17,7 @@
 use std::error::Error as ErrorTrait;
 use std::{error, fmt};
 
+#[cfg(feature = "sqlite")]
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -55,6 +56,7 @@ pub enum InterpreterError {
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
+    #[cfg(feature = "sqlite")]
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,

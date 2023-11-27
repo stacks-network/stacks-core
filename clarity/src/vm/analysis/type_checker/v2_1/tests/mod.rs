@@ -31,7 +31,6 @@ use crate::vm::analysis::{mem_type_check as mem_run_analysis, AnalysisDatabase};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::TypeSignature::OptionalType;
