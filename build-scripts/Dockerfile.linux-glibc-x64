@@ -21,4 +21,3 @@ RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
 
 FROM scratch AS export-stage
 COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /
-## comment
