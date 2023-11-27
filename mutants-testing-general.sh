@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Create mutants directory
-mkdir mutants
+mkdir -p mutants
 
 ### Run mutation testing on the packages uncommented
 
