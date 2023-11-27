@@ -2,19 +2,31 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::thread::sleep;
+use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
 use clarity::vm::ast::ASTRules;
+use clarity::vm::Value as ClarityValue;
 use lazy_static::lazy_static;
-use stacks::burnchains::{BurnchainSigner, Txid};
+use stacks::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
+};
+use stacks::burnchains::bitcoin::{
+    BitcoinBlock, BitcoinInputType, BitcoinNetworkType, BitcoinTransaction,
+    BitcoinTxInputStructured, BitcoinTxOutput,
+};
+use stacks::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
+use stacks::burnchains::{BurnchainBlock, BurnchainBlockHeader, BurnchainSigner, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
-use stacks::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
+use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::CoordinatorReceivers;
-use stacks::chainstate::coordinator::CoordinatorCommunication;
+use stacks::chainstate::coordinator::{
+    ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
+};
 use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
@@ -27,26 +39,28 @@ use stacks::chainstate::stacks::miner::{
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlockBuilder, StacksTransaction,
     StacksTransactionSigner, TenureChangeCause, TenureChangePayload, ThresholdSignature,
-    TransactionAuth, TransactionPayload, TransactionVersion, MAX_EPOCH_SIZE,
-    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionVersion,
+    MAX_EPOCH_SIZE, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
-use stacks::clarity_vm::database::SortitionDBRef;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::{
     MemPoolDB, StacksEpoch, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
     PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
     PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5,
-    PEER_VERSION_EPOCH_3_0, TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
+    PEER_VERSION_EPOCH_3_0, STACKS_EPOCH_3_0_MARKER, TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
 };
+use stacks::net::atlas::{AtlasConfig, AtlasDB};
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::db::Error as DBError;
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksAddress,
-    StacksBlockId, StacksPrivateKey, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
+    StacksPrivateKey, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
@@ -128,57 +142,94 @@ lazy_static! {
     ];
 }
 
-fn make_snapshot(
+fn make_burn_block(
     parent_snapshot: &BlockSnapshot,
     miner_pkh: &Hash160,
-    initializing: bool,
-) -> Result<BlockSnapshot, ChainstateError> {
-    let burn_height = parent_snapshot.block_height + 1;
+    ops: Vec<BlockstackOperationType>,
+) -> Result<BitcoinBlock, ChainstateError> {
+    let block_height = parent_snapshot.block_height + 1;
     let mut mock_burn_hash_contents = [0u8; 32];
-    mock_burn_hash_contents[0..8].copy_from_slice((burn_height + 1).to_be_bytes().as_ref());
-    let mut mock_consensus_hash_contents = [0u8; 20];
-    mock_consensus_hash_contents[0..8].copy_from_slice((burn_height + 1).to_be_bytes().as_ref());
+    mock_burn_hash_contents[0..8].copy_from_slice((block_height + 1).to_be_bytes().as_ref());
 
-    let new_bhh = BurnchainHeaderHash(mock_burn_hash_contents);
-    let new_ch = ConsensusHash(mock_consensus_hash_contents);
-    let mut new_sh = SortitionHash([3; 32]);
-    new_sh.0[0..8].copy_from_slice((burn_height + 1).to_be_bytes().as_ref());
+    let txs = ops.into_iter().map(|op| {
+        let mut data = match &op {
+            BlockstackOperationType::LeaderKeyRegister(op) => op.serialize_to_vec(),
+            BlockstackOperationType::LeaderBlockCommit(op) => op.serialize_to_vec(),
+            _ => panic!("Attempted to mock unexpected blockstack operation."),
+        };
 
-    let winning_block_txid = if initializing {
-        Txid([0; 32])
-    } else {
-        let mut winning_block_txid = [1u8; 32];
-        winning_block_txid[0..8].copy_from_slice((burn_height + 1).to_be_bytes().as_ref());
-        Txid(winning_block_txid)
-    };
+        data.remove(0);
 
-    let new_snapshot = BlockSnapshot {
-        block_height: burn_height,
-        burn_header_timestamp: 100 * u64::from(burn_height + 1),
-        burn_header_hash: new_bhh.clone(),
-        parent_burn_header_hash: parent_snapshot.burn_header_hash.clone(),
-        consensus_hash: new_ch.clone(),
-        ops_hash: OpsHash([0; 32]),
-        total_burn: 10,
-        sortition: true,
-        sortition_hash: new_sh,
-        winning_block_txid,
-        winning_stacks_block_hash: BlockHeaderHash([0; 32]),
-        index_root: TrieHash([0; 32]),
-        num_sortitions: parent_snapshot.num_sortitions + 1,
-        stacks_block_accepted: true,
-        stacks_block_height: 1,
-        arrival_index: parent_snapshot.arrival_index + 1,
-        canonical_stacks_tip_height: 1,
-        canonical_stacks_tip_hash: BlockHeaderHash([0; 32]),
-        canonical_stacks_tip_consensus_hash: new_ch.clone(),
-        sortition_id: SortitionId::new(&new_bhh.clone(), &PoxId::new(vec![true])),
-        parent_sortition_id: parent_snapshot.sortition_id.clone(),
-        pox_valid: true,
-        accumulated_coinbase_ustx: 0,
-        miner_pk_hash: Some(miner_pkh.clone()),
-    };
-    Ok(new_snapshot)
+        let (inputs, outputs) = if let BlockstackOperationType::LeaderBlockCommit(ref op) = op {
+            let burn_output = BitcoinTxOutput {
+                units: op.burn_fee,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Testnet,
+                    bytes: Hash160([0; 20]),
+                }),
+            };
+
+            let change_output = BitcoinTxOutput {
+                units: 1_000_000_000_000,
+                address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                    addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                    network_id: BitcoinNetworkType::Testnet,
+                    bytes: miner_pkh.clone(),
+                }),
+            };
+
+            let tx_ref = (parent_snapshot.winning_block_txid.clone(), 3);
+
+            let input = BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref,
+            };
+
+            (
+                vec![input.into()],
+                vec![burn_output.clone(), burn_output, change_output],
+            )
+        } else {
+            (
+                vec![BitcoinTxInputStructured {
+                    keys: vec![],
+                    num_required: 0,
+                    in_type: BitcoinInputType::Standard,
+                    tx_ref: (Txid([0; 32]), 0),
+                }
+                .into()],
+                vec![BitcoinTxOutput {
+                    units: 1_000_000_000_000,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Testnet,
+                        bytes: miner_pkh.clone(),
+                    }),
+                }],
+            )
+        };
+
+        BitcoinTransaction {
+            txid: op.txid(),
+            vtxindex: op.vtxindex(),
+            opcode: op.opcode() as u8,
+            data,
+            data_amt: 0,
+            inputs,
+            outputs,
+        }
+    });
+
+    Ok(BitcoinBlock {
+        block_height,
+        block_hash: BurnchainHeaderHash(mock_burn_hash_contents),
+        parent_block_hash: parent_snapshot.burn_header_hash.clone(),
+        txs: txs.collect(),
+        timestamp: 100 * u64::from(block_height + 1),
+    })
 }
 
 /// This struct wraps all the state required for operating a
@@ -203,7 +254,8 @@ pub struct MockamotoNode {
     miner_key: StacksPrivateKey,
     vrf_key: VRFPrivateKey,
     relay_rcv: Receiver<RelayerDirective>,
-    coord_rcv: CoordinatorReceivers,
+    coord_rcv: Option<CoordinatorReceivers>,
+    dispatcher: EventDispatcher,
     globals: Globals,
     config: Config,
 }
@@ -211,6 +263,42 @@ pub struct MockamotoNode {
 struct MockamotoBlockBuilder {
     txs: Vec<StacksTransaction>,
     bytes_so_far: u64,
+}
+
+/// This struct is used by mockamoto to pass the burnchain indexer
+///  parameter to the `ChainsCoordinator`. It errors on every
+///  invocation except `read_burnchain_headers`.
+///
+/// The `ChainsCoordinator` only uses this indexer for evaluating
+///  affirmation maps, which should never be evaluated in mockamoto.
+/// This is passed to the Burnchain DB block processor, though, which
+///  requires `read_burnchain_headers` (to generate affirmation maps)
+struct MockBurnchainIndexer(BurnchainDB);
+
+impl BurnchainHeaderReader for MockBurnchainIndexer {
+    fn read_burnchain_headers(
+        &self,
+        start_height: u64,
+        end_height: u64,
+    ) -> Result<Vec<BurnchainBlockHeader>, DBError> {
+        let mut output = vec![];
+        for i in start_height..end_height {
+            let header = BurnchainDB::get_burnchain_header(self.0.conn(), i)
+                .map_err(|e| DBError::Other(e.to_string()))?
+                .ok_or_else(|| DBError::NotFoundError)?;
+            output.push(header);
+        }
+        Ok(output)
+    }
+    fn get_burnchain_headers_height(&self) -> Result<u64, DBError> {
+        Err(DBError::NoDBError)
+    }
+    fn find_burnchain_header_height(
+        &self,
+        header_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<u64>, DBError> {
+        Err(DBError::NoDBError)
+    }
 }
 
 impl BlockBuilder for MockamotoBlockBuilder {
@@ -276,12 +364,21 @@ impl BlockBuilder for MockamotoBlockBuilder {
 
 impl MockamotoNode {
     pub fn new(config: &Config) -> Result<MockamotoNode, String> {
+        info!("Started");
         let miner_key = config
             .miner
             .mining_key
             .clone()
             .ok_or("Mockamoto node must be configured with `miner.mining_key`")?;
         let vrf_key = VRFPrivateKey::new();
+
+        let stacker_pk = Secp256k1PublicKey::from_private(&miner_key);
+        let stacker_pk_hash = Hash160::from_node_public_key(&stacker_pk);
+
+        let stacker = StacksAddress {
+            version: C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            bytes: stacker_pk_hash,
+        };
 
         let burnchain = config.get_burnchain();
         let (sortdb, _burndb) = burnchain
@@ -293,11 +390,14 @@ impl MockamotoNode {
             )
             .map_err(|e| e.to_string())?;
 
-        let initial_balances: Vec<_> = config
+        let mut initial_balances: Vec<_> = config
             .initial_balances
             .iter()
             .map(|balance| (balance.address.clone(), balance.amount))
             .collect();
+
+        initial_balances.push((stacker.into(), 100_000_000_000_000));
+
         let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances, None);
         let (chainstate, _) = StacksChainState::open_and_exec(
             config.is_mainnet(),
@@ -331,15 +431,66 @@ impl MockamotoNode {
             miner_key,
             vrf_key,
             relay_rcv,
-            coord_rcv,
+            coord_rcv: Some(coord_rcv),
+            dispatcher: EventDispatcher::new(),
             mempool,
             globals,
             config: config.clone(),
         })
     }
 
+    fn spawn_chains_coordinator(&mut self) -> JoinHandle<()> {
+        let config = self.config.clone();
+        let atlas_config = AtlasConfig::new(false);
+
+        let (chainstate, _) = self.chainstate.reopen().unwrap();
+        let coord_config = ChainsCoordinatorConfig {
+            always_use_affirmation_maps: false,
+            require_affirmed_anchor_blocks: false,
+            ..ChainsCoordinatorConfig::new()
+        };
+        let mut dispatcher = self.dispatcher.clone();
+        let burnchain = self.config.get_burnchain();
+        let burndb = burnchain.open_burnchain_db(true).unwrap();
+        let coordinator_indexer = MockBurnchainIndexer(burndb);
+        let atlas_db = AtlasDB::connect(
+            atlas_config.clone(),
+            &self.config.get_atlas_db_file_path(),
+            true,
+        )
+        .unwrap();
+        let miner_status = Arc::new(Mutex::new(MinerStatus::make_ready(100)));
+        let coordinator_receivers = self.coord_rcv.take().unwrap();
+
+        thread::Builder::new()
+            .name(format!("chains-coordinator-{}", &config.node.rpc_bind))
+            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
+            .spawn(move || {
+                debug!(
+                    "chains-coordinator thread ID is {:?}",
+                    thread::current().id()
+                );
+                ChainsCoordinator::run(
+                    coord_config,
+                    chainstate,
+                    burnchain,
+                    &mut dispatcher,
+                    coordinator_receivers,
+                    atlas_config,
+                    Some(&mut ()),
+                    Some(&mut ()),
+                    miner_status,
+                    coordinator_indexer,
+                    atlas_db,
+                );
+            })
+            .expect("FATAL: failed to start chains coordinator thread")
+    }
+
     pub fn run(&mut self) {
         info!("Starting a burn cycle");
+        let coordinator = self.spawn_chains_coordinator();
+
         self.produce_burnchain_block(true).unwrap();
         self.produce_burnchain_block(true).unwrap();
         self.produce_burnchain_block(true).unwrap();
@@ -364,8 +515,8 @@ impl MockamotoNode {
             self.config.get_burnchain().pox_constants,
             p2p_net,
         );
-        let ev_dispatcher = EventDispatcher::new();
 
+        let ev_dispatcher = self.dispatcher.clone();
         let _peer_thread = thread::Builder::new()
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .name("p2p".into())
@@ -382,9 +533,10 @@ impl MockamotoNode {
             info!("Mining a staging block");
             self.mine_and_stage_block().unwrap();
             info!("Processing a staging block");
-            self.process_staging_block().unwrap();
+            // self.process_staging_block().unwrap();
+            self.globals.coord().announce_new_stacks_block();
             info!("Cycle done");
-            sleep(Duration::from_secs(5));
+            sleep(Duration::from_millis(100));
         }
     }
 
@@ -394,9 +546,7 @@ impl MockamotoNode {
 
         let parent_snapshot = SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.conn())?;
         info!("Mocking bitcoin block"; "parent_height" => parent_snapshot.block_height);
-        let new_snapshot = make_snapshot(&parent_snapshot, &miner_pk_hash, initializing)?;
-        let mut sortdb_tx = self.sortdb.tx_handle_begin(&parent_snapshot.sortition_id)?;
-        let burn_height = new_snapshot.block_height;
+        let burn_height = parent_snapshot.block_height + 1;
 
         let mut ops = vec![];
 
@@ -404,16 +554,20 @@ impl MockamotoNode {
             let mut txid = [2u8; 32];
             txid[0..8].copy_from_slice((burn_height + 1).to_be_bytes().as_ref());
             let key_register = LeaderKeyRegisterOp {
-                consensus_hash: new_snapshot.consensus_hash,
+                consensus_hash: ConsensusHash([0; 20]),
                 public_key: VRFPublicKey::from_private(&self.vrf_key),
                 memo: miner_pk_hash.as_bytes().to_vec(),
                 txid: Txid(txid),
                 vtxindex: 0,
-                block_height: new_snapshot.block_height,
-                burn_header_hash: new_snapshot.burn_header_hash,
+                block_height: burn_height,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
             };
             ops.push(BlockstackOperationType::LeaderKeyRegister(key_register));
         } else if !initializing {
+            let mut txid = [1u8; 32];
+            txid[0..8].copy_from_slice((burn_height + 1).to_be_bytes().as_ref());
+            txid[8..16].copy_from_slice((0u64).to_be_bytes().as_ref());
+
             let (parent_block_ptr, parent_vtxindex) =
                 if parent_snapshot.winning_block_txid.as_bytes() == &[0; 32] {
                     (0, 0)
@@ -436,39 +590,47 @@ impl MockamotoNode {
                 parent_vtxindex,
                 key_block_ptr: 1,
                 key_vtxindex: 0,
-                memo: vec![],
+                memo: vec![STACKS_EPOCH_3_0_MARKER],
                 burn_fee: 5000,
                 input: (parent_snapshot.winning_block_txid.clone(), 3),
-                burn_parent_modulus: u8::try_from(burn_height % 5).unwrap(),
+                burn_parent_modulus: u8::try_from(
+                    parent_snapshot.block_height % BURN_BLOCK_MINED_AT_MODULUS,
+                )
+                .unwrap(),
                 apparent_sender: BurnchainSigner(miner_pk_hash.to_string()),
                 commit_outs: vec![
                     PoxAddress::Standard(StacksAddress::burn_address(false), None),
                     PoxAddress::Standard(StacksAddress::burn_address(false), None),
                 ],
                 sunset_burn: 0,
-                txid: new_snapshot.winning_block_txid.clone(),
+                txid: Txid(txid),
                 vtxindex: 0,
-                block_height: new_snapshot.block_height,
-                burn_header_hash: new_snapshot.burn_header_hash,
+                block_height: burn_height,
+                burn_header_hash: BurnchainHeaderHash([0; 32]),
             };
             ops.push(BlockstackOperationType::LeaderBlockCommit(block_commit))
         }
 
-        sortdb_tx.append_chain_tip_snapshot(
-            &parent_snapshot,
-            &new_snapshot,
-            &ops,
-            &vec![],
-            None,
-            None,
-            None,
-        )?;
+        let new_burn_block = make_burn_block(&parent_snapshot, &miner_pk_hash, ops)?;
 
-        sortdb_tx.commit()?;
+        let burnchain = self.config.get_burnchain();
+        let burndb = burnchain.open_burnchain_db(true).unwrap();
+        let indexer = MockBurnchainIndexer(burndb);
+        let mut burndb = burnchain.open_burnchain_db(true).unwrap();
 
-        let staging_db_tx = self.chainstate.db_tx_begin()?;
-        NakamotoChainState::set_burn_block_processed(&staging_db_tx, &new_snapshot.consensus_hash)?;
-        staging_db_tx.commit()?;
+        burndb.store_new_burnchain_block(
+            &burnchain,
+            &indexer,
+            &BurnchainBlock::Bitcoin(new_burn_block),
+            StacksEpochId::Epoch30,
+        );
+
+        self.globals.coord().announce_new_burn_block();
+        let mut cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.conn())?;
+        while cur_snapshot.burn_header_hash == parent_snapshot.burn_header_hash {
+            thread::sleep(Duration::from_millis(100));
+            cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.conn())?;
+        }
 
         Ok(())
     }
@@ -507,7 +669,7 @@ impl MockamotoNode {
         };
 
         info!("Mining block"; "parent_chain_length" => parent_chain_length, "chain_tip_bh" => %chain_tip_bh, "chain_tip_ch" => %chain_tip_ch);
-        let miner_nonce = 2 * parent_chain_length;
+        let miner_nonce = 3 * parent_chain_length;
 
         // TODO: VRF proof cannot be None in Nakamoto rules
         let vrf_proof = VRF::prove(&self.vrf_key, sortition_tip.sortition_hash.as_bytes());
@@ -547,22 +709,56 @@ impl MockamotoNode {
         );
         tenure_tx.chain_id = chain_id;
         tenure_tx.set_origin_nonce(miner_nonce);
-        let txid = tenure_tx.txid();
         let mut tenure_tx_signer = StacksTransactionSigner::new(&tenure_tx);
         tenure_tx_signer.sign_origin(&self.miner_key).unwrap();
         let tenure_tx = tenure_tx_signer.get_tx().unwrap();
 
+        let pox_address = PoxAddress::Standard(
+            StacksAddress::burn_address(false),
+            Some(AddressHashMode::SerializeP2PKH),
+        );
+
+        let stack_stx_payload = if parent_chain_length < 2 {
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address: StacksAddress::burn_address(false),
+                contract_name: "pox-4".try_into().unwrap(),
+                function_name: "stack-stx".try_into().unwrap(),
+                function_args: vec![
+                    ClarityValue::UInt(99_000_000_000_000),
+                    pox_address.as_clarity_tuple().unwrap().into(),
+                    ClarityValue::UInt(u128::from(parent_burn_height)),
+                    ClarityValue::UInt(12),
+                ],
+            })
+        } else {
+            // NOTE: stack-extend doesn't currently work, because the PoX-4 lockup
+            //  special functions have not been implemented.
+            TransactionPayload::ContractCall(TransactionContractCall {
+                address: StacksAddress::burn_address(false),
+                contract_name: "pox-4".try_into().unwrap(),
+                function_name: "stack-extend".try_into().unwrap(),
+                function_args: vec![
+                    ClarityValue::UInt(5),
+                    pox_address.as_clarity_tuple().unwrap().into(),
+                ],
+            })
+        };
+        let mut stack_stx_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
+            stack_stx_payload,
+        );
+        stack_stx_tx.chain_id = chain_id;
+        stack_stx_tx.set_origin_nonce(miner_nonce + 2);
+        let mut stack_stx_tx_signer = StacksTransactionSigner::new(&stack_stx_tx);
+        stack_stx_tx_signer.sign_origin(&self.miner_key).unwrap();
+        let stacks_stx_tx = stack_stx_tx_signer.get_tx().unwrap();
+
         let sortdb_handle = self.sortdb.index_conn();
         let SetupBlockResult {
             mut clarity_tx,
-            mut tx_receipts,
             matured_miner_rewards_opt,
-            evaluated_epoch,
-            applied_epoch_transition,
-            burn_stack_stx_ops,
-            burn_transfer_stx_ops,
-            mut auto_unlock_events,
-            burn_delegate_stx_ops,
+            ..
         } = NakamotoChainState::setup_block(
             &mut chainstate_tx,
             clarity_instance,
@@ -581,7 +777,7 @@ impl MockamotoNode {
             parent_chain_length + 1,
         )?;
 
-        let txs = vec![tenure_tx, coinbase_tx];
+        let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx];
 
         let _ = match StacksChainState::process_block_transactions(
             &mut clarity_tx,
@@ -625,7 +821,7 @@ impl MockamotoNode {
             }
         };
 
-        let mut lockup_events = match NakamotoChainState::finish_block(
+        let _lockup_events = match NakamotoChainState::finish_block(
             &mut clarity_tx,
             matured_miner_rewards_opt.as_ref(),
         ) {
@@ -643,13 +839,13 @@ impl MockamotoNode {
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
         ));
-        chainstate_tx.commit();
+        chainstate_tx.commit().unwrap();
 
         let mut block = NakamotoBlock {
             header: NakamotoBlockHeader {
                 version: 100,
                 chain_length: parent_chain_length + 1,
-                burn_spent: 10,
+                burn_spent: sortition_tip.total_burn,
                 tx_merkle_root: tx_merkle_tree.root(),
                 state_index_root,
                 signer_signature: SchnorrSignature::default(),
