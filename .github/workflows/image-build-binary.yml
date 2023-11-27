@@ -15,10 +15,6 @@ on:
         description: "Docker repo org for uploading images (defaults to github org)"
         default: "${GITHUB_REPOSITORY_OWNER}"
 
-defaults:
-  run:
-    shell: bash
-
 ## Define which docker arch to build for
 env:
   docker_platforms: "linux/arm64, linux/arm/v7, linux/amd64, linux/amd64/v2, linux/amd64/v3"
