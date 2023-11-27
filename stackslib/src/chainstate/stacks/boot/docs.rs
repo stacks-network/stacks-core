@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 
-use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
+use clarity::vm::tooling::{produce_docs_refs, ContractSupportDocs};
 
 use super::STACKS_BOOT_CODE_MAINNET;
 
