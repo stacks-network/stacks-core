@@ -392,6 +392,7 @@ impl BlockBuilder for MockamotoBlockBuilder {
 
 impl MockamotoNode {
     pub fn new(config: &Config) -> Result<MockamotoNode, String> {
+        info!("Started");
         let miner_key = config
             .miner
             .mining_key

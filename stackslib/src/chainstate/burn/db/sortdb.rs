@@ -4446,15 +4446,9 @@ impl SortitionDB {
             let mut cursor = sn;
             loop {
                 let result_at_tip = conn.query_row_and_then(
-<<<<<<< HEAD
                     "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?",
                     &[&cursor.sortition_id],
                     |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
-=======
-                    "SELECT consensus_hash,block_hash FROM stacks_chain_tips WHERE sortition_id = ?",
-                    &[&cursor.sortition_id],
-                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
->>>>>>> d17b257ef (mockamoto mining working with merge)
                 ).optional()?;
                 if let Some(stacks_tip) = result_at_tip {
                     return Ok(stacks_tip);
