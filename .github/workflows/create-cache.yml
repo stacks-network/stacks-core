@@ -6,10 +6,6 @@ on:
   workflow_dispatch:
   workflow_call:
 
-defaults:
-  run:
-    shell: bash
-
 ## env vars are transferred to composite action steps
 env:
   RUSTFLAGS: "-Cinstrument-coverage -Awarnings"

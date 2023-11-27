@@ -6,10 +6,6 @@ on:
   workflow_dispatch:
   workflow_call:
 
-defaults:
-  run:
-    shell: bash
-
 ## Define which docker arch to build for
 env:
   docker_platforms: linux/amd64
@@ -47,7 +43,7 @@ jobs:
         with:
           images: |
             ${{env.docker-org}}/${{ github.event.repository.name }}
-            ${{env.docker-org}}/stacks-core
+            ${{env.docker-org}}/stacks-blockchain
           tags: |
             type=raw,value=${{ env.BRANCH_NAME }}
             type=ref,event=pr
