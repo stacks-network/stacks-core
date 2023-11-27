@@ -570,18 +570,13 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx.commit().unwrap();
     }
 
-    let epoch_id = SortitionDB::get_stacks_epoch(chainstate.db(), nakamoto_header.chain_length)
-        .unwrap()
-        .unwrap()
-        .epoch_id;
-
     // can load Nakamoto block, but only the Nakamoto block
     assert_eq!(
         NakamotoChainState::load_nakamoto_block(
             chainstate.db(),
             &nakamoto_header.consensus_hash,
             &nakamoto_header.block_hash(),
-            epoch_id,
+            StacksEpochId::latest(),
         )
         .unwrap()
         .unwrap(),
@@ -592,7 +587,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
             chainstate.db(),
             &epoch2_header_info.consensus_hash,
             &epoch2_header.block_hash(),
-            epoch_id,
+            StacksEpochId::latest(),
         )
         .unwrap(),
         None
