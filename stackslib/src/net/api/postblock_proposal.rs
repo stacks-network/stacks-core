@@ -94,8 +94,43 @@ impl StacksMessageCodec for NakamotoBlockProposal {
     }
 }
 
+/// This enum is used to supply a `reason_code` for validation
+///  rejection responses. This is serialized as an enum with string
+///  type (in jsonschema terminology).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NakamotoBlockProposalResponse {}
+pub enum ValidateRejectCode {
+    BadBlockHash,
+    BadTransaction,
+    InvalidBlock,
+    ChainstateError,
+    UnknownParent,
+}
+
+/// A response for block proposal validation
+///  that the stacks-node thinks should be rejected.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockValidateReject {
+    pub reason: String,
+    pub reason_code: ValidateRejectCode,
+}
+
+/// A response for block proposal validation
+///  that the stacks-node thinks is acceptable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BlockValidateOk {
+    pub block: StacksBlock,
+    pub cost: ExecutionCost,
+    pub size: u64,
+}
+
+/// This enum is used for serializing the response to block
+/// proposal validation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "Result")]
+pub enum NakamotoBlockProposalResponse {
+    Ok(BlockValidateOk),
+    Reject(BlockValidateReject),
+}
 
 #[derive(Clone, Default)]
 pub struct RPCBlockProposalRequestHandler {
@@ -184,7 +219,7 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
 impl RPCRequestHandler for RPCBlockProposalRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
-        todo!()
+        self.block_proposal = None
     }
 
     /// Make the response
@@ -194,6 +229,16 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        let is_loopback = match preamble.host {
+            // Should never be DNS
+            PeerHost::DNS(..) => false,
+            PeerHost::IP(addr, ..) => addr.is_loopback(),
+        };
+
+        if !is_loopback {
+            return Err(NetError::Http(Error::Http(403, "Forbidden".into())));
+        }
+
         todo!()
     }
 }
@@ -205,17 +250,25 @@ impl HttpResponse for RPCBlockProposalRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        todo!()
+        let response: NakamotoBlockProposalResponse = parse_json(preamble, body)?;
+        HttpResponsePayload::try_from_json(response)
     }
 }
 
 impl StacksHttpRequest {
     /// Make a new post-block request
+    #[cfg(test)]
     pub fn new_post_block_proposal(
         host: PeerHost,
-        proposal: NakamotoBlockProposal,
+        proposal: &NakamotoBlockProposal,
     ) -> StacksHttpRequest {
-        todo!()
+        StacksHttpRequest::new_for_peer(
+            host,
+            "POST".into(),
+            "/v2/block_proposal".into(),
+            HttpRequestContents::new().payload_stacks(proposal),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
     }
 }
 
