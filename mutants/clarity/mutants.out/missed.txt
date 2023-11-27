@@ -1,0 +1,2 @@
+clarity/src/libclarity.rs:96: replace version_string -> String with String::new()
+clarity/src/libclarity.rs:96: replace version_string -> String with "xyzzy".into()

@@ -1,0 +1,2 @@
+clarity/src/libclarity.rs:81: replace boot_util::boot_code_addr -> StacksAddress with Default::default()
+clarity/src/libclarity.rs:73: replace boot_util::boot_code_id -> QualifiedContractIdentifier with Default::default()

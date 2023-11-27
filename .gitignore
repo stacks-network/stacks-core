@@ -23,7 +23,6 @@ pip-log.txt
 .coverage
 .tox
 nosetests.xml
-mutants.out*
 
 # Translations
 *.mo

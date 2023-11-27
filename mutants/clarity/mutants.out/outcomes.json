@@ -1,0 +1,179 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "log_path": "mutants/clarity/mutants.out/log/baseline.log",
+      "summary": "Success",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 46.04112825,
+          "process_status": "Success",
+          "argv": [
+            "/Users/asuciu/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "build",
+            "--tests",
+            "--manifest-path",
+            "/var/folders/wr/nxd5pyh545z8rk128h04wj480000gs/T/cargo-mutants-stacks-core-HHiHlU.tmp/clarity/Cargo.toml"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 13.555701334,
+          "process_status": "Success",
+          "argv": [
+            "/Users/asuciu/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--manifest-path",
+            "/var/folders/wr/nxd5pyh545z8rk128h04wj480000gs/T/cargo-mutants-stacks-core-HHiHlU.tmp/clarity/Cargo.toml"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "clarity",
+          "file": "clarity/src/libclarity.rs",
+          "line": 81,
+          "function": "boot_util::boot_code_addr",
+          "return_type": "-> StacksAddress",
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "log_path": "mutants/clarity/mutants.out/log/clarity__src__libclarity.rs_line_81.log",
+      "summary": "Unviable",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.030609209,
+          "process_status": "Failure",
+          "argv": [
+            "/Users/asuciu/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "build",
+            "--tests",
+            "--manifest-path",
+            "/var/folders/wr/nxd5pyh545z8rk128h04wj480000gs/T/cargo-mutants-stacks-core-HHiHlU.tmp/clarity/Cargo.toml"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "clarity",
+          "file": "clarity/src/libclarity.rs",
+          "line": 96,
+          "function": "version_string",
+          "return_type": "-> String",
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "log_path": "mutants/clarity/mutants.out/log/clarity__src__libclarity.rs_line_96.log",
+      "summary": "MissedMutant",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 6.272183792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/asuciu/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "build",
+            "--tests",
+            "--manifest-path",
+            "/var/folders/wr/nxd5pyh545z8rk128h04wj480000gs/T/cargo-mutants-stacks-core-HHiHlU.tmp/clarity/Cargo.toml"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.609116292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/asuciu/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--manifest-path",
+            "/var/folders/wr/nxd5pyh545z8rk128h04wj480000gs/T/cargo-mutants-stacks-core-HHiHlU.tmp/clarity/Cargo.toml"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "clarity",
+          "file": "clarity/src/libclarity.rs",
+          "line": 73,
+          "function": "boot_util::boot_code_id",
+          "return_type": "-> QualifiedContractIdentifier",
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "log_path": "mutants/clarity/mutants.out/log/clarity__src__libclarity.rs_line_73.log",
+      "summary": "Unviable",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.755918375,
+          "process_status": "Failure",
+          "argv": [
+            "/Users/asuciu/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "build",
+            "--tests",
+            "--manifest-path",
+            "/var/folders/wr/nxd5pyh545z8rk128h04wj480000gs/T/cargo-mutants-stacks-core-HHiHlU.tmp/clarity/Cargo.toml"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "package": "clarity",
+          "file": "clarity/src/libclarity.rs",
+          "line": 96,
+          "function": "version_string",
+          "return_type": "-> String",
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "log_path": "mutants/clarity/mutants.out/log/clarity__src__libclarity.rs_line_96_001.log",
+      "summary": "MissedMutant",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 5.987611125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/asuciu/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "build",
+            "--tests",
+            "--manifest-path",
+            "/var/folders/wr/nxd5pyh545z8rk128h04wj480000gs/T/cargo-mutants-stacks-core-HHiHlU.tmp/clarity/Cargo.toml"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.399572666,
+          "process_status": "Success",
+          "argv": [
+            "/Users/asuciu/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--manifest-path",
+            "/var/folders/wr/nxd5pyh545z8rk128h04wj480000gs/T/cargo-mutants-stacks-core-HHiHlU.tmp/clarity/Cargo.toml"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 4,
+  "missed": 2,
+  "caught": 0,
+  "timeout": 0,
+  "unviable": 2,
+  "success": 0,
+  "failure": 0
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "package": "clarity",
+    "file": "clarity/src/libclarity.rs",
+    "line": 81,
+    "function": "boot_util::boot_code_addr",
+    "return_type": "-> StacksAddress",
+    "replacement": "Default::default()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "clarity",
+    "file": "clarity/src/libclarity.rs",
+    "line": 96,
+    "function": "version_string",
+    "return_type": "-> String",
+    "replacement": "String::new()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "clarity",
+    "file": "clarity/src/libclarity.rs",
+    "line": 73,
+    "function": "boot_util::boot_code_id",
+    "return_type": "-> QualifiedContractIdentifier",
+    "replacement": "Default::default()",
+    "genre": "FnValue"
+  },
+  {
+    "package": "clarity",
+    "file": "clarity/src/libclarity.rs",
+    "line": 96,
+    "function": "version_string",
+    "return_type": "-> String",
+    "replacement": "\"xyzzy\".into()",
+    "genre": "FnValue"
+  }
+]
