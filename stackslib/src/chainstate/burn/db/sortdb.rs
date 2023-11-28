@@ -67,6 +67,7 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
 };
+use crate::chainstate::nakamoto::NakamotoBlockHeader;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -1929,6 +1930,7 @@ impl<'a> SortitionHandleConn<'a> {
         consensus_hash: &ConsensusHash,
         signer_signature: &WSTSSignature,
         message: &[u8],
+        aggregate_public_key: &Point,
     ) -> Result<bool, db_error> {
         let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
             .ok_or(db_error::NotFoundError)
@@ -1979,69 +1981,11 @@ impl<'a> SortitionHandleConn<'a> {
         }
 
         // is this consensus hash in this fork?
-        if !SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?.is_some() {
+        if SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?.is_none() {
             return Ok(false);
         }
 
-        // Get the current reward cycle
-        let reward_cycle = if let Some(reward_cycle) = self
-            .context
-            .pox_constants
-            .block_height_to_reward_cycle(self.context.first_block_height, sn.block_height)
-        {
-            reward_cycle
-        } else {
-            // can't do anything
-            warn!("Failed to determine reward cycle of block with consensus hash";
-                  "consensus_hash" => %consensus_hash,
-                  "block_height" => ch_sn.block_height
-            );
-            return Ok(false);
-        };
-        if let Some(key) = self.get_reward_cycle_aggregate_public_key(reward_cycle)? {
-            return Ok(signer_signature.verify(&key, message));
-        } else {
-            warn!("No known aggregate public key for reward cycle {reward_cycle}");
-            return Ok(false);
-        }
-    }
-
-    /// Get the aggregate public key for the given reward cycle.
-    pub fn get_reward_cycle_aggregate_public_key(
-        &self,
-        reward_cycle: u64,
-    ) -> Result<Option<Point>, db_error> {
-        let prev_reward_cycle = reward_cycle - 1;
-        // Get the first sortition in the prepare phase of the PARENT reward cycle
-        let prepare_phase_start = self
-            .context
-            .pox_constants
-            .prepare_phase_start(self.context.first_block_height, prev_reward_cycle);
-        let first_prepare_sn =
-            SortitionDB::get_ancestor_snapshot(self, prepare_phase_start, &self.context.chain_tip)?
-                .ok_or_else(|| {
-                    warn!(
-                        "Prepare phase for reward cycle {} does not have a sortition from {}",
-                        prev_reward_cycle, &self.context.chain_tip
-                    );
-                    db_error::NotFoundError
-                })?;
-        self.get_reward_set_aggregate_public_key(&first_prepare_sn.sortition_id)
-    }
-
-    /// Get the aggregate public key for reward set of the given sortition id.
-    pub fn get_reward_set_aggregate_public_key(
-        &self,
-        sortition_id: &SortitionId,
-    ) -> Result<Option<Point>, db_error> {
-        if let Some(reward_info) = SortitionDB::get_preprocessed_reward_set(self, sortition_id)? {
-            if let PoxAnchorBlockStatus::SelectedAndKnown(_, _, reward_set) =
-                reward_info.anchor_status
-            {
-                return Ok(reward_set.aggregate_public_key);
-            }
-        }
-        Ok(None)
+        Ok(signer_signature.verify(aggregate_public_key, message))
     }
 
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {

@@ -69,12 +69,6 @@ impl OnChainRewardSetProvider {
         let registered_addrs =
             chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
 
-        let reward_cycle = burnchain
-            .block_height_to_reward_cycle(current_burn_height)
-            .ok_or(crate::chainstate::stacks::Error::PoxNoRewardCycle)?;
-
-        let aggregate_public_key =
-            chainstate.get_aggregate_public_key_pox_4(sortdb, block_id, reward_cycle)?;
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
@@ -106,7 +100,6 @@ impl OnChainRewardSetProvider {
             threshold,
             registered_addrs,
             cur_epoch.epoch_id,
-            aggregate_public_key,
         ))
     }
 }
@@ -284,11 +277,6 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 
         let reward_set =
             provider.get_reward_set(burn_height, chain_state, burnchain, sort_db, &block_id)?;
-        // if the aggregate_public_key is not set, signers may not be done the DKG round/DKG vote
-        // The caller should try again when more blocks have arrived
-        if reward_set.aggregate_public_key.is_none() {
-            return Ok(None);
-        }
         debug!(
             "Stacks anchor block (ch {}) {} cycle {} is processed",
             &anchor_block_header.consensus_hash, &block_id, reward_cycle

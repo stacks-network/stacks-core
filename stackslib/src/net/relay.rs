@@ -30,13 +30,14 @@ use stacks_common::types::chainstate::{BurnchainHeaderHash, PoxId, SortitionId, 
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
+use wsts::Point;
 
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleConn};
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::coordinator::BlockEventDispatcher;
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -652,6 +653,7 @@ impl Relayer {
     /// downloaded by us, or pushed via p2p.
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_nakamoto_block(
+        sortdb: &SortitionDB,
         sort_handle: &SortitionHandleConn,
         chainstate: &mut StacksChainState,
         block: NakamotoBlock,
@@ -711,10 +713,43 @@ impl Relayer {
             &block.header.block_hash()
         );
 
+        let Some(canonical_block_header) =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)?
+        else {
+            warn!(
+                "Failed to find Nakamoto canonical block header.  Will not store or relay";
+                "stacks_block_hash" => %block.header.block_hash(),
+                "consensus_hash" => %block.header.consensus_hash,
+                "burn_height" => block.header.chain_length,
+                "sortition_height" => block_sn.block_height,
+            );
+            return Ok(false);
+        };
+
         let config = chainstate.config();
+        let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
+            &sortdb,
+            &sort_handle,
+            chainstate,
+            &block.header,
+            &canonical_block_header,
+        ) else {
+            warn!("Failed to get aggregate public key. Will not store or relay";
+                "stacks_block_hash" => %block.header.block_hash(),
+                "consensus_hash" => %block.header.consensus_hash,
+                "burn_height" => block.header.chain_length,
+                "sortition_height" => block_sn.block_height,
+            );
+            return Ok(false);
+        };
         let staging_db_tx = chainstate.db_tx_begin()?;
-        let accepted =
-            NakamotoChainState::accept_block(&config, block, sort_handle, &staging_db_tx)?;
+        let accepted = NakamotoChainState::accept_block(
+            &config,
+            block,
+            sort_handle,
+            &staging_db_tx,
+            &aggregate_public_key,
+        )?;
         staging_db_tx.commit()?;
 
         if accepted {

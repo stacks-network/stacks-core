@@ -328,7 +328,6 @@ impl OnChainRewardSetProvider {
         block_id: &StacksBlockId,
         cur_epoch: StacksEpoch,
     ) -> Result<RewardSet, Error> {
-        let mut aggregate_public_key = None;
         match cur_epoch.epoch_id {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20
@@ -369,11 +368,6 @@ impl OnChainRewardSetProvider {
                     info!("PoX reward cycle defaulting to burn in Epoch 2.5 because cycle start is before PoX-4 activation");
                     return Ok(RewardSet::empty());
                 }
-                let reward_cycle = burnchain
-                    .block_height_to_reward_cycle(current_burn_height)
-                    .ok_or(crate::chainstate::stacks::Error::PoxNoRewardCycle)?;
-                aggregate_public_key =
-                    chainstate.get_aggregate_public_key_pox_4(sortdb, block_id, reward_cycle)?;
             }
         };
 
@@ -411,7 +405,6 @@ impl OnChainRewardSetProvider {
             threshold,
             registered_addrs,
             cur_epoch.epoch_id,
-            aggregate_public_key,
         ))
     }
 }

@@ -478,9 +478,25 @@ impl MockamotoNode {
     fn mine_and_stage_block(&mut self) -> Result<(), ChainstateError> {
         let block = self.mine_stacks_block()?;
         let config = self.chainstate.config();
-        let chainstate_tx = self.chainstate.db_tx_begin()?;
         let sortition_handle = self.sortdb.index_handle_at_tip();
-        NakamotoChainState::accept_block(&config, block, &sortition_handle, &chainstate_tx)?;
+        let canonical_block_header =
+            NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)?
+                .unwrap();
+        let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
+            &self.sortdb,
+            &sortition_handle,
+            &mut self.chainstate,
+            &block.header,
+            &canonical_block_header,
+        )?;
+        let chainstate_tx = self.chainstate.db_tx_begin()?;
+        NakamotoChainState::accept_block(
+            &config,
+            block,
+            &sortition_handle,
+            &chainstate_tx,
+            &aggregate_public_key,
+        )?;
         chainstate_tx.commit()?;
         Ok(())
     }

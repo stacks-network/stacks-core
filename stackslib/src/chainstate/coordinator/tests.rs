@@ -495,7 +495,6 @@ impl RewardSetProvider for StubbedRewardSetProvider {
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
-            aggregate_public_key: None,
         })
     }
 }
