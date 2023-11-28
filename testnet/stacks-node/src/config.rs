@@ -775,7 +775,39 @@ impl Config {
     }
 
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        let default_node_config = NodeConfig::default();
+        if config_file.burnchain.as_ref().map(|b| b.mode.clone()) == Some(Some("mockamoto".into()))
+        {
+            let default = Self::from_config_default(ConfigFile::mockamoto(), None)?;
+            Self::from_config_default(config_file, Some(default))
+        } else {
+            Self::from_config_default(config_file, None)
+        }
+    }
+
+    fn from_config_default(
+        config_file: ConfigFile,
+        default: Option<Config>,
+    ) -> Result<Config, String> {
+        let (
+            default_node_config,
+            default_burnchain_config,
+            miner_default_config,
+            default_estimator,
+        ) = match default {
+            Some(Config {
+                node,
+                burnchain,
+                miner,
+                estimation,
+                ..
+            }) => (node, burnchain, miner, estimation),
+            None => (
+                NodeConfig::default(),
+                BurnchainConfig::default(),
+                MinerConfig::default(),
+                FeeEstimationConfig::default(),
+            ),
+        };
         let mut has_require_affirmed_anchor_blocks = false;
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
@@ -859,13 +891,14 @@ impl Config {
                             QualifiedContractIdentifier::parse(contract_id).ok()
                         })
                         .collect(),
+                    mockamoto_time_ms: node
+                        .mockamoto_time_ms
+                        .unwrap_or(default_node_config.mockamoto_time_ms),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
             None => (default_node_config, None, None),
         };
-
-        let default_burnchain_config = BurnchainConfig::default();
 
         let burnchain = match config_file.burnchain {
             Some(mut burnchain) => {
@@ -1038,7 +1071,6 @@ impl Config {
             None => default_burnchain_config,
         };
 
-        let miner_default_config = MinerConfig::default();
         let miner = match config_file.miner {
             Some(ref miner) => MinerConfig {
                 min_tx_fee: miner.min_tx_fee.unwrap_or(miner_default_config.min_tx_fee),
@@ -1316,7 +1348,7 @@ impl Config {
 
         let estimation = match config_file.fee_estimation {
             Some(f) => FeeEstimationConfig::from(f),
-            None => FeeEstimationConfig::default(),
+            None => default_estimator,
         };
 
         let mainnet = burnchain.mode == "mainnet";
@@ -1701,6 +1733,9 @@ pub struct NodeConfig {
     pub chain_liveness_poll_time_secs: u64,
     /// stacker DBs we replicate
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
+    /// if running in mockamoto mode, how long to wait between each
+    /// simulated bitcoin block
+    pub mockamoto_time_ms: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1980,6 +2015,7 @@ impl NodeConfig {
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
+            mockamoto_time_ms: 3_000,
         }
     }
 
@@ -2190,6 +2226,9 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// if running in mockamoto mode, how long to wait between each
+    /// simulated bitcoin block
+    pub mockamoto_time_ms: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
