@@ -375,7 +375,7 @@ fn placeholder_for_type(ty: ValType) -> Val {
         ValType::I64 => Val::I64(0),
         ValType::F32 => Val::F32(0),
         ValType::F64 => Val::F64(0),
-        ValType::V128 => Val::V128(0),
+        ValType::V128 => Val::V128(0.into()),
         ValType::ExternRef => unimplemented!("ExternRef"),
         ValType::FuncRef => unimplemented!("FuncRef"),
     }
