@@ -15,23 +15,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use ::libsecp256k1;
-use ::libsecp256k1::Error as LibSecp256k1Error;
-use ::libsecp256k1::Message as LibSecp256k1Message;
-use ::libsecp256k1::PublicKey as LibSecp256k1PublicKey;
-use ::libsecp256k1::RecoveryId as LibSecp256k1RecoveryId;
-use ::libsecp256k1::SecretKey as LibSecp256k1PrivateKey;
-use ::libsecp256k1::Signature as LibSecp256k1Signature;
-
 pub use ::libsecp256k1::Error;
-
-use crate::types::PublicKey;
-use crate::util::hash::{hex_bytes, to_hex};
-
-use super::MessageSignature;
-use serde::de::Deserialize;
-use serde::de::Error as de_Error;
+use ::libsecp256k1::{
+    Error as LibSecp256k1Error, Message as LibSecp256k1Message, PublicKey as LibSecp256k1PublicKey,
+    RecoveryId as LibSecp256k1RecoveryId, SecretKey as LibSecp256k1PrivateKey,
+    Signature as LibSecp256k1Signature,
+};
+use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
+
+use super::MessageSignature;
+use crate::types::PublicKey;
+use crate::util::hash::{hex_bytes, to_hex};
 
 pub const PUBLIC_KEY_SIZE: usize = 33;
 

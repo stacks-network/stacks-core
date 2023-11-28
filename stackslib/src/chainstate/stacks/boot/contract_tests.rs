@@ -1679,7 +1679,15 @@ fn test_deploy_smart_contract(
     block.as_transaction(|tx| {
         let (mut ast, analysis) =
             tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
-        tx.initialize_smart_contract(&contract_id, version, &mut ast, &analysis, content, None, |_, _| false)?;
+        tx.initialize_smart_contract(
+            &contract_id,
+            version,
+            &mut ast,
+            &analysis,
+            content,
+            None,
+            |_, _| false,
+        )?;
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
     })

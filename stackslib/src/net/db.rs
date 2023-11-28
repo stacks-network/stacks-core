@@ -493,11 +493,7 @@ impl PeerDB {
 
     fn get_schema_version(conn: &Connection) -> Result<String, db_error> {
         let version = conn
-            .query_row(
-                "SELECT MAX(version) from db_config",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT MAX(version) from db_config", [], |row| row.get(0))
             .optional()?
             .unwrap_or("1".to_string());
         Ok(version)

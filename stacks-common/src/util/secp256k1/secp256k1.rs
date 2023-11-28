@@ -14,23 +14,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::MessageSignature;
 use ::secp256k1;
-use ::secp256k1::constants as LibSecp256k1Constants;
-use ::secp256k1::ecdsa::RecoverableSignature as LibSecp256k1RecoverableSignature;
-use ::secp256k1::ecdsa::RecoveryId as LibSecp256k1RecoveryID;
-use ::secp256k1::ecdsa::Signature as LibSecp256k1Signature;
-use ::secp256k1::Error as LibSecp256k1Error;
+use ::secp256k1::ecdsa::{
+    RecoverableSignature as LibSecp256k1RecoverableSignature, RecoveryId as LibSecp256k1RecoveryID,
+    Signature as LibSecp256k1Signature,
+};
 pub use ::secp256k1::Error;
-use ::secp256k1::Message as LibSecp256k1Message;
-use ::secp256k1::PublicKey as LibSecp256k1PublicKey;
-use ::secp256k1::Secp256k1;
-use ::secp256k1::SecretKey as LibSecp256k1PrivateKey;
+use ::secp256k1::{
+    constants as LibSecp256k1Constants, Error as LibSecp256k1Error, Message as LibSecp256k1Message,
+    PublicKey as LibSecp256k1PublicKey, Secp256k1, SecretKey as LibSecp256k1PrivateKey,
+};
 use rand::{thread_rng, RngCore};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
+use super::MessageSignature;
 use crate::types::{PrivateKey, PublicKey};
 use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
 

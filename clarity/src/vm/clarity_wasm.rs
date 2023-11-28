@@ -1,46 +1,39 @@
-use std::{
-    borrow::BorrowMut,
-    collections::{BTreeMap, HashMap},
-    fs::File,
-    io::Write,
-};
+use std::borrow::BorrowMut;
+use std::collections::{BTreeMap, HashMap};
+use std::f32::EPSILON;
+use std::fs::File;
+use std::io::Write;
 
-use stacks_common::{
-    types::chainstate::StacksBlockId,
-    util::{
-        hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum},
-        secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey},
-    },
-};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
-use super::{
-    analysis::CheckErrors,
-    callables::{DefineType, DefinedFunction},
-    contracts::Contract,
-    costs::{constants as cost_constants, CostTracker},
-    database::{clarity_db::ValueResult, ClarityDatabase, DataVariableMetadata, STXBalance},
-    errors::RuntimeErrorType,
-    events::*,
-    functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2},
-    types::{
-        ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CharType,
-        FixedFunction, FunctionType, ListData, OptionalData, PrincipalData,
-        QualifiedContractIdentifier, ResponseData, SequenceData, StacksAddressExtensions,
-        StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, BUFF_1, BUFF_32,
-        BUFF_33,
-    },
-    CallStack, ClarityVersion, ContractName, Environment, SymbolicExpression,
+use super::analysis::CheckErrors;
+use super::callables::{DefineType, DefinedFunction};
+use super::contracts::Contract;
+use super::costs::{constants as cost_constants, CostTracker};
+use super::database::clarity_db::ValueResult;
+use super::database::{ClarityDatabase, DataVariableMetadata, STXBalance};
+use super::errors::RuntimeErrorType;
+use super::events::*;
+use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
+use super::types::{
+    ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CharType,
+    FixedFunction, FunctionType, ListData, ListTypeData, OptionalData, PrincipalData,
+    QualifiedContractIdentifier, ResponseData, SequenceData, StacksAddressExtensions,
+    StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, BUFF_1, BUFF_32,
+    BUFF_33,
 };
-use crate::vm::{
-    analysis::ContractAnalysis,
-    ast::ContractAST,
-    contexts::GlobalContext,
-    errors::{Error, WasmError},
-    functions::principals,
-    types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature},
-    ClarityName, ContractContext, Value,
-};
+use super::{CallStack, ClarityVersion, ContractName, Environment, SymbolicExpression};
+use crate::vm::analysis::ContractAnalysis;
+use crate::vm::ast::ContractAST;
+use crate::vm::contexts::GlobalContext;
+use crate::vm::errors::{Error, WasmError};
+use crate::vm::functions::principals;
+use crate::vm::types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature};
+use crate::vm::{ClarityName, ContractContext, Value};
 
 enum MintAssetErrorCodes {
     ALREADY_EXIST = 1,
@@ -400,6 +393,7 @@ pub fn initialize_contract(
     let publisher: PrincipalData = contract_context.contract_identifier.issuer.clone().into();
 
     let mut call_stack = CallStack::new();
+    let epoch = global_context.epoch_id;
     let init_context = ClarityWasmContext::new_init(
         global_context,
         contract_context,
@@ -462,7 +456,7 @@ pub fn initialize_contract(
         let memory = instance
             .get_memory(&mut store, "memory")
             .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
-        wasm_to_clarity_value(return_type, 0, &results, memory, &mut &mut store)
+        wasm_to_clarity_value(return_type, 0, &results, memory, &mut &mut store, epoch)
             .map(|(val, _offset)| val)
     } else {
         Ok(None)
@@ -480,6 +474,7 @@ pub fn call_function<'a, 'b, 'c>(
     caller: Option<PrincipalData>,
     sponsor: Option<PrincipalData>,
 ) -> Result<Value, Error> {
+    let epoch = global_context.epoch_id;
     let context = ClarityWasmContext::new_run(
         global_context,
         contract_context,
@@ -582,7 +577,7 @@ pub fn call_function<'a, 'b, 'c>(
         })?;
 
     // If the function returns a value, translate it into a Clarity `Value`
-    wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store)
+    wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store, epoch)
         .map(|(val, _offset)| val)
         .and_then(|option_value| {
             option_value.ok_or_else(|| Error::Wasm(WasmError::ExpectedReturnValue))
@@ -772,6 +767,7 @@ fn read_from_wasm_indirect(
     mut store: &mut impl AsContextMut,
     ty: &TypeSignature,
     mut offset: i32,
+    epoch: StacksEpochId,
 ) -> Result<Value, Error> {
     let mut length = get_type_size(ty);
 
@@ -790,7 +786,7 @@ fn read_from_wasm_indirect(
         offset = indirect_offset;
     };
 
-    read_from_wasm(memory, store, ty, offset, length)
+    read_from_wasm(memory, store, ty, offset, length, epoch)
 }
 
 /// Read a value from the Wasm memory at `offset` with `length`, given the
@@ -801,6 +797,7 @@ fn read_from_wasm(
     ty: &TypeSignature,
     offset: i32,
     length: i32,
+    epoch: StacksEpochId,
 ) -> Result<Value, Error> {
     match ty {
         TypeSignature::UIntType => {
@@ -905,11 +902,11 @@ fn read_from_wasm(
             let mut buffer: Vec<Value> = Vec::new();
             let mut current_offset = offset;
             while current_offset < end {
-                let elem = read_from_wasm_indirect(memory, store, elem_ty, current_offset)?;
+                let elem = read_from_wasm_indirect(memory, store, elem_ty, current_offset, epoch)?;
                 buffer.push(elem);
                 current_offset += elem_length;
             }
-            Value::list_from(buffer)
+            Value::list_with_type(&epoch, buffer, list.clone())
         }
         TypeSignature::BoolType => {
             debug_assert!(
@@ -928,7 +925,8 @@ fn read_from_wasm(
             let mut current_offset = offset;
             for (field_key, field_ty) in type_sig.get_type_map() {
                 let field_length = get_type_size(field_ty);
-                let field_value = read_from_wasm_indirect(memory, store, field_ty, current_offset)?;
+                let field_value =
+                    read_from_wasm_indirect(memory, store, field_ty, current_offset, epoch)?;
                 data.push((field_key.clone(), field_value));
                 current_offset += field_length;
             }
@@ -949,13 +947,23 @@ fn read_from_wasm(
             match indicator {
                 0 => {
                     current_offset += get_type_size(&response_type.0);
-                    let err_value =
-                        read_from_wasm_indirect(memory, store, &response_type.1, current_offset)?;
+                    let err_value = read_from_wasm_indirect(
+                        memory,
+                        store,
+                        &response_type.1,
+                        current_offset,
+                        epoch,
+                    )?;
                     Value::error(err_value).map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))
                 }
                 1 => {
-                    let ok_value =
-                        read_from_wasm_indirect(memory, store, &response_type.0, current_offset)?;
+                    let ok_value = read_from_wasm_indirect(
+                        memory,
+                        store,
+                        &response_type.0,
+                        current_offset,
+                        epoch,
+                    )?;
                     Value::okay(ok_value).map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))
                 }
                 _ => Err(Error::Wasm(WasmError::InvalidIndicator(indicator))),
@@ -975,7 +983,8 @@ fn read_from_wasm(
             match indicator {
                 0 => Ok(Value::none()),
                 1 => {
-                    let value = read_from_wasm_indirect(memory, store, type_sig, current_offset)?;
+                    let value =
+                        read_from_wasm_indirect(memory, store, type_sig, current_offset, epoch)?;
                     Ok(
                         Value::some(value)
                             .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?,
@@ -1582,6 +1591,7 @@ fn wasm_to_clarity_value(
     buffer: &[Val],
     memory: Memory,
     mut store: &mut impl AsContextMut,
+    epoch: StacksEpochId,
 ) -> Result<(Option<Value>, usize), Error> {
     match type_sig {
         TypeSignature::IntType => {
@@ -1627,8 +1637,14 @@ fn wasm_to_clarity_value(
                     .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
                     == 1
                 {
-                    let (value, _) =
-                        wasm_to_clarity_value(optional, value_index + 1, buffer, memory, store)?;
+                    let (value, _) = wasm_to_clarity_value(
+                        optional,
+                        value_index + 1,
+                        buffer,
+                        memory,
+                        store,
+                        epoch,
+                    )?;
                     Some(Value::some(value.ok_or(Error::Unchecked(
                         CheckErrors::CouldNotDetermineType,
                     ))?)?)
@@ -1648,8 +1664,14 @@ fn wasm_to_clarity_value(
                     .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
                     == 1
                 {
-                    let (ok, _) =
-                        wasm_to_clarity_value(&response.0, value_index + 1, buffer, memory, store)?;
+                    let (ok, _) = wasm_to_clarity_value(
+                        &response.0,
+                        value_index + 1,
+                        buffer,
+                        memory,
+                        store,
+                        epoch,
+                    )?;
                     Some(Value::okay(ok.ok_or(Error::Unchecked(
                         CheckErrors::CouldNotDetermineResponseOkType,
                     ))?)?)
@@ -1660,6 +1682,7 @@ fn wasm_to_clarity_value(
                         buffer,
                         memory,
                         store,
+                        epoch,
                     )?;
                     Some(Value::error(err.ok_or(Error::Unchecked(
                         CheckErrors::CouldNotDetermineResponseErrType,
@@ -1707,7 +1730,7 @@ fn wasm_to_clarity_value(
                 .i32()
                 .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
 
-            let value = read_from_wasm(memory, store, type_sig, offset, length)?;
+            let value = read_from_wasm(memory, store, type_sig, offset, length, epoch)?;
             Ok((Some(value), 2))
         }
         TypeSignature::PrincipalType | TypeSignature::CallableType(_) => {
@@ -1758,7 +1781,8 @@ fn wasm_to_clarity_value(
             let mut index = value_index;
             let mut data_map = Vec::new();
             for (name, ty) in t.get_type_map() {
-                let (value, increment) = wasm_to_clarity_value(ty, index, buffer, memory, store)?;
+                let (value, increment) =
+                    wasm_to_clarity_value(ty, index, buffer, memory, store, epoch)?;
                 data_map.push((
                     name.clone(),
                     value.ok_or(Error::Unchecked(CheckErrors::BadTupleConstruction))?,
@@ -1854,6 +1878,8 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Read the variable name string from the memory
                 let name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -1870,8 +1896,14 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                 let contract = caller.data().contract_context().contract_identifier.clone();
 
                 // Read the initial value from the memory
-                let value =
-                    read_from_wasm(memory, &mut caller, &value_type, value_offset, value_length)?;
+                let value = read_from_wasm(
+                    memory,
+                    &mut caller,
+                    &value_type,
+                    value_offset,
+                    value_length,
+                    epoch,
+                )?;
 
                 caller
                     .data_mut()
@@ -1904,6 +1936,7 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                     name.as_str(),
                     value,
                     &data_types,
+                    &epoch,
                 )?;
 
                 // Save the metadata for this variable in the contract context
@@ -2363,6 +2396,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
 
                 let contract = caller.data().contract_context().contract_identifier.clone();
+                let epoch = caller.data_mut().global_context.epoch_id;
 
                 // Retrieve the metadata for this variable
                 let data_types = caller
@@ -2377,7 +2411,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .data_mut()
                     .global_context
                     .database
-                    .lookup_variable_with_size(&contract, var_name.as_str(), &data_types);
+                    .lookup_variable_with_size(&contract, var_name.as_str(), &data_types, &epoch);
 
                 let _result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
@@ -2433,6 +2467,8 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Retrieve the variable name for this identifier
                 let var_name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -2463,6 +2499,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     &data_types.value_type,
                     value_offset,
                     value_length,
+                    epoch,
                 )?;
 
                 // TODO: Include this cost
@@ -2473,7 +2510,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .data_mut()
                     .global_context
                     .database
-                    .set_variable(&contract, var_name.as_str(), value, &data_types)
+                    .set_variable(&contract, var_name.as_str(), value, &data_types, &epoch)
                     .map_err(|e| Error::from(e))?;
 
                 Ok(())
@@ -2832,6 +2869,8 @@ fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Read the principal from the Wasm memory
                 let value = read_from_wasm(
                     memory,
@@ -2839,6 +2878,7 @@ fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                     &TypeSignature::PrincipalType,
                     principal_offset,
                     principal_length,
+                    epoch,
                 )?;
                 let principal = value_as_principal(&value)?;
 
@@ -2880,6 +2920,8 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Read the principal from the Wasm memory
                 let value = read_from_wasm(
                     memory,
@@ -2887,6 +2929,7 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                     &TypeSignature::PrincipalType,
                     principal_offset,
                     principal_length,
+                    epoch,
                 )?;
                 let principal = value_as_principal(&value)?;
 
@@ -2908,11 +2951,17 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                     .global_context
                     .database
                     .get_v2_unlock_height();
+                let v3_unlock_ht = caller
+                    .data_mut()
+                    .global_context
+                    .database
+                    .get_v3_unlock_height();
 
                 let locked = account.amount_locked();
                 let locked_high = (locked >> 64) as u64;
                 let locked_low = (locked & 0xffff_ffff_ffff_ffff) as u64;
-                let unlock_height = account.effective_unlock_height(v1_unlock_ht, v2_unlock_ht);
+                let unlock_height =
+                    account.effective_unlock_height(v1_unlock_ht, v2_unlock_ht, v3_unlock_ht);
                 let unlocked = account.amount_unlocked();
                 let unlocked_high = (unlocked >> 64) as u64;
                 let unlocked_low = (unlocked & 0xffff_ffff_ffff_ffff) as u64;
@@ -2955,6 +3004,8 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Read the principal from the Wasm memory
                 let value = read_from_wasm(
                     memory,
@@ -2962,6 +3013,7 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     &TypeSignature::PrincipalType,
                     principal_offset,
                     principal_length,
+                    epoch,
                 )?;
                 let from = value_as_principal(&value)?;
 
@@ -3050,6 +3102,8 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Read the sender principal from the Wasm memory
                 let value = read_from_wasm(
                     memory,
@@ -3057,6 +3111,7 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     &TypeSignature::PrincipalType,
                     sender_offset,
                     sender_length,
+                    epoch,
                 )?;
                 let sender = value_as_principal(&value)?;
 
@@ -3067,6 +3122,7 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     &TypeSignature::PrincipalType,
                     recipient_offset,
                     recipient_length,
+                    epoch,
                 )?;
                 let recipient = value_as_principal(&value)?;
 
@@ -3080,6 +3136,7 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                         )),
                         memo_offset,
                         memo_length,
+                        epoch,
                     )?;
                     value_as_buffer(value)?
                 } else {
@@ -3229,6 +3286,7 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
+                let epoch = caller.data_mut().global_context.epoch_id;
 
                 // Read the owner principal from the Wasm memory
                 let value = read_from_wasm(
@@ -3237,6 +3295,7 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                     &TypeSignature::PrincipalType,
                     owner_offset,
                     owner_length,
+                    epoch,
                 )?;
                 let owner = value_as_principal(&value)?;
 
@@ -3291,6 +3350,7 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
+                let epoch = caller.data_mut().global_context.epoch_id;
 
                 // Retrieve the token name
                 let name =
@@ -3307,6 +3367,7 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     &TypeSignature::PrincipalType,
                     sender_offset,
                     sender_length,
+                    epoch,
                 )?;
                 let burner = value_as_principal(&value)?;
 
@@ -3417,6 +3478,7 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
+                let epoch = caller.data_mut().global_context.epoch_id;
 
                 // Retrieve the token name
                 let name =
@@ -3433,6 +3495,7 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     &TypeSignature::PrincipalType,
                     sender_offset,
                     sender_length,
+                    epoch,
                 )?;
                 let to_principal = value_as_principal(&value)?;
 
@@ -3541,6 +3604,8 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Retrieve the token name
                 let name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -3556,6 +3621,7 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                     &TypeSignature::PrincipalType,
                     sender_offset,
                     sender_length,
+                    epoch,
                 )?;
                 let from_principal = value_as_principal(&value)?;
 
@@ -3566,6 +3632,7 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                     &TypeSignature::PrincipalType,
                     recipient_offset,
                     recipient_length,
+                    epoch,
                 )?;
                 let to_principal = value_as_principal(&value)?;
 
@@ -3709,6 +3776,7 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
+                let epoch = caller.data_mut().global_context.epoch_id;
 
                 // Retrieve the token name
                 let name =
@@ -3732,6 +3800,7 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     expected_asset_type,
                     asset_offset,
                     asset_length,
+                    epoch,
                 )?;
 
                 let _asset_size = asset.serialized_size() as u64;
@@ -3806,6 +3875,8 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Retrieve the token name
                 let name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -3828,6 +3899,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     expected_asset_type,
                     asset_offset,
                     asset_length,
+                    epoch,
                 )?;
 
                 // Read the sender principal from the Wasm memory
@@ -3837,6 +3909,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     &TypeSignature::PrincipalType,
                     sender_offset,
                     sender_length,
+                    epoch,
                 )?;
                 let sender_principal = value_as_principal(&value)?;
 
@@ -3883,6 +3956,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     asset_name.as_str(),
                     &asset,
                     expected_asset_type,
+                    &epoch,
                 )?;
 
                 caller.data_mut().global_context.log_asset_transfer(
@@ -3936,6 +4010,8 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Retrieve the token name
                 let name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -3958,6 +4034,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     expected_asset_type,
                     asset_offset,
                     asset_length,
+                    epoch,
                 )?;
 
                 // Read the recipient principal from the Wasm memory
@@ -3967,6 +4044,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     &TypeSignature::PrincipalType,
                     recipient_offset,
                     recipient_length,
+                    epoch,
                 )?;
                 let to_principal = value_as_principal(&value)?;
 
@@ -4009,6 +4087,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     &asset,
                     to_principal,
                     expected_asset_type,
+                    &epoch,
                 )?;
 
                 let asset_identifier = AssetIdentifier {
@@ -4057,6 +4136,8 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Retrieve the token name
                 let name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -4079,6 +4160,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     expected_asset_type,
                     asset_offset,
                     asset_length,
+                    epoch,
                 )?;
 
                 // Read the sender principal from the Wasm memory
@@ -4088,6 +4170,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     &TypeSignature::PrincipalType,
                     sender_offset,
                     sender_length,
+                    epoch,
                 )?;
                 let from_principal = value_as_principal(&value)?;
 
@@ -4098,6 +4181,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     &TypeSignature::PrincipalType,
                     recipient_offset,
                     recipient_length,
+                    epoch,
                 )?;
                 let to_principal = value_as_principal(&value)?;
 
@@ -4163,6 +4247,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     &asset,
                     to_principal,
                     expected_asset_type,
+                    &epoch,
                 )?;
 
                 caller.data_mut().global_context.log_asset_transfer(
@@ -4221,6 +4306,7 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
 
                 let contract = caller.data().contract_context().contract_identifier.clone();
+                let epoch = caller.data_mut().global_context.epoch_id;
 
                 // Retrieve the metadata for this map
                 let data_types = caller
@@ -4238,13 +4324,14 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     &data_types.key_type,
                     key_offset,
                     key_length,
+                    epoch,
                 )?;
 
                 let result = caller
                     .data_mut()
                     .global_context
                     .database
-                    .fetch_entry_with_size(&contract, &map_name, &key, &data_types);
+                    .fetch_entry_with_size(&contract, &map_name, &key, &data_types, &epoch);
 
                 let _result_size = match &result {
                     Ok(data) => data.serialized_byte_len,
@@ -4307,6 +4394,8 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Retrieve the map name
                 let map_name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -4330,6 +4419,7 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     &data_types.key_type,
                     key_offset,
                     key_length,
+                    epoch,
                 )?;
 
                 // Read in the value from the Wasm memory
@@ -4339,6 +4429,7 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     &data_types.value_type,
                     value_offset,
                     value_length,
+                    epoch,
                 )?;
 
                 // Store the value in the map in the global context
@@ -4348,6 +4439,7 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     key,
                     value,
                     &data_types,
+                    &epoch,
                 );
 
                 let result_size = match &result {
@@ -4404,6 +4496,8 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Retrieve the map name
                 let map_name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -4427,6 +4521,7 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     &data_types.key_type,
                     key_offset,
                     key_length,
+                    epoch,
                 )?;
 
                 // Read in the value from the Wasm memory
@@ -4436,6 +4531,7 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     &data_types.value_type,
                     value_offset,
                     value_length,
+                    epoch,
                 )?;
 
                 // Insert the value into the map
@@ -4445,6 +4541,7 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     key,
                     value,
                     &data_types,
+                    &epoch,
                 );
 
                 let result_size = match &result {
@@ -4504,6 +4601,7 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
 
                 let contract = caller.data().contract_context().contract_identifier.clone();
+                let epoch = caller.data_mut().global_context.epoch_id;
 
                 let data_types = caller
                     .data()
@@ -4522,6 +4620,7 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     &data_types.key_type,
                     key_offset,
                     key_length,
+                    epoch,
                 )?;
 
                 // Delete the key from the map in the global context
@@ -4530,6 +4629,7 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     map_name.as_str(),
                     &key,
                     &data_types,
+                    &epoch,
                 );
 
                 let result_size = match &result {
@@ -4853,13 +4953,28 @@ fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
                             .global_context
                             .database
                             .get_pox_payout_addrs_for_burnchain_height(height_value);
+                        let addr_ty: TypeSignature = TupleTypeSignature::try_from(vec![
+                            ("hashbytes".into(), BUFF_32.clone()),
+                            ("version".into(), BUFF_1.clone()),
+                        ])
+                        .expect("FATAL: could not build tuple type signature")
+                        .into();
+                        let addrs_ty = TypeSignature::list_of(addr_ty.clone(), 2)
+                            .expect("FATAL: could not build list type signature");
+                        let tuple_ty = TupleTypeSignature::try_from(vec![
+                            ("addrs".into(), addrs_ty),
+                            ("payout".into(), TypeSignature::UIntType),
+                        ])?;
                         let value = match pox_addrs_and_payout {
                             Some((addrs, payout)) => Value::some(Value::Tuple(
                                 TupleData::from_data(vec![
                                     (
                                         "addrs".into(),
-                                        Value::list_from(
+                                        Value::list_with_type(
+                                            &caller.data_mut().global_context.epoch_id,
                                             addrs.into_iter().map(Value::Tuple).collect(),
+                                            ListTypeData::new_list(addr_ty, 2)
+                                                .expect("FATAL: could not create list type"),
                                         )
                                         .expect("FATAL: could not convert address list to Value"),
                                     ),
@@ -4870,18 +4985,6 @@ fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
                             .expect("FATAL: could not build Some(..)"),
                             None => Value::none(),
                         };
-                        let addr_ty = TupleTypeSignature::try_from(vec![
-                            ("hashbytes".into(), BUFF_32.clone()),
-                            ("version".into(), BUFF_1.clone()),
-                        ])
-                        .expect("FATAL: could not build tuple type signature")
-                        .into();
-                        let addrs_ty = TypeSignature::list_of(addr_ty, 2)
-                            .expect("FATAL: could not build list type signature");
-                        let tuple_ty = TupleTypeSignature::try_from(vec![
-                            ("addrs".into(), addrs_ty),
-                            ("payout".into(), TypeSignature::UIntType),
-                        ])?;
                         let ty = TypeSignature::OptionalType(Box::new(tuple_ty.into()));
                         (value, ty)
                     }
@@ -4937,6 +5040,8 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Read the contract identifier from the Wasm memory
                 let contract_val = read_from_wasm(
                     memory,
@@ -4944,6 +5049,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     &TypeSignature::PrincipalType,
                     contract_offset,
                     contract_length,
+                    epoch,
                 )?;
                 let contract_id = match &contract_val {
                     Value::Principal(PrincipalData::Contract(contract_id)) => contract_id,
@@ -4981,7 +5087,8 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let mut arg_offset = args_offset;
                 // Read the arguments from the Wasm memory
                 for arg_ty in function.get_arg_types() {
-                    let arg = read_from_wasm_indirect(memory, &mut caller, arg_ty, arg_offset)?;
+                    let arg =
+                        read_from_wasm_indirect(memory, &mut caller, arg_ty, arg_offset, epoch)?;
                     args.push(arg);
 
                     arg_offset += get_type_size(arg_ty);
@@ -5061,7 +5168,7 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
                 // Read in the bytes from the Wasm memory
                 let bytes = read_bytes_from_wasm(memory, &mut caller, value_offset, value_length)?;
 
-                let clarity_val = Value::try_deserialize_bytes_untyped(&bytes)?;
+                let clarity_val = Value::deserialize_read(&mut bytes.as_slice(), None, false)?;
 
                 if cfg!(feature = "developer-mode") {
                     debug!("{}", &clarity_val);
@@ -5093,12 +5200,15 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 let block_hash = read_from_wasm(
                     memory,
                     &mut caller,
                     &BUFF_32,
                     block_hash_offset,
                     block_hash_length,
+                    epoch,
                 )?;
 
                 let bhh = match block_hash {
@@ -5413,6 +5523,8 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .and_then(|export| export.into_memory())
                     .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
 
+                let epoch = caller.data_mut().global_context.epoch_id;
+
                 // Read the public key from the memory
                 let key_val = read_from_wasm(
                     memory,
@@ -5420,6 +5532,7 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     &BUFF_33.clone(),
                     key_offset,
                     key_length,
+                    epoch,
                 )?;
 
                 let pub_key = match key_val {
@@ -5494,8 +5607,9 @@ fn link_log<T>(linker: &mut Linker<T>) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use wasmtime::*;
+
+    use super::*;
 
     #[test]
     fn test_read_bytes_from_wasm() {
@@ -5549,9 +5663,14 @@ mod tests {
             .write(&mut store, offset + 8, &0i64.to_le_bytes())
             .expect("write failed");
 
-        let read =
-            read_from_wasm_indirect(memory, &mut store, &&TypeSignature::UIntType, offset as i32)
-                .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &&TypeSignature::UIntType,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, Value::UInt(3),);
     }
 
@@ -5581,6 +5700,7 @@ mod tests {
             &mut store,
             &TypeSignature::max_string_ascii(),
             offset as i32,
+            StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
         assert_eq!(
@@ -5611,8 +5731,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 16)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            16,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5638,8 +5765,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 16)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            16,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5665,8 +5799,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 4)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            4,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5693,8 +5834,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 16)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            16,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5721,8 +5869,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 48)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            48,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5759,8 +5914,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            24,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5787,8 +5949,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            24,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5815,8 +5984,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            24,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5850,8 +6026,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 28)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            28,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5886,8 +6069,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 28)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            28,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5913,8 +6103,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 4)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            4,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5940,8 +6137,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 20)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            20,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -5968,8 +6172,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            24,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6007,8 +6218,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 24)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            24,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6042,6 +6260,7 @@ mod tests {
             &expected_ty,
             offset as i32,
             STANDARD_PRINCIPAL_BYTES as i32,
+            StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
         assert_eq!(read, expected);
@@ -6078,6 +6297,7 @@ mod tests {
             &expected_ty,
             offset as i32,
             STANDARD_PRINCIPAL_BYTES as i32 + 21,
+            StacksEpochId::latest(),
         )
         .expect("failed to read bytes");
         assert_eq!(read, expected);
@@ -6112,8 +6332,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 36)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            36,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6153,8 +6380,15 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm(memory, &mut store, &expected_ty, offset as i32, 20)
-            .expect("failed to read bytes");
+        let read = read_from_wasm(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            20,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6182,8 +6416,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6209,8 +6449,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6236,8 +6482,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6264,8 +6516,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6292,8 +6550,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6330,8 +6594,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6358,8 +6628,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6386,8 +6662,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6421,8 +6703,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6457,8 +6745,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6484,8 +6778,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6511,8 +6811,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6539,8 +6845,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6578,8 +6890,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6607,8 +6925,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6637,8 +6961,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6671,8 +7001,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 
@@ -6712,8 +7048,14 @@ mod tests {
         )
         .expect("failed to write bytes");
 
-        let read = read_from_wasm_indirect(memory, &mut store, &expected_ty, offset as i32)
-            .expect("failed to read bytes");
+        let read = read_from_wasm_indirect(
+            memory,
+            &mut store,
+            &expected_ty,
+            offset as i32,
+            StacksEpochId::latest(),
+        )
+        .expect("failed to read bytes");
         assert_eq!(read, expected);
     }
 }

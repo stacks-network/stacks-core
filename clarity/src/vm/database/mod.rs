@@ -16,6 +16,9 @@
 
 use std::collections::HashMap;
 
+#[cfg(feature = "sqlite")]
+pub use sqlite::MemoryBackingStore;
+
 pub use self::clarity_db::{
     BurnStateDB, ClarityDatabase, HeadersDB, StoreType, NULL_BURN_STATE_DB, NULL_HEADER_DB,
     STORE_CONTRACT_SRC_INTERFACE,
@@ -28,8 +31,6 @@ pub use self::structures::{
     ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
     FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
 };
-#[cfg(feature = "sqlite")]
-pub use sqlite::MemoryBackingStore;
 
 pub mod clarity_db;
 pub mod clarity_store;

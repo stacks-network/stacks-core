@@ -20,6 +20,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs, io};
 
+use clar2wasm::compile_contract;
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::ast::errors::ParseErrors;
@@ -51,8 +52,6 @@ use crate::clarity_vm::clarity::{
 use crate::net::Error as net_error;
 use crate::util_lib::db::{query_count, query_rows, DBConn, Error as db_error};
 use crate::util_lib::strings::{StacksString, VecDisplay};
-
-use clar2wasm::compile_contract;
 
 impl StacksTransactionReceipt {
     pub fn from_stx_transfer(

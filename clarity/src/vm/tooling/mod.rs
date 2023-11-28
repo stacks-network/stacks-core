@@ -1,21 +1,18 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use super::{
-    analysis::ContractAnalysis,
-    contexts::GlobalContext,
-    docs::contracts::{make_func_ref, ContractRef, ErrorCode, DOCS_GENERATION_EPOCH},
-    eval_all,
-    types::TypeSignature,
-    ClarityVersion, ContractContext, Error as VmError, Value,
-};
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::StacksEpochId;
+
+use super::analysis::ContractAnalysis;
+use super::contexts::GlobalContext;
+use super::docs::contracts::{make_func_ref, ContractRef, ErrorCode, DOCS_GENERATION_EPOCH};
+use super::types::TypeSignature;
+use super::{eval_all, ClarityVersion, ContractContext, Error as VmError, Value};
+use crate::vm::analysis::{run_analysis, CheckResult};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
-use crate::vm::{
-    analysis::{run_analysis, CheckResult},
-    costs::LimitedCostTracker,
-    database::MemoryBackingStore,
-    types::QualifiedContractIdentifier,
-};
-use stacks_common::{consts::CHAIN_ID_TESTNET, types::StacksEpochId};
+use crate::vm::costs::LimitedCostTracker;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::types::QualifiedContractIdentifier;
 
 /// Used by CLI tools like the docs generator. Not used in production
 pub fn mem_type_check(
