@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -44,7 +45,7 @@ pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
-    pub events_observer: Option<Vec<EventObserverConfigFile>>,
+    pub events_observer: Option<HashSet<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
@@ -353,7 +354,7 @@ pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
-    pub events_observers: Vec<EventObserverConfig>,
+    pub events_observers: HashSet<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
     pub estimation: FeeEstimationConfig,
@@ -979,7 +980,7 @@ impl Config {
 
         let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
-                let mut observers = vec![];
+                let mut observers = HashSet::new();
                 for observer in raw_observers {
                     let events_keys: Vec<EventKeyType> = observer
                         .events_keys
@@ -989,22 +990,25 @@ impl Config {
 
                     let endpoint = format!("{}", observer.endpoint);
 
-                    observers.push(EventObserverConfig {
+                    observers.insert(EventObserverConfig {
                         endpoint,
                         events_keys,
                     });
                 }
                 observers
             }
-            None => vec![],
+            None => HashSet::new(),
         };
 
         // check for observer config in env vars
         match std::env::var("STACKS_EVENT_OBSERVER") {
-            Ok(val) => events_observers.push(EventObserverConfig {
-                endpoint: val,
-                events_keys: vec![EventKeyType::AnyEvent],
-            }),
+            Ok(val) => {
+                events_observers.insert(EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                });
+                ()
+            }
             _ => (),
         };
 
@@ -1347,7 +1351,7 @@ impl std::default::Default for Config {
             burnchain,
             node,
             initial_balances: vec![],
-            events_observers: vec![],
+            events_observers: HashSet::new(),
             connection_options,
             estimation,
             miner: MinerConfig::default(),
@@ -2079,19 +2083,19 @@ impl AtlasConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),

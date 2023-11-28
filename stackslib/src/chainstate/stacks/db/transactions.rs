@@ -2108,8 +2108,8 @@ pub mod test {
             );
 
             let contracts = vec![
-                contract_correct.clone(),
-                contract_correct.clone(),
+                contract_correct,
+                contract_correct,
                 contract_syntax_error, // should still be mined, even though analysis fails
             ];
 
