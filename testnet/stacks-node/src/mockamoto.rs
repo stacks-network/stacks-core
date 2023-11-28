@@ -1,5 +1,5 @@
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{sync_channel, Receiver};
+use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::{sleep, JoinHandle};
@@ -16,7 +16,9 @@ use stacks::burnchains::bitcoin::{
     BitcoinTxInputStructured, BitcoinTxOutput,
 };
 use stacks::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
-use stacks::burnchains::{BurnchainBlock, BurnchainBlockHeader, BurnchainSigner, Txid};
+use stacks::burnchains::{
+    BurnchainBlock, BurnchainBlockHeader, BurnchainSigner, Error as BurnchainError, Txid,
+};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::{
@@ -31,7 +33,6 @@ use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, MinerStatus, TransactionResult,
@@ -73,6 +74,9 @@ use crate::neon_node::{
 };
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::{Config, EventDispatcher};
+
+#[cfg(test)]
+mod tests;
 
 lazy_static! {
     pub static ref STACKS_EPOCHS_MOCKAMOTO: [StacksEpoch; 9] = [
@@ -142,11 +146,14 @@ lazy_static! {
     ];
 }
 
+/// Produce a mock bitcoin block that is descended from `parent_snapshot` and includes
+/// `ops`. This method uses `miner_pkh` to set the inputs and outputs of any supplied
+/// block commits or leader key registrations
 fn make_burn_block(
     parent_snapshot: &BlockSnapshot,
     miner_pkh: &Hash160,
     ops: Vec<BlockstackOperationType>,
-) -> Result<BitcoinBlock, ChainstateError> {
+) -> Result<BitcoinBlock, BurnchainError> {
     let block_height = parent_snapshot.block_height + 1;
     let mut mock_burn_hash_contents = [0u8; 32];
     mock_burn_hash_contents[0..8].copy_from_slice((block_height + 1).to_be_bytes().as_ref());
@@ -240,12 +247,10 @@ fn make_burn_block(
 /// operating as regtest, testnet or mainnet). This operation mode
 /// is useful for testing the stacks-only operation of Nakamoto.
 ///
-/// The current implementation of the mockamoto node simply produces
-/// Nakamoto blocks containing *only* coinbase and tenure-change
-/// transactions. As the implementation of Nakamoto progresses, and
-/// the mockamoto mode merges with changes to the chains coordinator,
-/// the mockamoto node will support mining of transactions and event
-/// emission.
+/// During operation, the mockamoto node issues `stack-stx` and
+/// `stack-extend` contract-calls to ensure that the miner is a member
+/// of the current stacking set. This ensures nakamoto blocks can be
+/// produced with tenure change txs.
 ///
 pub struct MockamotoNode {
     sortdb: SortitionDB,
@@ -253,10 +258,10 @@ pub struct MockamotoNode {
     chainstate: StacksChainState,
     miner_key: StacksPrivateKey,
     vrf_key: VRFPrivateKey,
-    relay_rcv: Receiver<RelayerDirective>,
+    relay_rcv: Option<Receiver<RelayerDirective>>,
     coord_rcv: Option<CoordinatorReceivers>,
     dispatcher: EventDispatcher,
-    globals: Globals,
+    pub globals: Globals,
     config: Config,
 }
 
@@ -295,7 +300,7 @@ impl BurnchainHeaderReader for MockBurnchainIndexer {
     }
     fn find_burnchain_header_height(
         &self,
-        header_hash: &BurnchainHeaderHash,
+        _header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<u64>, DBError> {
         Err(DBError::NoDBError)
     }
@@ -364,7 +369,6 @@ impl BlockBuilder for MockamotoBlockBuilder {
 
 impl MockamotoNode {
     pub fn new(config: &Config) -> Result<MockamotoNode, String> {
-        info!("Started");
         let miner_key = config
             .miner
             .mining_key
@@ -425,14 +429,19 @@ impl MockamotoNode {
             should_keep_running,
         );
 
+        let mut event_dispatcher = EventDispatcher::new();
+        for observer in config.events_observers.iter() {
+            event_dispatcher.register_observer(observer);
+        }
+
         Ok(MockamotoNode {
             sortdb,
             chainstate,
             miner_key,
             vrf_key,
-            relay_rcv,
+            relay_rcv: Some(relay_rcv),
             coord_rcv: Some(coord_rcv),
-            dispatcher: EventDispatcher::new(),
+            dispatcher: event_dispatcher,
             mempool,
             globals,
             config: config.clone(),
@@ -488,7 +497,7 @@ impl MockamotoNode {
     }
 
     pub fn run(&mut self) {
-        info!("Starting a burn cycle");
+        info!("Starting the mockamoto node by issuing initial empty mock burn blocks");
         let coordinator = self.spawn_chains_coordinator();
 
         self.produce_burnchain_block(true).unwrap();
@@ -507,7 +516,29 @@ impl MockamotoNode {
         let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
 
-        let relayer = Relayer::from_p2p(&mut p2p_net, stackerdbs);
+        let _relayer = Relayer::from_p2p(&mut p2p_net, stackerdbs);
+
+        let relayer_rcv = self.relay_rcv.take().unwrap();
+        let relayer_globals = self.globals.clone();
+        let mock_relayer_thread = thread::Builder::new()
+            .name("mock-relayer".into())
+            .spawn(move || {
+                while relayer_globals.keep_running() {
+                    match relayer_rcv.recv_timeout(Duration::from_millis(500)) {
+                        Ok(dir) => {
+                            if let RelayerDirective::Exit = dir {
+                                break;
+                            }
+                        }
+                        Err(RecvTimeoutError::Timeout) => continue,
+                        Err(e) => {
+                            warn!("Error accepting relayer directive: {e:?}");
+                            break;
+                        }
+                    }
+                }
+            })
+            .expect("FATAL: failed to start mock relayer thread");
 
         let peer_thread = PeerThread::new_all(
             self.globals.clone(),
@@ -517,7 +548,7 @@ impl MockamotoNode {
         );
 
         let ev_dispatcher = self.dispatcher.clone();
-        let _peer_thread = thread::Builder::new()
+        let peer_thread = thread::Builder::new()
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .name("p2p".into())
             .spawn(move || {
@@ -525,22 +556,46 @@ impl MockamotoNode {
             })
             .expect("FATAL: failed to start p2p thread");
 
-        loop {
-            info!("Starting a burn cycle");
+        while self.globals.keep_running() {
             self.produce_burnchain_block(false).unwrap();
-            info!("Produced a burn block");
-            sleep(Duration::from_millis(100));
-            info!("Mining a staging block");
-            self.mine_and_stage_block().unwrap();
-            info!("Processing a staging block");
-            // self.process_staging_block().unwrap();
+            let expected_chain_length = self.mine_and_stage_block().unwrap();
             self.globals.coord().announce_new_stacks_block();
-            info!("Cycle done");
-            sleep(Duration::from_millis(100));
+            let _ = self.wait_for_stacks_block(expected_chain_length);
+            sleep(Duration::from_millis(self.config.node.mockamoto_time_ms));
+        }
+
+        self.globals.coord().stop_chains_coordinator();
+
+        if let Err(e) = coordinator.join() {
+            warn!("Error joining coordinator thread during shutdown: {e:?}");
+        }
+        if let Err(e) = mock_relayer_thread.join() {
+            warn!("Error joining coordinator thread during shutdown: {e:?}");
+        }
+        if let Err(e) = peer_thread.join() {
+            warn!("Error joining p2p thread during shutdown: {e:?}");
         }
     }
 
-    fn produce_burnchain_block(&mut self, initializing: bool) -> Result<(), ChainstateError> {
+    fn wait_for_stacks_block(&mut self, expected_length: u64) -> Result<(), ChainstateError> {
+        while self.globals.keep_running() {
+            let chain_length = match NakamotoChainState::get_canonical_block_header(
+                self.chainstate.db(),
+                &self.sortdb,
+            ) {
+                Ok(Some(chain_tip)) => chain_tip.stacks_block_height,
+                Ok(None) | Err(ChainstateError::NoSuchBlockError) => 0,
+                Err(e) => return Err(e),
+            };
+            if chain_length >= expected_length {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(100));
+        }
+        Err(ChainstateError::NoSuchBlockError)
+    }
+
+    fn produce_burnchain_block(&mut self, initializing: bool) -> Result<(), BurnchainError> {
         let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
         let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
 
@@ -578,7 +633,8 @@ impl MockamotoNode {
             let parent_vrf_proof = NakamotoChainState::get_block_vrf_proof(
                 self.chainstate.db(),
                 &parent_snapshot.consensus_hash,
-            )?
+            )
+            .map_err(|_e| BurnchainError::MissingParentBlock)?
             .unwrap_or_else(|| VRFProof::empty());
 
             let vrf_seed = VRFSeed::from_proof(&parent_vrf_proof);
@@ -623,7 +679,7 @@ impl MockamotoNode {
             &indexer,
             &BurnchainBlock::Bitcoin(new_burn_block),
             StacksEpochId::Epoch30,
-        );
+        )?;
 
         self.globals.coord().announce_new_burn_block();
         let mut cur_snapshot = SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.conn())?;
@@ -866,9 +922,10 @@ impl MockamotoNode {
         Ok(block)
     }
 
-    fn mine_and_stage_block(&mut self) -> Result<(), ChainstateError> {
+    fn mine_and_stage_block(&mut self) -> Result<u64, ChainstateError> {
         let block = self.mine_stacks_block()?;
         let config = self.chainstate.config();
+        let chain_length = block.header.chain_length;
         let sortition_handle = self.sortdb.index_handle_at_tip();
         let block_sn = SortitionDB::get_block_snapshot_consensus(
             sortition_handle.conn(),
@@ -896,24 +953,6 @@ impl MockamotoNode {
             &aggregate_public_key,
         )?;
         chainstate_tx.commit()?;
-        Ok(())
-    }
-
-    fn process_staging_block(&mut self) -> Result<bool, ChainstateError> {
-        info!("Processing a staging block!");
-        let mut sortdb_tx = self.sortdb.tx_begin_at_tip();
-        let result = NakamotoChainState::process_next_nakamoto_block::<DummyEventDispatcher>(
-            &mut self.chainstate,
-            &mut sortdb_tx,
-            None,
-        )
-        .unwrap();
-        sortdb_tx.commit().unwrap();
-        if result.is_none() {
-            return Ok(false);
-        } else {
-            info!("Processed a staging block!");
-            return Ok(true);
-        }
+        Ok(chain_length)
     }
 }
