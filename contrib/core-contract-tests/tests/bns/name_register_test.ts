@@ -98,7 +98,7 @@ Clarinet.test({
                 ], 
                 cases[0].nameOwner.address),
         ]);
-        assertEquals(block.height, 2);
+        assertEquals(block.height, 3);
         block.receipts[0].result
             .expectErr()
             .expectInt(1005);
@@ -119,7 +119,7 @@ Clarinet.test({
                 ], 
                 cases[1].namespaceOwner.address),
         ]);
-        assertEquals(block.height, 3);
+        assertEquals(block.height, 4);
         block.receipts[0].result
             .expectOk()
             .expectUint(144 + block.height - 1);
@@ -136,7 +136,7 @@ Clarinet.test({
                 ], 
                 cases[1].namespaceOwner.address),
         ]);
-        assertEquals(block.height, 4);
+        assertEquals(block.height, 5);
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
@@ -158,7 +158,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 5);
+        assertEquals(block.height, 6);
         block.receipts[0].result
             .expectOk()
             .expectUint(144 + block.height - 1);
@@ -174,7 +174,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 6);
+        assertEquals(block.height, 7);
         block.receipts[0].result
             .expectErr()
             .expectInt(2004);
@@ -195,7 +195,7 @@ Clarinet.test({
                 ], 
                 cases[0].namespaceOwner.address),
         ]);
-        assertEquals(block.height, 7);
+        assertEquals(block.height, 8);
         block.receipts[0].result
             .expectOk()
             .expectUint(144 + block.height - 1);
@@ -212,7 +212,7 @@ Clarinet.test({
                 ], 
                 cases[0].namespaceOwner.address),
         ]);
-        assertEquals(block.height, 8);
+        assertEquals(block.height, 9);
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
@@ -225,7 +225,7 @@ Clarinet.test({
                 ], 
                 cases[0].namespaceOwner.address),
         ]);
-        assertEquals(block.height, 9);
+        assertEquals(block.height, 10);
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
@@ -244,7 +244,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 10);
+        assertEquals(block.height, 11);
         block.receipts[0].result
             .expectErr()
             .expectInt(2001);
@@ -266,7 +266,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 11);
+        assertEquals(block.height, 12);
         block.receipts[0].result
             .expectOk()
             .expectUint(144 + block.height - 1);
@@ -282,7 +282,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 12);
+        assertEquals(block.height, 13);
         block.receipts[0].result
             .expectErr()
             .expectInt(2007);
@@ -304,7 +304,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 13);
+        assertEquals(block.height, 14);
         block.receipts[0].result
             .expectOk()
             .expectUint(144 + block.height - 1);
@@ -320,7 +320,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 14);
+        assertEquals(block.height, 15);
         block.receipts[0].result
             .expectErr()
             .expectInt(2022);
@@ -342,7 +342,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 15);
+        assertEquals(block.height, 16);
         block.receipts[0].result
             .expectOk()
             .expectUint(144 + block.height - 1);
@@ -358,7 +358,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 16);
+        assertEquals(block.height, 17);
         block.receipts[0].result
             .expectOk()
             .expectBool(true);
@@ -388,7 +388,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 17);
+        assertEquals(block.height, 18);
         block.receipts[0].result
             .expectErr()
             .expectInt(2004);
@@ -412,7 +412,7 @@ Clarinet.test({
                 ], 
                 charlie.address),
         ]);
-        assertEquals(block.height, 18);
+        assertEquals(block.height, 19);
         block.receipts[0].result
             .expectOk()
             .expectUint(144 + block.height - 1);
@@ -428,7 +428,7 @@ Clarinet.test({
                 ], 
                 charlie.address),
         ]);
-        assertEquals(block.height, 19);
+        assertEquals(block.height, 20);
         block.receipts[0].result
             .expectErr()
             .expectInt(2004);
@@ -452,7 +452,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 20);
+        assertEquals(block.height, 21);
         block.receipts[0].result
             .expectOk()
             .expectUint(144 + block.height - 1);
@@ -468,7 +468,7 @@ Clarinet.test({
                 ], 
                 bob.address),
         ]);
-        assertEquals(block.height, 21);
+        assertEquals(block.height, 22);
         block.receipts[0].result
             .expectErr()
             .expectInt(3001);
