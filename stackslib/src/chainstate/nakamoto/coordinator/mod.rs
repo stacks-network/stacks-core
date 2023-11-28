@@ -61,8 +61,13 @@ impl OnChainRewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
+        let cycle = burnchain
+            .block_height_to_reward_cycle(current_burn_height)
+            .expect("FATAL: no reward cycle for burn height")
+            + 1;
+
         let registered_addrs =
-            chainstate.get_reward_addresses(burnchain, sortdb, current_burn_height, block_id)?;
+            chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
 
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
