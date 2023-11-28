@@ -645,6 +645,7 @@
     ;; must be called directly by the tx-sender or by an allowed contract-caller
     (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
+    (print {notification: "revoke-delegate-stx", payload: {stacker: tx-sender}})
     (ok (map-delete delegation-state { stacker: tx-sender }))))
 
 ;; Delegate to `delegate-to` the ability to stack from a given address.
