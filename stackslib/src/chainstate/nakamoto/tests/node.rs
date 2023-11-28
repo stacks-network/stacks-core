@@ -570,6 +570,7 @@ impl TestStacksNode {
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let sort_handle = sortdb.index_handle(&sort_tip);
             let accepted = Relayer::process_new_nakamoto_block(
+                sortdb,
                 &sort_handle,
                 chainstate,
                 nakamoto_block.clone(),
@@ -893,9 +894,13 @@ impl<'a> TestPeer<'a> {
         for block in blocks.into_iter() {
             let block_id = block.block_id();
             debug!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
-            let accepted =
-                Relayer::process_new_nakamoto_block(&sort_handle, &mut node.chainstate, block)
-                    .unwrap();
+            let accepted = Relayer::process_new_nakamoto_block(
+                &sortdb,
+                &sort_handle,
+                &mut node.chainstate,
+                block,
+            )
+            .unwrap();
             if accepted {
                 test_debug!("Accepted Nakamoto block {}", &block_id);
                 self.coord.handle_new_nakamoto_stacks_block().unwrap();

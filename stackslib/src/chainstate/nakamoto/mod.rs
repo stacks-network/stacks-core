@@ -42,6 +42,7 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature};
 use stacks_common::util::vrf::{VRFProof, VRF};
+use wsts::Point;
 
 use super::burn::db::sortdb::{get_block_commit_by_txid, SortitionHandleConn, SortitionHandleTx};
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
@@ -1327,11 +1328,12 @@ impl NakamotoChainState {
     pub fn accept_block(
         config: &ChainstateConfig,
         block: NakamotoBlock,
-        sortdb: &SortitionHandleConn,
+        db_handle: &SortitionHandleConn,
         staging_db_tx: &rusqlite::Transaction,
+        aggregate_public_key: &Point,
     ) -> Result<bool, ChainstateError> {
         // do nothing if we already have this block
-        if let Some(_) = Self::get_block_header(&staging_db_tx, &block.header.block_id())? {
+        if let Some(_) = Self::get_block_header(staging_db_tx, &block.header.block_id())? {
             debug!("Already have block {}", &block.header.block_id());
             return Ok(false);
         }
@@ -1349,9 +1351,12 @@ impl NakamotoChainState {
 
         // this block must be consistent with its miner's leader-key and block-commit, and must
         // contain only transactions that are valid in this epoch.
-        if let Err(e) =
-            Self::validate_nakamoto_block_burnchain(sortdb, &block, config.mainnet, config.chain_id)
-        {
+        if let Err(e) = Self::validate_nakamoto_block_burnchain(
+            db_handle,
+            &block,
+            config.mainnet,
+            config.chain_id,
+        ) {
             warn!("Unacceptable Nakamoto block; will not store";
                   "block_id" => %block.block_id(),
                   "error" => format!("{:?}", &e)
@@ -1370,11 +1375,11 @@ impl NakamotoChainState {
                 warn!("{}", msg);
                 ChainstateError::InvalidStacksBlock(msg)
             })?;
-
-        if !sortdb.expects_signer_signature(
+        if !db_handle.expects_signer_signature(
             &block.header.consensus_hash,
             &schnorr_signature,
             &block.header.signer_signature_hash()?.0,
+            aggregate_public_key,
         )? {
             let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
             warn!("{}", msg);
@@ -1383,7 +1388,7 @@ impl NakamotoChainState {
 
         // if the burnchain block of this Stacks block's tenure has been processed, then it
         // is ready to be processed from the perspective of the burnchain
-        let burn_attachable = sortdb.processed_block(&block.header.consensus_hash)?;
+        let burn_attachable = db_handle.processed_block(&block.header.consensus_hash)?;
 
         // check if the parent Stacks Block ID has been processed. if so, then this block is stacks_attachable
         let stacks_attachable =
@@ -1411,6 +1416,59 @@ impl NakamotoChainState {
 
         Self::store_block(staging_db_tx, block, burn_attachable, stacks_attachable)?;
         Ok(true)
+    }
+
+    /// Get the aggregate public key for the given block.
+    pub fn get_aggregate_public_key(
+        sortdb: &SortitionDB,
+        sort_handle: &SortitionHandleConn,
+        chainstate: &mut StacksChainState,
+        header: &NakamotoBlockHeader,
+        canonical_block_header: &StacksHeaderInfo,
+    ) -> Result<Point, ChainstateError> {
+        let ch_sn = SortitionDB::get_block_snapshot_consensus(sort_handle, &header.consensus_hash)?
+            .ok_or(ChainstateError::DBError(DBError::NotFoundError))
+            .map_err(|e| {
+                warn!(
+                    "No sortition for consensus hash: {:?}",
+                    &header.consensus_hash
+                );
+                e
+            })?;
+        // Get the current reward cycle
+        let Some(reward_cycle) = sort_handle
+            .context
+            .pox_constants
+            .block_height_to_reward_cycle(
+                sort_handle.context.first_block_height,
+                ch_sn.block_height,
+            )
+        else {
+            // can't do anything
+            let msg = format!(
+                "Failed to determine reward cycle of block height: {}.",
+                ch_sn.block_height
+            );
+            warn!("{msg}");
+            return Err(ChainstateError::InvalidStacksBlock(msg));
+        };
+
+        chainstate
+            .get_aggregate_public_key_pox_4(
+                sortdb,
+                &canonical_block_header.index_block_hash(),
+                reward_cycle,
+            )?
+            .ok_or_else(|| {
+                warn!(
+                    "Failed to get aggregate public key";
+                    "block_id" => %canonical_block_header.index_block_hash(),
+                    "reward_cycle" => reward_cycle,
+                    "canonical_block_height" => canonical_block_header.stacks_block_height,
+                    "canonical_block_height" => canonical_block_header.burn_header_height,
+                );
+                ChainstateError::InvalidStacksBlock("Failed to get aggregate public key".into())
+            })
     }
 
     /// Create the block reward for a NakamotoBlock
