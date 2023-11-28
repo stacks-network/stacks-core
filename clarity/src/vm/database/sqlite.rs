@@ -23,6 +23,11 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::util::db_common::tx_busy_handler;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
+use super::clarity_store::{make_contract_hash_key, ContractCommitment};
+use super::{
+    ClarityBackingStore, ClarityDatabase, ClarityDeserializable, SpecialCaseHandler,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
 use crate::vm::analysis::{AnalysisDatabase, CheckErrors};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::ExecutionCost;
@@ -30,11 +35,6 @@ use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::types::QualifiedContractIdentifier;
-
-use super::clarity_store::{make_contract_hash_key, ContractCommitment};
-use super::{
-    ClarityBackingStore, ClarityDatabase, ClarityDeserializable, NULL_BURN_STATE_DB, NULL_HEADER_DB, SpecialCaseHandler,
-};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 

@@ -56,7 +56,7 @@ libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 wsts = "4.0.0"
 p256k1 = "5.5.0"
-clar2wasm = { package = "clar2wasm", path = "../clar2wasm/." }
+clar2wasm = { package = "clar2wasm", path = "../../clar2wasm/." }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

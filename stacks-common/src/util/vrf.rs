@@ -37,11 +37,10 @@ use ed25519_dalek::{
 use rand;
 use sha2::{Digest, Sha512};
 
+use super::hash::Sha512Trunc256Sum;
 use crate::codec::{Error as CodecError, StacksMessageCodec};
 use crate::types::chainstate::VRFSeed;
 use crate::util::hash::{hex_bytes, to_hex};
-
-use super::hash::Sha512Trunc256Sum;
 
 #[derive(Clone)]
 pub struct VRFPublicKey(pub ed25519_PublicKey);
