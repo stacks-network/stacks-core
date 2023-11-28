@@ -1080,15 +1080,27 @@ impl StacksChainState {
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
 
+        self.get_reward_addresses_in_cycle(burnchain, sortdb, reward_cycle, block_id)
+    }
+    /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
+    /// lost in the conversion to StacksAddress)
+    /// Each address will have at least (get-stacking-minimum) tokens.
+    pub fn get_reward_addresses_in_cycle(
+        &mut self,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        reward_cycle: u64,
+        block_id: &StacksBlockId,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
         let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
 
-        debug!(
-            "Active PoX contract at {} (burn height {}): {}",
-            block_id, current_burn_height, &pox_contract_name
+        info!(
+            "Active PoX contract at {} (cycle start height {}): {}",
+            block_id, reward_cycle_start_height, &pox_contract_name
         );
         let result = match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
