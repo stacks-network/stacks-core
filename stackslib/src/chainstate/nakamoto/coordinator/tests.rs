@@ -69,8 +69,12 @@ fn advance_to_nakamoto(peer: &mut TestPeer, aggregate_public_key: &Point) {
                 12,
                 34,
             );
-            let aggregate_tx: StacksTransaction =
-                make_pox_4_aggregate_key(&private_key, 1, 7, aggregate_public_key);
+            let aggregate_tx: StacksTransaction = make_pox_4_aggregate_key(
+                &private_key,
+                1,
+                sortition_height + 1,
+                aggregate_public_key,
+            );
             vec![stack_tx, aggregate_tx]
         } else {
             vec![]
@@ -182,13 +186,18 @@ fn make_token_transfer(
 }
 
 /// Given the blocks and block-commits for a reward cycle, replay the sortitions on the given
-/// TestPeer but submit the blocks in random order.
+/// TestPeer, always processing the first block of the reward cycle before processing all
+/// subsequent blocks in random order.
 fn replay_reward_cycle(
     peer: &mut TestPeer,
     burn_ops: &[Vec<BlockstackOperationType>],
     stacks_blocks: &[NakamotoBlock],
 ) {
     eprintln!("\n\n=============================================\nBegin replay\n==============================================\n");
+    let reward_cycle_length = peer.config.burnchain.pox_constants.reward_cycle_length as usize;
+    let reward_cycle_indices: Vec<usize> = (0..stacks_blocks.len())
+        .step_by(reward_cycle_length)
+        .collect();
 
     let mut indexes: Vec<_> = (0..stacks_blocks.len()).collect();
     indexes.shuffle(&mut thread_rng());
@@ -203,19 +212,26 @@ fn replay_reward_cycle(
     let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
     let sort_handle = sortdb.index_handle(&sort_tip);
 
-    for i in indexes.into_iter() {
-        let block: &NakamotoBlock = &stacks_blocks[i];
+    let mut blocks_to_process = stacks_blocks.to_vec();
+    blocks_to_process.shuffle(&mut thread_rng());
+    while let Some(block) = blocks_to_process.pop() {
         let block_id = block.block_id();
-        debug!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
+        info!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
 
-        let accepted =
-            Relayer::process_new_nakamoto_block(&sort_handle, &mut node.chainstate, block.clone())
-                .unwrap();
+        let accepted = Relayer::process_new_nakamoto_block(
+            &sortdb,
+            &sort_handle,
+            &mut node.chainstate,
+            block.clone(),
+        )
+        .unwrap();
         if accepted {
-            test_debug!("Accepted Nakamoto block {}", &block_id);
+            test_debug!("Accepted Nakamoto block {block_id}");
             peer.coord.handle_new_nakamoto_stacks_block().unwrap();
         } else {
-            test_debug!("Did NOT accept Nakamoto block {}", &block_id);
+            test_debug!("Did NOT accept Nakamoto block {block_id}");
+            blocks_to_process.push(block);
+            blocks_to_process.shuffle(&mut thread_rng());
         }
     }
 
