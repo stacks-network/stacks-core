@@ -21,12 +21,13 @@ use ::libsecp256k1::{
     RecoveryId as LibSecp256k1RecoveryId, SecretKey as LibSecp256k1PrivateKey,
     Signature as LibSecp256k1Signature,
 };
+use rand::RngCore;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Error as ser_Error;
 use serde::Serialize;
 
 use super::MessageSignature;
-use crate::types::PublicKey;
+use crate::types::{PrivateKey, PublicKey};
 use crate::util::hash::{hex_bytes, to_hex};
 
 pub const PUBLIC_KEY_SIZE: usize = 33;
@@ -42,8 +43,13 @@ pub struct Secp256k1PublicKey {
     compressed: bool,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Secp256k1PrivateKey {
+    // serde is broken for secp256k1, so do it ourselves
+    #[serde(
+        serialize_with = "secp256k1_privkey_serialize",
+        deserialize_with = "secp256k1_privkey_deserialize"
+    )]
     key: LibSecp256k1PrivateKey,
     compress_public: bool,
 }
@@ -92,6 +98,11 @@ impl Secp256k1PublicKey {
         }
     }
 
+    pub fn from_hex(hex_string: &str) -> Result<Secp256k1PublicKey, &'static str> {
+        let data = hex_bytes(hex_string).map_err(|_e| "Failed to decode hex public key")?;
+        Secp256k1PublicKey::from_slice(&data[..]).map_err(|_e| "Invalid public key hex string")
+    }
+
     pub fn from_private(privk: &Secp256k1PrivateKey) -> Secp256k1PublicKey {
         let key = LibSecp256k1PublicKey::from_secret_key(&privk.key);
         Secp256k1PublicKey {
@@ -113,6 +124,27 @@ impl Secp256k1PublicKey {
 }
 
 impl Secp256k1PrivateKey {
+    pub fn new() -> Secp256k1PrivateKey {
+        let mut rng = rand::thread_rng();
+        loop {
+            // keep trying to generate valid bytes
+            let mut random_32_bytes = [0u8; 32];
+            rng.fill_bytes(&mut random_32_bytes);
+            let pk_res = LibSecp256k1PrivateKey::parse_slice(&random_32_bytes);
+            match pk_res {
+                Ok(pk) => {
+                    return Secp256k1PrivateKey {
+                        key: pk,
+                        compress_public: true,
+                    };
+                }
+                Err(_) => {
+                    continue;
+                }
+            }
+        }
+    }
+
     pub fn from_slice(data: &[u8]) -> Result<Secp256k1PrivateKey, &'static str> {
         if data.len() < 32 {
             return Err("Invalid private key: shorter than 32 bytes");
@@ -133,22 +165,23 @@ impl Secp256k1PrivateKey {
         match LibSecp256k1PrivateKey::parse_slice(&data[0..32]) {
             Ok(privkey_res) => Ok(Secp256k1PrivateKey {
                 key: privkey_res,
-                compress_public: compress_public,
+                compress_public,
             }),
             Err(_e) => Err("Invalid private key: failed to load"),
         }
+    }
+
+    pub fn from_hex(hex_string: &str) -> Result<Secp256k1PrivateKey, &'static str> {
+        let data = hex_bytes(hex_string).map_err(|_e| "Failed to decode hex private key")?;
+        Secp256k1PrivateKey::from_slice(&data[..]).map_err(|_e| "Invalid private key hex string")
     }
 
     pub fn compress_public(&self) -> bool {
         self.compress_public
     }
 
-    pub fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
-        let message = LibSecp256k1Message::parse_slice(data_hash)
-            .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
-        let (sig, recid) = libsecp256k1::sign(&message, &self.key);
-        let rec_sig = MessageSignature::from_secp256k1_recoverable(&sig, recid);
-        Ok(rec_sig)
+    pub fn set_compress_public(&mut self, value: bool) {
+        self.compress_public = value;
     }
 }
 
@@ -200,6 +233,23 @@ fn secp256k1_pubkey_deserialize<'de, D: serde::Deserializer<'de>>(
     LibSecp256k1PublicKey::parse_slice(&key_bytes[..], None).map_err(de_Error::custom)
 }
 
+fn secp256k1_privkey_serialize<S: serde::Serializer>(
+    privk: &LibSecp256k1PrivateKey,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    let key_hex = to_hex(&privk.serialize().to_vec());
+    s.serialize_str(key_hex.as_str())
+}
+
+fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<LibSecp256k1PrivateKey, D::Error> {
+    let key_hex = String::deserialize(d)?;
+    let key_bytes = hex_bytes(&key_hex).map_err(de_Error::custom)?;
+
+    LibSecp256k1PrivateKey::parse_slice(&key_bytes[..]).map_err(de_Error::custom)
+}
+
 impl MessageSignature {
     pub fn empty() -> MessageSignature {
         // NOTE: this cannot be a valid signature
@@ -226,10 +276,19 @@ impl MessageSignature {
         let mut ret_bytes = [0u8; 65];
         let recovery_id_byte = recid.serialize(); // recovery ID will be 0, 1, 2, or 3
         ret_bytes[0] = recovery_id_byte;
-        for i in 0..64 {
-            ret_bytes[i + 1] = bytes[i];
-        }
+        ret_bytes[1..=64].copy_from_slice(&bytes[..64]);
         MessageSignature(ret_bytes)
+    }
+
+    pub fn to_secp256k1_recoverable(&self) -> Option<(LibSecp256k1Signature, LibSecp256k1RecoveryId)> {
+        let recovery_id = match LibSecp256k1RecoveryId::parse(self.0[0]) {
+            Ok(rid) => rid,
+            Err(_) => {
+                return None;
+            }
+        };
+        let signature = LibSecp256k1Signature::parse_standard_slice(&self.0[1..65]).ok()?;
+        Some((signature, recovery_id))
     }
 }
 
@@ -241,5 +300,23 @@ impl PublicKey for Secp256k1PublicKey {
     fn verify(&self, data_hash: &[u8], sig: &MessageSignature) -> Result<bool, &'static str> {
         let pub_key = Secp256k1PublicKey::recover_to_pubkey(data_hash, sig)?;
         Ok(self.eq(&pub_key))
+    }
+}
+
+impl PrivateKey for Secp256k1PrivateKey {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bits = self.key.serialize().to_vec();
+        if self.compress_public {
+            bits.push(0x01);
+        }
+        bits
+    }
+
+    fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str> {
+        let message = LibSecp256k1Message::parse_slice(data_hash)
+            .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
+        let (sig, recid) = libsecp256k1::sign(&message, &self.key);
+        let rec_sig = MessageSignature::from_secp256k1_recoverable(&sig, recid);
+        Ok(rec_sig)
     }
 }
