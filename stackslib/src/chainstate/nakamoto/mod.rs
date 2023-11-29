@@ -17,10 +17,6 @@
 use std::collections::HashSet;
 use std::ops::DerefMut;
 
-pub mod coordinator;
-pub mod miner;
-pub mod tenure;
-
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
@@ -88,6 +84,11 @@ use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
 };
+
+pub mod coordinator;
+pub mod miner;
+pub mod proposal;
+pub mod tenure;
 
 #[cfg(test)]
 pub mod tests;
