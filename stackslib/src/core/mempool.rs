@@ -43,7 +43,12 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
+<<<<<<< HEAD
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+=======
+use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::nakamoto::NakamotoChainState;
+>>>>>>> 38e871b11 (add transfer tx to mockamoto test, address PR feedback)
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
