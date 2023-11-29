@@ -505,9 +505,9 @@
     (and (>= lock-period MIN_POX_REWARD_CYCLES)
          (<= lock-period MAX_POX_REWARD_CYCLES)))
 
-;; Is the current burn block height in the prepare phase?
-(define-read-only (check-not-prepare-phase)
-    (> (mod (+ (- burn-block-height (var-get first-burnchain-block-height)) (var-get pox-prepare-cycle-length))
+;; Is the given burn block height in the prepare phase?
+(define-read-only (check-prepare-phase (height uint))
+    (<= (mod (+ (- height (var-get first-burnchain-block-height)) (var-get pox-prepare-cycle-length))
             (var-get pox-reward-cycle-length))
         (var-get pox-prepare-cycle-length)))
 
@@ -549,7 +549,7 @@
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
     ;; stacking must not happen during prepare phase
-    (asserts! (check-not-prepare-phase)
+    (asserts! (not (check-prepare-phase burn-block-height))
               (err ERR_STACKING_DURING_PREPARE_PHASE))
 
     ;; address version must be valid
@@ -645,7 +645,6 @@
     ;; must be called directly by the tx-sender or by an allowed contract-caller
     (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
-    (print {notification: "revoke-delegate-stx", payload: {stacker: tx-sender}})
     (ok (map-delete delegation-state { stacker: tx-sender }))))
 
 ;; Delegate to `delegate-to` the ability to stack from a given address.

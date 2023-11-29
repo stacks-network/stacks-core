@@ -23,40 +23,40 @@ describe("test pox prepare phase check", () => {
     expectBurnBlockHeight(999);
     let { result } = simnet.callReadOnlyFn(
       "pox-4",
-      "check-not-prepare-phase",
-      [],
+      "check-prepare-phase",
+      [Cl.uint(999)],
       alice
     );
-    expect(result).toBeBool(true);
+    expect(result).toBeBool(false);
 
     simnet.mineEmptyBlock();
     expectBurnBlockHeight(1000);
     ({ result } = simnet.callReadOnlyFn(
       "pox-4",
-      "check-not-prepare-phase",
-      [],
+      "check-prepare-phase",
+      [Cl.uint(1000)],
       alice
     ));
-    expect(result).toBeBool(false);
+    expect(result).toBeBool(true);
 
     simnet.mineEmptyBlocks(50);
     expectBurnBlockHeight(1050);
     ({ result } = simnet.callReadOnlyFn(
       "pox-4",
-      "check-not-prepare-phase",
-      [],
+      "check-prepare-phase",
+      [Cl.uint(1050)],
       alice
     ));
-    expect(result).toBeBool(false);
+    expect(result).toBeBool(true);
 
     simnet.mineEmptyBlock();
     expectBurnBlockHeight(1051);
     ({ result } = simnet.callReadOnlyFn(
       "pox-4",
-      "check-not-prepare-phase",
-      [],
+      "check-prepare-phase",
+      [Cl.uint(1051)],
       alice
     ));
-    expect(result).toBeBool(true);
+    expect(result).toBeBool(false);
   });
 });

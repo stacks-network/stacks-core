@@ -339,10 +339,10 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
     }
 }
 
-/// Synthesize an events data tuple to return on the successful execution of a pox-2 or pox-3 stacking
+/// Synthesize an events data tuple to return on the successful execution of a pox-2 or pox-3 or pox-4 stacking
 /// function.  It runs a series of Clarity queries against the PoX contract's data space (including
 /// calling PoX functions).
-pub fn synthesize_pox_2_or_3_event_info(
+pub fn synthesize_pox_2_or_3_or_4_event_info(
     global_context: &mut GlobalContext,
     contract_id: &QualifiedContractIdentifier,
     sender_opt: Option<&PrincipalData>,
@@ -362,7 +362,8 @@ pub fn synthesize_pox_2_or_3_event_info(
         | "delegate-stack-extend"
         | "stack-increase"
         | "delegate-stack-increase"
-        | "delegate-stx" => Some(create_event_info_stack_or_delegate_code(
+        | "delegate-stx"
+        | "revoke-delegate-stx" => Some(create_event_info_stack_or_delegate_code(
             sender,
             function_name,
             args,
