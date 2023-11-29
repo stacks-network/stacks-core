@@ -69,7 +69,7 @@ jobs:
             echo "::set-output name=open_pr::0"
           else
             git remote add robot https://github.com/$ROBOT_OWNER/$ROBOT_REPO
-            git commit -m "auto: update Clarity references JSONs from stacks-blockchain@${GITHUB_SHA}"
+            git commit -m "auto: update Clarity references JSONs from stacks-core@${GITHUB_SHA}"
             git push robot $ROBOT_BRANCH
             echo "::set-output name=open_pr::1"
           fi
@@ -109,6 +109,6 @@ jobs:
             let result = await github.pulls.create({
                 owner, repo, head,
                 base: "master",
-                title: "Auto: Update API documentation from stacks-blockchain",
-                body: "Update API documentation from the latest in `stacks-blockchain`",
+                title: "Auto: Update API documentation from stacks-core",
+                body: "Update API documentation from the latest in `stacks-core`",
             });

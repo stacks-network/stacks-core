@@ -166,7 +166,7 @@ jobs:
   ##   either or of the following:
   ##     - tag is not provided
   ##     - PR is approved
-  stacks-blockchain-tests:
+  stacks-core-tests:
     if: |
       inputs.tag != '' || (
         inputs.tag == '' || (
@@ -175,11 +175,11 @@ jobs:
           github.event.review.state == 'approved'
         )
       )
-    name: Stacks Blockchain Tests
+    name: Stacks Core Tests
     needs:
       - rustfmt
       - create-cache
-    uses: ./.github/workflows/stacks-blockchain-tests.yml
+    uses: ./.github/workflows/stacks-core-tests.yml
 
   bitcoin-tests:
     if: |
