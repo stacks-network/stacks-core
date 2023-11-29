@@ -9,7 +9,7 @@ on:
 ## env vars are transferred to composite action steps
 env:
   RUSTFLAGS: "-Cinstrument-coverage -Awarnings"
-  LLVM_PROFILE_FILE: "stacks-blockchain-%p-%m.profraw"
+  LLVM_PROFILE_FILE: "stacks-core-%p-%m.profraw"
   BTC_VERSION: "0.20.0"
 
 ##

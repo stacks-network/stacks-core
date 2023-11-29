@@ -22,7 +22,7 @@ on:
           - Bitcoin Tests
           - Epoch Tests
           - Slow Tests
-          - Stacks-Blockchain Tests
+          - Stacks-Core Tests
 
 ## Set the display name to the test being run
 run-name: ${{ inputs.workflow }}
@@ -38,18 +38,18 @@ jobs:
   ##   either or of the following:
   ##     - workflow is 'Release Tests'
   ##     - workflow is 'CI Tests'
-  ##     - workflow is 'Stacks-Blockchain Tests'
-  stacks-blockchain-tests:
+  ##     - workflow is 'Stacks-Core Tests'
+  stacks-core-tests:
     if: |
       (
         inputs.workflow == 'Release Tests' ||
         inputs.workflow == 'CI Tests' ||
-        inputs.workflow == 'Stacks-Blockchain Tests'
+        inputs.workflow == 'Stacks-Core Tests'
       )
-    name: Stacks Blockchain Tests
+    name: Stacks Core Tests
     needs:
       - create-cache
-    uses: ./.github/workflows/stacks-blockchain-tests.yml
+    uses: ./.github/workflows/stacks-core-tests.yml
 
   ## Runs when:
   ##   either or of the following:
