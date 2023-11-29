@@ -32,7 +32,7 @@ slog = { version = "2.5.2", features = ["max_level_trace"], optional = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common/.", optional = true, default-features = false }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
-wasmtime = "15.0.0"
+wasmtime = { version = "15.0.0", optional = true }
 
 [dependencies.serde_json]
 version = "1.0"
@@ -55,10 +55,10 @@ assert-json-diff = "1.0.0"
 
 [features]
 default = ["developer-mode", "canonical", "log"]
-canonical = ["sqlite", "stacks_common/canonical", "serde_stacker"]
+canonical = ["sqlite", "stacks_common/canonical", "serde_stacker", "wasmtime"]
 log = ["slog", "stacks_common/log"]
 sqlite = ["rusqlite"]
-wasm = ["stacks_common/wasm", "developer-mode", "log"]
+wasm = ["stacks_common/wasm", "developer-mode", "log", "serde_stacker"]
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
 testing = ["canonical"]

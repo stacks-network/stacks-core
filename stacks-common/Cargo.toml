@@ -21,14 +21,14 @@ path = "./src/libcommon.rs"
 
 [dependencies]
 rand = "0.7.3"
-serde = "1"
+serde = { version = "1", features = ["derive"] }
 serde_derive = "1"
 sha3 = "0.10.1"
 sha2 = "0.10"
 ripemd = "0.1.1"
 lazy_static = "1.4.0"
 percent-encoding = "2.1.0"
-slog = { version = "2.5.2", features = [ "max_level_trace" ], optional = true }
+slog = { version = "2.5.2", features = ["max_level_trace"], optional = true }
 slog-term = { version = "2.6.0", optional = true }
 slog-json = { version = "2.3.0", optional = true }
 libsecp256k1 = { version = "0.5.0", optional = true }
@@ -39,7 +39,12 @@ libc = "0.2.82"
 nix = "0.23"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["consoleapi", "handleapi", "synchapi", "winbase"] }
+winapi = { version = "0.3", features = [
+  "consoleapi",
+  "handleapi",
+  "synchapi",
+  "winbase",
+] }
 
 [target.'cfg(windows)'.dev-dependencies]
 winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }

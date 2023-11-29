@@ -122,15 +122,21 @@ pub enum WasmError {
     DefinesNotFound,
     TopLevelNotFound,
     MemoryNotFound,
+    #[cfg(feature = "canonical")]
     WasmCompileFailed(wasmtime::Error),
+    #[cfg(feature = "canonical")]
     UnableToLoadModule(wasmtime::Error),
+    #[cfg(feature = "canonical")]
     UnableToLinkHostFunction(String, wasmtime::Error),
     UnableToReadIdentifier(FromUtf8Error),
     UnableToRetrieveIdentifier(i32),
     InvalidClarityName(String),
     StackPointerNotFound,
+    #[cfg(feature = "canonical")]
     UnableToWriteStackPointer(wasmtime::Error),
+    #[cfg(feature = "canonical")]
     UnableToReadMemory(wasmtime::Error),
+    #[cfg(feature = "canonical")]
     UnableToWriteMemory(wasmtime::Error),
     ValueTypeMismatch,
     InvalidNoTypeInValue,
@@ -138,6 +144,7 @@ pub enum WasmError {
     DefineFunctionCalledInRunMode,
     ExpectedReturnValue,
     InvalidIndicator(i32),
+    #[cfg(feature = "canonical")]
     Runtime(wasmtime::Error),
 }
 
@@ -149,8 +156,11 @@ impl fmt::Display for WasmError {
             WasmError::DefinesNotFound => write!(f, "Defines function not found"),
             WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
             WasmError::MemoryNotFound => write!(f, "Memory not found"),
+            #[cfg(feature = "canonical")]
             WasmError::WasmCompileFailed(e) => write!(f, "Wasm compile failed: {e}"),
+            #[cfg(feature = "canonical")]
             WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {e}"),
+            #[cfg(feature = "canonical")]
             WasmError::UnableToLinkHostFunction(name, e) => {
                 write!(f, "Unable to link host function {name}: {e}")
             }
@@ -160,10 +170,13 @@ impl fmt::Display for WasmError {
             }
             WasmError::InvalidClarityName(name) => write!(f, "Invalid Clarity name: {name}"),
             WasmError::StackPointerNotFound => write!(f, "Stack pointer not found"),
+            #[cfg(feature = "canonical")]
             WasmError::UnableToWriteStackPointer(e) => {
                 write!(f, "Unable to write stack pointer: {e}")
             }
+            #[cfg(feature = "canonical")]
             WasmError::UnableToReadMemory(e) => write!(f, "Unable to read memory: {e}"),
+            #[cfg(feature = "canonical")]
             WasmError::UnableToWriteMemory(e) => write!(f, "Unable to write memory: {e}"),
             WasmError::ValueTypeMismatch => write!(f, "Value type mismatch"),
             WasmError::InvalidNoTypeInValue => write!(f, "Invalid no type in value"),
@@ -175,6 +188,7 @@ impl fmt::Display for WasmError {
             WasmError::InvalidIndicator(indicator) => {
                 write!(f, "Invalid response/optional indicator: {indicator}")
             }
+            #[cfg(feature = "canonical")]
             WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
         }
     }
@@ -305,7 +319,7 @@ mod test {
     fn error_formats() {
         let t = "(/ 10 0)";
         let expected = "DivisionByZero
- Stack Trace: 
+ Stack Trace:
 _native_:native_div
 ";
 
