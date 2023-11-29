@@ -29,7 +29,9 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{to_hex, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
-use wsts::curve as p256k1;
+use wsts::common::Signature as Secp256k1Signature;
+use wsts::curve::point::{Compressed as Secp256k1Compressed, Point as Secp256k1Point};
+use wsts::curve::scalar::Scalar as Secp256k1Scalar;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::{TransactionPayloadID, *};
@@ -161,15 +163,11 @@ impl StacksMessageCodec for ThresholdSignature {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
-        use p256k1::point::{Compressed, Point};
-        use p256k1::scalar::Scalar;
-        use wsts::common::Signature;
-
         // Read curve point
         let mut buf = [0u8; 33];
         fd.read_exact(&mut buf)
             .map_err(crate::codec::Error::ReadError)?;
-        let R = Point::try_from(&Compressed::from(buf)).map_err(|_| {
+        let R = Secp256k1Point::try_from(&Secp256k1Compressed::from(buf)).map_err(|_| {
             crate::codec::Error::DeserializeError("Failed to read curve point".into())
         })?;
 
@@ -177,26 +175,22 @@ impl StacksMessageCodec for ThresholdSignature {
         let mut buf = [0u8; 32];
         fd.read_exact(&mut buf)
             .map_err(crate::codec::Error::ReadError)?;
-        let z = Scalar::from(buf);
+        let z = Secp256k1Scalar::from(buf);
 
-        Ok(Self(Signature { R, z }))
+        Ok(Self(Secp256k1Signature { R, z }))
     }
 }
 
 impl ThresholdSignature {
-    pub fn verify(&self, public_key: &p256k1::point::Point, msg: &[u8]) -> bool {
+    pub fn verify(&self, public_key: &Secp256k1Point, msg: &[u8]) -> bool {
         self.0.verify(public_key, msg)
     }
 
     /// Create mock data for testing. Not valid data
     pub fn mock() -> Self {
-        use p256k1::point::Point;
-        use p256k1::scalar::Scalar;
-        use wsts::common::Signature;
-
-        Self(Signature {
-            R: Point::G(),
-            z: Scalar::new(),
+        Self(Secp256k1Signature {
+            R: Secp256k1Point::G(),
+            z: Secp256k1Scalar::new(),
         })
     }
 }
