@@ -1866,10 +1866,17 @@ impl BitcoinRegtestController {
                 let message = signer
                     .sign_message(sig_hash.as_bytes())
                     .expect("Unable to sign message");
+                #[cfg(not(feature = "wasm"))]
                 message
                     .to_secp256k1_recoverable()
                     .expect("Unable to get recoverable signature")
                     .to_standard()
+                    .serialize_der()
+                #[cfg(feature = "wasm")]
+                message
+                    .to_secp256k1_recoverable()
+                    .expect("Unable to get recoverable signature")
+                    .0
                     .serialize_der()
             };
 
