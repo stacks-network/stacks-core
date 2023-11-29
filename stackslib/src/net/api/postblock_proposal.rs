@@ -32,6 +32,7 @@ use stacks_common::util::retry::BoundReader;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::nakamoto::proposal::{BlockValidateResponse, NakamotoBlockProposal};
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -54,83 +55,6 @@ use crate::net::relay::Relayer;
 use crate::net::{
     Attachment, BlocksData, BlocksDatum, Error as NetError, StacksMessageType, StacksNodeState,
 };
-
-/// Represents a block proposed to the `v2/block_proposal` endpoint for validation
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NakamotoBlockProposal {
-    /// Proposed block
-    pub block: NakamotoBlock,
-    /// Identify the stacks/burnchain fork we are on
-    pub parent_consensus_hash: ConsensusHash,
-    /// These are all the microblocks that the proposed block
-    /// will confirm.
-    pub burn_tip: BurnchainHeaderHash,
-    /// This refers to the burn block that was the current tip
-    ///  at the time this proposal was constructed. In most cases,
-    ///  if this proposal is accepted, it will be "mined" in the next
-    ///  burn block.
-    pub burn_tip_height: u32,
-    /// Mainnet, Testnet, etc.
-    pub chain_id: u32,
-}
-
-impl StacksMessageCodec for NakamotoBlockProposal {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.block)?;
-        write_next(fd, &self.parent_consensus_hash)?;
-        write_next(fd, &self.burn_tip)?;
-        write_next(fd, &self.burn_tip_height)?;
-        write_next(fd, &self.chain_id)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        Ok(Self {
-            block: read_next(fd)?,
-            parent_consensus_hash: read_next(fd)?,
-            burn_tip: read_next(fd)?,
-            burn_tip_height: read_next(fd)?,
-            chain_id: read_next(fd)?,
-        })
-    }
-}
-
-/// This enum is used to supply a `reason_code` for validation
-///  rejection responses. This is serialized as an enum with string
-///  type (in jsonschema terminology).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ValidateRejectCode {
-    BadBlockHash,
-    BadTransaction,
-    InvalidBlock,
-    ChainstateError,
-    UnknownParent,
-}
-
-/// A response for block proposal validation
-///  that the stacks-node thinks should be rejected.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlockValidateReject {
-    pub reason: String,
-    pub reason_code: ValidateRejectCode,
-}
-
-/// A response for block proposal validation
-///  that the stacks-node thinks is acceptable.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlockValidateOk {
-    pub block: StacksBlock,
-    pub cost: ExecutionCost,
-    pub size: u64,
-}
-
-/// This enum is used for serializing the response to block
-/// proposal validation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "Result")]
-pub enum NakamotoBlockProposalResponse {
-    Ok(BlockValidateOk),
-    Reject(BlockValidateReject),
-}
 
 #[derive(Clone, Default)]
 pub struct RPCBlockProposalRequestHandler {
@@ -177,6 +101,17 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         query: Option<&str>,
         body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
+        // Only accept requests from localhost
+        let is_loopback = match preamble.host {
+            // Should never be DNS
+            PeerHost::DNS(..) => false,
+            PeerHost::IP(addr, ..) => addr.is_loopback(),
+        };
+
+        if !is_loopback {
+            return Err(Error::Http(403, "Forbidden".into()));
+        }
+
         if preamble.get_content_length() == 0 {
             return Err(Error::DecodeError(
                 "Invalid Http request: expected non-zero-length body for PostBlock".to_string(),
@@ -189,29 +124,22 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
             ));
         }
 
-        match preamble.content_type {
+        let block_proposal = match preamble.content_type {
+            Some(HttpContentType::Bytes) => Self::parse_posttransaction_octets(body)?,
+            Some(HttpContentType::JSON) => Self::parse_posttransaction_json(body)?,
             None => {
                 return Err(Error::DecodeError(
                     "Missing Content-Type for transaction".to_string(),
-                ));
-            }
-            Some(HttpContentType::Bytes) => {
-                // expect a bare transaction
-                let block_proposal = Self::parse_posttransaction_octets(body)?;
-                self.block_proposal = Some(block_proposal);
-            }
-            Some(HttpContentType::JSON) => {
-                // expect a transaction and an attachment
-                let block_proposal = Self::parse_posttransaction_json(body)?;
-                self.block_proposal = Some(block_proposal);
+                ))
             }
             _ => {
                 return Err(Error::DecodeError(
                     "Wrong Content-Type for transaction; expected application/json or application/octet-stream".to_string(),
-                ));
+                ))
             }
-        }
+        };
 
+        self.block_proposal = Some(block_proposal);
         Ok(HttpRequestContents::new().query_string(query))
     }
 }
@@ -229,17 +157,19 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let is_loopback = match preamble.host {
-            // Should never be DNS
-            PeerHost::DNS(..) => false,
-            PeerHost::IP(addr, ..) => addr.is_loopback(),
-        };
+        let block_proposal = self
+            .block_proposal
+            .take()
+            .ok_or(NetError::SendError("`block_proposal` not set".into()))?;
 
-        if !is_loopback {
-            return Err(NetError::Http(Error::Http(403, "Forbidden".into())));
-        }
+        let resp = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+            block_proposal.validate(sortdb, chainstate)
+        });
 
-        todo!()
+        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
+        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let body = HttpResponseContents::try_from_json(&resp)?;
+        Ok((preamble, body))
     }
 }
 
@@ -250,7 +180,7 @@ impl HttpResponse for RPCBlockProposalRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let response: NakamotoBlockProposalResponse = parse_json(preamble, body)?;
+        let response: BlockValidateResponse = parse_json(preamble, body)?;
         HttpResponsePayload::try_from_json(response)
     }
 }
@@ -273,9 +203,7 @@ impl StacksHttpRequest {
 }
 
 impl StacksHttpResponse {
-    pub fn decode_stacks_block_proposal_accepted(
-        self,
-    ) -> Result<NakamotoBlockProposalResponse, NetError> {
+    pub fn decode_stacks_block_proposal_accepted(self) -> Result<BlockValidateResponse, NetError> {
         todo!()
     }
 }
