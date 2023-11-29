@@ -79,7 +79,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                    (token-credit! to amount)))))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (print (token-transfer (print original-sender) u1)))))                     
+             (as-contract (print (token-transfer (print original-sender) u1)))))
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
@@ -121,7 +121,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
         match epoch {
             StacksEpochId::Epoch2_05 => {
-                let (mut ast, _analysis) = tx
+                let (mut ast, analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-2", false),
                         ClarityVersion::Clarity1,
@@ -133,6 +133,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &boot_code_id("costs-2", false),
                     ClarityVersion::Clarity1,
                     &mut ast,
+                    &analysis,
                     BOOT_CODE_COSTS_2,
                     None,
                     |_, _| false,
@@ -145,7 +146,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30 => {
-                let (mut ast, _analysis) = tx
+                let (mut ast, analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-3", false),
                         ClarityVersion::Clarity2,
@@ -157,6 +158,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                     &boot_code_id("costs-3", false),
                     ClarityVersion::Clarity2,
                     &mut ast,
+                    &analysis,
                     BOOT_CODE_COSTS_3,
                     None,
                     |_, _| false,
@@ -455,7 +457,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                         \"not enough balance\")
                    (err 1) (err 3)))))
 
-         (define-public (register 
+         (define-public (register
                         (recipient-principal principal)
                         (name int)
                         (salt int))

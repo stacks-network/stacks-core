@@ -27,6 +27,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
 use super::analysis::{self, ContractAnalysis};
+#[cfg(feature = "canonical")]
 use super::clarity_wasm::call_function;
 use super::EvalHook;
 use crate::vm::ast::{ASTRules, ContractAST};
@@ -703,6 +704,7 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
+    #[cfg(feature = "sqlite")]
     pub fn initialize_versioned_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
@@ -1222,18 +1224,10 @@ impl<'a, 'b> Environment<'a, 'b> {
         let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
 
         let result = {
-            // let mut nested_env = Environment::new(
-            //     self.global_context,
-            //     next_contract_context,
-            //     self.call_stack,
-            //     self.sender.clone(),
-            //     self.caller.clone(),
-            //     self.sponsor.clone(),
-            // );
-
             // TODO: This will need to be epoch gated and the old
             // implementation (below) will need to run on < 3.0.0.
-            call_function(
+            #[cfg(feature = "canonical")]
+            let res = call_function(
                 function.as_str(),
                 args,
                 &mut self.global_context,
@@ -1242,9 +1236,21 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.sender.clone(),
                 self.caller.clone(),
                 self.sponsor.clone(),
-            )
+            );
 
-            // function.execute_apply(args, &mut nested_env)
+            #[cfg(not(feature = "canonical"))]
+            let mut nested_env = Environment::new(
+                self.global_context,
+                next_contract_context,
+                self.call_stack,
+                self.sender.clone(),
+                self.caller.clone(),
+                self.sponsor.clone(),
+            );
+            #[cfg(not(feature = "canonical"))]
+            let res = function.execute_apply(args, &mut nested_env);
+
+            res
         };
 
         if make_read_only {
@@ -1287,6 +1293,7 @@ impl<'a, 'b> Environment<'a, 'b> {
     /// This function should only be used for testing and the CLI interface.
     /// Normal execution reaches the `initialize_contract_from_ast` method
     /// below.
+    #[cfg(feature = "sqlite")]
     pub fn initialize_contract(
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
