@@ -31,8 +31,8 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::SchnorrSignature;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
-use wsts::traits::Aggregator;
 use wsts::curve::point::Point;
+use wsts::traits::Aggregator;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::*;
@@ -71,7 +71,7 @@ pub struct TestSigners {
     /// The parties that will sign the blocks
     pub signer_parties: Vec<wsts::v2::Party>,
     /// The commitments to the polynomials for the aggregate public key
-    pub comms: Vec<wsts::common::PolyCommitment>,
+    pub poly_commitments: Vec<wsts::common::PolyCommitment>,
     /// The aggregate public key
     pub aggregate_public_key: Point,
     /// The total number of key ids distributed among signer_parties
@@ -106,19 +106,20 @@ impl Default for TestSigners {
             .collect();
 
         // Generate an aggregate public key
-        let comms = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
-            Ok(comms) => comms,
+        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
+            Ok(poly_commitments) => poly_commitments,
             Err(secret_errors) => {
                 panic!("Got secret errors from DKG: {:?}", secret_errors);
             }
         };
-        let aggregate_public_key = comms
-            .iter()
-            .fold(Point::default(), |s, comm| s + comm.poly[0]);
+        let aggregate_public_key = poly_commitments.iter().fold(
+            Point::default(),
+            |s, poly_commitment: &wsts::common::PolyCommitment| s + poly_commitment.poly[0],
+        );
         Self {
             signer_parties,
             aggregate_public_key,
-            comms,
+            poly_commitments,
             num_keys,
             threshold,
         }
@@ -138,7 +139,7 @@ impl TestSigners {
 
         let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
         sig_aggregator
-            .init(self.comms.clone())
+            .init(self.poly_commitments.clone())
             .expect("aggregator init failed");
         let signature = sig_aggregator
             .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
