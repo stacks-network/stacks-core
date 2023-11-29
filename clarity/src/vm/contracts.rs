@@ -22,6 +22,7 @@ use super::analysis::ContractAnalysis;
 use super::CallStack;
 use crate::vm::ast::ContractAST;
 use crate::vm::callables::CallableType;
+#[cfg(feature = "canonical")]
 use crate::vm::clarity_wasm::initialize_contract;
 use crate::vm::contexts::{ContractContext, Environment, GlobalContext, LocalContext};
 use crate::vm::errors::InterpreterResult as Result;
@@ -48,6 +49,7 @@ impl Contract {
     ) -> Result<Contract> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
 
+        #[cfg(feature = "canonical")]
         if let Some(wasm_module) = contract.wasm_module.take() {
             contract_context.set_wasm_module(wasm_module);
 
@@ -69,6 +71,14 @@ impl Contract {
                 sponsor,
             )?;
         }
+
+        #[cfg(not(feature = "canonical"))]
+        eval_all(
+            &contract.expressions,
+            &mut contract_context,
+            global_context,
+            sponsor,
+        )?;
 
         Ok(Contract { contract_context })
     }

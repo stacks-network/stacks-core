@@ -24,9 +24,11 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::GlobalContext;
+#[cfg(feature = "sqlite")]
+use crate::vm::database::SqliteConnection;
 use crate::vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
-    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
