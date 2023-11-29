@@ -42,7 +42,7 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature};
 use stacks_common::util::vrf::{VRFProof, VRF};
-use wsts::Point;
+use wsts::curve::point::Point;
 
 use super::burn::db::sortdb::{get_block_commit_by_txid, SortitionHandleConn, SortitionHandleTx};
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
@@ -1444,9 +1444,9 @@ impl NakamotoChainState {
                 ch_sn.block_height,
             )
         else {
-            // can't do anything
+            // This should be unreachable, but we'll return an error just in case.
             let msg = format!(
-                "Failed to determine reward cycle of block height: {}.",
+                "BUG: Failed to determine reward cycle of block height: {}.",
                 ch_sn.block_height
             );
             warn!("{msg}");
