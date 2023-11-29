@@ -8,3 +8,11 @@ costs_version = 1
 [contracts.bns]
 path = "../../stackslib/src/chainstate/stacks/boot/bns.clar"
 depends_on = []
+
+[contracts.bns_test]
+path = "contracts/bns-tests/bns_test.clar"
+depends_on = []
+
+[contracts.bns_flow_test]
+path = "contracts/bns-tests/bns_flow_test.clar"
+depends_on = []
