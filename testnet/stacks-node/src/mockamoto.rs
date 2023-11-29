@@ -638,9 +638,10 @@ impl MockamotoNode {
             .unwrap_or_else(|| VRFProof::empty());
 
             let vrf_seed = VRFSeed::from_proof(&parent_vrf_proof);
+            let parent_block_id = parent_snapshot.get_canonical_stacks_block_id();
 
             let block_commit = LeaderBlockCommitOp {
-                block_header_hash: BlockHeaderHash([0; 32]),
+                block_header_hash: BlockHeaderHash(parent_block_id.0),
                 new_seed: vrf_seed,
                 parent_block_ptr,
                 parent_vtxindex,
@@ -692,6 +693,14 @@ impl MockamotoNode {
     }
 
     fn mine_stacks_block(&mut self) -> Result<NakamotoBlock, ChainstateError> {
+        let miner_principal = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![Secp256k1PublicKey::from_private(&self.miner_key)],
+        )
+        .unwrap()
+        .into();
         let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())?;
         let chain_id = self.chainstate.chain_id;
         let (mut chainstate_tx, clarity_instance) = self.chainstate.chainstate_tx_begin().unwrap();
@@ -715,19 +724,33 @@ impl MockamotoNode {
                 Err(e) => return Err(e),
             };
 
+        let parent_block_id = StacksBlockId::new(&chain_tip_ch, &chain_tip_bh);
+
         let (parent_chain_length, parent_burn_height) = if is_genesis {
             (0, 0)
         } else {
-            let tip_block_id = StacksBlockId::new(&chain_tip_ch, &chain_tip_bh);
-            let tip_info = NakamotoChainState::get_block_header(&chainstate_tx, &tip_block_id)?
+            let tip_info = NakamotoChainState::get_block_header(&chainstate_tx, &parent_block_id)?
                 .ok_or(ChainstateError::NoSuchBlockError)?;
             (tip_info.stacks_block_height, tip_info.burn_header_height)
         };
 
-        info!("Mining block"; "parent_chain_length" => parent_chain_length, "chain_tip_bh" => %chain_tip_bh, "chain_tip_ch" => %chain_tip_ch);
-        let miner_nonce = 3 * parent_chain_length;
+        let miner_nonce = if is_genesis {
+            0
+        } else {
+            let sortdb_conn = self.sortdb.index_conn();
+            let mut clarity_conn = clarity_instance.read_only_connection_checked(
+                &parent_block_id,
+                &chainstate_tx,
+                &sortdb_conn,
+            )?;
+            StacksChainState::get_nonce(&mut clarity_conn, &miner_principal)
+        };
 
-        // TODO: VRF proof cannot be None in Nakamoto rules
+        info!(
+            "Mining block"; "parent_chain_length" => parent_chain_length, "chain_tip_bh" => %chain_tip_bh,
+            "chain_tip_ch" => %chain_tip_ch, "miner_account" => %miner_principal, "miner_nonce" => %miner_nonce,
+        );
+
         let vrf_proof = VRF::prove(&self.vrf_key, sortition_tip.sortition_hash.as_bytes());
         let coinbase_tx_payload =
             TransactionPayload::Coinbase(CoinbasePayload([1; 32]), None, Some(vrf_proof));
@@ -742,7 +765,6 @@ impl MockamotoNode {
         coinbase_tx_signer.sign_origin(&self.miner_key).unwrap();
         let coinbase_tx = coinbase_tx_signer.get_tx().unwrap();
 
-        let parent_block_id = StacksBlockId::new(&chain_tip_ch, &chain_tip_bh);
         // Add a tenure change transaction to the block:
         //  as of now every mockamoto block is a tenure-change.
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
@@ -944,15 +966,15 @@ impl MockamotoNode {
             block_sn.block_height,
             &aggregate_key_block_header.index_block_hash(),
         )?;
-        let chainstate_tx = self.chainstate.db_tx_begin()?;
+        let staging_tx = self.chainstate.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
             &config,
             block,
             &sortition_handle,
-            &chainstate_tx,
+            &staging_tx,
             &aggregate_public_key,
         )?;
-        chainstate_tx.commit()?;
+        staging_tx.commit()?;
         Ok(chain_length)
     }
 }
