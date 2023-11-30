@@ -12,6 +12,8 @@ describe("test pox-4 source code for testnet", () => {
       )
       .toString();
     const concatPox4Testnet = poxTestnet + "\n" + pox4;
+    // uncomment next line to update pox-4-testnet.clar
+    // fs.writeFileSync("contracts/pox/pox-4-testnet.clar", concatPox4Testnet);
     expect(concatPox4Testnet).toBe(pox4Testnet);
   });
 });
