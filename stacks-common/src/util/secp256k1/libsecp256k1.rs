@@ -280,7 +280,9 @@ impl MessageSignature {
         MessageSignature(ret_bytes)
     }
 
-    pub fn to_secp256k1_recoverable(&self) -> Option<(LibSecp256k1Signature, LibSecp256k1RecoveryId)> {
+    pub fn to_secp256k1_recoverable(
+        &self,
+    ) -> Option<(LibSecp256k1Signature, LibSecp256k1RecoveryId)> {
         let recovery_id = match LibSecp256k1RecoveryId::parse(self.0[0]) {
             Ok(rid) => rid,
             Err(_) => {
