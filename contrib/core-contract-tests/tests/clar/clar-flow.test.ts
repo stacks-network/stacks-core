@@ -7,12 +7,16 @@ import {
   extractTestAnnotationsAndCalls,
 } from "./utils/clarity-parser";
 import { expectOk, isValidTestFunction } from "./utils/test-helpers";
+import path from "path";
+import * as fs from "fs";
 
 function isTestContract(contractName: string) {
   return contractName.substring(contractName.length - 10) === "_flow_test";
 }
 
 const accounts = simnet.getAccounts();
+clearLogFile();
+
 simnet.getContractsInterfaces().forEach((contract, contractFQN) => {
   if (!isTestContract(contractFQN)) {
     return;
@@ -33,10 +37,11 @@ simnet.getContractsInterfaces().forEach((contract, contractFQN) => {
         extractTestAnnotationsAndCalls(source);
       const functionAnnotations: FunctionAnnotations =
         annotations[functionName] || {};
-
-      it(`${functionCall.name}${
+      const testname = `${functionCall.name}${
         functionAnnotations.name ? `: ${functionAnnotations.name}` : ""
-      }`, () => {
+      }`;
+      it(testname, () => {
+        writeToLogFile(`\n\n${testname}\n\n`);
         if (hasDefaultPrepareFunction && !functionAnnotations.prepare)
           functionAnnotations.prepare = "prepare";
         if (functionAnnotations["no-prepare"])
@@ -68,7 +73,7 @@ function mineBlocksFromFunctionBody(
 
     if (mineBlocksBefore >= 1) {
       if (blockStarted) {
-        console.log(txs);
+        writeToLogFile(txs);
         block = simnet.mineBlock(txs);
         for (let index = 0; index < txs.length; index++) {
           expectOk(block, contractFQN, testFunctionName, index);
@@ -78,6 +83,7 @@ function mineBlocksFromFunctionBody(
       }
       if (mineBlocksBefore > 1) {
         simnet.mineEmptyBlocks(mineBlocksBefore - 1);
+        writeToLogFile(mineBlocksBefore - 1);
       }
     }
     // start a new block if necessary
@@ -89,7 +95,7 @@ function mineBlocksFromFunctionBody(
   }
   // close final block
   if (blockStarted) {
-    console.log(txs);
+    writeToLogFile(txs);
     block = simnet.mineBlock(txs);
     for (let index = 0; index < txs.length; index++) {
       expectOk(block, contractFQN, testFunctionName, index);
@@ -113,4 +119,20 @@ function generateCallWithArguments(
     callInfo.args.map((arg) => arg.value),
     callerAddress
   );
+}
+
+function writeToLogFile(data: ParsedTransactionResult[] | number | string) {
+  const filePath = path.join(__dirname, "clar-flow-test.log.txt");
+  if (typeof data === "number") {
+    fs.appendFileSync(filePath, `${data} empty blocks\n`);
+  } else if (typeof data === "string") {
+    fs.appendFileSync(filePath, `${data}\n`);
+  } else {
+    fs.appendFileSync(filePath, `block:\n${JSON.stringify(data, null, 2)}\n`);
+  }
+}
+
+function  clearLogFile() {
+  const filePath = path.join(__dirname, "clar-flow-test.log.txt");
+  fs.writeFileSync(filePath, "");
 }
