@@ -1423,49 +1423,31 @@ impl NakamotoChainState {
         sortdb: &SortitionDB,
         sort_handle: &SortitionHandleConn,
         chainstate: &mut StacksChainState,
-        header: &NakamotoBlockHeader,
-        canonical_block_header: &StacksHeaderInfo,
+        for_block_height: u64,
+        at_block_id: &StacksBlockId,
     ) -> Result<Point, ChainstateError> {
-        let ch_sn = SortitionDB::get_block_snapshot_consensus(sort_handle, &header.consensus_hash)?
-            .ok_or(ChainstateError::DBError(DBError::NotFoundError))
-            .map_err(|e| {
-                warn!(
-                    "No sortition for consensus hash: {:?}",
-                    &header.consensus_hash
-                );
-                e
-            })?;
         // Get the current reward cycle
         let Some(reward_cycle) = sort_handle
             .context
             .pox_constants
-            .block_height_to_reward_cycle(
-                sort_handle.context.first_block_height,
-                ch_sn.block_height,
-            )
+            .block_height_to_reward_cycle(sort_handle.context.first_block_height, for_block_height)
         else {
             // This should be unreachable, but we'll return an error just in case.
             let msg = format!(
                 "BUG: Failed to determine reward cycle of block height: {}.",
-                ch_sn.block_height
+                for_block_height
             );
             warn!("{msg}");
             return Err(ChainstateError::InvalidStacksBlock(msg));
         };
 
         chainstate
-            .get_aggregate_public_key_pox_4(
-                sortdb,
-                &canonical_block_header.index_block_hash(),
-                reward_cycle,
-            )?
+            .get_aggregate_public_key_pox_4(sortdb, at_block_id, reward_cycle)?
             .ok_or_else(|| {
                 warn!(
                     "Failed to get aggregate public key";
-                    "block_id" => %canonical_block_header.index_block_hash(),
+                    "block_id" => %at_block_id,
                     "reward_cycle" => reward_cycle,
-                    "canonical_block_height" => canonical_block_header.stacks_block_height,
-                    "canonical_block_height" => canonical_block_header.burn_header_height,
                 );
                 ChainstateError::InvalidStacksBlock("Failed to get aggregate public key".into())
             })

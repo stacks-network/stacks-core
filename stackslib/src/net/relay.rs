@@ -713,6 +713,8 @@ impl Relayer {
             &block.header.block_hash()
         );
 
+        // TODO: https://github.com/stacks-network/stacks-core/issues/4109
+        // Update this to retrieve the last block in the last reward cycle rather than chain tip
         let Some(canonical_block_header) =
             NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)?
         else {
@@ -731,8 +733,8 @@ impl Relayer {
             &sortdb,
             &sort_handle,
             chainstate,
-            &block.header,
-            &canonical_block_header,
+            block_sn.block_height,
+            &canonical_block_header.index_block_hash(),
         ) else {
             warn!("Failed to get aggregate public key. Will not store or relay";
                 "stacks_block_hash" => %block.header.block_hash(),
