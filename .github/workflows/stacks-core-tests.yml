@@ -47,7 +47,7 @@ jobs:
         with:
           test-name: ${{ matrix.test-name }}
           threads: 1
-          archive-file: /tmp/genesis_archive.tar.zst
+          archive-file: ~/genesis_archive.tar.zst
 
       ## Upload code coverage file
       - name: Code Coverage
