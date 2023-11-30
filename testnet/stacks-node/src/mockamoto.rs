@@ -75,6 +75,9 @@ use crate::neon_node::{
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::{Config, EventDispatcher};
 
+use self::signer::SelfSigner;
+
+pub mod signer;
 #[cfg(test)]
 mod tests;
 
@@ -256,6 +259,7 @@ pub struct MockamotoNode {
     sortdb: SortitionDB,
     mempool: MemPoolDB,
     chainstate: StacksChainState,
+    self_signer: SelfSigner,
     miner_key: StacksPrivateKey,
     vrf_key: VRFPrivateKey,
     relay_rcv: Option<Receiver<RelayerDirective>>,
@@ -403,7 +407,7 @@ impl MockamotoNode {
         initial_balances.push((stacker.into(), 100_000_000_000_000));
 
         let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances, None);
-        let (chainstate, _) = StacksChainState::open_and_exec(
+        let (chainstate, boot_receipts) = StacksChainState::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
             &config.get_chainstate_path_str(),
@@ -434,8 +438,16 @@ impl MockamotoNode {
             event_dispatcher.register_observer(observer);
         }
 
+        crate::run_loop::announce_boot_receipts(
+            &mut event_dispatcher,
+            &chainstate,
+            &burnchain.pox_constants,
+            &boot_receipts,
+        );
+
         Ok(MockamotoNode {
             sortdb,
+            self_signer: SelfSigner::single_signer(),
             chainstate,
             miner_key,
             vrf_key,
@@ -945,27 +957,12 @@ impl MockamotoNode {
     }
 
     fn mine_and_stage_block(&mut self) -> Result<u64, ChainstateError> {
-        let block = self.mine_stacks_block()?;
+        let mut block = self.mine_stacks_block()?;
         let config = self.chainstate.config();
         let chain_length = block.header.chain_length;
         let sortition_handle = self.sortdb.index_handle_at_tip();
-        let block_sn = SortitionDB::get_block_snapshot_consensus(
-            sortition_handle.conn(),
-            &block.header.consensus_hash,
-        )?
-        .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
-        // TODO: https://github.com/stacks-network/stacks-core/issues/4109
-        // Update this to retrieve the last block in the last reward cycle rather than chain tip
-        let aggregate_key_block_header =
-            NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)?
-                .unwrap();
-        let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
-            &self.sortdb,
-            &sortition_handle,
-            &mut self.chainstate,
-            block_sn.block_height,
-            &aggregate_key_block_header.index_block_hash(),
-        )?;
+        let aggregate_public_key = self.self_signer.aggregate_public_key;
+        self.self_signer.sign_nakamoto_block(&mut block);
         let staging_tx = self.chainstate.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
             &config,
