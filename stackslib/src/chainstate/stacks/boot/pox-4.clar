@@ -1039,7 +1039,7 @@
          (stacker-state (unwrap! (get-stacker-info tx-sender) (err ERR_STACK_EXTEND_NOT_LOCKED)))
          (amount-ustx (get locked stacker-info))
          (unlock-height (get unlock-height stacker-info))
-         (current-signing-key (unwrap! (get signing-key stacker-state) (err ERR_STACK_EXTEND_NO_SIGNING_KEY)))
+         (current-signing-key (unwrap-panic (get signing-key stacker-state)))
          (new-signing-key (match updated-signing-key 
             param-key param-key 
             current-signing-key))
@@ -1217,7 +1217,7 @@
           (stacker-state (unwrap! (get-stacker-info stacker) (err ERR_STACK_EXTEND_NOT_LOCKED)))
           (amount-ustx (get locked stacker-info))
           (unlock-height (get unlock-height stacker-info))
-          (current-signing-key (unwrap! (get signing-key stacker-state) (err ERR_STACK_EXTEND_NOT_SIGNED)))
+          (current-signing-key (unwrap-panic (get signing-key stacker-state)))
           (new-signing-key (match updated-signing-key 
             param-key param-key 
             current-signing-key))
