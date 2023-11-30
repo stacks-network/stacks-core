@@ -31,9 +31,11 @@ use stacks_common::{error, test_debug};
 /// - for delegate stacking functions, it's the first argument
 fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> Value {
     match function_name {
-        "stack-stx" | "stack-increase" | "stack-extend" | "delegate-stx" => {
-            Value::Principal(sender.clone())
-        }
+        "stack-stx"
+        | "stack-increase"
+        | "stack-extend"
+        | "delegate-stx"
+        | "revoke-delegate-stx" => Value::Principal(sender.clone()),
         _ => args[0].clone(),
     }
 }
