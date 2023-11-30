@@ -358,6 +358,10 @@ impl DefinedFunction {
         self.identifier.clone()
     }
 
+    pub fn get_name(&self) -> &ClarityName {
+        &self.name
+    }
+
     pub fn get_arguments(&self) -> &Vec<ClarityName> {
         &self.arguments
     }
