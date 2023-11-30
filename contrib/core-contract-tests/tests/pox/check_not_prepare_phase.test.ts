@@ -18,9 +18,7 @@ function expectBurnBlockHeight(height: number) {
 }
 
 describe("test pox prepare phase check", () => {
-  it("should return false during prepare phase", () => {
-    simnet.mineEmptyBlocks(998);
-    expectBurnBlockHeight(999);
+  it("should return true during prepare phase (1000 - 1049)", () => {
     let { result } = simnet.callReadOnlyFn(
       "pox-4",
       "check-prepare-phase",
@@ -29,8 +27,6 @@ describe("test pox prepare phase check", () => {
     );
     expect(result).toBeBool(false);
 
-    simnet.mineEmptyBlock();
-    expectBurnBlockHeight(1000);
     ({ result } = simnet.callReadOnlyFn(
       "pox-4",
       "check-prepare-phase",
@@ -39,22 +35,18 @@ describe("test pox prepare phase check", () => {
     ));
     expect(result).toBeBool(true);
 
-    simnet.mineEmptyBlocks(50);
-    expectBurnBlockHeight(1050);
     ({ result } = simnet.callReadOnlyFn(
       "pox-4",
       "check-prepare-phase",
-      [Cl.uint(1050)],
+      [Cl.uint(1049)],
       alice
     ));
     expect(result).toBeBool(true);
 
-    simnet.mineEmptyBlock();
-    expectBurnBlockHeight(1051);
     ({ result } = simnet.callReadOnlyFn(
       "pox-4",
       "check-prepare-phase",
-      [Cl.uint(1051)],
+      [Cl.uint(1050)],
       alice
     ));
     expect(result).toBeBool(false);

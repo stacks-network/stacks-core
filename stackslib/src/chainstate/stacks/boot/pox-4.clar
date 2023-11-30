@@ -507,7 +507,7 @@
 
 ;; Is the given burn block height in the prepare phase?
 (define-read-only (check-prepare-phase (height uint))
-    (<= (mod (+ (- height (var-get first-burnchain-block-height)) (var-get pox-prepare-cycle-length))
+    (< (mod (+ (- height (var-get first-burnchain-block-height)) (var-get pox-prepare-cycle-length))
             (var-get pox-reward-cycle-length))
         (var-get pox-prepare-cycle-length)))
 

@@ -20,7 +20,6 @@
 (define-constant STACKING_THRESHOLD_25 u8000)
 (define-constant STACKING_THRESHOLD_100 u2000)
 
-
 ;; The .pox-4 contract
 ;; Error codes
 (define-constant ERR_STACKING_UNREACHABLE 255)
@@ -530,7 +529,7 @@
 
 ;; Is the given burn block height in the prepare phase?
 (define-read-only (check-prepare-phase (height uint))
-    (<= (mod (+ (- height (var-get first-burnchain-block-height)) (var-get pox-prepare-cycle-length))
+    (< (mod (+ (- height (var-get first-burnchain-block-height)) (var-get pox-prepare-cycle-length))
             (var-get pox-reward-cycle-length))
         (var-get pox-prepare-cycle-length)))
 
