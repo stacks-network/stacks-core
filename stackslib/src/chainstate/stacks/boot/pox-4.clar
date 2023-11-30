@@ -27,7 +27,7 @@
 (define-constant ERR_DELEGATION_WRONG_REWARD_SLOT 29)
 (define-constant ERR_STACKING_IS_DELEGATED 30)
 (define-constant ERR_STACKING_NOT_DELEGATED 31)
-(define-constant ERR_STACK_EXTEND_NOT_SIGNED 32)
+(define-constant ERR_STACK_EXTEND_NO_SIGNING_KEY 32)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -119,7 +119,7 @@
         reward-set-indexes: (list 12 uint),
         ;; principal of the delegate, if stacker has delegated
         delegated-to: (optional principal),
-        ;; signing key for Nakamoto+, only 'none' when delegated & before delegate calls 'stack-aggregation-commit-indexed
+        ;; signing key for Nakamoto, only 'none' when delegated & before delegate calls stack-aggregation-commit-indexed
         signing-key: (optional (buff 33))
     }
 )
@@ -598,7 +598,7 @@
                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                           (signing-key (buff 33))
                           (start-burn-ht uint)
-                          (lock-period uint)))
+                          (lock-period uint))
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
           (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht))))
@@ -655,7 +655,6 @@
 ;;   * amount-ustx: the total amount of ustx the delegate may be allowed to lock
 ;;   * until-burn-ht: an optional burn height at which this delegation expires
 ;;   * pox-addr: an optional address to which any rewards *must* be sent
-;; A signing-key is *not* provided because the delegate assigns this during 'stack-aggregation-commit-index'
 (define-public (delegate-stx (amount-ustx uint)
                              (delegate-to principal)
                              (until-burn-ht (optional uint))
@@ -1036,11 +1035,11 @@
                              (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                              (updated-signing-key (optional (buff 33))))
    (let ((stacker-info (stx-account tx-sender))
-         ;; to extend, there must already be an etry in the stacking-state
+         ;; to extend, there must already be an entry in the stacking-state
          (stacker-state (unwrap! (get-stacker-info tx-sender) (err ERR_STACK_EXTEND_NOT_LOCKED)))
          (amount-ustx (get locked stacker-info))
          (unlock-height (get unlock-height stacker-info))
-         (current-signing-key (unwrap! (get signing-key stacker-state) (err ERR_STACK_EXTEND_NOT_SIGNED)))
+         (current-signing-key (unwrap! (get signing-key stacker-state) (err ERR_STACK_EXTEND_NO_SIGNING_KEY)))
          (new-signing-key (match updated-signing-key 
             param-key param-key 
             current-signing-key))
