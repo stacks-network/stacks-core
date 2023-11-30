@@ -29,6 +29,7 @@ use stacks::core::{
 };
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::util_lib::db::Error as db_error;
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
@@ -479,15 +480,22 @@ impl MockamotoNode {
         let block = self.mine_stacks_block()?;
         let config = self.chainstate.config();
         let sortition_handle = self.sortdb.index_handle_at_tip();
-        let canonical_block_header =
+        let block_sn = SortitionDB::get_block_snapshot_consensus(
+            sortition_handle.conn(),
+            &block.header.consensus_hash,
+        )?
+        .ok_or(ChainstateError::DBError(db_error::NotFoundError))?;
+        // TODO: https://github.com/stacks-network/stacks-core/issues/4109
+        // Update this to retrieve the last block in the last reward cycle rather than chain tip
+        let aggregate_key_block_header =
             NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)?
                 .unwrap();
         let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
             &self.sortdb,
             &sortition_handle,
             &mut self.chainstate,
-            &block.header,
-            &canonical_block_header,
+            block_sn.block_height,
+            &aggregate_key_block_header.index_block_hash(),
         )?;
         let chainstate_tx = self.chainstate.db_tx_begin()?;
         NakamotoChainState::accept_block(
