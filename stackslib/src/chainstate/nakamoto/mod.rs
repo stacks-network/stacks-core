@@ -40,8 +40,9 @@ use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
-use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature};
 use stacks_common::util::vrf::{VRFProof, VRF};
+use wsts::curve::point::Point;
 
 use super::burn::db::sortdb::{get_block_commit_by_txid, SortitionHandleConn, SortitionHandleTx};
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
@@ -170,8 +171,8 @@ lazy_static! {
                      state_index_root TEXT NOT NULL,
                      -- miner's signature over the block
                      miner_signature TEXT NOT NULL,
-                     -- stackers' signature over the block
-                     stacker_signature TEXT NOT NULL,
+                     -- signers' signature over the block
+                     signer_signature TEXT NOT NULL,
           -- The following fields are not part of either the StacksHeaderInfo struct
           --   or its contained NakamotoBlockHeader struct, but are used for querying
                      -- what kind of header this is (nakamoto or stacks 2.x)
@@ -254,9 +255,8 @@ pub struct NakamotoBlockHeader {
     pub state_index_root: TrieHash,
     /// Recoverable ECDSA signature from the tenure's miner.
     pub miner_signature: MessageSignature,
-    /// Recoverable ECDSA signature from the stacker set active during the tenure.
-    /// TODO: This is a placeholder
-    pub stacker_signature: MessageSignature,
+    /// Schnorr signature over the block header from the signer set active during the tenure.
+    pub signer_signature: SchnorrSignature,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -280,7 +280,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let parent_block_id = row.get("parent_block_id")?;
         let tx_merkle_root = row.get("tx_merkle_root")?;
         let state_index_root = row.get("state_index_root")?;
-        let stacker_signature = row.get("stacker_signature")?;
+        let signer_signature = row.get("signer_signature")?;
         let miner_signature = row.get("miner_signature")?;
 
         Ok(NakamotoBlockHeader {
@@ -291,7 +291,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             parent_block_id,
             tx_merkle_root,
             state_index_root,
-            stacker_signature,
+            signer_signature,
             miner_signature,
         })
     }
@@ -307,7 +307,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
-        write_next(fd, &self.stacker_signature)?;
+        write_next(fd, &self.signer_signature)?;
 
         Ok(())
     }
@@ -322,13 +322,13 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             tx_merkle_root: read_next(fd)?,
             state_index_root: read_next(fd)?,
             miner_signature: read_next(fd)?,
-            stacker_signature: read_next(fd)?,
+            signer_signature: read_next(fd)?,
         })
     }
 }
 
 impl NakamotoBlockHeader {
-    /// Calculate the message digest to sign.
+    /// Calculate the message digest for miners to sign.
     /// This includes all fields _except_ the signatures.
     pub fn signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
@@ -340,6 +340,22 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.parent_block_id)?;
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
+        Ok(Sha512Trunc256Sum::from_hasher(hasher))
+    }
+
+    /// Calculate the message digest for stackers to sign.
+    /// This includes all fields _except_ the stacker signature.
+    pub fn signer_signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+        let mut hasher = Sha512_256::new();
+        let fd = &mut hasher;
+        write_next(fd, &self.version)?;
+        write_next(fd, &self.chain_length)?;
+        write_next(fd, &self.burn_spent)?;
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.parent_block_id)?;
+        write_next(fd, &self.tx_merkle_root)?;
+        write_next(fd, &self.state_index_root)?;
+        write_next(fd, &self.miner_signature)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -391,7 +407,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty(),
+            signer_signature: SchnorrSignature::default(),
         }
     }
 
@@ -406,7 +422,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty(),
+            signer_signature: SchnorrSignature::default(),
         }
     }
 
@@ -421,7 +437,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            stacker_signature: MessageSignature::empty(),
+            signer_signature: SchnorrSignature::default(),
         }
     }
 }
@@ -1312,11 +1328,12 @@ impl NakamotoChainState {
     pub fn accept_block(
         config: &ChainstateConfig,
         block: NakamotoBlock,
-        sortdb: &SortitionHandleConn,
+        db_handle: &SortitionHandleConn,
         staging_db_tx: &rusqlite::Transaction,
+        aggregate_public_key: &Point,
     ) -> Result<bool, ChainstateError> {
         // do nothing if we already have this block
-        if let Some(_) = Self::get_block_header(&staging_db_tx, &block.header.block_id())? {
+        if let Some(_) = Self::get_block_header(staging_db_tx, &block.header.block_id())? {
             debug!("Already have block {}", &block.header.block_id());
             return Ok(false);
         }
@@ -1334,9 +1351,12 @@ impl NakamotoChainState {
 
         // this block must be consistent with its miner's leader-key and block-commit, and must
         // contain only transactions that are valid in this epoch.
-        if let Err(e) =
-            Self::validate_nakamoto_block_burnchain(sortdb, &block, config.mainnet, config.chain_id)
-        {
+        if let Err(e) = Self::validate_nakamoto_block_burnchain(
+            db_handle,
+            &block,
+            config.mainnet,
+            config.chain_id,
+        ) {
             warn!("Unacceptable Nakamoto block; will not store";
                   "block_id" => %block.block_id(),
                   "error" => format!("{:?}", &e)
@@ -1344,9 +1364,22 @@ impl NakamotoChainState {
             return Ok(false);
         };
 
-        if !sortdb.expects_stacker_signature(
+        let schnorr_signature = block
+            .header
+            .signer_signature
+            .to_wsts_signature()
+            .ok_or_else(|| {
+                let msg = format!(
+                    "Received block, signed by miner, but the block has no stacker signature"
+                );
+                warn!("{}", msg);
+                ChainstateError::InvalidStacksBlock(msg)
+            })?;
+        if !db_handle.expects_signer_signature(
             &block.header.consensus_hash,
-            &block.header.stacker_signature,
+            &schnorr_signature,
+            &block.header.signer_signature_hash()?.0,
+            aggregate_public_key,
         )? {
             let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
             warn!("{}", msg);
@@ -1355,7 +1388,7 @@ impl NakamotoChainState {
 
         // if the burnchain block of this Stacks block's tenure has been processed, then it
         // is ready to be processed from the perspective of the burnchain
-        let burn_attachable = sortdb.processed_block(&block.header.consensus_hash)?;
+        let burn_attachable = db_handle.processed_block(&block.header.consensus_hash)?;
 
         // check if the parent Stacks Block ID has been processed. if so, then this block is stacks_attachable
         let stacks_attachable =
@@ -1383,6 +1416,41 @@ impl NakamotoChainState {
 
         Self::store_block(staging_db_tx, block, burn_attachable, stacks_attachable)?;
         Ok(true)
+    }
+
+    /// Get the aggregate public key for the given block.
+    pub fn get_aggregate_public_key(
+        sortdb: &SortitionDB,
+        sort_handle: &SortitionHandleConn,
+        chainstate: &mut StacksChainState,
+        for_block_height: u64,
+        at_block_id: &StacksBlockId,
+    ) -> Result<Point, ChainstateError> {
+        // Get the current reward cycle
+        let Some(reward_cycle) = sort_handle
+            .context
+            .pox_constants
+            .block_height_to_reward_cycle(sort_handle.context.first_block_height, for_block_height)
+        else {
+            // This should be unreachable, but we'll return an error just in case.
+            let msg = format!(
+                "BUG: Failed to determine reward cycle of block height: {}.",
+                for_block_height
+            );
+            warn!("{msg}");
+            return Err(ChainstateError::InvalidStacksBlock(msg));
+        };
+
+        chainstate
+            .get_aggregate_public_key_pox_4(sortdb, at_block_id, reward_cycle)?
+            .ok_or_else(|| {
+                warn!(
+                    "Failed to get aggregate public key";
+                    "block_id" => %at_block_id,
+                    "reward_cycle" => reward_cycle,
+                );
+                ChainstateError::InvalidStacksBlock("Failed to get aggregate public key".into())
+            })
     }
 
     /// Create the block reward for a NakamotoBlock
@@ -1823,7 +1891,7 @@ impl NakamotoChainState {
             &u64_to_sql(header.chain_length)?,
             &u64_to_sql(header.burn_spent)?,
             &header.miner_signature,
-            &header.stacker_signature,
+            &header.signer_signature,
             &header.tx_merkle_root,
             &header.state_index_root,
             &block_hash,
@@ -1845,7 +1913,7 @@ impl NakamotoChainState {
 
                      header_type,
                      version, chain_length, burn_spent,
-                     miner_signature, stacker_signature, tx_merkle_root, state_index_root,
+                     miner_signature, signer_signature, tx_merkle_root, state_index_root,
 
                      block_hash,
                      index_block_hash,

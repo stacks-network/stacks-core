@@ -203,6 +203,10 @@
     { amount: uint }
 )
 
+;; The stackers' aggregate public key
+;;   for the given reward cycle
+(define-map aggregate-public-keys uint (buff 33))
+
 ;; Getter for stacking-rejectors
 (define-read-only (get-pox-rejection (stacker principal) (reward-cycle uint))
     (map-get? stacking-rejectors { stacker: stacker, reward-cycle: reward-cycle }))
@@ -1327,5 +1331,20 @@
         rejected
             (get amount rejected)
         u0
+    )
+)
+
+;; What is the given reward cycle's stackers' aggregate public key?
+;; *New in Stacks 3.0*
+(define-read-only (get-aggregate-public-key (reward-cycle uint))
+    (map-get? aggregate-public-keys reward-cycle)
+)
+
+;; Set the aggregate public key to the provided value
+;; TODO: https://github.com/stacks-network/stacks-core/issues/4101
+;; *New in Stacks 3.0*
+(define-public (set-aggregate-public-key (reward-cycle uint) (aggregate-public-key (buff 33)))
+    (begin
+        (ok (map-set aggregate-public-keys reward-cycle aggregate-public-key))
     )
 )

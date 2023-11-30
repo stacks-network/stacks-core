@@ -14,7 +14,9 @@ use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCode
 use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::util::hash::{to_hex, DoubleSha256, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
-use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use crate::util::secp256k1::{
+    MessageSignature, SchnorrSignature, Secp256k1PrivateKey, Secp256k1PublicKey,
+};
 use crate::util::uint::Uint256;
 use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 
@@ -336,6 +338,7 @@ impl_byte_array_rusqlite_only!(VRFProof);
 impl_byte_array_rusqlite_only!(TrieHash);
 impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
 impl_byte_array_rusqlite_only!(MessageSignature);
+impl_byte_array_rusqlite_only!(SchnorrSignature);
 
 impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
 impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
@@ -346,6 +349,7 @@ impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
 impl_byte_array_message_codec!(BlockHeaderHash, 32);
 impl_byte_array_message_codec!(StacksBlockId, 32);
 impl_byte_array_message_codec!(MessageSignature, 65);
+impl_byte_array_message_codec!(SchnorrSignature, 65);
 
 impl BlockHeaderHash {
     pub fn to_hash160(&self) -> Hash160 {
