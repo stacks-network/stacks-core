@@ -777,37 +777,23 @@ impl Config {
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
         if config_file.burnchain.as_ref().map(|b| b.mode.clone()) == Some(Some("mockamoto".into()))
         {
-            let default = Self::from_config_default(ConfigFile::mockamoto(), None)?;
-            Self::from_config_default(config_file, Some(default))
+            // in the case of mockamoto, use `ConfigFile::mockamoto()` as the default for
+            //  processing a user-supplied config
+            let default = Self::from_config_default(ConfigFile::mockamoto(), Config::default())?;
+            Self::from_config_default(config_file, default)
         } else {
-            Self::from_config_default(config_file, None)
+            Self::from_config_default(config_file, Config::default())
         }
     }
 
-    fn from_config_default(
-        config_file: ConfigFile,
-        default: Option<Config>,
-    ) -> Result<Config, String> {
-        let (
-            default_node_config,
-            default_burnchain_config,
-            miner_default_config,
-            default_estimator,
-        ) = match default {
-            Some(Config {
-                node,
-                burnchain,
-                miner,
-                estimation,
-                ..
-            }) => (node, burnchain, miner, estimation),
-            None => (
-                NodeConfig::default(),
-                BurnchainConfig::default(),
-                MinerConfig::default(),
-                FeeEstimationConfig::default(),
-            ),
-        };
+    fn from_config_default(config_file: ConfigFile, default: Config) -> Result<Config, String> {
+        let Config {
+            node: default_node_config,
+            burnchain: default_burnchain_config,
+            miner: miner_default_config,
+            estimation: default_estimator,
+            ..
+        } = default;
         let mut has_require_affirmed_anchor_blocks = false;
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
@@ -1517,14 +1503,8 @@ impl Config {
 
 impl std::default::Default for Config {
     fn default() -> Config {
-        // Testnet's name
-        let node = NodeConfig {
-            ..NodeConfig::default()
-        };
-
-        let burnchain = BurnchainConfig {
-            ..BurnchainConfig::default()
-        };
+        let node = NodeConfig::default();
+        let burnchain = BurnchainConfig::default();
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let estimation = FeeEstimationConfig::default();
