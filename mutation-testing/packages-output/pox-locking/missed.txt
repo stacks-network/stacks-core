@@ -1,0 +1,28 @@
+pox-locking/src/pox_1.rs:90: replace pox_lock_v1 -> Result<(), LockingError> with Ok(())
+pox-locking/src/pox_3.rs:355: replace handle_contract_call -> Result<(), ClarityError> with Ok(())
+pox-locking/src/pox_2.rs:217: replace pox_lock_extend_v2 -> Result<u128, LockingError> with Ok(0)
+pox-locking/src/pox_2.rs:33: replace is_read_only -> bool with true
+pox-locking/src/pox_3.rs:292: replace handle_stack_lockup_increase_pox_v3 -> Result<Option<StacksTransactionEvent>, ClarityError> with Ok(None)
+pox-locking/src/pox_1.rs:69: replace is_read_only -> bool with true
+pox-locking/src/pox_1.rs:128: replace handle_contract_call -> Result<(), ClarityError> with Ok(())
+pox-locking/src/pox_2.rs:473: replace handle_contract_call -> Result<(), ClarityError> with Ok(())
+pox-locking/src/events.rs:76: replace create_event_info_aggregation_code -> String with String::new()
+pox-locking/src/pox_2.rs:345: replace handle_stack_lockup_extension_pox_v2 -> Result<Option<StacksTransactionEvent>, ClarityError> with Ok(None)
+pox-locking/src/pox_2.rs:409: replace handle_stack_lockup_increase_pox_v2 -> Result<Option<StacksTransactionEvent>, ClarityError> with Ok(None)
+pox-locking/src/pox_2.rs:217: replace pox_lock_extend_v2 -> Result<u128, LockingError> with Ok(1)
+pox-locking/src/events.rs:103: replace create_event_info_data_code -> String with String::new()
+pox-locking/src/pox_3.rs:79: replace pox_lock_extend_v3 -> Result<u128, LockingError> with Ok(0)
+pox-locking/src/pox_2.rs:280: replace handle_stack_lockup_pox_v2 -> Result<Option<StacksTransactionEvent>, ClarityError> with Ok(None)
+pox-locking/src/events.rs:47: replace create_event_info_stack_or_delegate_code -> String with "xyzzy".into()
+pox-locking/src/events.rs:76: replace create_event_info_aggregation_code -> String with "xyzzy".into()
+pox-locking/src/pox_3.rs:161: replace handle_stack_lockup_pox_v3 -> Result<Option<StacksTransactionEvent>, ClarityError> with Ok(None)
+pox-locking/src/events.rs:351: replace synthesize_pox_2_or_3_event_info -> Result<Option<Value>, ClarityError> with Ok(None)
+pox-locking/src/pox_3.rs:42: replace pox_lock_v3 -> Result<(), LockingError> with Ok(())
+pox-locking/src/pox_1.rs:69: replace is_read_only -> bool with false
+pox-locking/src/events.rs:103: replace create_event_info_data_code -> String with "xyzzy".into()
+pox-locking/src/pox_3.rs:228: replace handle_stack_lockup_extension_pox_v3 -> Result<Option<StacksTransactionEvent>, ClarityError> with Ok(None)
+pox-locking/src/pox_2.rs:248: replace pox_lock_v2 -> Result<(), LockingError> with Ok(())
+pox-locking/src/pox_3.rs:79: replace pox_lock_extend_v3 -> Result<u128, LockingError> with Ok(1)
+pox-locking/src/pox_2.rs:33: replace is_read_only -> bool with false
+pox-locking/src/lib.rs:65: replace handle_contract_call_special_cases -> Result<(), ClarityError> with Ok(())
+pox-locking/src/events.rs:47: replace create_event_info_stack_or_delegate_code -> String with String::new()

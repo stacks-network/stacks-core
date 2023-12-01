@@ -15,7 +15,7 @@ edition = "2021"
 
 [lib]
 name = "stacks_common"
-path = "./src/libcommon.rs"
+path = "./src/lib.rs"
 
 [dependencies]
 rand = "0.7.3"
