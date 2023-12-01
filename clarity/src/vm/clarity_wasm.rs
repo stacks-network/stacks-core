@@ -1844,6 +1844,10 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_get_block_info_fn(linker)?;
     link_get_burn_block_info_fn(linker)?;
     link_contract_call_fn(linker)?;
+    link_begin_public_call_fn(linker)?;
+    link_begin_read_only_call_fn(linker)?;
+    link_commit_call_fn(linker)?;
+    link_roll_back_call_fn(linker)?;
     link_print_fn(linker)?;
     link_enter_at_block_fn(linker)?;
     link_exit_at_block_fn(linker)?;
@@ -5014,7 +5018,7 @@ fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
 }
 
 /// Link host interface function, `contract_call`, into the Wasm module.
-/// This function is called for `contract-call?`s with literal targets (not traits).
+/// This function is called for `contract-call?`s.
 fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
     linker
         .func_wrap(
@@ -5162,6 +5166,93 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "contract_call".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `begin_public_call`, into the Wasm module.
+/// This function is called before a local call to a public function.
+fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "begin_public_call",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.begin();
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "begin_public_call".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `begin_read_only_call`, into the Wasm module.
+/// This function is called before a local call to a public function.
+fn link_begin_read_only_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "begin_read_only_call",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.begin_read_only();
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "begin_read_only_call".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `commit_call`, into the Wasm module.
+/// This function is called after a local call to a public function to commit
+/// it's changes into the global context.
+fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "commit_call",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.commit()?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "commit_call".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `roll_back_call`, into the Wasm module.
+/// This function is called after a local call to roll back it's changes from
+/// the global context. It is called when a public function errors, or a
+/// read-only call completes.
+fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "roll_back_call",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.roll_back();
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "roll_back_call".to_string(),
                 e,
             ))
         })
