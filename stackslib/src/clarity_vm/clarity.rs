@@ -1651,6 +1651,14 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
         }
     }
 
+    /// Reset the cost tracker to the given cost
+    pub fn reset_cost(&mut self, new_cost: ExecutionCost) {
+        match self.cost_track {
+            Some(ref mut track) => track.set_total(new_cost),
+            None => { /* no-op */ }
+        }
+    }
+
     /// Evaluate a poison-microblock transaction
     pub fn run_poison_microblock(
         &mut self,
