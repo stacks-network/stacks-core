@@ -287,89 +287,85 @@ impl TestStacksNode {
         burn_amount: u64,
         tenure_change_cause: TenureChangeCause,
     ) -> (LeaderBlockCommitOp, TenureChangePayload) {
-        let (
-            last_tenure_id,
-            previous_tenure_end,
-            previous_tenure_blocks,
-            parent_block_snapshot_opt,
-        ) = if let Some(parent_blocks) = parent_nakamoto_tenure {
-            // parent is an epoch 3 nakamoto block
-            let first_parent = parent_blocks.first().unwrap();
-            let last_parent = parent_blocks.last().unwrap();
-            let parent_tenure_id = StacksBlockId::new(
-                &first_parent.header.consensus_hash,
-                &first_parent.header.block_hash(),
-            );
-            let parent_sortition = SortitionDB::get_block_snapshot_consensus(
-                &sortdb.conn(),
-                &first_parent.header.consensus_hash,
-            )
-            .unwrap()
-            .unwrap();
+        let (last_tenure_id, previous_tenure_end, previous_tenure_blocks, parent_block_snapshot) =
+            if let Some(parent_blocks) = parent_nakamoto_tenure {
+                // parent is an epoch 3 nakamoto block
+                let first_parent = parent_blocks.first().unwrap();
+                let last_parent = parent_blocks.last().unwrap();
+                let parent_tenure_id = StacksBlockId::new(
+                    &first_parent.header.consensus_hash,
+                    &first_parent.header.block_hash(),
+                );
+                let parent_sortition = SortitionDB::get_block_snapshot_consensus(
+                    &sortdb.conn(),
+                    &first_parent.header.consensus_hash,
+                )
+                .unwrap()
+                .unwrap();
 
-            test_debug!(
-                "Work in {} {} for Nakamoto parent: {},{}",
-                burn_block.block_height,
-                burn_block.parent_snapshot.burn_header_hash,
-                parent_sortition.total_burn,
-                last_parent.header.chain_length + 1,
-            );
+                test_debug!(
+                    "Work in {} {} for Nakamoto parent: {},{}",
+                    burn_block.block_height,
+                    burn_block.parent_snapshot.burn_header_hash,
+                    parent_sortition.total_burn,
+                    last_parent.header.chain_length + 1,
+                );
 
-            (
-                parent_tenure_id,
-                last_parent.header.block_id(),
-                parent_blocks.len(),
-                Some(parent_sortition),
-            )
-        } else if let Some(parent_stacks_block) = parent_stacks_block {
-            // building off an existing stacks block
-            let parent_stacks_block_snapshot = {
-                let ic = sortdb.index_conn();
-                let parent_stacks_block_snapshot =
-                    SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                        &ic,
-                        &burn_block.parent_snapshot.sortition_id,
-                        &parent_stacks_block.block_hash(),
-                    )
-                    .unwrap()
-                    .unwrap();
-                parent_stacks_block_snapshot
+                (
+                    parent_tenure_id,
+                    last_parent.header.block_id(),
+                    parent_blocks.len(),
+                    parent_sortition,
+                )
+            } else if let Some(parent_stacks_block) = parent_stacks_block {
+                // building off an existing stacks block
+                let parent_stacks_block_snapshot = {
+                    let ic = sortdb.index_conn();
+                    let parent_stacks_block_snapshot =
+                        SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                            &ic,
+                            &burn_block.parent_snapshot.sortition_id,
+                            &parent_stacks_block.block_hash(),
+                        )
+                        .unwrap()
+                        .unwrap();
+                    parent_stacks_block_snapshot
+                };
+
+                let parent_chain_tip = StacksChainState::get_anchored_block_header_info(
+                    self.chainstate.db(),
+                    &parent_stacks_block_snapshot.consensus_hash,
+                    &parent_stacks_block.header.block_hash(),
+                )
+                .unwrap()
+                .unwrap();
+
+                let parent_tenure_id = parent_chain_tip.index_block_hash();
+
+                test_debug!(
+                    "Work in {} {} for Stacks 2.x parent: {},{}",
+                    burn_block.block_height,
+                    burn_block.parent_snapshot.burn_header_hash,
+                    parent_stacks_block_snapshot.total_burn,
+                    parent_chain_tip.anchored_header.height(),
+                );
+
+                (
+                    parent_tenure_id.clone(),
+                    parent_tenure_id,
+                    1,
+                    parent_stacks_block_snapshot,
+                )
+            } else {
+                panic!("Neither Nakamoto nor epoch2 parent found");
             };
-
-            let parent_chain_tip = StacksChainState::get_anchored_block_header_info(
-                self.chainstate.db(),
-                &parent_stacks_block_snapshot.consensus_hash,
-                &parent_stacks_block.header.block_hash(),
-            )
-            .unwrap()
-            .unwrap();
-
-            let parent_tenure_id = parent_chain_tip.index_block_hash();
-
-            test_debug!(
-                "Work in {} {} for Stacks 2.x parent: {},{}",
-                burn_block.block_height,
-                burn_block.parent_snapshot.burn_header_hash,
-                parent_stacks_block_snapshot.total_burn,
-                parent_chain_tip.anchored_header.height(),
-            );
-
-            (
-                parent_tenure_id.clone(),
-                parent_tenure_id,
-                1,
-                Some(parent_stacks_block_snapshot),
-            )
-        } else {
-            // first epoch is a nakamoto epoch (testing only)
-            let parent_tenure_id =
-                StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-            (parent_tenure_id.clone(), parent_tenure_id, 0, None)
-        };
 
         let previous_tenure_blocks =
             u32::try_from(previous_tenure_blocks).expect("FATAL: too many blocks from last miner");
+
         let tenure_change_payload = TenureChangePayload {
+            consensus_hash: ConsensusHash([0x00; 20]), // will be overwritten
+            prev_consensus_hash: parent_block_snapshot.consensus_hash.clone(),
             previous_tenure_end,
             previous_tenure_blocks,
             cause: tenure_change_cause,
@@ -385,7 +381,7 @@ impl TestStacksNode {
             &last_tenure_id,
             burn_amount,
             miner_key,
-            parent_block_snapshot_opt.as_ref(),
+            Some(&parent_block_snapshot),
         );
 
         (block_commit_op, tenure_change_payload)
@@ -543,6 +539,13 @@ impl<'a> TestPeer<'a> {
                 &parent_tenure_id,
             )
             .unwrap();
+            if parent_sortition_opt.is_none() {
+                warn!(
+                    "No parent sortition: tip.sortition_id = {}, parent_tenure_id = {}",
+                    &tip.sortition_id, &parent_tenure_id
+                );
+            }
+
             let last_tenure_id = StacksBlockId::new(
                 &first_parent.header.consensus_hash,
                 &first_parent.header.block_hash(),
@@ -555,19 +558,27 @@ impl<'a> TestPeer<'a> {
             )
         } else {
             // parent may be an epoch 2.x block
-            let (parent_opt, parent_sortition_opt) =
-                if let Some(parent_block) = stacks_node.get_last_anchored_block(miner) {
-                    let ic = sortdb.index_conn();
-                    let sort_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                        &ic,
-                        &tip.sortition_id,
-                        &parent_block.block_hash(),
-                    )
-                    .unwrap();
-                    (Some(parent_block), sort_opt)
-                } else {
-                    (None, None)
-                };
+            let (parent_opt, parent_sortition_opt) = if let Some(parent_block) =
+                stacks_node.get_last_anchored_block(miner)
+            {
+                let ic = sortdb.index_conn();
+                let sort_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &tip.sortition_id,
+                    &parent_block.block_hash(),
+                )
+                .unwrap();
+                if sort_opt.is_none() {
+                    warn!("No parent sortition in epoch2: tip.sortition_id = {}, parent_block.block_hash() = {}", &tip.sortition_id, &parent_block.block_hash());
+                }
+                (Some(parent_block), sort_opt)
+            } else {
+                warn!(
+                    "No parent sortition in epoch2: tip.sortition_id = {}",
+                    &tip.sortition_id
+                );
+                (None, None)
+            };
 
             let last_tenure_id = if let Some(last_epoch2_block) = parent_opt.as_ref() {
                 let parent_sort = parent_sortition_opt.as_ref().unwrap();
@@ -751,7 +762,7 @@ impl<'a> TestPeer<'a> {
     pub fn make_nakamoto_tenure<F>(
         &mut self,
         consensus_hash: &ConsensusHash,
-        tenure_change_payload: TenureChangePayload,
+        mut tenure_change_payload: TenureChangePayload,
         vrf_proof: VRFProof,
         block_builder: F,
     ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
@@ -766,8 +777,11 @@ impl<'a> TestPeer<'a> {
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
 
-        let (last_tenure_id, parent_block_opt, _parent_tenure_opt, parent_sortition_opt) =
+        let (last_tenure_id, parent_block_opt, parent_tenure_opt, parent_sortition_opt) =
             Self::get_nakamoto_parent(&self.miner, &stacks_node, &sortdb);
+
+        tenure_change_payload.consensus_hash = consensus_hash.clone();
+
         let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,
             &sortdb,
