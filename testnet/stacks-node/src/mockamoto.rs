@@ -361,6 +361,8 @@ impl MockamotoNode {
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
         //  to be gated.
         let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
+            consensus_hash: sortition_tip.consensus_hash,
+            prev_consensus_hash: chain_tip_ch.clone(),
             previous_tenure_end: parent_block_id,
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
@@ -404,7 +406,6 @@ impl MockamotoNode {
             sortition_tip.block_height.try_into().map_err(|_| {
                 ChainstateError::InvalidStacksBlock("Burn block height exceeded u32".into())
             })?,
-            false,
             true,
             parent_chain_length + 1,
         )?;
