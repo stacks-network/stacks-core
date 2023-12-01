@@ -1276,6 +1276,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
 
         let result = {
+            #[cfg(feature = "canonical")]
             if next_contract_context.wasm_module.is_some() {
                 call_function(
                     &function.get_name(),
@@ -1288,6 +1289,18 @@ impl<'a, 'b> Environment<'a, 'b> {
                     self.sponsor.clone(),
                 )
             } else {
+                let mut nested_env = Environment::new(
+                    self.global_context,
+                    next_contract_context,
+                    self.call_stack,
+                    self.sender.clone(),
+                    self.caller.clone(),
+                    self.sponsor.clone(),
+                );
+                function.execute_apply(args, &mut nested_env)
+            }
+            #[cfg(not(feature = "canonical"))]
+            {
                 let mut nested_env = Environment::new(
                     self.global_context,
                     next_contract_context,
