@@ -36,7 +36,7 @@ use stacks::chainstate::nakamoto::{
 };
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::{
-    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, POX_4_NAME,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{
@@ -72,6 +72,7 @@ use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
+use wsts::curve::point::Point;
 
 use self::signer::SelfSigner;
 use crate::neon::Counters;
@@ -800,86 +801,46 @@ impl MockamotoNode {
             "chain_tip_ch" => %chain_tip_ch, "miner_account" => %miner_principal, "miner_nonce" => %miner_nonce,
         );
 
-        let vrf_proof = VRF::prove(&self.vrf_key, sortition_tip.sortition_hash.as_bytes());
-        let coinbase_tx_payload =
-            TransactionPayload::Coinbase(CoinbasePayload([1; 32]), None, Some(vrf_proof));
-        let mut coinbase_tx = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
-            coinbase_tx_payload,
-        );
-        coinbase_tx.chain_id = chain_id;
-        coinbase_tx.set_origin_nonce(miner_nonce + 1);
-        let mut coinbase_tx_signer = StacksTransactionSigner::new(&coinbase_tx);
-        coinbase_tx_signer.sign_origin(&self.miner_key).unwrap();
-        let coinbase_tx = coinbase_tx_signer.get_tx().unwrap();
-
         // Add a tenure change transaction to the block:
         //  as of now every mockamoto block is a tenure-change.
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
         //  to be gated.
-        let tenure_change_tx_payload = TransactionPayload::TenureChange(
-            TenureChangePayload {
-                previous_tenure_end: parent_block_id,
-                previous_tenure_blocks: 1,
-                cause: TenureChangeCause::BlockFound,
-                pubkey_hash: Hash160([0; 20]),
-
-                signers: vec![],
-            },
-            ThresholdSignature::mock(),
+        let tenure_tx =
+            make_tenure_change_tx(&self.miner_key, miner_nonce, chain_id, parent_block_id);
+        let vrf_proof = VRF::prove(&self.vrf_key, sortition_tip.sortition_hash.as_bytes());
+        let coinbase_tx =
+            make_coinbase_tx(&self.miner_key, miner_nonce + 1, chain_id, Some(vrf_proof));
+        let stacks_stx_tx = make_stacks_stx_tx(
+            &self.miner_key,
+            miner_nonce + 2,
+            chain_id,
+            parent_chain_length,
+            parent_burn_height,
         );
-        let mut tenure_tx = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
-            tenure_change_tx_payload,
+        // Set the aggregate public key for the NEXT reward cycle hence +1
+        let reward_cycle = self
+            .sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(
+                self.sortdb.first_block_height,
+                sortition_tip.block_height,
+            )
+            .expect(
+                format!(
+                    "Failed to determine reward cycle of block height: {}",
+                    sortition_tip.block_height
+                )
+                .as_str(),
+            )
+            + 1;
+        let aggregate_tx = make_aggregate_tx(
+            &self.miner_key,
+            miner_nonce + 3,
+            chain_id,
+            &self.self_signer.aggregate_public_key,
+            reward_cycle,
         );
-        tenure_tx.chain_id = chain_id;
-        tenure_tx.set_origin_nonce(miner_nonce);
-        let mut tenure_tx_signer = StacksTransactionSigner::new(&tenure_tx);
-        tenure_tx_signer.sign_origin(&self.miner_key).unwrap();
-        let tenure_tx = tenure_tx_signer.get_tx().unwrap();
-
-        let pox_address = PoxAddress::Standard(
-            StacksAddress::burn_address(false),
-            Some(AddressHashMode::SerializeP2PKH),
-        );
-
-        let stack_stx_payload = if parent_chain_length < 2 {
-            TransactionPayload::ContractCall(TransactionContractCall {
-                address: StacksAddress::burn_address(false),
-                contract_name: "pox-4".try_into().unwrap(),
-                function_name: "stack-stx".try_into().unwrap(),
-                function_args: vec![
-                    ClarityValue::UInt(99_000_000_000_000),
-                    pox_address.as_clarity_tuple().unwrap().into(),
-                    ClarityValue::UInt(u128::from(parent_burn_height)),
-                    ClarityValue::UInt(12),
-                ],
-            })
-        } else {
-            // NOTE: stack-extend doesn't currently work, because the PoX-4 lockup
-            //  special functions have not been implemented.
-            TransactionPayload::ContractCall(TransactionContractCall {
-                address: StacksAddress::burn_address(false),
-                contract_name: "pox-4".try_into().unwrap(),
-                function_name: "stack-extend".try_into().unwrap(),
-                function_args: vec![
-                    ClarityValue::UInt(5),
-                    pox_address.as_clarity_tuple().unwrap().into(),
-                ],
-            })
-        };
-        let mut stack_stx_tx = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
-            stack_stx_payload,
-        );
-        stack_stx_tx.chain_id = chain_id;
-        stack_stx_tx.set_origin_nonce(miner_nonce + 2);
-        let mut stack_stx_tx_signer = StacksTransactionSigner::new(&stack_stx_tx);
-        stack_stx_tx_signer.sign_origin(&self.miner_key).unwrap();
-        let stacks_stx_tx = stack_stx_tx_signer.get_tx().unwrap();
+        let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx, aggregate_tx];
 
         let sortdb_handle = self.sortdb.index_conn();
         let SetupBlockResult {
@@ -903,51 +864,6 @@ impl MockamotoNode {
             true,
             parent_chain_length + 1,
         )?;
-
-        // Set the aggregate public key for the NEXT reward cycle hence +1
-        let reward_cycle = self
-            .sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(
-                self.sortdb.first_block_height,
-                sortition_tip.block_height,
-            )
-            .expect(
-                format!(
-                    "Failed to determine reward cycle of block height: {}",
-                    sortition_tip.block_height
-                )
-                .as_str(),
-            )
-            + 1;
-        let aggregate_payload = TransactionPayload::ContractCall(TransactionContractCall {
-            address: StacksAddress::burn_address(false),
-            contract_name: "pox-4".try_into().unwrap(),
-            function_name: "set-aggregate-public-key".try_into().unwrap(),
-            function_args: vec![
-                ClarityValue::UInt(u128::from(reward_cycle)),
-                ClarityValue::buff_from(
-                    self.self_signer
-                        .aggregate_public_key
-                        .compress()
-                        .data
-                        .to_vec(),
-                )
-                .expect("Failed to serialize aggregate public key"),
-            ],
-        });
-        let mut aggregate_tx: StacksTransaction = StacksTransaction::new(
-            TransactionVersion::Testnet,
-            TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
-            aggregate_payload,
-        );
-        aggregate_tx.chain_id = chain_id;
-        aggregate_tx.set_origin_nonce(miner_nonce + 3);
-        let mut aggregate_tx_signer = StacksTransactionSigner::new(&aggregate_tx);
-        aggregate_tx_signer.sign_origin(&self.miner_key).unwrap();
-        let aggregate_tx = aggregate_tx_signer.get_tx().unwrap();
-
-        let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx, aggregate_tx];
 
         let _ = match StacksChainState::process_block_transactions(
             &mut clarity_tx,
@@ -1075,4 +991,118 @@ impl MockamotoNode {
         staging_tx.commit()?;
         Ok(chain_length)
     }
+}
+
+// Helper function to make a signed tenure change transaction
+fn make_tenure_change_tx(
+    key: &StacksPrivateKey,
+    miner_nonce: u64,
+    chain_id: u32,
+    parent_block_id: StacksBlockId,
+) -> StacksTransaction {
+    let tenure_change_tx_payload = TransactionPayload::TenureChange(
+        TenureChangePayload {
+            previous_tenure_end: parent_block_id,
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0; 20]),
+            signers: vec![],
+        },
+        ThresholdSignature::mock(),
+    );
+    make_tx(key, miner_nonce, tenure_change_tx_payload, chain_id)
+}
+
+// Helper function to make a signed coinbase transaction
+fn make_coinbase_tx(
+    key: &StacksPrivateKey,
+    miner_nonce: u64,
+    chain_id: u32,
+    vrf_proof: Option<VRFProof>,
+) -> StacksTransaction {
+    let coinbase_tx_payload =
+        TransactionPayload::Coinbase(CoinbasePayload([1; 32]), None, vrf_proof);
+    make_tx(key, miner_nonce, coinbase_tx_payload, chain_id)
+}
+
+// Helper function to make a signed stacks-stx transaction
+fn make_stacks_stx_tx(
+    key: &StacksPrivateKey,
+    miner_nonce: u64,
+    chain_id: u32,
+    parent_chain_length: u64,
+    parent_burn_height: u32,
+) -> StacksTransaction {
+    let pox_address = PoxAddress::Standard(
+        StacksAddress::burn_address(false),
+        Some(AddressHashMode::SerializeP2PKH),
+    );
+
+    let stack_stx_payload = if parent_chain_length < 2 {
+        TransactionPayload::ContractCall(TransactionContractCall {
+            address: StacksAddress::burn_address(false),
+            contract_name: POX_4_NAME.into(),
+            function_name: "stack-stx".try_into().unwrap(),
+            function_args: vec![
+                ClarityValue::UInt(99_000_000_000_000),
+                pox_address.as_clarity_tuple().unwrap().into(),
+                ClarityValue::UInt(u128::from(parent_burn_height)),
+                ClarityValue::UInt(12),
+            ],
+        })
+    } else {
+        // NOTE: stack-extend doesn't currently work, because the PoX-4 lockup
+        //  special functions have not been implemented.
+        TransactionPayload::ContractCall(TransactionContractCall {
+            address: StacksAddress::burn_address(false),
+            contract_name: POX_4_NAME.into(),
+            function_name: "stack-extend".try_into().unwrap(),
+            function_args: vec![
+                ClarityValue::UInt(5),
+                pox_address.as_clarity_tuple().unwrap().into(),
+            ],
+        })
+    };
+    make_tx(key, miner_nonce, stack_stx_payload, chain_id)
+}
+
+/// Helper function to make a set-aggregate-public-key transaction
+fn make_aggregate_tx(
+    key: &StacksPrivateKey,
+    nonce: u64,
+    chain_id: u32,
+    aggregate_public_key: &Point,
+    reward_cycle: u64,
+) -> StacksTransaction {
+    let aggregate_payload = TransactionPayload::ContractCall(TransactionContractCall {
+        address: StacksAddress::burn_address(false),
+        contract_name: POX_4_NAME.into(),
+        function_name: "set-aggregate-public-key".try_into().unwrap(),
+        function_args: vec![
+            ClarityValue::UInt(u128::from(reward_cycle)),
+            ClarityValue::buff_from(aggregate_public_key.compress().data.to_vec())
+                .expect("Failed to serialize aggregate public key"),
+        ],
+    });
+    make_tx(&key, nonce, aggregate_payload, chain_id)
+}
+
+/// Helper function to create a zero fee transaction
+/// TODO: this is duplicated in so many places. We should have a utils fn for this
+fn make_tx(
+    key: &StacksPrivateKey,
+    nonce: u64,
+    tx_payload: TransactionPayload,
+    chain_id: u32,
+) -> StacksTransaction {
+    let mut tx = StacksTransaction::new(
+        TransactionVersion::Testnet,
+        TransactionAuth::from_p2pkh(&key).unwrap(),
+        tx_payload,
+    );
+    tx.chain_id = chain_id;
+    tx.set_origin_nonce(nonce);
+    let mut tx_signer = StacksTransactionSigner::new(&tx);
+    tx_signer.sign_origin(&key).unwrap();
+    tx_signer.get_tx().unwrap()
 }
