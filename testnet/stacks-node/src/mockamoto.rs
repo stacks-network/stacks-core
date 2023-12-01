@@ -1002,7 +1002,28 @@ impl MockamotoNode {
         let config = self.chainstate.config();
         let chain_length = block.header.chain_length;
         let mut sortition_handle = self.sortdb.index_handle_at_tip();
-        let aggregate_public_key = self.self_signer.aggregate_public_key;
+        let aggregate_public_key = if chain_length <= 1 {
+            self.self_signer.aggregate_public_key
+        } else {
+            let block_sn = SortitionDB::get_block_snapshot_consensus(
+                sortition_handle.conn(),
+                &block.header.consensus_hash,
+            )?
+            .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
+            // TODO: https://github.com/stacks-network/stacks-core/issues/4109
+            // Update this to retrieve the last block in the last reward cycle rather than chain tip
+            let aggregate_key_block_header =
+                NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)?
+                    .unwrap();
+            let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
+                &self.sortdb,
+                &sortition_handle,
+                &mut self.chainstate,
+                block_sn.block_height,
+                &aggregate_key_block_header.index_block_hash(),
+            )?;
+            aggregate_public_key
+        };
         self.self_signer.sign_nakamoto_block(&mut block);
         let staging_tx = self.chainstate.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
