@@ -45,7 +45,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, Sortitio
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
+    MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::accounts::MinerReward;
@@ -94,8 +94,7 @@ pub struct NakamotoBlockBuilder {
     /// parent block-commit hash value
     parent_commit_hash_value: BlockHeaderHash,
     /// Matured miner rewards to process, if any.
-    /// If given, this is (parent-miner-reward, this-miner-reward, reward-info)
-    matured_miner_rewards_opt: Option<(MinerReward, MinerReward, MinerRewardInfo)>,
+    matured_miner_rewards_opt: Option<MaturedMinerRewards>,
     /// bytes of space consumed so far
     bytes_so_far: u64,
     /// transactions selected
@@ -410,7 +409,6 @@ impl NakamotoBlockBuilder {
             info.parent_burn_block_height,
             info.burn_tip,
             info.burn_tip_height,
-            info.mainnet,
             info.tenure_start,
             info.tenure_height,
         )?;
