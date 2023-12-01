@@ -159,14 +159,10 @@ impl StacksMessageCodec for SchnorrThresholdSignature {
     }
 }
 
-impl TenureChangePayload {
-    pub fn validate(&self) -> Result<(), TenureChangeError> {
-        Ok(())
-    }
-}
-
 impl StacksMessageCodec for TenureChangePayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.prev_consensus_hash)?;
         write_next(fd, &self.previous_tenure_end)?;
         write_next(fd, &self.previous_tenure_blocks)?;
         write_next(fd, &self.cause)?;
@@ -177,6 +173,8 @@ impl StacksMessageCodec for TenureChangePayload {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
         Ok(Self {
+            consensus_hash: read_next(fd)?,
+            prev_consensus_hash: read_next(fd)?,
             previous_tenure_end: read_next(fd)?,
             previous_tenure_blocks: read_next(fd)?,
             cause: read_next(fd)?,
@@ -685,6 +683,14 @@ impl StacksTransaction {
             TransactionPayload::Coinbase(ref payload, ref recipient_opt, ref vrf_proof_opt) => {
                 Some((payload, recipient_opt.as_ref(), vrf_proof_opt.as_ref()))
             }
+            _ => None,
+        }
+    }
+
+    /// Try to convert to a tenure change payload
+    pub fn try_as_tenure_change(&self) -> Option<&TenureChangePayload> {
+        match &self.payload {
+            TransactionPayload::TenureChange(ref tc_payload) => Some(tc_payload),
             _ => None,
         }
     }
