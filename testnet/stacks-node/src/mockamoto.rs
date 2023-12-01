@@ -5,8 +5,10 @@ use std::thread;
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
+use clarity::boot_util::boot_code_id;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::Value as ClarityValue;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::{ClarityVersion, Value as ClarityValue};
 use lazy_static::lazy_static;
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
@@ -33,6 +35,9 @@ use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::boot::{
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
+};
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, MinerStatus, TransactionResult,
@@ -64,7 +69,7 @@ use stacks_common::types::chainstate::{
     StacksPrivateKey, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
@@ -405,7 +410,40 @@ impl MockamotoNode {
 
         initial_balances.push((stacker.into(), 100_000_000_000_000));
 
-        let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances, None);
+        // Create a boot contract to initialize the aggregate public key prior to Pox-4 activation
+        let self_signer = SelfSigner::single_signer();
+        let agg_pub_key = to_hex(&self_signer.aggregate_public_key.compress().data);
+        info!("Mockamoto node setting agg public key"; "agg_pub_key" => &agg_pub_key);
+        let callback = move |clarity_tx: &mut ClarityTx| {
+            let contract_content = format!(
+                "(define-read-only ({}) 0x{})",
+                BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key
+            );
+            let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
+            clarity_tx.connection().as_transaction(|clarity| {
+                let (ast, analysis) = clarity
+                    .analyze_smart_contract(
+                        &contract_id,
+                        ClarityVersion::Clarity2,
+                        &contract_content,
+                        ASTRules::PrecheckSize,
+                    )
+                    .unwrap();
+                clarity
+                    .initialize_smart_contract(
+                        &contract_id,
+                        ClarityVersion::Clarity2,
+                        &ast,
+                        &contract_content,
+                        None,
+                        |_, _| false,
+                    )
+                    .unwrap();
+                clarity.save_analysis(&contract_id, &analysis).unwrap();
+            })
+        };
+        let mut boot_data =
+            ChainStateBootData::new(&burnchain, initial_balances, Some(Box::new(callback)));
         let (chainstate, boot_receipts) = StacksChainState::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
@@ -446,7 +484,7 @@ impl MockamotoNode {
 
         Ok(MockamotoNode {
             sortdb,
-            self_signer: SelfSigner::single_signer(),
+            self_signer,
             chainstate,
             miner_key,
             vrf_key,
