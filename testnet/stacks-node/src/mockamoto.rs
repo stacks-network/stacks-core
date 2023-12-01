@@ -904,7 +904,50 @@ impl MockamotoNode {
             parent_chain_length + 1,
         )?;
 
-        let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx];
+        // Set the aggregate public key for the NEXT reward cycle hence +1
+        let reward_cycle = self
+            .sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(
+                self.sortdb.first_block_height,
+                sortition_tip.block_height,
+            )
+            .expect(
+                format!(
+                    "Failed to determine reward cycle of block height: {}",
+                    sortition_tip.block_height
+                )
+                .as_str(),
+            )
+            + 1;
+        let aggregate_payload = TransactionPayload::ContractCall(TransactionContractCall {
+            address: StacksAddress::burn_address(false),
+            contract_name: "pox-4".try_into().unwrap(),
+            function_name: "set-aggregate-public-key".try_into().unwrap(),
+            function_args: vec![
+                ClarityValue::UInt(u128::from(reward_cycle)),
+                ClarityValue::buff_from(
+                    self.self_signer
+                        .aggregate_public_key
+                        .compress()
+                        .data
+                        .to_vec(),
+                )
+                .expect("Failed to serialize aggregate public key"),
+            ],
+        });
+        let mut aggregate_tx: StacksTransaction = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
+            aggregate_payload,
+        );
+        aggregate_tx.chain_id = chain_id;
+        aggregate_tx.set_origin_nonce(miner_nonce + 3);
+        let mut aggregate_tx_signer = StacksTransactionSigner::new(&aggregate_tx);
+        aggregate_tx_signer.sign_origin(&self.miner_key).unwrap();
+        let aggregate_tx = aggregate_tx_signer.get_tx().unwrap();
+
+        let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx, aggregate_tx];
 
         let _ = match StacksChainState::process_block_transactions(
             &mut clarity_tx,
