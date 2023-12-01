@@ -1081,9 +1081,9 @@ impl StacksChainState {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
-
         self.get_reward_addresses_in_cycle(burnchain, sortdb, reward_cycle, block_id)
     }
+
     /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
     /// lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.

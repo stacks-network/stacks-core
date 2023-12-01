@@ -720,6 +720,14 @@ impl<
                 header.block_height, reward_cycle, &self.burnchain.working_dir,
             );
 
+            info!(
+                "Process burn block {} reward cycle {} in {}",
+                header.block_height, reward_cycle, &self.burnchain.working_dir;
+                "in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height),
+                "is_rc_start" => self.burnchain.is_reward_cycle_start(header.block_height),
+                "is_prior_in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height.saturating_sub(2)),
+            );
+
             // calculate paid rewards during this burnchain block if we announce
             //  to an events dispatcher
             let paid_rewards = if self.dispatcher.is_some() {
