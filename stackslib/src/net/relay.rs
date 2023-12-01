@@ -710,6 +710,11 @@ impl Relayer {
             &block.header.consensus_hash,
             &block.header.block_hash()
         );
+        let reject_msg = format!(
+            "Rejected incoming Nakamoto block {}/{}",
+            &block.header.consensus_hash,
+            &block.header.block_hash()
+        );
 
         let config = chainstate.config();
         let staging_db_tx = chainstate.db_tx_begin()?;
@@ -719,7 +724,10 @@ impl Relayer {
 
         if accepted {
             debug!("{}", &accept_msg);
+        } else {
+            debug!("{}", &reject_msg);
         }
+
         Ok(accepted)
     }
 
