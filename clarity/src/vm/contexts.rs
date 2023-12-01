@@ -1276,33 +1276,28 @@ impl<'a, 'b> Environment<'a, 'b> {
         let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
 
         let result = {
-            // TODO: This will need to be epoch gated and the old
-            // implementation (below) will need to run on < 3.0.0.
-            #[cfg(feature = "canonical")]
-            let res = call_function(
-                &function.get_name(),
-                args,
-                &mut self.global_context,
-                &next_contract_context,
-                self.call_stack,
-                self.sender.clone(),
-                self.caller.clone(),
-                self.sponsor.clone(),
-            );
-
-            #[cfg(not(feature = "canonical"))]
-            let mut nested_env = Environment::new(
-                self.global_context,
-                next_contract_context,
-                self.call_stack,
-                self.sender.clone(),
-                self.caller.clone(),
-                self.sponsor.clone(),
-            );
-            #[cfg(not(feature = "canonical"))]
-            let res = function.execute_apply(args, &mut nested_env);
-
-            res
+            if next_contract_context.wasm_module.is_some() {
+                call_function(
+                    &function.get_name(),
+                    args,
+                    &mut self.global_context,
+                    &next_contract_context,
+                    self.call_stack,
+                    self.sender.clone(),
+                    self.caller.clone(),
+                    self.sponsor.clone(),
+                )
+            } else {
+                let mut nested_env = Environment::new(
+                    self.global_context,
+                    next_contract_context,
+                    self.call_stack,
+                    self.sender.clone(),
+                    self.caller.clone(),
+                    self.sponsor.clone(),
+                );
+                function.execute_apply(args, &mut nested_env)
+            }
         };
 
         if make_read_only {
