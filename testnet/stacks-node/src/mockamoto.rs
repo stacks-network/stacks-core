@@ -29,6 +29,7 @@ use stacks::core::{
 };
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::util_lib::db::Error as db_error;
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
@@ -38,7 +39,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature, Secp256k1PublicKey};
 
 use crate::neon::Counters;
 use crate::neon_node::{
@@ -457,8 +458,8 @@ impl MockamotoNode {
                 burn_spent: 10,
                 tx_merkle_root: tx_merkle_tree.root(),
                 state_index_root,
-                stacker_signature: MessageSignature([0; 65]),
-                miner_signature: MessageSignature([0; 65]),
+                signer_signature: SchnorrSignature::default(),
+                miner_signature: MessageSignature::empty(),
                 consensus_hash: sortition_tip.consensus_hash.clone(),
                 parent_block_id: StacksBlockId::new(&chain_tip_ch, &chain_tip_bh),
             },
@@ -478,9 +479,32 @@ impl MockamotoNode {
     fn mine_and_stage_block(&mut self) -> Result<(), ChainstateError> {
         let block = self.mine_stacks_block()?;
         let config = self.chainstate.config();
-        let chainstate_tx = self.chainstate.db_tx_begin()?;
         let sortition_handle = self.sortdb.index_handle_at_tip();
-        NakamotoChainState::accept_block(&config, block, &sortition_handle, &chainstate_tx)?;
+        let block_sn = SortitionDB::get_block_snapshot_consensus(
+            sortition_handle.conn(),
+            &block.header.consensus_hash,
+        )?
+        .ok_or(ChainstateError::DBError(db_error::NotFoundError))?;
+        // TODO: https://github.com/stacks-network/stacks-core/issues/4109
+        // Update this to retrieve the last block in the last reward cycle rather than chain tip
+        let aggregate_key_block_header =
+            NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)?
+                .unwrap();
+        let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
+            &self.sortdb,
+            &sortition_handle,
+            &mut self.chainstate,
+            block_sn.block_height,
+            &aggregate_key_block_header.index_block_hash(),
+        )?;
+        let chainstate_tx = self.chainstate.db_tx_begin()?;
+        NakamotoChainState::accept_block(
+            &config,
+            block,
+            &sortition_handle,
+            &chainstate_tx,
+            &aggregate_public_key,
+        )?;
         chainstate_tx.commit()?;
         Ok(())
     }
