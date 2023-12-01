@@ -418,6 +418,7 @@ impl EventObserver {
             "confirmed_microblocks_cost": mblock_confirmed_consumed,
             "pox_v1_unlock_height": pox_constants.v1_unlock_height,
             "pox_v2_unlock_height": pox_constants.v2_unlock_height,
+            "pox_v3_unlock_height": pox_constants.v3_unlock_height,
         })
     }
 }

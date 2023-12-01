@@ -30,6 +30,8 @@ use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlock
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use wsts::curve::point::Point;
+use wsts::traits::Aggregator;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::*;
@@ -62,6 +64,88 @@ use crate::net::relay::Relayer;
 use crate::net::test::{TestPeer, TestPeerConfig, *};
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
+
+#[derive(Debug, Clone)]
+pub struct TestSigners {
+    /// The parties that will sign the blocks
+    pub signer_parties: Vec<wsts::v2::Party>,
+    /// The commitments to the polynomials for the aggregate public key
+    pub poly_commitments: Vec<wsts::common::PolyCommitment>,
+    /// The aggregate public key
+    pub aggregate_public_key: Point,
+    /// The total number of key ids distributed among signer_parties
+    pub num_keys: u32,
+    /// The number of vote shares required to sign a block
+    pub threshold: u32,
+}
+
+impl Default for TestSigners {
+    fn default() -> Self {
+        let mut rng = rand_core::OsRng::default();
+        let num_keys = 10;
+        let threshold = 7;
+        let party_key_ids: Vec<Vec<u32>> =
+            vec![vec![0, 1, 2], vec![3, 4], vec![5, 6, 7], vec![8, 9]];
+        let num_parties = party_key_ids.len().try_into().unwrap();
+
+        // Create the parties
+        let mut signer_parties: Vec<wsts::v2::Party> = party_key_ids
+            .iter()
+            .enumerate()
+            .map(|(pid, pkids)| {
+                wsts::v2::Party::new(
+                    pid.try_into().unwrap(),
+                    pkids,
+                    num_parties,
+                    num_keys,
+                    threshold,
+                    &mut rng,
+                )
+            })
+            .collect();
+
+        // Generate an aggregate public key
+        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
+            Ok(poly_commitments) => poly_commitments,
+            Err(secret_errors) => {
+                panic!("Got secret errors from DKG: {:?}", secret_errors);
+            }
+        };
+        let aggregate_public_key = poly_commitments.iter().fold(
+            Point::default(),
+            |s, poly_commitment: &wsts::common::PolyCommitment| s + poly_commitment.poly[0],
+        );
+        Self {
+            signer_parties,
+            aggregate_public_key,
+            poly_commitments,
+            num_keys,
+            threshold,
+        }
+    }
+}
+
+impl TestSigners {
+    pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
+        let mut rng = rand_core::OsRng;
+        let msg = block
+            .header
+            .signer_signature_hash()
+            .expect("Failed to determine the block header signature hash for signers.")
+            .0;
+        let (nonces, sig_shares, key_ids) =
+            wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
+
+        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
+        sig_aggregator
+            .init(self.poly_commitments.clone())
+            .expect("aggregator init failed");
+        let signature = sig_aggregator
+            .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
+            .expect("aggregator sig failed");
+        block.header.signer_signature = ThresholdSignature(signature);
+    }
+}
 
 impl TestBurnchainBlock {
     pub fn add_nakamoto_tenure_commit(
@@ -130,7 +214,6 @@ impl TestMiner {
     ) -> StacksTransaction {
         let mut tx_tenure_change = StacksTransaction::new(
             TransactionVersion::Testnet,
-            // TODO: this needs to be a schnorr signature
             self.as_transaction_auth().unwrap(),
             TransactionPayload::TenureChange(tenure_change),
         );
@@ -370,7 +453,7 @@ impl TestStacksNode {
             previous_tenure_blocks,
             cause: tenure_change_cause,
             pubkey_hash: miner.nakamoto_miner_hash160(),
-            signature: SchnorrThresholdSignature::empty(),
+            signature: ThresholdSignature::mock(),
             signers: vec![],
         };
 
@@ -394,6 +477,7 @@ impl TestStacksNode {
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
         miner: &mut TestMiner,
+        signers: &mut TestSigners,
         proof: VRFProof,
         tenure_change_payload: TenureChangePayload,
         coord: &mut ChainsCoordinator<
@@ -470,6 +554,7 @@ impl TestStacksNode {
                 .make_nakamoto_block_from_txs(chainstate, &sortdb.index_conn(), txs)
                 .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
+            signers.sign_nakamoto_block(&mut nakamoto_block);
 
             let block_id = nakamoto_block.block_id();
             debug!(
@@ -480,6 +565,7 @@ impl TestStacksNode {
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let sort_handle = sortdb.index_handle(&sort_tip);
             let accepted = Relayer::process_new_nakamoto_block(
+                sortdb,
                 &sort_handle,
                 chainstate,
                 nakamoto_block.clone(),
@@ -763,6 +849,7 @@ impl<'a> TestPeer<'a> {
         &mut self,
         consensus_hash: &ConsensusHash,
         mut tenure_change_payload: TenureChangePayload,
+        signers: &mut TestSigners,
         vrf_proof: VRFProof,
         block_builder: F,
     ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
@@ -786,6 +873,7 @@ impl<'a> TestPeer<'a> {
             &mut stacks_node.chainstate,
             &sortdb,
             &mut self.miner,
+            signers,
             vrf_proof,
             tenure_change_payload,
             &mut self.coord,
@@ -819,9 +907,13 @@ impl<'a> TestPeer<'a> {
         for block in blocks.into_iter() {
             let block_id = block.block_id();
             debug!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
-            let accepted =
-                Relayer::process_new_nakamoto_block(&sort_handle, &mut node.chainstate, block)
-                    .unwrap();
+            let accepted = Relayer::process_new_nakamoto_block(
+                &sortdb,
+                &sort_handle,
+                &mut node.chainstate,
+                block,
+            )
+            .unwrap();
             if accepted {
                 test_debug!("Accepted Nakamoto block {}", &block_id);
                 self.coord.handle_new_nakamoto_stacks_block().unwrap();

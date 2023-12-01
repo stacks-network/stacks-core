@@ -2029,9 +2029,9 @@ checksum = "ef53942eb7bf7ff43a617b3e2c1c4a5ecf5944a7c1bc12d7ee39bbb15e5c1519"
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.4.10"
+version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da2479e8c062e40bf0066ffa0bc823de0a9368974af99c9f6df941d2c231e03f"
+checksum = "c4cd1a83af159aa67994778be9070f0ae1bd732942279cabb14f86f986a21456"
 
 [[package]]
 name = "log"
@@ -2353,9 +2353,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "p256k1"
-version = "5.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22e81c2cb5a1936d3f26278f9d698932239d03ddf0d5818392d91cd5f98ffc79"
+version = "6.0.0"
 dependencies = [
  "bindgen",
  "bitvec",
@@ -3053,7 +3051,7 @@ dependencies = [
  "bitflags 2.4.0",
  "errno",
  "libc",
- "linux-raw-sys 0.4.10",
+ "linux-raw-sys 0.4.12",
  "windows-sys 0.48.0",
 ]
 
@@ -3516,6 +3514,7 @@ dependencies = [
  "nix",
  "percent-encoding",
  "rand 0.7.3",
+ "rand_core 0.6.4",
  "ripemd",
  "rstest 0.11.0",
  "rstest_reuse 0.1.3",
@@ -3532,6 +3531,7 @@ dependencies = [
  "slog-term",
  "time 0.2.27",
  "winapi 0.3.9",
+ "wsts",
 ]
 
 [[package]]
@@ -3548,9 +3548,9 @@ dependencies = [
  "lazy_static",
  "libc",
  "libsigner",
- "p256k1",
  "pico-args",
  "rand 0.7.3",
+ "rand_core 0.6.4",
  "regex",
  "reqwest",
  "ring",
@@ -3582,7 +3582,6 @@ dependencies = [
  "hashbrown 0.14.0",
  "libsigner",
  "libstackerdb",
- "p256k1",
  "rand_core 0.6.4",
  "reqwest",
  "secp256k1",
@@ -3623,6 +3622,7 @@ dependencies = [
  "prometheus",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
+ "rand_core 0.6.4",
  "regex",
  "ripemd",
  "rstest 0.17.0",
@@ -3645,6 +3645,7 @@ dependencies = [
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
+ "wsts",
 ]
 
 [[package]]
@@ -4709,9 +4710,7 @@ dependencies = [
 
 [[package]]
 name = "wsts"
-version = "4.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0c0ec44cbd35be82490c8c566ad4971f7b41ffe8508f1c9938140df7fe18b2"
+version = "5.0.0"
 dependencies = [
  "aes-gcm 0.10.2",
  "bs58 0.5.0",

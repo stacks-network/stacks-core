@@ -43,6 +43,8 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::*;
 use stacks_common::util::{get_epoch_time_secs, log};
+use wsts::common::Signature as WSTSSignature;
+use wsts::curve::point::{Compressed, Point};
 
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::BitcoinNetworkType;
@@ -65,6 +67,7 @@ use crate::chainstate::burn::{
 use crate::chainstate::coordinator::{
     Error as CoordinatorError, PoxAnchorBlockStatus, RewardCycleInfo,
 };
+use crate::chainstate::nakamoto::NakamotoBlockHeader;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -80,11 +83,11 @@ use crate::core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use crate::net::{Error as NetError, Error};
+use crate::net::Error as NetError;
 use crate::util_lib::db::{
-    db_mkdirs, opt_u64_to_sql, query_count, query_row, query_row_columns, query_row_panic,
-    query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, DBTx,
-    Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
+    db_mkdirs, get_ancestor_block_hash, opt_u64_to_sql, query_count, query_row, query_row_columns,
+    query_row_panic, query_rows, sql_pragma, tx_begin_immediate, tx_busy_handler, u64_to_sql,
+    DBConn, DBTx, Error as db_error, FromColumn, FromRow, IndexDBConn, IndexDBTx,
 };
 
 const BLOCK_HEIGHT_MAX: u64 = ((1 as u64) << 63) - 1;
@@ -1914,18 +1917,20 @@ impl<'a> SortitionHandleConn<'a> {
     }
 
     /// Does the sortition db expect to receive blocks
-    /// signed by this stacker set?
+    /// signed by this signer set?
     ///
     /// This only works if `consensus_hash` is within one reward cycle (2100 blocks) of the
     /// sortition pointed to by this handle's sortiton tip.  If it isn't, then this
     /// method returns Ok(false).  This is to prevent a DDoS vector whereby compromised stale
-    /// Stacker keys can be used to blast out lots of Nakamoto blocks that will be accepted
+    /// Signer keys can be used to blast out lots of Nakamoto blocks that will be accepted
     /// but never processed.  So, `consensus_hash` can be in the same reward cycle as
     /// `self.context.chain_tip`, or the previous, but no earlier.
-    pub fn expects_stacker_signature(
+    pub fn expects_signer_signature(
         &self,
         consensus_hash: &ConsensusHash,
-        _stacker_signature: &MessageSignature,
+        signer_signature: &WSTSSignature,
+        message: &[u8],
+        aggregate_public_key: &Point,
     ) -> Result<bool, db_error> {
         let sn = SortitionDB::get_block_snapshot(self, &self.context.chain_tip)?
             .ok_or(db_error::NotFoundError)
@@ -1976,16 +1981,11 @@ impl<'a> SortitionHandleConn<'a> {
         }
 
         // is this consensus hash in this fork?
-        let Some(bhh) = SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?
-        else {
+        if SortitionDB::get_burnchain_header_hash_by_consensus(self, consensus_hash)?.is_none() {
             return Ok(false);
-        };
-        let Some(_sortition_id) = self.get_sortition_id_for_bhh(&bhh)? else {
-            return Ok(false);
-        };
+        }
 
-        // TODO: query set of stacker signers in order to get the aggregate public key
-        Ok(true)
+        Ok(signer_signature.verify(aggregate_public_key, message))
     }
 
     pub fn get_reward_set_size_at(&self, sortition_id: &SortitionId) -> Result<u16, db_error> {
@@ -4601,12 +4601,20 @@ impl SortitionDB {
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             // nakamoto behavior -- look to the stacks_chain_tip table
-            let res: Result<_, db_error> = conn.query_row_and_then(
-                "SELECT consensus_hash,block_hash FROM stacks_chain_tips WHERE sortition_id = ?",
-                &[&sn.sortition_id],
-                |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
-            );
-            return res;
+            //  if the chain tip of the current sortition hasn't been set, have to iterate to parent
+            let mut cursor = sn;
+            loop {
+                let result_at_tip = conn.query_row_and_then(
+                    "SELECT consensus_hash,block_hash FROM stacks_chain_tips WHERE sortition_id = ?",
+                    &[&cursor.sortition_id],
+                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
+                ).optional()?;
+                if let Some(stacks_tip) = result_at_tip {
+                    return Ok(stacks_tip);
+                }
+                cursor = SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id)?
+                    .ok_or_else(|| db_error::NotFoundError)?;
+            }
         }
 
         // epoch 2.x behavior -- look at the snapshot itself
@@ -5281,6 +5289,12 @@ impl<'a> SortitionHandleTx<'a> {
                 canonical_stacks_tip_block_hash,
                 canonical_stacks_tip_height,
             ) = res?;
+            info!(
+                "Setting initial stacks_chain_tips values";
+                "stacks_tip_height" => canonical_stacks_tip_height,
+                "stacks_tip_hash" => %canonical_stacks_tip_block_hash,
+                "stacks_tip_consensus" => %canonical_stacks_tip_consensus_hash
+            );
             sn.canonical_stacks_tip_height = canonical_stacks_tip_height;
             sn.canonical_stacks_tip_hash = canonical_stacks_tip_block_hash;
             sn.canonical_stacks_tip_consensus_hash = canonical_stacks_tip_consensus_hash;

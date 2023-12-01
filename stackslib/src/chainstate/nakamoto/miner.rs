@@ -538,7 +538,7 @@ impl NakamotoBlockBuilder {
             &mut tenure_tx,
             &mut builder,
             mempool,
-            parent_stacks_header,
+            parent_stacks_header.stacks_block_height,
             new_tenure_info.as_ref().map(|info| &info.coinbase_tx),
             settings,
             event_observer,

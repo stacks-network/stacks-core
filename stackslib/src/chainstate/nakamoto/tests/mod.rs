@@ -49,8 +49,8 @@ use crate::chainstate::stacks::db::{
     StacksHeaderInfo,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, SchnorrThresholdSignature, StacksBlock, StacksBlockHeader, StacksTransaction,
-    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TokenTransferMemo,
+    CoinbasePayload, StacksBlock, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
+    TenureChangeCause, TenureChangePayload, ThresholdSignature, TokenTransferMemo,
     TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionVersion,
 };
 use crate::core;
@@ -102,7 +102,7 @@ fn codec_nakamoto_header() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::mock(),
     };
 
     let bytes = vec![
@@ -125,10 +125,10 @@ fn codec_nakamoto_header() {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, // stacker signature
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, // stacker signature (mocked)
+        0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87,
+        0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16,
+        0xf8, 0x17, 0x98, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00,
     ];
@@ -148,7 +148,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::mock(),
     };
 
     // sortition-inducing tenure change
@@ -159,7 +159,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
-        signature: SchnorrThresholdSignature {},
+        signature: ThresholdSignature::mock(),
         signers: vec![],
     });
 
@@ -171,7 +171,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::Extended,
         pubkey_hash: Hash160([0x02; 20]),
-        signature: SchnorrThresholdSignature {},
+        signature: ThresholdSignature::mock(),
         signers: vec![],
     });
 
@@ -183,7 +183,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
-        signature: SchnorrThresholdSignature {},
+        signature: ThresholdSignature::mock(),
         signers: vec![],
     });
 
@@ -562,7 +562,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
-        signature: SchnorrThresholdSignature {},
+        signature: ThresholdSignature::mock(),
         signers: vec![],
     };
 
@@ -614,7 +614,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::mock(),
     };
 
     let nakamoto_header_info = StacksHeaderInfo {
@@ -657,7 +657,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root_2,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::mock(),
     };
 
     let nakamoto_header_info_2 = StacksHeaderInfo {
@@ -1209,7 +1209,7 @@ fn test_nakamoto_block_static_verification() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&private_key)),
-        signature: SchnorrThresholdSignature {},
+        signature: ThresholdSignature::mock(),
         signers: vec![],
     };
 
@@ -1220,7 +1220,7 @@ fn test_nakamoto_block_static_verification() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&private_key)),
-        signature: SchnorrThresholdSignature {},
+        signature: ThresholdSignature::mock(),
         signers: vec![],
     };
 
@@ -1231,7 +1231,7 @@ fn test_nakamoto_block_static_verification() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]), // wrong
-        signature: SchnorrThresholdSignature {},
+        signature: ThresholdSignature::mock(),
         signers: vec![],
     };
 
@@ -1304,7 +1304,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::mock(),
     };
     nakamoto_header.sign_miner(&private_key).unwrap();
 
@@ -1322,7 +1322,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root_bad_ch,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::mock(),
     };
     nakamoto_header_bad_ch.sign_miner(&private_key).unwrap();
 
@@ -1340,7 +1340,7 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root_bad_miner_sig,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        stacker_signature: MessageSignature::empty(),
+        signer_signature: ThresholdSignature::mock(),
     };
     nakamoto_header_bad_miner_sig
         .sign_miner(&private_key)

@@ -28,7 +28,9 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
-use rusqlite::Error as RusqliteError;
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
+use rusqlite::{Error as RusqliteError, ToSql};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
@@ -39,7 +41,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
     TRIEHASH_ENCODED_SIZE,
 };
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
+use stacks_common::util::hash::{
+    hex_bytes, to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE,
+};
 use stacks_common::util::secp256k1;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -625,7 +629,7 @@ impl_byte_array_serde!(TokenTransferMemo);
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TenureChangeCause {
-    /// A valid winning block-commit, end current tenure
+    /// A valid winning block-commit
     BlockFound = 0,
     /// The next burnchain block is taking too long, so extend the runtime budget
     Extended = 1,
@@ -653,19 +657,38 @@ impl TenureChangeCause {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SchnorrThresholdSignature {
-    //pub point: wsts::Point,
-    //pub scalar: wsts::Scalar,
+/// Reasons why a `TenureChange` transaction can be bad
+pub enum TenureChangeError {
+    /// Not signed by required threshold (>70%)
+    SignatureInvalid,
+    /// `previous_tenure_end` does not match parent block
+    PreviousTenureInvalid,
+    /// Block is not a Nakamoto block
+    NotNakamoto,
 }
 
-impl SchnorrThresholdSignature {
-    pub fn empty() -> SchnorrThresholdSignature {
-        SchnorrThresholdSignature {}
+/// Schnorr threshold signature using types from `wsts`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThresholdSignature(pub wsts::common::Signature);
+impl FromSql for ThresholdSignature {
+    fn column_result(value: ValueRef) -> FromSqlResult<ThresholdSignature> {
+        let hex_str = value.as_str()?;
+        let bytes = hex_bytes(&hex_str).map_err(|_| FromSqlError::InvalidType)?;
+        let ts = ThresholdSignature::consensus_deserialize(&mut &bytes[..])
+            .map_err(|_| FromSqlError::InvalidType)?;
+        Ok(ts)
     }
 }
 
-/// A payload from Stackers to signal new mining tenure
+impl ToSql for ThresholdSignature {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let bytes = self.serialize_to_vec();
+        let hex_str = to_hex(&bytes);
+        Ok(hex_str.into())
+    }
+}
+
+/// A transaction from Stackers to signal new mining tenure
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TenureChangePayload {
     /// Consensus hash of this tenure.  Corresponds to the sortition in which the miner of this
@@ -684,8 +707,8 @@ pub struct TenureChangePayload {
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
-    /// A Schnorr signature from at least 70% of the Stackers
-    pub signature: SchnorrThresholdSignature,
+    /// The Stacker signature
+    pub signature: ThresholdSignature,
     /// A bitmap of which Stackers signed
     pub signers: Vec<u8>,
 }
@@ -1324,6 +1347,16 @@ pub mod test {
                 Some(proof.clone()),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
+            TransactionPayload::TenureChange(TenureChangePayload {
+                consensus_hash: ConsensusHash([0x01; 20]),
+                prev_consensus_hash: ConsensusHash([0x02; 20]),
+                previous_tenure_end: StacksBlockId([0x00; 32]),
+                previous_tenure_blocks: 0,
+                cause: TenureChangeCause::BlockFound,
+                pubkey_hash: Hash160([0x00; 20]),
+                signature: ThresholdSignature::mock(),
+                signers: vec![],
+            }),
         ];
 
         // create all kinds of transactions
@@ -1350,8 +1383,8 @@ pub mod test {
 
                     let tx = StacksTransaction {
                         version: (*version).clone(),
-                        chain_id: chain_id,
-                        auth: auth,
+                        chain_id,
+                        auth,
                         anchor_mode: (*anchor_mode).clone(),
                         post_condition_mode: (*post_condition_mode).clone(),
                         post_conditions: tx_post_condition.clone(),
@@ -1440,7 +1473,7 @@ pub mod test {
         };
 
         StacksBlock {
-            header: header,
+            header,
             txs: txs_anchored,
         }
     }

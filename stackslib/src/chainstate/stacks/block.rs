@@ -1788,7 +1788,7 @@ mod test {
             previous_tenure_blocks: 0,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0x00; 20]),
-            signature: SchnorrThresholdSignature::empty(),
+            signature: ThresholdSignature::mock(),
             signers: vec![],
         };
         let tx_tenure_change = StacksTransaction::new(
