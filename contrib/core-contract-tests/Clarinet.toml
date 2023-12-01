@@ -23,3 +23,9 @@ path = "./contracts/pox/pox-helper.clar"
 depends_on = []
 clarity = 2
 epoch = 2.4
+
+[contract.pox-4-aggregated-public-key]
+path = "./contracts/pox/pox-4-aggregated-public-key.clar"
+depends_on = []
+clarity = 2
+epoch = 2.4
