@@ -18,10 +18,11 @@ use std::collections::HashSet;
 use std::ops::DerefMut;
 
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
@@ -33,8 +34,8 @@ use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
 };
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, StacksPrivateKey,
-    StacksPublicKey, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
@@ -62,13 +63,16 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::chainstate::stacks::boot::POX_4_NAME;
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH};
+use crate::clarity::vm::clarity::ClarityConnection;
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
 use crate::monitoring;
 use crate::net::Error as net_error;
+use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
     query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError, FromRow,
 };
@@ -2380,6 +2384,7 @@ impl NakamotoChainState {
 
         let ast_rules = ASTRules::PrecheckSize;
         let mainnet = chainstate_tx.get_config().mainnet;
+        let chain_id = chainstate_tx.get_config().chain_id;
         let next_block_height = block.header.chain_length;
 
         let (parent_ch, parent_block_hash) = if block.is_first_mined() {
@@ -2513,6 +2518,78 @@ impl NakamotoChainState {
             tenure_changed,
             tenure_height,
         )?;
+
+        if !block.is_first_mined() {
+            let parent_reward_cycle = pox_constants
+                .block_height_to_reward_cycle(
+                    burn_dbconn.context.first_block_height,
+                    parent_chain_tip
+                        .burn_header_height
+                        .try_into()
+                        .expect("Burn block height exceeded u32"),
+                )
+                .unwrap();
+            let my_reward_cycle = pox_constants
+                .block_height_to_reward_cycle(
+                    burn_dbconn.context.first_block_height,
+                    burn_header_height,
+                )
+                .unwrap();
+            if parent_reward_cycle != my_reward_cycle {
+                // execute `set-aggregate-public-key` using `clarity-tx`
+                let aggregate_public_key = clarity_tx
+                    .connection()
+                    .with_readonly_clarity_env(
+                        false,
+                        chain_id,
+                        ClarityVersion::Clarity2,
+                        StacksAddress::burn_address(false).into(),
+                        None,
+                        LimitedCostTracker::Free,
+                        |vm_env| {
+                            vm_env.execute_contract_allow_private(
+                                &boot_code_id(POX_4_NAME, false),
+                                "get-aggregate-public-key",
+                                &vec![SymbolicExpression::atom_value(Value::UInt(u128::from(
+                                    parent_reward_cycle,
+                                )))],
+                                true,
+                            )
+                        },
+                    )
+                    .ok()
+                    .map(|agg_key_value| {
+                        Value::buff_from(agg_key_value.expect_buff(33))
+                            .expect("failed to reconstruct buffer")
+                    })
+                    .expect("get-aggregate-public-key returned None");
+
+                clarity_tx
+                    .connection()
+                    .with_readonly_clarity_env(
+                        false,
+                        chain_id,
+                        ClarityVersion::Clarity2,
+                        StacksAddress::burn_address(false).into(),
+                        None,
+                        LimitedCostTracker::Free,
+                        |vm_env| {
+                            vm_env.execute_contract_allow_private(
+                                &boot_code_id(POX_4_NAME, false),
+                                "set-aggregate-public-key",
+                                &vec![
+                                    SymbolicExpression::atom_value(Value::UInt(u128::from(
+                                        my_reward_cycle,
+                                    ))),
+                                    SymbolicExpression::atom_value(aggregate_public_key),
+                                ],
+                                false,
+                            )
+                        },
+                    )
+                    .ok();
+            }
+        }
 
         let starting_cost = clarity_tx.cost_so_far();
 

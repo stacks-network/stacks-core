@@ -1330,9 +1330,8 @@
 )
 
 ;; Set the aggregate public key to the provided value
-;; TODO: https://github.com/stacks-network/stacks-core/issues/4101
 ;; *New in Stacks 3.0*
-(define-public (set-aggregate-public-key (reward-cycle uint) (aggregate-public-key (buff 33)))
+(define-private (set-aggregate-public-key (reward-cycle uint) (aggregate-public-key (buff 33)))
     (begin
         (ok (map-set aggregate-public-keys reward-cycle aggregate-public-key))
     )
