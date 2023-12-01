@@ -627,10 +627,8 @@ impl_byte_array_serde!(TokenTransferMemo);
 pub enum TenureChangeCause {
     /// A valid winning block-commit, end current tenure
     BlockFound = 0,
-    /// No winning block-commits, extend current tenure
-    NoBlockFound = 1,
-    /// A null miner won the block-commit
-    NullMiner = 2,
+    /// The next burnchain block is taking too long, so extend the runtime budget
+    Extended = 1,
 }
 
 impl TryFrom<u8> for TenureChangeCause {
@@ -639,9 +637,18 @@ impl TryFrom<u8> for TenureChangeCause {
     fn try_from(num: u8) -> Result<Self, Self::Error> {
         match num {
             0 => Ok(Self::BlockFound),
-            1 => Ok(Self::NoBlockFound),
-            2 => Ok(Self::NullMiner),
+            1 => Ok(Self::Extended),
             _ => Err(()),
+        }
+    }
+}
+
+impl TenureChangeCause {
+    /// Does this tenure change cause require a sortition to be valid?
+    pub fn expects_sortition(&self) -> bool {
+        match self {
+            Self::BlockFound => true,
+            Self::Extended => false,
         }
     }
 }
@@ -658,25 +665,22 @@ impl SchnorrThresholdSignature {
     }
 }
 
-/// Reasons why a `TenureChange` transaction can be bad
-pub enum TenureChangeError {
-    SignatureInvalid,
-    /// Not signed by required threshold (>70%)
-    SignatureThresholdNotReached,
-    /// `previous_tenure_end` does not match parent block
-    PreviousTenureInvalid,
-    /// Block is not a Nakamoto block
-    NotNakamoto,
-}
-
-/// A transaction from Stackers to signal new mining tenure
+/// A payload from Stackers to signal new mining tenure
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TenureChangePayload {
+    /// Consensus hash of this tenure.  Corresponds to the sortition in which the miner of this
+    /// block was chosen.  It may be the case that this miner's tenure gets _extended_ across
+    /// subsequent sortitions; if this happens, then this `consensus_hash` value _remains the same_
+    /// as the sortition in which the winning block-commit was mined.
+    pub consensus_hash: ConsensusHash,
+    /// Consensus hash of the previous tenure.  Corresponds to the sortition of the previous
+    /// winning block-commit.
+    pub prev_consensus_hash: ConsensusHash,
     /// The StacksBlockId of the last block from the previous tenure
     pub previous_tenure_end: StacksBlockId,
-    /// The number of blocks produced in the previous tenure
+    /// The number of blocks produced since the last sortition-linked tenure
     pub previous_tenure_blocks: u32,
-    /// A flag to indicate which of the following triggered the tenure change
+    /// A flag to indicate the cause of this tenure change
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
