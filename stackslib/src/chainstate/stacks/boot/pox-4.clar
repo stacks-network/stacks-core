@@ -274,6 +274,10 @@
         none
     ))
 
+;; Get the number of slots & amount of STX for a given reward cycle signer
+(define-read-only (get-signer-info-for-cycle (signer-principal principal) (reward-cycle uint))
+    (map-get? reward-cycle-signing-keys { reward-cycle: reward-cycle, signer-address: signer-principal }))
+
 (define-read-only (check-caller-allowed)
     (or (is-eq tx-sender contract-caller)
         (let ((caller-allowed
