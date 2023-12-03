@@ -9,9 +9,6 @@ costs_version = 1
 path = "../../stackslib/src/chainstate/stacks/boot/bns.clar"
 depends_on = []
 
-# pox-4 contains concat of boot/pox-4 and boot/pox-testnet
-# path = "../../stackslib/src/chainstate/stacks/boot/pox-4.clar"
-# path = "../../stackslib/src/chainstate/stacks/boot/pox-testnet.clar"
 [contracts.pox-4]
 path = "../../stackslib/src/chainstate/stacks/boot/pox-4.clar"
 depends_on = []
