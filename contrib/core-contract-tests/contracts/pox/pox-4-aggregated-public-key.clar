@@ -13,15 +13,19 @@
 (define-constant err-invalid-burn-block-height (err u10005))
 
 (define-data-var last-round uint u0)
-(define-data-var state {reward-cycle: uint, round: uint, aggregated-public-key: (optional (buff 33)),
+(define-data-var is-state-1-active bool true)
+(define-data-var state-1 {reward-cycle: uint, round: uint, aggregated-public-key: (optional (buff 33)),
+    total-votes: uint}  {reward-cycle: u0, round: u0, aggregated-public-key: none, total-votes: u0})
+(define-data-var state-2 {reward-cycle: uint, round: uint, aggregated-public-key: (optional (buff 33)),
     total-votes: uint}  {reward-cycle: u0, round: u0, aggregated-public-key: none, total-votes: u0})
 
 ;; get voting info by burn block height
 (define-read-only (get-info (height uint))
-    (ok (at-block (unwrap! (get-block-info? id-header-hash height) err-invalid-burn-block-height) (var-get state))))
+    (ok (at-block (unwrap! (get-block-info? id-header-hash height) err-invalid-burn-block-height) (get-current-info))))
+
 ;; get current voting info
 (define-read-only (get-current-info)
-    (var-get state))
+    (if (var-get is-state-1-active) (var-get state-1) (var-get state-2)))
 
 (define-read-only (get-signer-public-key (signer principal) (reward-cycle uint))
     ;; TODO replace with contract-call to pox-4::get-signer-public-key
