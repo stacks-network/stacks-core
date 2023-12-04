@@ -735,38 +735,14 @@ checksum = "cd7cc57abe963c6d3b9d8be5b06ba7c8957a930305ca90304f24ef040aa6f961"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/clarity-wasm.git#ceee5c9199d6c059b15a2832025e88d2333441f7"
+source = "git+https://github.com/stacks-network/clarity-wasm.git#120e37decb7952169e5e83b67bce1dea8a211d10"
 dependencies = [
  "clap 4.4.2",
- "clarity 2.1.1",
+ "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "lazy_static",
  "regex",
  "walrus",
  "wat",
-]
-
-[[package]]
-name = "clarity"
-version = "2.1.1"
-source = "git+https://github.com/stacks-network/clarity-wasm.git#ceee5c9199d6c059b15a2832025e88d2333441f7"
-dependencies = [
- "integer-sqrt",
- "lazy_static",
- "rand 0.7.3",
- "rand_chacha 0.2.2",
- "regex",
- "rstest 0.17.0",
- "rstest_reuse 0.5.0",
- "rusqlite",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_stacker",
- "sha2-asm 0.5.5",
- "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/clarity-wasm.git)",
- "time 0.2.27",
- "wasmtime",
 ]
 
 [[package]]
@@ -789,6 +765,30 @@ dependencies = [
  "sha2-asm 0.5.5",
  "slog",
  "stacks-common 0.0.2",
+ "time 0.2.27",
+ "wasmtime",
+]
+
+[[package]]
+name = "clarity"
+version = "2.2.0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d7715e8a70018610b6227e32b163129cde7231e5"
+dependencies = [
+ "integer-sqrt",
+ "lazy_static",
+ "rand 0.7.3",
+ "rand_chacha 0.2.2",
+ "regex",
+ "rstest 0.17.0",
+ "rstest_reuse 0.5.0",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2-asm 0.5.5",
+ "slog",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "time 0.2.27",
  "wasmtime",
 ]
