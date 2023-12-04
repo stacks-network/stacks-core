@@ -53,6 +53,9 @@ pub use stacks_common::{
     impl_byte_array_message_codec, impl_byte_array_serde, types, util,
 };
 
+#[cfg(feature = "sqlite")]
+pub extern crate rusqlite;
+
 #[macro_use]
 /// The Clarity virtual machine
 pub mod vm;
