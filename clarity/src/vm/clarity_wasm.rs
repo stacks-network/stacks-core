@@ -10,10 +10,10 @@ use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 use wasmtime::{AsContextMut, Caller, Engine, Linker, Memory, Module, Store, Trap, Val, ValType};
 
-use super::analysis::CheckErrors;
+use super::analysis::{CheckError, CheckErrors};
 use super::callables::{DefineType, DefinedFunction};
 use super::contracts::Contract;
-use super::costs::{constants as cost_constants, CostTracker};
+use super::costs::{constants as cost_constants, CostTracker, LimitedCostTracker};
 use super::database::clarity_db::ValueResult;
 use super::database::{ClarityDatabase, DataVariableMetadata, STXBalance};
 use super::errors::RuntimeErrorType;
@@ -1844,6 +1844,10 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
     link_get_block_info_fn(linker)?;
     link_get_burn_block_info_fn(linker)?;
     link_contract_call_fn(linker)?;
+    link_begin_public_call_fn(linker)?;
+    link_begin_read_only_call_fn(linker)?;
+    link_commit_call_fn(linker)?;
+    link_roll_back_call_fn(linker)?;
     link_print_fn(linker)?;
     link_enter_at_block_fn(linker)?;
     link_exit_at_block_fn(linker)?;
@@ -5014,7 +5018,7 @@ fn link_get_burn_block_info_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
 }
 
 /// Link host interface function, `contract_call`, into the Wasm module.
-/// This function is called for `contract-call?`s with literal targets (not traits).
+/// This function is called for `contract-call?`s.
 fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
     linker
         .func_wrap(
@@ -5084,11 +5088,13 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     ))?;
 
                 let mut args = Vec::new();
+                let mut args_sizes = Vec::new();
                 let mut arg_offset = args_offset;
                 // Read the arguments from the Wasm memory
                 for arg_ty in function.get_arg_types() {
                     let arg =
                         read_from_wasm_indirect(memory, &mut caller, arg_ty, arg_offset, epoch)?;
+                    args_sizes.push(arg.size() as u64);
                     args.push(arg);
 
                     arg_offset += get_type_size(arg_ty);
@@ -5106,36 +5112,52 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let sender = caller.data().sender.clone();
                 let sponsor = caller.data().sponsor.clone();
 
-                // FIXME: handle errors correctly!
-                // TODO: define a new method on the context that handles some details of this
-                let result = call_function(
-                    &function_name,
-                    &args,
-                    caller.data_mut().global_context,
-                    &contract.contract_context,
-                    &mut call_stack,
-                    sender,
-                    Some(caller_contract),
-                    sponsor,
-                )?;
-
-                // Write the result (if there is one) to the return buffer
-                if let Some(return_ty) = function.get_return_type() {
-                    let memory = caller
-                        .get_export("memory")
-                        .and_then(|export| export.into_memory())
-                        .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
-
-                    write_to_wasm(
-                        &mut caller,
-                        memory,
-                        return_ty,
-                        return_offset,
-                        return_offset + get_type_size(return_ty),
-                        &result,
-                        true,
+                let short_circuit_cost = caller
+                    .data_mut()
+                    .global_context
+                    .cost_track
+                    .short_circuit_contract_call(
+                        contract_id,
+                        &ClarityName::try_from(function_name.clone())?,
+                        &args_sizes,
                     )?;
-                }
+
+                let mut env = Environment {
+                    global_context: caller.data_mut().global_context,
+                    contract_context: &contract.contract_context,
+                    call_stack: &mut call_stack,
+                    sender,
+                    caller: Some(caller_contract),
+                    sponsor,
+                };
+
+                let result = if short_circuit_cost {
+                    env.run_free(|free_env| {
+                        free_env.execute_contract_from_wasm(contract_id, &function_name, &args)
+                    })
+                } else {
+                    env.execute_contract_from_wasm(contract_id, &function_name, &args)
+                }?;
+
+                // Write the result to the return buffer
+                let return_ty = function
+                    .get_return_type()
+                    .as_ref()
+                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+                let memory = caller
+                    .get_export("memory")
+                    .and_then(|export| export.into_memory())
+                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+
+                write_to_wasm(
+                    &mut caller,
+                    memory,
+                    return_ty,
+                    return_offset,
+                    return_offset + get_type_size(return_ty),
+                    &result,
+                    true,
+                )?;
 
                 Ok(())
             },
@@ -5144,6 +5166,93 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         .map_err(|e| {
             Error::Wasm(WasmError::UnableToLinkHostFunction(
                 "contract_call".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `begin_public_call`, into the Wasm module.
+/// This function is called before a local call to a public function.
+fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "begin_public_call",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.begin();
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "begin_public_call".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `begin_read_only_call`, into the Wasm module.
+/// This function is called before a local call to a public function.
+fn link_begin_read_only_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "begin_read_only_call",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.begin_read_only();
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "begin_read_only_call".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `commit_call`, into the Wasm module.
+/// This function is called after a local call to a public function to commit
+/// it's changes into the global context.
+fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "commit_call",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.commit()?;
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "commit_call".to_string(),
+                e,
+            ))
+        })
+}
+
+/// Link host interface function, `roll_back_call`, into the Wasm module.
+/// This function is called after a local call to roll back it's changes from
+/// the global context. It is called when a public function errors, or a
+/// read-only call completes.
+fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+    linker
+        .func_wrap(
+            "clarity",
+            "roll_back_call",
+            |mut caller: Caller<'_, ClarityWasmContext>| {
+                caller.data_mut().global_context.roll_back();
+                Ok(())
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            Error::Wasm(WasmError::UnableToLinkHostFunction(
+                "roll_back_call".to_string(),
                 e,
             ))
         })

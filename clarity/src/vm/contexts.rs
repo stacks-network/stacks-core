@@ -1207,6 +1207,58 @@ impl<'a, 'b> Environment<'a, 'b> {
         })
     }
 
+    pub fn execute_contract_from_wasm(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        tx_name: &str,
+        args: &[Value],
+    ) -> Result<Value> {
+        let contract_size = self
+            .global_context
+            .database
+            .get_contract_size(contract_identifier)?;
+        runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
+
+        self.global_context.add_memory(contract_size)?;
+
+        finally_drop_memory!(self.global_context, contract_size; {
+            let contract = self.global_context.database.get_contract(contract_identifier)?;
+
+            let func = contract.contract_context.lookup_function(tx_name)
+                .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+            if !func.is_public() {
+                return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+            }
+
+            let func_identifier = func.get_identifier();
+            if self.call_stack.contains(&func_identifier) {
+                return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+            }
+            self.call_stack.insert(&func_identifier, true);
+
+            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+            self.call_stack.remove(&func_identifier, true)?;
+
+            match res {
+                Ok(value) => {
+                    if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
+                        handler(
+                            self.global_context,
+                            self.sender.as_ref(),
+                            self.sponsor.as_ref(),
+                            contract_identifier,
+                            tx_name,
+                            &args,
+                            &value
+                        )?;
+                    }
+                    Ok(value)
+                },
+                Err(e) => Err(e)
+            }
+        })
+    }
+
     pub fn execute_function_as_transaction(
         &mut self,
         function: &DefinedFunction,
@@ -1224,33 +1276,41 @@ impl<'a, 'b> Environment<'a, 'b> {
         let next_contract_context = next_contract_context.unwrap_or(self.contract_context);
 
         let result = {
-            // TODO: This will need to be epoch gated and the old
-            // implementation (below) will need to run on < 3.0.0.
             #[cfg(feature = "canonical")]
-            let res = call_function(
-                function.as_str(),
-                args,
-                &mut self.global_context,
-                &next_contract_context,
-                self.call_stack,
-                self.sender.clone(),
-                self.caller.clone(),
-                self.sponsor.clone(),
-            );
-
+            if next_contract_context.wasm_module.is_some() {
+                call_function(
+                    &function.get_name(),
+                    args,
+                    &mut self.global_context,
+                    &next_contract_context,
+                    self.call_stack,
+                    self.sender.clone(),
+                    self.caller.clone(),
+                    self.sponsor.clone(),
+                )
+            } else {
+                let mut nested_env = Environment::new(
+                    self.global_context,
+                    next_contract_context,
+                    self.call_stack,
+                    self.sender.clone(),
+                    self.caller.clone(),
+                    self.sponsor.clone(),
+                );
+                function.execute_apply(args, &mut nested_env)
+            }
             #[cfg(not(feature = "canonical"))]
-            let mut nested_env = Environment::new(
-                self.global_context,
-                next_contract_context,
-                self.call_stack,
-                self.sender.clone(),
-                self.caller.clone(),
-                self.sponsor.clone(),
-            );
-            #[cfg(not(feature = "canonical"))]
-            let res = function.execute_apply(args, &mut nested_env);
-
-            res
+            {
+                let mut nested_env = Environment::new(
+                    self.global_context,
+                    next_contract_context,
+                    self.call_stack,
+                    self.sender.clone(),
+                    self.caller.clone(),
+                    self.sponsor.clone(),
+                );
+                function.execute_apply(args, &mut nested_env)
+            }
         };
 
         if make_read_only {
