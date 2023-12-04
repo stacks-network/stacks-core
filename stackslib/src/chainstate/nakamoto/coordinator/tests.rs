@@ -309,7 +309,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
-
+    
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 

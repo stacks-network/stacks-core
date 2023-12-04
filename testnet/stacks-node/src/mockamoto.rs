@@ -81,7 +81,7 @@ use stacks_common::consts::{
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
-    StacksPrivateKey, VRFSeed,
+    StacksPrivateKey, StacksPublicKey, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
@@ -841,6 +841,9 @@ impl MockamotoNode {
             Some(AddressHashMode::SerializeP2PKH),
         );
 
+        let public_key = StacksPublicKey::from_private(&self.miner_key);
+        let public_key_buf = ClarityValue::buff_from(public_key.to_bytes_compressed()).unwrap();
+
         let stack_stx_payload = if parent_chain_length < 2 {
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress::burn_address(false),
@@ -851,6 +854,7 @@ impl MockamotoNode {
                     pox_address.as_clarity_tuple().unwrap().into(),
                     ClarityValue::UInt(u128::from(parent_burn_height)),
                     ClarityValue::UInt(12),
+                    public_key_buf,
                 ],
             })
         } else {
