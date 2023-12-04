@@ -735,9 +735,10 @@ checksum = "cd7cc57abe963c6d3b9d8be5b06ba7c8957a930305ca90304f24ef040aa6f961"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
+source = "git+https://github.com/stacks-network/clarity-wasm.git#ceee5c9199d6c059b15a2832025e88d2333441f7"
 dependencies = [
  "clap 4.4.2",
- "clarity",
+ "clarity 2.1.1",
  "lazy_static",
  "regex",
  "walrus",
@@ -747,6 +748,30 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.1.1"
+source = "git+https://github.com/stacks-network/clarity-wasm.git#ceee5c9199d6c059b15a2832025e88d2333441f7"
+dependencies = [
+ "integer-sqrt",
+ "lazy_static",
+ "rand 0.7.3",
+ "rand_chacha 0.2.2",
+ "regex",
+ "rstest 0.17.0",
+ "rstest_reuse 0.5.0",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2-asm 0.5.5",
+ "slog",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/clarity-wasm.git)",
+ "time 0.2.27",
+ "wasmtime",
+]
+
+[[package]]
+name = "clarity"
+version = "2.2.0"
 dependencies = [
  "assert-json-diff",
  "integer-sqrt",
@@ -763,7 +788,7 @@ dependencies = [
  "serde_stacker",
  "sha2-asm 0.5.5",
  "slog",
- "stacks-common",
+ "stacks-common 0.0.2",
  "time 0.2.27",
  "wasmtime",
 ]
@@ -2256,7 +2281,7 @@ dependencies = [
 name = "libsigner"
 version = "0.0.1"
 dependencies = [
- "clarity",
+ "clarity 2.2.0",
  "hashbrown 0.14.0",
  "libc",
  "libstackerdb",
@@ -2271,7 +2296,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common",
+ "stacks-common 0.0.2",
  "stackslib",
  "thiserror",
  "tiny_http",
@@ -2293,13 +2318,13 @@ dependencies = [
 name = "libstackerdb"
 version = "0.0.1"
 dependencies = [
- "clarity",
+ "clarity 2.2.0",
  "secp256k1",
  "serde",
  "serde_derive",
  "serde_stacker",
  "sha2 0.10.6",
- "stacks-common",
+ "stacks-common 0.0.2",
 ]
 
 [[package]]
@@ -2881,9 +2906,9 @@ dependencies = [
 name = "pox-locking"
 version = "2.4.0"
 dependencies = [
- "clarity",
+ "clarity 2.2.0",
  "slog",
- "stacks-common",
+ "stacks-common 0.0.2",
 ]
 
 [[package]]
@@ -3988,6 +4013,63 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-common"
+version = "0.0.2"
+source = "git+https://github.com/stacks-network/clarity-wasm.git#ceee5c9199d6c059b15a2832025e88d2333441f7"
+dependencies = [
+ "chrono",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "lazy_static",
+ "libc",
+ "nix",
+ "percent-encoding",
+ "rand 0.7.3",
+ "ripemd",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.7",
+ "sha3",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "time 0.2.27",
+ "winapi 0.3.9",
+ "wsts",
+]
+
+[[package]]
+name = "stacks-common"
+version = "0.0.2"
+source = "git+https://github.com/stacks-network/clarity-wasm.git#ceee5c9199d6c059b15a2832025e88d2333441f7"
+dependencies = [
+ "chrono",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "lazy_static",
+ "libc",
+ "nix",
+ "percent-encoding",
+ "rand 0.7.3",
+ "ripemd",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.8",
+ "sha3",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "time 0.2.27",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "stacks-node"
 version = "0.1.0"
 dependencies = [
@@ -3996,7 +4078,7 @@ dependencies = [
  "backtrace",
  "base64 0.12.3",
  "chrono",
- "clarity",
+ "clarity 2.2.0",
  "hashbrown 0.14.0",
  "http-types",
  "lazy_static",
@@ -4014,7 +4096,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.7",
  "slog",
- "stacks-common",
+ "stacks-common 0.0.2",
  "stacks-signer",
  "stackslib",
  "stx-genesis",
@@ -4032,7 +4114,7 @@ version = "0.0.1"
 dependencies = [
  "backoff",
  "clap 4.4.1",
- "clarity",
+ "clarity 2.2.0",
  "hashbrown 0.14.0",
  "libsigner",
  "libstackerdb",
@@ -4048,7 +4130,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common",
+ "stacks-common 0.0.2",
  "stackslib",
  "thiserror",
  "toml",
@@ -4063,7 +4145,7 @@ version = "0.0.1"
 dependencies = [
  "assert-json-diff",
  "chrono",
- "clarity",
+ "clarity 2.2.0",
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
@@ -4095,7 +4177,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common",
+ "stacks-common 0.0.2",
  "stdext",
  "stx-genesis",
  "time 0.2.27",
