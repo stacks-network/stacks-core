@@ -61,21 +61,20 @@ use stacks_common::consts::{
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
-    StacksPrivateKey, VRFSeed,
+    StacksPrivateKey, StacksPublicKey, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
+use self::signer::SelfSigner;
 use crate::neon::Counters;
 use crate::neon_node::{
     Globals, PeerThread, RelayerDirective, StacksNode, BLOCK_PROCESSOR_STACK_SIZE,
 };
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::{Config, EventDispatcher};
-
-use self::signer::SelfSigner;
 
 pub mod signer;
 #[cfg(test)]
@@ -808,6 +807,9 @@ impl MockamotoNode {
             Some(AddressHashMode::SerializeP2PKH),
         );
 
+        let public_key = StacksPublicKey::from_private(&self.miner_key);
+        let public_key_buf = ClarityValue::buff_from(public_key.to_bytes_compressed()).unwrap();
+
         let stack_stx_payload = if parent_chain_length < 2 {
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress::burn_address(false),
@@ -818,6 +820,7 @@ impl MockamotoNode {
                     pox_address.as_clarity_tuple().unwrap().into(),
                     ClarityValue::UInt(u128::from(parent_burn_height)),
                     ClarityValue::UInt(12),
+                    public_key_buf,
                 ],
             })
         } else {

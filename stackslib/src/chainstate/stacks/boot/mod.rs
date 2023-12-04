@@ -1658,11 +1658,8 @@ pub mod test {
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // ;; TODO: add signer key
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
+        let public_key = StacksPublicKey::from_private(key);
+        let public_key_buf = Value::buff_from(public_key.to_bytes_compressed()).unwrap();
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
@@ -1673,6 +1670,7 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
+                public_key_buf,
             ],
         )
         .unwrap();

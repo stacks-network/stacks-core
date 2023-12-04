@@ -294,7 +294,11 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     )
     .unwrap();
 
-    let mut peer = boot_nakamoto(function_name!(), vec![(addr.into(), 10_000)], test_signers.aggregate_public_key);
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![(addr.into(), 10_000)],
+        test_signers.aggregate_public_key,
+    );
 
     let (burn_ops, tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -398,7 +402,11 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
     )
     .unwrap();
 
-    let mut peer = boot_nakamoto(function_name!(), vec![(addr.into(), 11_000)], test_signers.aggregate_public_key);
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![(addr.into(), 11_000)],
+        test_signers.aggregate_public_key,
+    );
 
     let mut all_blocks = vec![];
     let mut all_burn_ops = vec![];

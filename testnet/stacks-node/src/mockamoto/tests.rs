@@ -1,25 +1,19 @@
 use std::thread;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clarity::vm::costs::ExecutionCost;
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::to_hex;
 
-use crate::config::EventKeyType;
-use crate::config::EventObserverConfig;
-use crate::neon_node::PeerThread;
-use crate::tests::make_stacks_transfer;
-use crate::tests::neon_integrations::test_observer;
-use crate::tests::to_addr;
-use crate::Config;
-use crate::ConfigFile;
-
 use super::MockamotoNode;
+use crate::config::{EventKeyType, EventObserverConfig};
+use crate::neon_node::PeerThread;
+use crate::tests::neon_integrations::test_observer;
+use crate::tests::{make_stacks_transfer, to_addr};
+use crate::{Config, ConfigFile};
 
 #[test]
 fn observe_100_blocks() {
