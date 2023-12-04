@@ -69,10 +69,9 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 use self::signer::SelfSigner;
+use crate::globals::{Globals, RelayerDirective};
 use crate::neon::Counters;
-use crate::neon_node::{
-    Globals, PeerThread, RelayerDirective, StacksNode, BLOCK_PROCESSOR_STACK_SIZE,
-};
+use crate::neon_node::{PeerThread, StacksNode, BLOCK_PROCESSOR_STACK_SIZE};
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::{Config, EventDispatcher};
 
@@ -891,8 +890,7 @@ impl MockamotoNode {
             &mut builder,
             &mut self.mempool,
             parent_chain_length,
-            None,
-            None,
+            &[],
             BlockBuilderSettings {
                 max_miner_time_ms: 15_000,
                 mempool_settings: MemPoolWalkSettings::default(),
