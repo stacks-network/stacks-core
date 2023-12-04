@@ -74,8 +74,7 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
                                                  // epoch-2.4 will start at the first block of cycle 11!
                                                  //  this means that cycle 11 should also be treated like a "burn"
     let EPOCH_2_4_HEIGHT = EPOCH_2_2_HEIGHT + 6; // 56
-    let EPOCH_2_5_HEIGHT = EPOCH_2_4_HEIGHT + 13; // 69
-    let EPOCH_3_0_HEIGHT = EPOCH_2_5_HEIGHT + 7; // 76
+    let EPOCH_2_5_HEIGHT = EPOCH_2_4_HEIGHT + 14; // 70
 
     let epochs = vec![
         StacksEpoch {
@@ -130,16 +129,9 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: EPOCH_2_5_HEIGHT,
-            end_height: EPOCH_3_0_HEIGHT,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_5,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch30,
-            start_height: EPOCH_3_0_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_3_0,
+            network_epoch: PEER_VERSION_EPOCH_2_5,
         },
     ];
 
@@ -151,7 +143,7 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     pox_constants.v2_unlock_height = (EPOCH_2_2_HEIGHT + 1) as u32;
     pox_constants.v3_unlock_height = (EPOCH_2_5_HEIGHT + 1) as u32;
     pox_constants.pox_3_activation_height = (EPOCH_2_4_HEIGHT + 1) as u32;
-    pox_constants.pox_4_activation_height = (EPOCH_3_0_HEIGHT + 1) as u32;
+    pox_constants.pox_4_activation_height = (EPOCH_2_5_HEIGHT + 1 + 14) as u32; // Activate pox4 in epoch 2.5, avoids nakamoto blocks
 
     (epochs, pox_constants)
 }
@@ -3397,6 +3389,11 @@ fn get_pox_addrs() {
         .unwrap()
         + 1;
 
+    let first_v4_cycle = burnchain
+        .block_height_to_reward_cycle(burnchain.pox_constants.pox_4_activation_height as u64)
+        .unwrap()
+        + 1;
+
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
@@ -3474,36 +3471,10 @@ fn get_pox_addrs() {
         }
     }
 
-    let mut txs = vec![];
-    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
-    let stackers: Vec<_> = keys
-        .iter()
-        .zip([
-            AddressHashMode::SerializeP2PKH,
-            AddressHashMode::SerializeP2SH,
-            AddressHashMode::SerializeP2WPKH,
-            AddressHashMode::SerializeP2WSH,
-        ])
-        .map(|(key, hash_mode)| {
-            let pox_addr = PoxAddress::from_legacy(hash_mode, key_to_stacks_addr(key).bytes);
-            txs.push(make_pox_3_lockup(
-                key,
-                0,
-                1024 * POX_THRESHOLD_STEPS_USTX,
-                pox_addr.clone(),
-                1000,
-                tip_height,
-            ));
-            pox_addr
-        })
-        .collect();
-
-    let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
-    assert_latest_was_burn(&mut peer);
+    let mut latest_block;
 
     // Wait to almost pox 4 and lock STX
-    let target_height =
-        burnchain.pox_constants.pox_4_activation_height - burnchain.pox_constants.prepare_length;
+    let target_height = burnchain.reward_cycle_to_block_height(first_v4_cycle) - 3;
     // produce blocks until the first reward phase that everyone should be in
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -3526,16 +3497,21 @@ fn get_pox_addrs() {
                 0,
                 1024 * POX_THRESHOLD_STEPS_USTX,
                 pox_addr.clone(),
-                1000,
+                3,
                 tip_height,
             ));
             pox_addr
         })
         .collect();
 
-    let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    // Submit txs
+    latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
-    return;
+    // Go into PoX4
+    let target_height = burnchain.reward_cycle_to_block_height(first_v4_cycle) + 5;
+    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
 
     // now we should be in the reward phase, produce the reward blocks
     let reward_blocks =
