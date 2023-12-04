@@ -805,8 +805,14 @@ impl MockamotoNode {
         //  as of now every mockamoto block is a tenure-change.
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
         //  to be gated.
-        let tenure_tx =
-            make_tenure_change_tx(&self.miner_key, miner_nonce, chain_id, parent_block_id, chain_tip_ch.clone(), &sortition_tip);
+        let tenure_tx = make_tenure_change_tx(
+            &self.miner_key,
+            miner_nonce,
+            chain_id,
+            parent_block_id,
+            chain_tip_ch.clone(),
+            &sortition_tip,
+        );
         let vrf_proof = VRF::prove(&self.vrf_key, sortition_tip.sortition_hash.as_bytes());
         let coinbase_tx =
             make_coinbase_tx(&self.miner_key, miner_nonce + 1, chain_id, Some(vrf_proof));
@@ -1002,10 +1008,9 @@ fn make_tenure_change_tx(
     parent_block_id: StacksBlockId,
     prev_tenure_consensus_hash: ConsensusHash,
     sortition_tip: &BlockSnapshot,
-
 ) -> StacksTransaction {
     let pubkey = Secp256k1PublicKey::from_private(key);
-    let pubkey_hash = Hash160::from_node_public_key(&pubkey); 
+    let pubkey_hash = Hash160::from_node_public_key(&pubkey);
     let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
         tenure_consensus_hash: sortition_tip.consensus_hash.clone(),
         prev_tenure_consensus_hash,
