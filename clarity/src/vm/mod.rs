@@ -337,7 +337,12 @@ pub fn eval(
             let f = lookup_function(function_name, env)?;
             apply(&f, rest, env, context)
         }
-        TraitReference(_, _) | Field(_) => unreachable!("can't be evaluated"),
+        TraitReference(_, _) | Field(_) => {
+            return Err(InterpreterError::BadSymbolicRepresentation(
+                "Unexpected trait reference".into(),
+            )
+            .into())
+        }
     };
 
     if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
