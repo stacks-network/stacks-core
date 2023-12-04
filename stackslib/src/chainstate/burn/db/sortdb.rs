@@ -708,55 +708,8 @@ const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[r#"
 const SORTITION_DB_SCHEMA_7: &'static [&'static str] = &[r#"
      DELETE FROM epochs;"#];
 
-// update this to add new indexes
-const LAST_SORTITION_DB_INDEX: &'static str = "index_peg_out_fulfill_burn_header_hash ";
-
+const LAST_SORTITION_DB_INDEX: &'static str = "index_delegate_stx_burn_header_hash";
 const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
-    r#"
-    CREATE TABLE peg_in (
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-
-        recipient TEXT NOT NULL,            -- Stacks principal to receive the sBTC, can also be a contract principal
-        peg_wallet_address TEXT NOT NULL,
-        amount TEXT NOT NULL,
-        memo TEXT,
-
-        PRIMARY KEY(txid, burn_header_hash)
-    );"#,
-    r#"
-    CREATE TABLE peg_out_requests (
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-
-        amount TEXT NOT NULL,
-        recipient TEXT NOT NULL,
-        signature TEXT NOT NULL,
-        peg_wallet_address TEXT NOT NULL,
-        fulfillment_fee TEXT NOT NULL,
-        memo TEXT,
-
-        PRIMARY KEY(txid, burn_header_hash)
-    );"#,
-    r#"
-    CREATE TABLE peg_out_fulfillments (
-        txid TEXT NOT NULL,
-        vtxindex INTEGER NOT NULL,
-        block_height INTEGER NOT NULL,
-        burn_header_hash TEXT NOT NULL,
-
-        chain_tip TEXT NOT NULL,
-        amount TEXT NOT NULL,
-        recipient TEXT NOT NULL,
-        request_ref TEXT NOT NULL,
-        memo TEXT,
-
-        PRIMARY KEY(txid, burn_header_hash)
-    );"#,
     r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#,
     r#"
     -- eagerly-processed reward sets, before they're applied to the start of the next reward cycle
@@ -798,9 +751,6 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_pox_payouts ON snapshots(pox_payouts);",
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
     "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
-    "CREATE INDEX IF NOT EXISTS index_peg_in_burn_header_hash ON peg_in(burn_header_hash);",
-    "CREATE INDEX IF NOT EXISTS index_peg_out_request_burn_header_hash ON peg_out_requests(burn_header_hash);",
-    "CREATE INDEX IF NOT EXISTS index_peg_out_fulfill_burn_header_hash ON peg_out_fulfillments(burn_header_hash);",
 ];
 
 pub struct SortitionDB {
