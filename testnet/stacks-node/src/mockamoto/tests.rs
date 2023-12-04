@@ -145,6 +145,8 @@ fn observe_set_aggregate_tx() {
     });
 
     let mut mockamoto = MockamotoNode::new(&conf).unwrap();
+    // Get the aggregate public key of the original reward cycle to compare against
+    let orig_key = mockamoto.self_signer.aggregate_public_key;
 
     let globals = mockamoto.globals.clone();
 
@@ -161,7 +163,7 @@ fn observe_set_aggregate_tx() {
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(mockamoto.sortdb.conn()).unwrap();
 
     let start = Instant::now();
-    // Get a reward cycle to compare against
+    // Get the reward cycle of the sortition tip
     let reward_cycle = mockamoto
         .sortdb
         .pox_constants
@@ -187,15 +189,25 @@ fn observe_set_aggregate_tx() {
             )
             .unwrap()
             .unwrap();
-            // Get the aggregate public key to later verify that it was set correctly
-            mockamoto
+            // Get the aggregate public key of the original reward cycle
+            let orig_aggregate_key = mockamoto
                 .chainstate
                 .get_aggregate_public_key_pox_4(
                     &mockamoto.sortdb,
                     &aggregate_key_block_header.index_block_hash(),
                     reward_cycle,
                 )
-                .unwrap()
+                .unwrap();
+            // Get the aggregate public key of the next reward cycle that we manually overwrote
+            let new_aggregate_key = mockamoto
+                .chainstate
+                .get_aggregate_public_key_pox_4(
+                    &mockamoto.sortdb,
+                    &aggregate_key_block_header.index_block_hash(),
+                    reward_cycle + 1,
+                )
+                .unwrap();
+            (orig_aggregate_key, new_aggregate_key)
         })
         .expect("FATAL: failed to start mockamoto main thread");
 
@@ -213,7 +225,10 @@ fn observe_set_aggregate_tx() {
         &boot_code_addr(false),
         POX_4_NAME,
         "set-aggregate-public-key",
-        &[Value::UInt(u128::from(reward_cycle)), aggregate_public_key],
+        &[
+            Value::UInt(u128::from(reward_cycle + 1)),
+            aggregate_public_key,
+        ],
     );
     let aggregate_tx_hex = format!("0x{}", to_hex(&aggregate_tx));
 
@@ -251,12 +266,9 @@ fn observe_set_aggregate_tx() {
 
     globals.signal_stop();
 
-    let aggregate_key = node_thread
+    let (orig_aggregate_key, new_aggregate_key) = node_thread
         .join()
         .expect("Failed to join node thread to exit");
-
-    // Did we set and retrieve the aggregate key correctly?
-    assert_eq!(aggregate_key.unwrap(), random_key);
 
     let aggregate_tx_included = test_observer::get_blocks()
         .into_iter()
@@ -279,4 +291,8 @@ fn observe_set_aggregate_tx() {
         completed,
         "Mockamoto node failed to produce and announce its block before timeout"
     );
+
+    // Did we set and retrieve the aggregate key correctly?
+    assert_eq!(orig_aggregate_key.unwrap(), orig_key);
+    assert_eq!(new_aggregate_key.unwrap(), random_key);
 }
