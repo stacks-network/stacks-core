@@ -2139,7 +2139,7 @@ impl StacksBlockBuilder {
         builder: &mut B,
         mempool: &mut MemPoolDB,
         tip_height: u64,
-        coinbase_tx: Option<&StacksTransaction>,
+        initial_txs: &[StacksTransaction],
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         ast_rules: ASTRules,
@@ -2154,10 +2154,10 @@ impl StacksBlockBuilder {
 
         let mut tx_events = Vec::new();
 
-        if let Some(coinbase_tx) = coinbase_tx {
+        for initial_tx in initial_txs.iter() {
             tx_events.push(
                 builder
-                    .try_mine_tx(epoch_tx, coinbase_tx, ast_rules.clone())?
+                    .try_mine_tx(epoch_tx, initial_tx, ast_rules.clone())?
                     .convert_to_event(),
             );
         }
@@ -2434,7 +2434,7 @@ impl StacksBlockBuilder {
             &mut builder,
             mempool,
             parent_stacks_header.stacks_block_height,
-            Some(coinbase_tx),
+            &[coinbase_tx.clone()],
             settings,
             event_observer,
             ast_rules,

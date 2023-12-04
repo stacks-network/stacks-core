@@ -76,6 +76,8 @@ use crate::net::Error as net_error;
 
 /// New tenure information
 pub struct NakamotoTenureStart {
+    /// tenure change transaction
+    pub tenure_change_tx: StacksTransaction,
     /// coinbase transaction for this miner
     pub coinbase_tx: StacksTransaction,
     /// VRF proof for this miner
@@ -465,7 +467,7 @@ impl NakamotoBlockBuilder {
             state_root_hash
         );
 
-        info!(
+        debug!(
             "Miner: mined Nakamoto block";
             "consensus_hash" => %block.header.consensus_hash,
             "block_hash" => %block.header.block_hash(),
@@ -536,12 +538,20 @@ impl NakamotoBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
+        let initial_txs = if let Some(ref new_tenure_info) = new_tenure_info {
+            vec![
+                new_tenure_info.tenure_change_tx.clone(),
+                new_tenure_info.coinbase_tx.clone(),
+            ]
+        } else {
+            vec![]
+        };
         let (blocked, tx_events) = match StacksBlockBuilder::select_and_apply_transactions(
             &mut tenure_tx,
             &mut builder,
             mempool,
             parent_stacks_header.stacks_block_height,
-            new_tenure_info.as_ref().map(|info| &info.coinbase_tx),
+            &initial_txs,
             settings,
             event_observer,
             ASTRules::PrecheckSize,

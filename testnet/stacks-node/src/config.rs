@@ -35,6 +35,8 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
+use crate::mockamoto::signer::SelfSigner;
+
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
@@ -491,6 +493,13 @@ lazy_static! {
 }
 
 impl Config {
+    pub fn self_signing(&self) -> Option<SelfSigner> {
+        if !(self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto") {
+            return None;
+        }
+        self.miner.self_signing_key.clone()
+    }
+
     /// get the up-to-date burnchain from the config
     pub fn get_burnchain_config(&self) -> Result<BurnchainConfig, String> {
         if let Some(path) = &self.config_path {
@@ -1093,6 +1102,7 @@ impl Config {
                     .as_ref()
                     .map(|x| Secp256k1PrivateKey::from_hex(x))
                     .transpose()?,
+                self_signing_key: None,
             },
             None => miner_default_config,
         };
@@ -1106,6 +1116,7 @@ impl Config {
             "xenon",
             "mainnet",
             "mockamoto",
+            "nakamoto-neon",
         ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
@@ -1627,10 +1638,10 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "mockamoto" => {
+            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "mockamoto" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
-            _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest"),
+            other => panic!("Invalid stacks-node mode: {other}"),
         }
     }
 }
@@ -2114,6 +2125,7 @@ pub struct MinerConfig {
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
+    pub self_signing_key: Option<SelfSigner>,
 }
 
 impl MinerConfig {
@@ -2131,6 +2143,7 @@ impl MinerConfig {
             candidate_retry_cache_size: 10_000,
             unprocessed_block_deadline_secs: 30,
             mining_key: None,
+            self_signing_key: None,
         }
     }
 }

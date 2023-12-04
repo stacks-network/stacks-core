@@ -1,29 +1,23 @@
-#[cfg(test)]
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::{cmp, thread};
 
-use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorReceivers};
 use stacks::chainstate::coordinator::{
-    migrate_chainstate_dbs, static_get_canonical_affirmation_map,
-    static_get_heaviest_affirmation_map, static_get_stacks_tip_affirmation_map, ChainsCoordinator,
-    ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
+    static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
+    static_get_stacks_tip_affirmation_map, ChainsCoordinator, ChainsCoordinatorConfig,
+    CoordinatorCommunication,
 };
 use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
-use stacks::util_lib::db::Error as db_error;
-use stacks_common::deps_common::ctrlc as termination;
-use stacks_common::deps_common::ctrlc::SignalId;
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
@@ -33,11 +27,14 @@ use super::RunLoopCallbacks;
 use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals;
 use crate::monitoring::start_serving_monitoring_metrics;
-use crate::neon_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::nakamoto_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::neon::RunLoopCounter;
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
 };
+use crate::run_loop::neon;
+use crate::run_loop::neon::Counters;
 use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
@@ -46,111 +43,10 @@ use crate::{
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]
-pub type RunLoopCounter = Arc<AtomicU64>;
-
-#[cfg(not(test))]
-pub type RunLoopCounter = ();
-
-#[cfg(test)]
 const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 30;
 
 #[cfg(not(test))]
 const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 300;
-
-#[derive(Clone)]
-pub struct Counters {
-    pub blocks_processed: RunLoopCounter,
-    pub microblocks_processed: RunLoopCounter,
-    pub missed_tenures: RunLoopCounter,
-    pub missed_microblock_tenures: RunLoopCounter,
-    pub cancelled_commits: RunLoopCounter,
-
-    pub naka_submitted_vrfs: RunLoopCounter,
-    pub naka_submitted_commits: RunLoopCounter,
-    pub naka_mined_blocks: RunLoopCounter,
-}
-
-impl Counters {
-    #[cfg(test)]
-    pub fn new() -> Counters {
-        Counters {
-            blocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
-            microblocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
-            missed_tenures: RunLoopCounter::new(AtomicU64::new(0)),
-            missed_microblock_tenures: RunLoopCounter::new(AtomicU64::new(0)),
-            cancelled_commits: RunLoopCounter::new(AtomicU64::new(0)),
-            naka_submitted_vrfs: RunLoopCounter::new(AtomicU64::new(0)),
-            naka_submitted_commits: RunLoopCounter::new(AtomicU64::new(0)),
-            naka_mined_blocks: RunLoopCounter::new(AtomicU64::new(0)),
-        }
-    }
-
-    #[cfg(not(test))]
-    pub fn new() -> Counters {
-        Counters {
-            blocks_processed: (),
-            microblocks_processed: (),
-            missed_tenures: (),
-            missed_microblock_tenures: (),
-            cancelled_commits: (),
-            naka_submitted_vrfs: (),
-            naka_submitted_commits: (),
-            naka_mined_blocks: (),
-        }
-    }
-
-    #[cfg(test)]
-    fn inc(ctr: &RunLoopCounter) {
-        ctr.fetch_add(1, Ordering::SeqCst);
-    }
-
-    #[cfg(not(test))]
-    fn inc(_ctr: &RunLoopCounter) {}
-
-    #[cfg(test)]
-    fn set(ctr: &RunLoopCounter, value: u64) {
-        ctr.store(value, Ordering::SeqCst);
-    }
-
-    #[cfg(not(test))]
-    fn set(_ctr: &RunLoopCounter, _value: u64) {}
-
-    pub fn bump_blocks_processed(&self) {
-        Counters::inc(&self.blocks_processed);
-    }
-
-    pub fn bump_microblocks_processed(&self) {
-        Counters::inc(&self.microblocks_processed);
-    }
-
-    pub fn bump_missed_tenures(&self) {
-        Counters::inc(&self.missed_tenures);
-    }
-
-    pub fn bump_missed_microblock_tenures(&self) {
-        Counters::inc(&self.missed_microblock_tenures);
-    }
-
-    pub fn bump_cancelled_commits(&self) {
-        Counters::inc(&self.cancelled_commits);
-    }
-
-    pub fn bump_naka_submitted_vrfs(&self) {
-        Counters::inc(&self.naka_submitted_vrfs);
-    }
-
-    pub fn bump_naka_submitted_commits(&self) {
-        Counters::inc(&self.naka_submitted_commits);
-    }
-
-    pub fn bump_naka_mined_blocks(&self) {
-        Counters::inc(&self.naka_mined_blocks);
-    }
-
-    pub fn set_microblocks_processed(&self, value: u64) {
-        Counters::set(&self.microblocks_processed, value)
-    }
-}
 
 /// Coordinating a node running in neon mode.
 pub struct RunLoop {
@@ -168,24 +64,6 @@ pub struct RunLoop {
     /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
     /// instantiated (namely, so the test framework can access it).
     miner_status: Arc<Mutex<MinerStatus>>,
-}
-
-/// Write to stderr in an async-safe manner.
-/// See signal-safety(7)
-fn async_safe_write_stderr(msg: &str) {
-    #[cfg(windows)]
-    unsafe {
-        // write(2) inexplicably has a different ABI only on Windows.
-        libc::write(
-            STDERR,
-            msg.as_ptr() as *const libc::c_void,
-            msg.len() as u32,
-        );
-    }
-    #[cfg(not(windows))]
-    unsafe {
-        libc::write(STDERR, msg.as_ptr() as *const libc::c_void, msg.len());
-    }
 }
 
 impl RunLoop {
@@ -237,20 +115,16 @@ impl RunLoop {
         self.counters.blocks_processed.clone()
     }
 
-    pub fn get_microblocks_processed_arc(&self) -> RunLoopCounter {
-        self.counters.microblocks_processed.clone()
+    pub fn submitted_commits(&self) -> RunLoopCounter {
+        self.counters.naka_submitted_commits.clone()
     }
 
-    pub fn get_missed_tenures_arc(&self) -> RunLoopCounter {
-        self.counters.missed_tenures.clone()
+    pub fn submitted_vrfs(&self) -> RunLoopCounter {
+        self.counters.naka_submitted_vrfs.clone()
     }
 
-    pub fn get_missed_microblock_tenures_arc(&self) -> RunLoopCounter {
-        self.counters.missed_microblock_tenures.clone()
-    }
-
-    pub fn get_cancelled_commits_arc(&self) -> RunLoopCounter {
-        self.counters.cancelled_commits.clone()
+    pub fn mined_blocks(&self) -> RunLoopCounter {
+        self.counters.naka_mined_blocks.clone()
     }
 
     pub fn get_counters(&self) -> Counters {
@@ -291,33 +165,6 @@ impl RunLoop {
 
     pub fn get_miner_status(&self) -> Arc<Mutex<MinerStatus>> {
         self.miner_status.clone()
-    }
-
-    /// Set up termination handler.  Have a signal set the `should_keep_running` atomic bool to
-    /// false.  Panics of called more than once.
-    pub fn setup_termination_handler(keep_running_writer: Arc<AtomicBool>) {
-        let install = termination::set_handler(move |sig_id| match sig_id {
-            SignalId::Bus => {
-                let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
-                async_safe_write_stderr(msg);
-                unsafe {
-                    libc::abort();
-                }
-            }
-            _ => {
-                let msg = format!("Graceful termination request received (signal `{}`), will complete the ongoing runloop cycles and terminate\n", sig_id);
-                async_safe_write_stderr(&msg);
-                keep_running_writer.store(false, Ordering::SeqCst);
-            }
-        });
-
-        if let Err(e) = install {
-            // integration tests can do this
-            if cfg!(test) {
-            } else {
-                panic!("FATAL: error setting termination handler - {}", e);
-            }
-        }
     }
 
     /// Determine if we're the miner.
@@ -374,88 +221,6 @@ impl RunLoop {
         }
     }
 
-    /// Instantiate the burnchain client and databases.
-    /// Fetches headers and instantiates the burnchain.
-    /// Panics on failure.
-    pub fn instantiate_burnchain_state(
-        config: &Config,
-        should_keep_running: Arc<AtomicBool>,
-        burnchain_opt: Option<Burnchain>,
-        coordinator_senders: CoordinatorChannels,
-    ) -> BitcoinRegtestController {
-        // Initialize and start the burnchain.
-        let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
-            config.clone(),
-            Some(coordinator_senders),
-            burnchain_opt,
-            Some(should_keep_running.clone()),
-        );
-
-        let burnchain = burnchain_controller.get_burnchain();
-        let epochs = burnchain_controller.get_stacks_epochs();
-
-        // sanity check -- epoch data must be valid
-        Config::assert_valid_epoch_settings(&burnchain, &epochs);
-
-        // Upgrade chainstate databases if they exist already
-        match migrate_chainstate_dbs(
-            &epochs,
-            &config.get_burn_db_file_path(),
-            &config.get_chainstate_path_str(),
-            Some(config.node.get_marf_opts()),
-        ) {
-            Ok(_) => {}
-            Err(coord_error::DBError(db_error::TooOldForEpoch)) => {
-                error!(
-                    "FATAL: chainstate database(s) are not compatible with the current system epoch"
-                );
-                panic!();
-            }
-            Err(e) => {
-                panic!("FATAL: unable to query filesystem or databases: {:?}", &e);
-            }
-        }
-
-        info!("Start syncing Bitcoin headers, feel free to grab a cup of coffee, this can take a while");
-
-        let burnchain_config = burnchain_controller.get_burnchain();
-        let target_burnchain_block_height = match burnchain_config
-            .get_highest_burnchain_block()
-            .expect("FATAL: failed to access burnchain database")
-        {
-            Some(burnchain_tip) => {
-                // database exists already, and has blocks -- just sync to its tip.
-                let target_height = burnchain_tip.block_height + 1;
-                debug!("Burnchain DB exists and has blocks up to {}; synchronizing from where it left off up to {}", burnchain_tip.block_height, target_height);
-                target_height
-            }
-            None => {
-                // database does not exist yet
-                let target_height = 1.max(burnchain_config.first_block_height + 1);
-                debug!("Burnchain DB does not exist or does not have blocks; synchronizing to first burnchain block height {}", target_height);
-                target_height
-            }
-        };
-
-        match burnchain_controller.start(Some(target_burnchain_block_height)) {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Burnchain controller stopped: {}", e);
-                panic!();
-            }
-        };
-
-        // if the chainstate DBs don't exist, this will instantiate them
-        if let Err(e) = burnchain_controller.connect_dbs() {
-            error!("Failed to connect to burnchain databases: {}", e);
-            panic!();
-        };
-
-        // TODO (hack) instantiate the sortdb in the burnchain
-        let _ = burnchain_controller.sortdb_mut();
-        burnchain_controller
-    }
-
     /// Boot up the stacks chainstate.
     /// Instantiate the chainstate and push out the boot receipts to observers
     /// This is only public so we can test it.
@@ -469,6 +234,9 @@ impl RunLoop {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
+
+        // TODO (nakamoto-neon): check if we're trying to setup a self-signing network
+        //  and set the right genesis data
 
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
@@ -581,13 +349,6 @@ impl RunLoop {
             .expect("FATAL: failed to start chains coordinator thread");
 
         coordinator_thread_handle
-    }
-
-    /// Instantiate the PoX watchdog
-    fn instantiate_pox_watchdog(&mut self) {
-        let pox_watchdog = PoxSyncWatchdog::new(&self.config, self.pox_watchdog_comms.clone())
-            .expect("FATAL: failed to instantiate PoX sync watchdog");
-        self.pox_watchdog = Some(pox_watchdog);
     }
 
     /// Start Prometheus logging
@@ -974,8 +735,8 @@ impl RunLoop {
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
-        Self::setup_termination_handler(self.should_keep_running.clone());
-        let mut burnchain = Self::instantiate_burnchain_state(
+        neon::RunLoop::setup_termination_handler(self.should_keep_running.clone());
+        let mut burnchain = neon::RunLoop::instantiate_burnchain_state(
             &self.config,
             self.should_keep_running.clone(),
             burnchain_opt,
@@ -1009,7 +770,6 @@ impl RunLoop {
             coordinator_receivers,
             globals.get_miner_status(),
         );
-        self.instantiate_pox_watchdog();
         self.start_prometheus();
 
         // We announce a new burn block so that the chains coordinator
@@ -1056,7 +816,7 @@ impl RunLoop {
 
         let mut sortition_db_height = rc_aligned_height;
         let mut burnchain_height = sortition_db_height;
-        let mut num_sortitions_in_last_cycle = 1;
+        let mut num_sortitions_in_last_cycle;
 
         // prepare to fetch the first reward cycle!
         let mut target_burnchain_block_height = cmp::min(
@@ -1098,19 +858,7 @@ impl RunLoop {
             // wait for the p2p state-machine to do at least one pass
             debug!("Runloop: Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
 
-            // wait until it's okay to process the next reward cycle's sortitions
-            let ibd = match self.get_pox_watchdog().pox_sync_wait(
-                &burnchain_config,
-                &burnchain_tip,
-                remote_chain_height,
-                num_sortitions_in_last_cycle,
-            ) {
-                Ok(ibd) => ibd,
-                Err(e) => {
-                    debug!("Runloop: PoX sync wait routine aborted: {:?}", e);
-                    continue;
-                }
-            };
+            let ibd = false;
 
             // calculate burnchain sync percentage
             let percent: f64 = if remote_chain_height > 0 {
@@ -1118,9 +866,6 @@ impl RunLoop {
             } else {
                 0.0
             };
-
-            // will recalculate this in the following loop
-            num_sortitions_in_last_cycle = 0;
 
             // Download each burnchain block and process their sortitions.  This, in turn, will
             // cause the node's p2p and relayer threads to go fetch and download Stacks blocks and
@@ -1205,7 +950,7 @@ impl RunLoop {
                         // no-op during boot-up.
                         //
                         // _this will block if the relayer's buffer is full_
-                        if !node.relayer_sortition_notify() {
+                        if !node.relayer_burnchain_notify() {
                             // relayer hung up, exit.
                             error!("Runloop: Block relayer and miner hung up, exiting.");
                             return;
@@ -1276,12 +1021,6 @@ impl RunLoop {
                             sortition_db_height
                         );
                         last_tenure_sortition_height = sortition_db_height;
-                    }
-
-                    if !node.relayer_issue_tenure(ibd) {
-                        // relayer hung up, exit.
-                        error!("Runloop: Block relayer and miner hung up, exiting.");
-                        break;
                     }
                 }
             }

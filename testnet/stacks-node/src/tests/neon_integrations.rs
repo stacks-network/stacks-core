@@ -485,7 +485,7 @@ pub mod test_observer {
     }
 }
 
-const PANIC_TIMEOUT_SECS: u64 = 600;
+const PANIC_TIMEOUT_SECS: u64 = 30;
 
 /// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_wait(
@@ -558,7 +558,7 @@ pub fn next_block_and_iterate(
 /// reaches *exactly* `target_height`.
 ///
 /// Returns `false` if `next_block_and_wait` times out.
-fn run_until_burnchain_height(
+pub fn run_until_burnchain_height(
     btc_regtest_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
     target_height: u64,

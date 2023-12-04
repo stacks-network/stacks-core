@@ -169,7 +169,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         .epoch_id;
 
     assert!(
-        epoch_at_height >= StacksEpochId::Epoch30,
+        epoch_at_height >= StacksEpochId::Epoch25,
         "FATAL: called a nakamoto function outside of epoch 3"
     );
 
@@ -216,21 +216,39 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         }
 
         // find the first Stacks block processed in the prepare phase
-        let Some(prepare_start_block_header) =
+        let parent_block_id = if let Some(nakamoto_start_block) =
             NakamotoChainState::get_nakamoto_tenure_start_block_header(
                 chain_state.db(),
                 &sn.consensus_hash,
+            )? {
+            nakamoto_start_block
+                .anchored_header
+                .as_stacks_nakamoto()
+                // TODO: maybe `get_nakamoto_tenure_start_block_header` should
+                //       return a type that doesn't require this unwrapping?
+                .expect("FATAL: queried non-Nakamoto tenure start header")
+                .parent_block_id
+        } else {
+            let Some(block_header) =
+                StacksChainState::get_stacks_block_header_info_by_consensus_hash(
+                    chain_state.db(),
+                    &sn.consensus_hash,
+                )?
+            else {
+                // no header for this snapshot (possibly invalid)
+                debug!("Failed to find block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
+                continue;
+            };
+            let Some(parent_block_id) = StacksChainState::get_parent_block_id(
+                chain_state.db(),
+                &block_header.index_block_hash(),
             )?
-        else {
-            // no header for this snapshot (possibly invalid)
-            continue;
+            else {
+                debug!("Failed to get parent block"; "block_id" => %block_header.index_block_hash());
+                continue;
+            };
+            parent_block_id
         };
-
-        let parent_block_id = &prepare_start_block_header
-            .anchored_header
-            .as_stacks_nakamoto()
-            .expect("FATAL: queried non-Nakamoto tenure start header")
-            .parent_block_id;
 
         // find the tenure-start block of the tenure of the parent of this Stacks block.
         // in epoch 2, this is the preceding anchor block
