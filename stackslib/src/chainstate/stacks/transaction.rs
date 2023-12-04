@@ -282,7 +282,7 @@ impl StacksMessageCodec for TransactionPayload {
                         write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
                         write_next(fd, buf)?;
                         write_next(fd, &Value::none())?;
-                        write_next(fd, &vrf_proof.to_bytes().to_vec())?;
+                        write_next(fd, vrf_proof)?;
                     }
                     (Some(recipient), Some(vrf_proof)) => {
                         write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
@@ -293,7 +293,7 @@ impl StacksMessageCodec for TransactionPayload {
                                 "FATAL: failed to encode recipient principal as `optional`",
                             ),
                         )?;
-                        write_next(fd, &vrf_proof.to_bytes().to_vec())?;
+                        write_next(fd, vrf_proof)?;
                     }
                 }
             }
