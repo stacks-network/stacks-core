@@ -133,7 +133,7 @@
         ;; principal of the delegate, if stacker has delegated
         delegated-to: (optional principal),
         ;; signing key for Nakamoto, only 'none' when delegated & before delegate calls stack-aggregation-commit-indexed
-        signing-key: (optional (buff 33))
+        signing-key: (buff 33)
     }
 )
 
@@ -669,7 +669,7 @@
              first-reward-cycle: first-reward-cycle,
              lock-period: lock-period,
              delegated-to: none,
-             signing-key: (some signing-key) })
+             signing-key: signing-key })
 
           ;; return the lock-up information, so the node can actually carry out the lock.
           (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))))
@@ -928,7 +928,7 @@
           reward-set-indexes: (list),
           lock-period: lock-period,
           delegated-to: (some tx-sender),
-          signing-key: (some signing-key) })
+          signing-key: signing-key })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
@@ -1072,7 +1072,7 @@
          (stacker-state (unwrap! (get-stacker-info tx-sender) (err ERR_STACK_EXTEND_NOT_LOCKED)))
          (amount-ustx (get locked stacker-info))
          (unlock-height (get unlock-height stacker-info))
-         (current-signing-key (unwrap-panic (get signing-key stacker-state)))
+         (current-signing-key (get signing-key stacker-state))
          (new-signing-key (match updated-signing-key 
             param-key param-key 
             current-signing-key))
@@ -1142,7 +1142,7 @@
               first-reward-cycle: first-reward-cycle,
               lock-period: lock-period,
               delegated-to: none,
-              signing-key: (some new-signing-key) })
+              signing-key: new-signing-key })
 
         ;; return lock-up information
         (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
@@ -1250,7 +1250,7 @@
           (stacker-state (unwrap! (get-stacker-info stacker) (err ERR_STACK_EXTEND_NOT_LOCKED)))
           (amount-ustx (get locked stacker-info))
           (unlock-height (get unlock-height stacker-info))
-          (current-signing-key (unwrap-panic (get signing-key stacker-state)))
+          (current-signing-key (get signing-key stacker-state))
           (new-signing-key (match updated-signing-key 
             param-key param-key 
             current-signing-key))
@@ -1330,7 +1330,7 @@
           first-reward-cycle: first-reward-cycle,
           lock-period: lock-period,
           delegated-to: (some tx-sender),
-          signing-key: (some new-signing-key) })
+          signing-key: new-signing-key })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
