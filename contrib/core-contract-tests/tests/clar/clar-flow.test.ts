@@ -1,4 +1,6 @@
 import { ParsedTransactionResult, tx } from "@hirosystems/clarinet-sdk";
+import * as fs from "fs";
+import path from "path";
 import { describe, it } from "vitest";
 import {
   CallInfo,
@@ -7,9 +9,12 @@ import {
   extractTestAnnotationsAndCalls,
 } from "./utils/clarity-parser";
 import { expectOk, isValidTestFunction } from "./utils/test-helpers";
-import path from "path";
-import * as fs from "fs";
 
+/**
+ * Returns true if the contract is a test contract using the flow convention
+ * @param contractName name of the contract
+ * @returns
+ */
 function isTestContract(contractName: string) {
   return contractName.substring(contractName.length - 10) === "_flow_test";
 }
@@ -17,12 +22,14 @@ function isTestContract(contractName: string) {
 const accounts = simnet.getAccounts();
 clearLogFile();
 
+// for each test contract create a test suite
 simnet.getContractsInterfaces().forEach((contract, contractFQN) => {
   if (!isTestContract(contractFQN)) {
     return;
   }
 
   describe(contractFQN, () => {
+    // determine whether the contract has a prepare function
     const hasDefaultPrepareFunction =
       contract.functions.findIndex((f) => f.name === "prepare") >= 0;
 
@@ -54,6 +61,17 @@ simnet.getContractsInterfaces().forEach((contract, contractFQN) => {
     });
   });
 });
+
+/**
+ * Mines one or more blocks based on the functions calls in the test function.
+ * The function body must be one of the following: 
+ * - (try! (my-function))
+ * - (unwrap! (contract-call? .contract-name function-name arg1 arg2...))
+ * 
+ * @param contractFQN 
+ * @param testFunctionName 
+ * @param calls 
+ */
 function mineBlocksFromFunctionBody(
   contractFQN: string,
   testFunctionName: string,
@@ -132,7 +150,7 @@ function writeToLogFile(data: ParsedTransactionResult[] | number | string) {
   }
 }
 
-function  clearLogFile() {
+function clearLogFile() {
   const filePath = path.join(__dirname, "clar-flow-test.log.txt");
   fs.writeFileSync(filePath, "");
 }
