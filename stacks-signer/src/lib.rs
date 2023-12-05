@@ -5,11 +5,11 @@ Usage documentation can be found in the [README](https://github.com/Trust-Machin
 */
 /// The cli module for the signer binary
 pub mod cli;
+/// The signer client for communicating with stackerdb/stacks nodes
+pub mod client;
 /// The configuration module for the signer
 pub mod config;
 /// The primary runloop for the signer
 pub mod runloop;
-/// The signer client for communicating with stackerdb/stacks nodes
-pub mod stacks_client;
 /// Util functions
 pub mod utils;
