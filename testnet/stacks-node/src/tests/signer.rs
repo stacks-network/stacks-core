@@ -6,6 +6,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, StackerDBEventReceiver};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_signer::client::{MINER_SLOTS_PER_USER, SIGNER_SLOTS_PER_USER};
 use stacks_signer::config::Config as SignerConfig;
 use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
@@ -38,7 +39,10 @@ fn spawn_signer(
     sender: Sender<Vec<OperationResult>>,
 ) -> RunningSigner<StackerDBEventReceiver, Vec<OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
-    let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
+    let ev = StackerDBEventReceiver::new(vec![
+        config.miners_stackerdb_contract_id.clone(),
+        config.signers_stackerdb_contract_id.clone(),
+    ]);
     let runloop: stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>> =
         stacks_signer::runloop::RunLoop::from(&config);
     let mut signer: Signer<
@@ -61,8 +65,10 @@ fn setup_stx_btc_node(
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
     publisher_private_key: &StacksPrivateKey,
-    stackerdb_contract: &str,
-    stackerdb_contract_id: &QualifiedContractIdentifier,
+    signers_stackerdb_contract: &str,
+    signers_stackerdb_contract_id: &QualifiedContractIdentifier,
+    miners_stackerdb_contract: &str,
+    miners_stackerdb_contract_id: &QualifiedContractIdentifier,
     pox_contract: &str,
     pox_contract_id: &QualifiedContractIdentifier,
     signer_config_tomls: &Vec<String>,
@@ -91,7 +97,12 @@ fn setup_stx_btc_node(
     }
 
     conf.initial_balances.append(&mut initial_balances);
-    conf.node.stacker_dbs.push(stackerdb_contract_id.clone());
+    conf.node
+        .stacker_dbs
+        .push(signers_stackerdb_contract_id.clone());
+    conf.node
+        .stacker_dbs
+        .push(miners_stackerdb_contract_id.clone());
 
     info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -143,13 +154,23 @@ fn setup_stx_btc_node(
     );
     submit_tx(&http_origin, &tx);
 
-    info!("Send stacker-db contract-publish...");
+    info!("Send signers stacker-db contract-publish...");
     let tx = make_contract_publish(
         publisher_private_key,
         1,
         tx_fee,
-        &stackerdb_contract_id.name,
-        stackerdb_contract,
+        &signers_stackerdb_contract_id.name,
+        signers_stackerdb_contract,
+    );
+    submit_tx(&http_origin, &tx);
+
+    info!("Send miners stacker-db contract-publish...");
+    let tx = make_contract_publish(
+        publisher_private_key,
+        2,
+        tx_fee,
+        &miners_stackerdb_contract_id.name,
+        miners_stackerdb_contract,
     );
     submit_tx(&http_origin, &tx);
 
@@ -211,6 +232,8 @@ fn test_stackerdb_dkg() {
         .iter()
         .map(to_addr)
         .collect::<Vec<StacksAddress>>();
+    let miner_private_key = StacksPrivateKey::new();
+    let miner_stacks_address = to_addr(&miner_private_key);
 
     // Setup the neon node
     let (mut conf, _) = neon_integration_test_conf();
@@ -219,19 +242,24 @@ fn test_stackerdb_dkg() {
     let pox_contract = build_pox_contract(num_signers);
     let pox_contract_id =
         QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "pox-4".into());
-    // Build the stackerdb contract
-    let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
-    let stacker_db_contract_id = QualifiedContractIdentifier::new(
-        to_addr(&publisher_private_key).into(),
-        "hello-world".into(),
-    );
+    // Build the stackerdb contracts
+    let signers_stackerdb_contract =
+        build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
+    let signers_stacker_db_contract_id =
+        QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "signers".into());
+
+    let miners_stackerdb_contract =
+        build_stackerdb_contract(&[miner_stacks_address], MINER_SLOTS_PER_USER);
+    let miners_stacker_db_contract_id =
+        QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "miners".into());
 
     // Setup the signer and coordinator configurations
     let signer_configs = build_signer_config_tomls(
         &signer_stacks_private_keys,
         num_keys,
         &conf.node.rpc_bind,
-        &stacker_db_contract_id.to_string(),
+        &signers_stacker_db_contract_id.to_string(),
+        &miners_stacker_db_contract_id.to_string(),
         Some(&pox_contract_id.to_string()),
         Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
     );
@@ -270,8 +298,10 @@ fn test_stackerdb_dkg() {
             num_signers,
             &signer_stacks_private_keys,
             &publisher_private_key,
-            &stackerdb_contract,
-            &stacker_db_contract_id,
+            &signers_stackerdb_contract,
+            &signers_stacker_db_contract_id,
+            &miners_stackerdb_contract,
+            &miners_stacker_db_contract_id,
             &pox_contract,
             &pox_contract_id,
             &signer_configs,

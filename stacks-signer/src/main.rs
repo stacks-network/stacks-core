@@ -47,6 +47,7 @@ use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
     SignArgs, StackerDBArgs,
 };
+use stacks_signer::client::{MINER_SLOTS_PER_USER, SIGNER_SLOTS_PER_USER};
 use stacks_signer::config::{Config, Network};
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
@@ -87,7 +88,7 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
-    let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
+    let ev = StackerDBEventReceiver::new(vec![config.signers_stackerdb_contract_id.clone()]);
     let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
@@ -247,7 +248,7 @@ fn handle_run(args: RunDkgArgs) {
 
 fn handle_generate_files(args: GenerateFilesArgs) {
     debug!("Generating files...");
-    let signer_stacks_private_keys = if let Some(path) = args.private_keys {
+    let signer_stacks_private_keys = if let Some(path) = args.signer_private_keys {
         let file = File::open(&path).unwrap();
         let reader = io::BufReader::new(file);
 
@@ -274,36 +275,37 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         .iter()
         .map(|key| to_addr(key, &args.network))
         .collect::<Vec<StacksAddress>>();
-    // Build the stackerdb contract
-    let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
+    let miner_stacks_address = to_addr(&args.miner_private_key, &args.network);
+    // Build the signer and miner stackerdb contract
+    let signer_stackerdb_contract =
+        build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
+    let miner_stackerdb_contract =
+        build_stackerdb_contract(&[miner_stacks_address], MINER_SLOTS_PER_USER);
+    write_file(&args.dir, "signers.clar", &signer_stackerdb_contract);
+    write_file(&args.dir, "miners.clar", &miner_stackerdb_contract);
+
     let signer_config_tomls = build_signer_config_tomls(
         &signer_stacks_private_keys,
         args.num_keys,
-        &args.db_args.host.to_string(),
-        &args.db_args.contract.to_string(),
+        &args.host.to_string(),
+        &args.signers_contract.to_string(),
+        &args.miners_contract.to_string(),
         None,
         args.timeout.map(Duration::from_millis),
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
-        let signer_conf_path = args.dir.join(format!("signer-{}.toml", i));
-        let signer_conf_filename = signer_conf_path.to_str().unwrap();
-        let mut signer_conf_file = File::create(signer_conf_filename).unwrap();
-        signer_conf_file
-            .write_all(file_contents.as_bytes())
-            .unwrap();
-        println!("Created signer config toml file: {}", signer_conf_filename);
+        write_file(&args.dir, &format!("signer-{}.toml", i), file_contents);
     }
-    let stackerdb_contract_path = args.dir.join("stackerdb.clar");
-    let stackerdb_contract_filename = stackerdb_contract_path.to_str().unwrap();
-    let mut stackerdb_contract_file = File::create(stackerdb_contract_filename).unwrap();
-    stackerdb_contract_file
-        .write_all(stackerdb_contract.as_bytes())
-        .unwrap();
-    println!(
-        "Created stackerdb clarity contract: {}",
-        stackerdb_contract_filename
-    );
+}
+
+/// Helper function for writing the given contents to filename in the given directory
+fn write_file(dir: &PathBuf, filename: &str, contents: &str) {
+    let file_path = dir.join(filename);
+    let filename = file_path.to_str().unwrap();
+    let mut file = File::create(filename).unwrap();
+    file.write_all(contents.as_bytes()).unwrap();
+    println!("Created file: {}", filename);
 }
 
 fn main() {
