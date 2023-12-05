@@ -3379,16 +3379,6 @@ fn get_pox_addrs() {
     );
     burnchain.pox_constants = pox_constants.clone();
 
-    let first_v2_cycle = burnchain
-        .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
-        .unwrap()
-        + 1;
-
-    let first_v3_cycle = burnchain
-        .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
-        .unwrap()
-        + 1;
-
     let first_v4_cycle = burnchain
         .block_height_to_reward_cycle(burnchain.pox_constants.pox_4_activation_height as u64)
         .unwrap()
