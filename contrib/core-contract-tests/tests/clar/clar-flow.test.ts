@@ -7,7 +7,7 @@ import {
   FunctionAnnotations,
   FunctionBody,
   extractTestAnnotationsAndCalls,
-} from "./utils/clarity-parser";
+} from "./utils/clarity-parser-flow-tests";
 import { expectOk, isValidTestFunction } from "./utils/test-helpers";
 
 /**
@@ -64,13 +64,13 @@ simnet.getContractsInterfaces().forEach((contract, contractFQN) => {
 
 /**
  * Mines one or more blocks based on the functions calls in the test function.
- * The function body must be one of the following: 
- * - (try! (my-function))
- * - (unwrap! (contract-call? .contract-name function-name arg1 arg2...))
- * 
- * @param contractFQN 
- * @param testFunctionName 
- * @param calls 
+ * The function body must be one of the following:
+ * 1. (unwrap! (contract-call? .contract-name function-name args))
+ * 2. (try! (function-name))
+ *
+ * @param contractFQN the contract id
+ * @param testFunctionName the name of the test function containing calls
+ * @param calls a list of function calls with annotations part of the test function body
  */
 function mineBlocksFromFunctionBody(
   contractFQN: string,
@@ -81,10 +81,13 @@ function mineBlocksFromFunctionBody(
   let txs: any[] = [];
   let block: ParsedTransactionResult[] = [];
 
+  // go through all function calls and
+  // bundle function them into blocks
   for (const { callAnnotations, callInfo } of calls) {
     // mine empty blocks
     const mineBlocksBefore =
       parseInt(callAnnotations["mine-blocks-before"] as string) || 0;
+    // get caller address
     const caller = accounts.get(
       (callAnnotations["caller"] as string) || "deployer"
     )!;
@@ -92,6 +95,7 @@ function mineBlocksFromFunctionBody(
     if (mineBlocksBefore >= 1) {
       if (blockStarted) {
         writeToLogFile(txs);
+        // mine block with txs and assert ok on all of them
         block = simnet.mineBlock(txs);
         for (let index = 0; index < txs.length; index++) {
           expectOk(block, contractFQN, testFunctionName, index);
@@ -99,6 +103,7 @@ function mineBlocksFromFunctionBody(
         txs = [];
         blockStarted = false;
       }
+      // mine empty blocks if necessary
       if (mineBlocksBefore > 1) {
         simnet.mineEmptyBlocks(mineBlocksBefore - 1);
         writeToLogFile(mineBlocksBefore - 1);
@@ -123,6 +128,13 @@ function mineBlocksFromFunctionBody(
   }
 }
 
+/**
+ * creates a Tx
+ * @param callInfo
+ * @param contractPrincipal
+ * @param callerAddress
+ * @returns
+ */
 function generateCallWithArguments(
   callInfo: CallInfo,
   contractPrincipal: string,
@@ -139,6 +151,10 @@ function generateCallWithArguments(
   );
 }
 
+/**
+ * writes data to a log file that represents the sequence of blocks mined
+ * @param data
+ */
 function writeToLogFile(data: ParsedTransactionResult[] | number | string) {
   const filePath = path.join(__dirname, "clar-flow-test.log.txt");
   if (typeof data === "number") {
@@ -150,6 +166,9 @@ function writeToLogFile(data: ParsedTransactionResult[] | number | string) {
   }
 }
 
+/**
+ * clears the log file
+ */
 function clearLogFile() {
   const filePath = path.join(__dirname, "clar-flow-test.log.txt");
   fs.writeFileSync(filePath, "");
