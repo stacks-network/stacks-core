@@ -38,9 +38,15 @@ pub mod proofs;
 pub mod storage;
 pub mod trie;
 pub mod trie_sql;
+pub mod trie_db;
+pub mod trie_db_sqlite;
+pub mod db;
 
 #[cfg(test)]
 pub mod test;
+
+
+
 
 #[derive(Debug)]
 pub struct TrieMerkleProof<T: MarfTrieId>(pub Vec<TrieMerkleProofType<T>>);
@@ -314,6 +320,7 @@ pub enum Error {
     NotOpenedError,
     IOError(io::Error),
     SQLError(rusqlite::Error),
+    DbError(String),
     RequestedIdentifierForExtensionTrie,
     NotFoundError,
     BackptrNotFoundError,
@@ -363,6 +370,7 @@ impl fmt::Display for Error {
         match *self {
             Error::IOError(ref e) => fmt::Display::fmt(e, f),
             Error::SQLError(ref e) => fmt::Display::fmt(e, f),
+            Error::DbError(ref s) => fmt::Display::fmt(s, f),
             Error::CorruptionError(ref s) => fmt::Display::fmt(s, f),
             Error::CursorError(ref e) => fmt::Display::fmt(e, f),
             Error::BlockHashMapCorruptionError(ref opt_e) => {
@@ -441,4 +449,13 @@ impl BlockMap for () {
     fn get_block_id_caching(&mut self, _bhh: &BlockHeaderHash) -> Result<u32, Error> {
         Err(Error::NotFoundError)
     }
+}
+
+fn db_test() -> Result<(), Error> {
+    use db::*;
+    let mut db = trie_db_sqlite::SQLiteDb::new("test.db")?;
+    let tx = db.transaction::<Error>()?;
+    //tx.commit().unwrap();
+
+    Ok(())
 }

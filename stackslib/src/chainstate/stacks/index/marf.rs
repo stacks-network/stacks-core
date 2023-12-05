@@ -1291,7 +1291,7 @@ impl<T: MarfTrieId> MARF<T> {
 
 // instance methods
 impl<T: MarfTrieId> MARF<T> {
-    pub fn begin_tx<'a>(&'a mut self) -> Result<MarfTransaction<'a, T>, Error> {
+    pub fn begin_tx(&mut self) -> Result<MarfTransaction<T>, Error> {
         let storage = self.storage.transaction()?;
         Ok(MarfTransaction {
             storage,
