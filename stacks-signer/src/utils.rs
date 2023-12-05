@@ -7,7 +7,7 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use wsts::curve::ecdsa;
 use wsts::curve::scalar::Scalar;
 
-use crate::stacks_client::SLOTS_PER_USER;
+use crate::client::SLOTS_PER_USER;
 
 /// Helper function for building a signer config for each provided signer private key
 pub fn build_signer_config_tomls(
