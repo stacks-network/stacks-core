@@ -7,14 +7,13 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use wsts::curve::ecdsa;
 use wsts::curve::scalar::Scalar;
 
-use crate::client::SLOTS_PER_USER;
-
 /// Helper function for building a signer config for each provided signer private key
 pub fn build_signer_config_tomls(
     signer_stacks_private_keys: &[StacksPrivateKey],
     num_keys: u32,
     node_host: &str,
-    stackerdb_contract_id: &str,
+    signers_stackerdb_contract_id: &str,
+    miners_stackerdb_contract_id: &str,
     pox_contract_id: Option<&str>,
     timeout: Option<Duration>,
 ) -> Vec<String> {
@@ -74,7 +73,8 @@ stacks_private_key = "{stacks_private_key}"
 node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "testnet"
-stackerdb_contract_id = "{stackerdb_contract_id}"
+signers_stackerdb_contract_id = "{signers_stackerdb_contract_id}"
+miners_stackerdb_contract_id = "{miners_stackerdb_contract_id}"
 signer_id = {id}
 {signers_array}
 "#
@@ -105,7 +105,10 @@ pox_contract_id = "{pox_contract_id}"
 }
 
 /// Helper function for building a stackerdb contract from the provided signer stacks addresses
-pub fn build_stackerdb_contract(signer_stacks_addresses: &[StacksAddress]) -> String {
+pub fn build_stackerdb_contract(
+    signer_stacks_addresses: &[StacksAddress],
+    slots_per_user: u32,
+) -> String {
     let mut stackerdb_contract = String::new(); // "
     stackerdb_contract += "        ;; stacker DB\n";
     stackerdb_contract += "        (define-read-only (stackerdb-get-signer-slots)\n";
@@ -115,7 +118,7 @@ pub fn build_stackerdb_contract(signer_stacks_addresses: &[StacksAddress]) -> St
         stackerdb_contract +=
             format!("                    signer: '{},\n", signer_stacks_address).as_str();
         stackerdb_contract +=
-            format!("                    num-slots: u{}\n", SLOTS_PER_USER).as_str();
+            format!("                    num-slots: u{}\n", slots_per_user).as_str();
         stackerdb_contract += "                }\n";
     }
     stackerdb_contract += "                )))\n";

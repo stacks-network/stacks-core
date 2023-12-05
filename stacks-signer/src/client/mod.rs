@@ -19,13 +19,6 @@ const BACKOFF_INITIAL_INTERVAL: u64 = 128;
 /// Backoff timer max interval in milliseconds
 const BACKOFF_MAX_INTERVAL: u64 = 16384;
 
-/// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
-/// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
-/// Is equal to the number of message types
-pub const SIGNER_SLOTS_PER_USER: u32 = 10;
-/// The number of miner slots available per miner
-pub const MINER_SLOTS_PER_USER: u32 = 1;
-
 #[derive(thiserror::Error, Debug)]
 /// Client error type
 pub enum ClientError {

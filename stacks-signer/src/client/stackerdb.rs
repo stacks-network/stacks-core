@@ -13,12 +13,16 @@ use crate::config::Config;
 /// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
 /// Is equal to the number of message types
-pub const SLOTS_PER_USER: u32 = 10;
+pub const SIGNER_SLOTS_PER_USER: u32 = 10;
+/// The number of miner slots available per miner
+pub const MINER_SLOTS_PER_USER: u32 = 1;
 
 /// The StackerDB client for communicating with both .signers and .miners contracts
 pub struct StackerDB {
     /// The stacker-db session for the signer StackerDB
     signers_stackerdb_session: StackerDBSession,
+    /// The stacker-db session for the .miners StackerDB
+    _miners_stackerdb_session: StackerDBSession,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
     /// A map of a slot ID to last chunk version
@@ -30,7 +34,11 @@ impl From<&Config> for StackerDB {
         Self {
             signers_stackerdb_session: StackerDBSession::new(
                 config.node_host,
-                config.stackerdb_contract_id.clone(),
+                config.signers_stackerdb_contract_id.clone(),
+            ),
+            _miners_stackerdb_session: StackerDBSession::new(
+                config.node_host,
+                config.miners_stackerdb_contract_id.clone(),
             ),
             stacks_private_key: config.stacks_private_key,
             slot_versions: HashMap::new(),
@@ -94,7 +102,7 @@ fn slot_id(id: u32, message: &Message) -> u32 {
         Message::SignatureShareRequest(_) => 8,
         Message::SignatureShareResponse(_) => 9,
     };
-    SLOTS_PER_USER * id + slot_id
+    SIGNER_SLOTS_PER_USER * id + slot_id
 }
 
 #[cfg(test)]

@@ -125,19 +125,28 @@ pub struct RunDkgArgs {
 #[derive(Parser, Debug, Clone)]
 /// Arguments for the generate-files command
 pub struct GenerateFilesArgs {
-    /// The base arguments
-    #[clap(flatten)]
-    pub db_args: StackerDBArgs,
+    /// The Stacks node to connect to
+    #[arg(long)]
+    pub host: SocketAddr,
+    /// The signers stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
+    #[arg(short, long, value_parser = parse_contract)]
+    pub signers_contract: QualifiedContractIdentifier,
+    /// The miners stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
+    #[arg(short, long, value_parser = parse_contract)]
+    pub miners_contract: QualifiedContractIdentifier,
     #[arg(
         long,
-        required_unless_present = "private_keys",
-        conflicts_with = "private_keys"
+        required_unless_present = "signer_private_keys",
+        conflicts_with = "signer_private_keys"
     )]
     /// The number of signers to generate
     pub num_signers: Option<u32>,
     #[clap(long, value_name = "FILE")]
-    /// A path to a file containing a list of hexadecimal Stacks private keys
-    pub private_keys: Option<PathBuf>,
+    /// A path to a file containing a list of hexadecimal Stacks private keys of the signers
+    pub signer_private_keys: Option<PathBuf>,
+    /// The Stacks private key to use in hexademical format for the miner
+    #[arg(long, value_parser = parse_private_key)]
+    pub miner_private_key: StacksPrivateKey,
     #[arg(long)]
     /// The total number of key ids to distribute among the signers
     pub num_keys: u32,

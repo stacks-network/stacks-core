@@ -99,9 +99,11 @@ pub struct Config {
     pub node_host: SocketAddr,
     /// endpoint to the stackerdb receiver
     pub endpoint: SocketAddr,
-    /// smart contract that controls the target stackerdb
-    pub stackerdb_contract_id: QualifiedContractIdentifier,
-    /// smart contract that controls the target stackerdb
+    /// smart contract that controls the target signers' stackerdb
+    pub signers_stackerdb_contract_id: QualifiedContractIdentifier,
+    /// smart contract that controls the target .miners stackerdb
+    pub miners_stackerdb_contract_id: QualifiedContractIdentifier,
+    /// the pox contract identifier to use
     pub pox_contract_id: Option<QualifiedContractIdentifier>,
     /// The Scalar representation of the private key for signer communication
     pub message_private_key: Scalar,
@@ -144,8 +146,10 @@ struct RawConfigFile {
     /// endpoint to stackerdb receiver
     pub endpoint: String,
     // FIXME: these contract's should go away in non testing scenarios. Make them both optionals.
-    /// Stacker db contract identifier
-    pub stackerdb_contract_id: String,
+    /// Signers' Stacker db contract identifier
+    pub signers_stackerdb_contract_id: String,
+    /// Miners' Stacker db contract identifier
+    pub miners_stackerdb_contract_id: String,
     /// pox contract identifier
     pub pox_contract_id: Option<String>,
     /// the 32 byte ECDSA private key used to sign blocks, chunks, and transactions
@@ -219,13 +223,25 @@ impl TryFrom<RawConfigFile> for Config {
                 raw_data.endpoint.clone(),
             ))?;
 
-        let stackerdb_contract_id =
-            QualifiedContractIdentifier::parse(&raw_data.stackerdb_contract_id).map_err(|_| {
-                ConfigError::BadField(
-                    "stackerdb_contract_id".to_string(),
-                    raw_data.stackerdb_contract_id,
-                )
-            })?;
+        let signers_stackerdb_contract_id = QualifiedContractIdentifier::parse(
+            &raw_data.signers_stackerdb_contract_id,
+        )
+        .map_err(|_| {
+            ConfigError::BadField(
+                "signers_stackerdb_contract_id".to_string(),
+                raw_data.signers_stackerdb_contract_id,
+            )
+        })?;
+
+        let miners_stackerdb_contract_id = QualifiedContractIdentifier::parse(
+            &raw_data.miners_stackerdb_contract_id,
+        )
+        .map_err(|_| {
+            ConfigError::BadField(
+                "miners_stackerdb_contract_id".to_string(),
+                raw_data.miners_stackerdb_contract_id,
+            )
+        })?;
 
         let pox_contract_id = if let Some(id) = raw_data.pox_contract_id.as_ref() {
             Some(QualifiedContractIdentifier::parse(id).map_err(|_| {
@@ -288,7 +304,8 @@ impl TryFrom<RawConfigFile> for Config {
         Ok(Self {
             node_host,
             endpoint,
-            stackerdb_contract_id,
+            signers_stackerdb_contract_id,
+            miners_stackerdb_contract_id,
             pox_contract_id,
             message_private_key,
             stacks_private_key,
