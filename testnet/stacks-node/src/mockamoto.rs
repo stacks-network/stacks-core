@@ -68,14 +68,13 @@ use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
+use self::signer::SelfSigner;
 use crate::neon::Counters;
 use crate::neon_node::{
     Globals, PeerThread, RelayerDirective, StacksNode, BLOCK_PROCESSOR_STACK_SIZE,
 };
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::{Config, EventDispatcher};
-
-use self::signer::SelfSigner;
 
 pub mod signer;
 #[cfg(test)]
