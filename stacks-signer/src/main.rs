@@ -29,7 +29,7 @@ extern crate toml;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
@@ -300,7 +300,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
 }
 
 /// Helper function for writing the given contents to filename in the given directory
-fn write_file(dir: &PathBuf, filename: &str, contents: &str) {
+fn write_file(dir: &Path, filename: &str, contents: &str) {
     let file_path = dir.join(filename);
     let filename = file_path.to_str().unwrap();
     let mut file = File::create(filename).unwrap();

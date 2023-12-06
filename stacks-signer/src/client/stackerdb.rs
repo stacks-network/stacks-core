@@ -1,3 +1,4 @@
+use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
 use libsigner::{SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
@@ -22,7 +23,7 @@ pub struct StackerDB {
     /// The stacker-db session for the signer StackerDB
     signers_stackerdb_session: StackerDBSession,
     /// The stacker-db session for the .miners StackerDB
-    _miners_stackerdb_session: StackerDBSession,
+    miners_stackerdb_session: StackerDBSession,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
     /// A map of a slot ID to last chunk version
@@ -36,7 +37,7 @@ impl From<&Config> for StackerDB {
                 config.node_host,
                 config.signers_stackerdb_contract_id.clone(),
             ),
-            _miners_stackerdb_session: StackerDBSession::new(
+            miners_stackerdb_session: StackerDBSession::new(
                 config.node_host,
                 config.miners_stackerdb_contract_id.clone(),
             ),
@@ -86,6 +87,16 @@ impl StackerDB {
                 }
             }
         }
+    }
+
+    /// Retrieve the miner contract id
+    pub fn miners_contract_id(&self) -> &QualifiedContractIdentifier {
+        &self.miners_stackerdb_session.stackerdb_contract_id
+    }
+
+    /// Retrieve the signer contract id
+    pub fn signers_contract_id(&self) -> &QualifiedContractIdentifier {
+        &self.signers_stackerdb_session.stackerdb_contract_id
     }
 }
 
