@@ -451,11 +451,32 @@ impl BlockMap for () {
     }
 }
 
-fn db_test() -> Result<(), Error> {
-    use db::*;
-    let mut db = trie_db_sqlite::SQLiteDb::new("test.db")?;
-    let tx = db.transaction::<Error>()?;
-    //tx.commit().unwrap();
+/// TODO: Remove me
+mod blah {
+    use super::db::*;
+    use super::Error;
+    use super::trie_db_sqlite::*;
 
-    Ok(())
+    fn db_test() -> Result<(), Error> {
+        let mut db = SQLiteDb::new("test.db")?;
+        let tx = db.transaction::<Error>()?;
+        tx.commit()?;
+
+        let tmp = DbTest { db };
+
+        Ok(())
+    }
+
+    struct DbTest<Db> where Db: TransactionalDb {
+        db: Db
+    }
+}
+
+impl From<db::DbError> for Error {
+    fn from(e: db::DbError) -> Self {
+        match e {
+            db::DbError::Database(s) => Error::DbError(s),
+            db::DbError::Other(s) => Error::DbError(s),
+        }
+    }
 }

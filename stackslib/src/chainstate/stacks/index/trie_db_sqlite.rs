@@ -71,12 +71,6 @@ impl TransactionalDb for SQLiteDb {
         let tx = SQLiteTransaction::new(&mut self.conn)?;
         let guard = DbTransactionGuard::new(tx);
         Ok(guard)
-            //.map_err(|e| e.into())?;
-        //let tx = SQLiteTransaction { tx: Ref::from(rusql_tx) };
-        //let guard = DbTransactionGuard::new(tx);
-        //Ok(guard)
-
-        //todo!()
     }
 }
 

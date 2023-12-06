@@ -1,4 +1,4 @@
-use std::{io::Write, cell::{RefCell, Ref}, path::{PathBuf, Path}, marker::PhantomData};
+use std::{io::Write, cell::{RefCell, Ref}, path::{PathBuf, Path}, marker::PhantomData, ops::Deref};
 
 use rusqlite::{Connection, Transaction, blob::Blob};
 use stacks_common::types::chainstate::TrieHash;
@@ -22,19 +22,25 @@ where
         E: From<DbError>;
 }
 
-pub trait DbTransactionType<'conn> {}
+pub trait DbTransactionType<'conn>: DbTransaction {}
 
 pub trait DbTransaction {
     fn commit(self) -> Result<(), DbError>;
     fn rollback(self) -> Result<(), DbError>;
 }
 
-pub struct DbTransactionGuard<'conn, TxType: DbTransactionType<'conn>> {
+pub struct DbTransactionGuard<'conn, TxType>
+where
+    TxType: DbTransactionType<'conn>,
+ {
     tx: TxType,
     _phantom: PhantomData<&'conn ()>,
 }
 
-impl<'conn, TxType: DbTransactionType<'conn>> DbTransactionGuard<'conn, TxType> {
+impl<'conn, TxType> DbTransactionGuard<'conn, TxType>
+where
+    TxType: DbTransactionType<'conn>
+{
     pub fn new(tx: TxType) -> Self {
         Self {
             tx,
@@ -43,16 +49,31 @@ impl<'conn, TxType: DbTransactionType<'conn>> DbTransactionGuard<'conn, TxType> 
     }
 }
 
+impl<'conn, TxType> Deref for DbTransactionGuard<'conn, TxType>
+where
+    TxType: DbTransactionType<'conn>,
+{
+    type Target = TxType;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tx
+    }
+}
+
+impl<'conn, TxType> DbTransaction for DbTransactionGuard<'conn, TxType> 
+where
+    TxType: DbTransactionType<'conn>,
+{
+    fn commit(self) -> Result<(), DbError> {
+        self.tx.commit()
+    }
+
+    fn rollback(self) -> Result<(), DbError> {
+        self.tx.rollback()
+    }
+}
+
 pub enum DbError {
     Database(String),
     Other(String),
-}
-
-impl From<DbError> for Error {
-    fn from(e: DbError) -> Self {
-        match e {
-            DbError::Database(s) => Error::DbError(s),
-            DbError::Other(s) => Error::DbError(s),
-        }
-    }
 }
