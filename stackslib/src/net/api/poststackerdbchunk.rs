@@ -30,6 +30,7 @@ use libstackerdb::{
 };
 use regex::{Captures, Regex};
 use serde::de::Error as de_Error;
+use serde_json::json;
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;

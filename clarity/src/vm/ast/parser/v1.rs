@@ -17,6 +17,7 @@
 use std::cmp;
 use std::convert::TryInto;
 
+use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::address::c32::c32_address_decode;
 use stacks_common::util::hash::hex_bytes;

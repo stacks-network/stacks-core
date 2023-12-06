@@ -38,6 +38,7 @@ use clarity::vm::types::{
     AssetIdentifier, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, Value,
 };
 use clarity::vm::{ClarityVersion, ContractName};
+use lazy_static::lazy_static;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;

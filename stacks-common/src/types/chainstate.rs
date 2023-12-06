@@ -11,9 +11,12 @@ use serde::Serialize;
 use sha2::{Digest as Sha2Digest, Sha256, Sha512_256};
 
 use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
+use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::util::hash::{to_hex, DoubleSha256, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
-use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
+use crate::util::secp256k1::{
+    MessageSignature, SchnorrSignature, Secp256k1PrivateKey, Secp256k1PublicKey,
+};
 use crate::util::uint::Uint256;
 use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 
@@ -42,6 +45,17 @@ impl_array_hexstring_fmt!(BlockHeaderHash);
 impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 impl_byte_array_serde!(BlockHeaderHash);
 pub const BLOCK_HEADER_HASH_ENCODED_SIZE: usize = 32;
+
+impl slog::Value for BlockHeaderHash {
+    fn serialize(
+        &self,
+        _record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        serializer.emit_arguments(key, &format_args!("{}", *self))
+    }
+}
 
 /// Identifier used to identify "sortitions" in the
 ///  SortitionDB. A sortition is the collection of
@@ -260,6 +274,10 @@ impl StacksBlockId {
         let h = Sha512Trunc256Sum::from_hasher(hasher);
         StacksBlockId(h.0)
     }
+
+    pub fn first_mined() -> StacksBlockId {
+        StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH)
+    }
 }
 
 impl StacksWorkScore {
@@ -320,6 +338,7 @@ impl_byte_array_rusqlite_only!(VRFProof);
 impl_byte_array_rusqlite_only!(TrieHash);
 impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
 impl_byte_array_rusqlite_only!(MessageSignature);
+impl_byte_array_rusqlite_only!(SchnorrSignature);
 
 impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
 impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
@@ -330,10 +349,20 @@ impl_byte_array_message_codec!(BurnchainHeaderHash, 32);
 impl_byte_array_message_codec!(BlockHeaderHash, 32);
 impl_byte_array_message_codec!(StacksBlockId, 32);
 impl_byte_array_message_codec!(MessageSignature, 65);
+impl_byte_array_message_codec!(SchnorrSignature, 65);
 
 impl BlockHeaderHash {
     pub fn to_hash160(&self) -> Hash160 {
         Hash160::from_sha256(&self.0)
+    }
+
+    pub fn from_serializer<C: StacksMessageCodec>(
+        serializer: &C,
+    ) -> Result<BlockHeaderHash, CodecError> {
+        let mut hasher = Sha512_256::new();
+        serializer.consensus_serialize(&mut hasher)?;
+        let hash = Sha512Trunc256Sum::from_hasher(hasher);
+        Ok(BlockHeaderHash(hash.0))
     }
 
     pub fn from_serialized_header(buf: &[u8]) -> BlockHeaderHash {

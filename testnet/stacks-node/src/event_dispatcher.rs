@@ -16,12 +16,13 @@ use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
+use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
-    StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+    StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
@@ -61,6 +62,7 @@ pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
 pub const PATH_MINED_BLOCK: &str = "mined_block";
 pub const PATH_MINED_MICROBLOCK: &str = "mined_microblock";
+pub const PATH_MINED_NAKAMOTO_BLOCK: &str = "mined_nakamoto_block";
 pub const PATH_STACKERDB_CHUNKS: &str = "stackerdb_chunks";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
@@ -84,6 +86,17 @@ pub struct MinedMicroblockEvent {
     pub tx_events: Vec<TransactionEvent>,
     pub anchor_block_consensus_hash: ConsensusHash,
     pub anchor_block: BlockHeaderHash,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MinedNakamotoBlockEvent {
+    pub target_burn_height: u64,
+    pub block_hash: String,
+    pub block_id: String,
+    pub stacks_height: u64,
+    pub block_size: u64,
+    pub cost: ExecutionCost,
+    pub tx_events: Vec<TransactionEvent>,
 }
 
 impl EventObserver {
@@ -338,6 +351,10 @@ impl EventObserver {
         self.send_payload(payload, PATH_MINED_MICROBLOCK);
     }
 
+    fn send_mined_nakamoto_block(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_MINED_NAKAMOTO_BLOCK);
+    }
+
     fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_STACKERDB_CHUNKS);
     }
@@ -349,7 +366,7 @@ impl EventObserver {
     fn make_new_block_processed_payload(
         &self,
         filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        block: &StacksBlock,
+        block: &StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
@@ -380,17 +397,17 @@ impl EventObserver {
 
         // Wrap events
         json!({
-            "block_hash": format!("0x{}", block.block_hash()),
+            "block_hash": format!("0x{}", block.block_hash),
             "block_height": metadata.stacks_block_height,
             "burn_block_hash": format!("0x{}", metadata.burn_header_hash),
             "burn_block_height": metadata.burn_header_height,
             "miner_txid": format!("0x{}", winner_txid),
             "burn_block_time": metadata.burn_header_timestamp,
             "index_block_hash": format!("0x{}", metadata.index_block_hash()),
-            "parent_block_hash": format!("0x{}", block.header.parent_block),
+            "parent_block_hash": format!("0x{}", block.parent_block_hash),
             "parent_index_block_hash": format!("0x{}", parent_index_hash),
-            "parent_microblock": format!("0x{}", block.header.parent_microblock),
-            "parent_microblock_sequence": block.header.parent_microblock_sequence,
+            "parent_microblock": format!("0x{}", block.parent_microblock_hash),
+            "parent_microblock_sequence": block.parent_microblock_sequence,
             "matured_miner_rewards": mature_rewards.clone(),
             "events": serialized_events,
             "transactions": serialized_txs,
@@ -401,6 +418,7 @@ impl EventObserver {
             "confirmed_microblocks_cost": mblock_confirmed_consumed,
             "pox_v1_unlock_height": pox_constants.v1_unlock_height,
             "pox_v2_unlock_height": pox_constants.v2_unlock_height,
+            "pox_v3_unlock_height": pox_constants.v3_unlock_height,
         })
     }
 }
@@ -460,6 +478,23 @@ impl MemPoolEventDispatcher for EventDispatcher {
             anchor_block,
         );
     }
+
+    fn mined_nakamoto_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &NakamotoBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        tx_events: Vec<TransactionEvent>,
+    ) {
+        self.process_mined_nakamoto_block_event(
+            target_burn_height,
+            block,
+            block_size_bytes,
+            consumed,
+            tx_events,
+        )
+    }
 }
 
 impl StackerDBEventDispatcher for EventDispatcher {
@@ -476,7 +511,7 @@ impl StackerDBEventDispatcher for EventDispatcher {
 impl BlockEventDispatcher for EventDispatcher {
     fn announce_block(
         &self,
-        block: &StacksBlock,
+        block: &StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent: &StacksBlockId,
@@ -556,8 +591,11 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.burn_block_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+                self.burn_block_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+                    || self.any_event_observers_lookup.contains(
+                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
+                    )
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -678,7 +716,7 @@ impl EventDispatcher {
 
     pub fn process_chain_tip(
         &self,
-        block: &StacksBlock,
+        block: &StacksBlockEventData,
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
@@ -728,7 +766,7 @@ impl EventDispatcher {
                 let payload = self.registered_observers[observer_id]
                     .make_new_block_processed_payload(
                         filtered_events,
-                        block,
+                        &block,
                         metadata,
                         receipts,
                         parent_index_hash,
@@ -762,8 +800,11 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.microblock_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+                self.microblock_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+                    || self.any_event_observers_lookup.contains(
+                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
+                    )
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -815,8 +856,11 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.mempool_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+                self.mempool_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+                    || self.any_event_observers_lookup.contains(
+                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
+                    )
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -843,7 +887,10 @@ impl EventDispatcher {
             .registered_observers
             .iter()
             .enumerate()
-            .filter(|(obs_id, _observer)| self.miner_observers_lookup.contains(&(*obs_id as u16)))
+            .filter(|(obs_id, _observer)| {
+                self.miner_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+            })
             .collect();
         if interested_observers.len() < 1 {
             return;
@@ -878,7 +925,7 @@ impl EventDispatcher {
             .enumerate()
             .filter(|(obs_id, _observer)| {
                 self.mined_microblocks_observers_lookup
-                    .contains(&(*obs_id as u16))
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -899,6 +946,43 @@ impl EventDispatcher {
         }
     }
 
+    pub fn process_mined_nakamoto_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &NakamotoBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        tx_events: Vec<TransactionEvent>,
+    ) {
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.miner_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = serde_json::to_value(MinedNakamotoBlockEvent {
+            target_burn_height,
+            block_hash: block.header.block_hash().to_string(),
+            block_id: block.header.block_id().to_string(),
+            stacks_height: block.header.chain_length,
+            block_size: block_size_bytes,
+            cost: consumed.clone(),
+            tx_events,
+        })
+        .unwrap();
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_mined_nakamoto_block(&payload);
+        }
+    }
+
     /// Forward newly-accepted StackerDB chunk metadata to downstream `stackerdb` observers.
     /// Infallible.
     pub fn process_new_stackerdb_chunks(
@@ -911,7 +995,8 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.stackerdb_observers_lookup.contains(&(*obs_id as u16))
+                self.stackerdb_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -936,8 +1021,11 @@ impl EventDispatcher {
             .iter()
             .enumerate()
             .filter(|(obs_id, _observer)| {
-                self.mempool_observers_lookup.contains(&(*obs_id as u16))
-                    || self.any_event_observers_lookup.contains(&(*obs_id as u16))
+                self.mempool_observers_lookup
+                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
+                    || self.any_event_observers_lookup.contains(
+                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
+                    )
             })
             .collect();
         if interested_observers.len() < 1 {
@@ -1090,7 +1178,7 @@ mod test {
 
         let payload = observer.make_new_block_processed_payload(
             filtered_events,
-            &block,
+            &block.into(),
             &metadata,
             &receipts,
             &parent_index_hash,

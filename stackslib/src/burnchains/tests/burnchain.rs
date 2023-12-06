@@ -471,6 +471,7 @@ fn test_process_block_ops() {
         canonical_stacks_tip_height: 0,
         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+        miner_pk_hash: None,
     };
 
     let block_ops_122 = vec![BlockstackOperationType::LeaderKeyRegister(
@@ -519,6 +520,7 @@ fn test_process_block_ops() {
         canonical_stacks_tip_height: 0,
         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+        miner_pk_hash: None,
     };
 
     let block_ops_123 = vec![
@@ -573,6 +575,7 @@ fn test_process_block_ops() {
         canonical_stacks_tip_height: 0,
         canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
         canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+        miner_pk_hash: None,
     };
 
     // multiple possibilities for block 124 -- we'll reorg the chain each time back to 123 and
@@ -767,6 +770,7 @@ fn test_process_block_ops() {
             canonical_stacks_tip_height: 0,
             canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
             canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+            miner_pk_hash: None,
         };
 
         if next_sortition {

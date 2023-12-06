@@ -29,6 +29,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::ClarityVersion;
 use rusqlite::Error as RusqliteError;
+use serde_json::json;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{
@@ -84,6 +85,7 @@ pub const MAX_TRANSACTION_LEN: u32 = MAX_BLOCK_LEN;
 pub enum Error {
     InvalidFee,
     InvalidStacksBlock(String),
+    ExpectedTenureChange,
     InvalidStacksMicroblock(String, BlockHeaderHash),
     // The bool is true if the invalid transaction was quietly ignored.
     InvalidStacksTransaction(String, bool),
@@ -120,6 +122,8 @@ pub enum Error {
     ProblematicTransaction(Txid),
     MinerAborted,
     ChannelClosed(String),
+    /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
+    InvalidChildOfNakomotoBlock,
 }
 
 impl From<marf_error> for Error {
@@ -205,6 +209,14 @@ impl fmt::Display for Error {
             Error::PoxInvalidIncrease => write!(f, "PoX increase was invalid"),
             Error::MinerAborted => write!(f, "Mining attempt aborted by signal"),
             Error::ChannelClosed(ref s) => write!(f, "Channel '{}' closed", s),
+            Error::InvalidChildOfNakomotoBlock => write!(
+                f,
+                "Stacks Epoch 2-style block building off of Nakamoto block"
+            ),
+            Error::ExpectedTenureChange => write!(
+                f,
+                "Block has a different tenure than parent, but no tenure change transaction"
+            ),
         }
     }
 }
@@ -245,6 +257,8 @@ impl error::Error for Error {
             Error::PoxInvalidIncrease => None,
             Error::MinerAborted => None,
             Error::ChannelClosed(ref _s) => None,
+            Error::InvalidChildOfNakomotoBlock => None,
+            Error::ExpectedTenureChange => None,
         }
     }
 }
@@ -285,6 +299,8 @@ impl Error {
             Error::PoxInvalidIncrease => "PoxInvalidIncrease",
             Error::MinerAborted => "MinerAborted",
             Error::ChannelClosed(ref _s) => "ChannelClosed",
+            Error::InvalidChildOfNakomotoBlock => "InvalidChildOfNakomotoBlock",
+            Error::ExpectedTenureChange => "ExpectedTenureChange",
         }
     }
 
@@ -604,13 +620,71 @@ impl_array_hexstring_fmt!(TokenTransferMemo);
 impl_byte_array_newtype!(TokenTransferMemo, u8, 34);
 impl_byte_array_serde!(TokenTransferMemo);
 
+/// Cause of change in mining tenure
+/// Depending on cause, tenure can be ended or extended
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum TenureChangeCause {
+    /// A valid winning block-commit
+    BlockFound = 0,
+    /// No winning block-commits
+    NoBlockFound = 1,
+    /// A null miner won the block-commit
+    NullMiner = 2,
+}
+
+impl TryFrom<u8> for TenureChangeCause {
+    type Error = ();
+
+    fn try_from(num: u8) -> Result<Self, Self::Error> {
+        match num {
+            0 => Ok(Self::BlockFound),
+            1 => Ok(Self::NoBlockFound),
+            2 => Ok(Self::NullMiner),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Reasons why a `TenureChange` transaction can be bad
+pub enum TenureChangeError {
+    /// Not signed by required threshold (>70%)
+    SignatureInvalid,
+    /// `previous_tenure_end` does not match parent block
+    PreviousTenureInvalid,
+    /// Block is not a Nakamoto block
+    NotNakamoto,
+}
+
+/// Schnorr threshold signature using types from `wsts`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThresholdSignature(pub wsts::common::Signature);
+
+/// A transaction from Stackers to signal new mining tenure
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TenureChangePayload {
+    /// The StacksBlockId of the last block from the previous tenure
+    pub previous_tenure_end: StacksBlockId,
+    /// The number of blocks produced in the previous tenure
+    pub previous_tenure_blocks: u32,
+    /// A flag to indicate which of the following triggered the tenure change
+    pub cause: TenureChangeCause,
+    /// The ECDSA public key hash of the current tenure
+    pub pubkey_hash: Hash160,
+    /// A bitmap of which Stackers signed
+    pub signers: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
     ContractCall(TransactionContractCall),
     SmartContract(TransactionSmartContract, Option<ClarityVersion>),
-    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader), // the previous epoch leader sent two microblocks with the same sequence, and this is proof
-    Coinbase(CoinbasePayload, Option<PrincipalData>),
+    // the previous epoch leader sent two microblocks with the same sequence, and this is proof
+    PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
+    Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
+    /// Must contain a Schnorr threshold signature from at least 70% of the Stackers
+    TenureChange(TenureChangePayload, ThresholdSignature),
 }
 
 impl TransactionPayload {
@@ -621,21 +695,24 @@ impl TransactionPayload {
             TransactionPayload::SmartContract(..) => "SmartContract",
             TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
             TransactionPayload::Coinbase(..) => "Coinbase",
+            TransactionPayload::TenureChange(..) => "TenureChange",
         }
     }
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, PartialEq, Copy, Serialize, Deserialize)]
-pub enum TransactionPayloadID {
+define_u8_enum!(TransactionPayloadID {
     TokenTransfer = 0,
     SmartContract = 1,
     ContractCall = 2,
     PoisonMicroblock = 3,
     Coinbase = 4,
+    // has an alt principal, but no VRF proof
     CoinbaseToAltRecipient = 5,
     VersionedSmartContract = 6,
-}
+    TenureChange = 7,
+    // has a VRF proof, and may have an alt principal
+    NakamotoCoinbase = 8
+});
 
 /// Encoding of an asset type identifier
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1156,6 +1233,8 @@ pub mod test {
             version: 1,
             bytes: Hash160([0xff; 20]),
         };
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
         let tx_payloads = vec![
             TransactionPayload::TokenTransfer(
                 stx_address.into(),
@@ -1200,20 +1279,41 @@ pub mod test {
                 },
                 Some(ClarityVersion::Clarity2),
             ),
-            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),
                 Some(PrincipalData::Contract(
                     QualifiedContractIdentifier::transient(),
                 )),
+                None,
             ),
             TransactionPayload::Coinbase(
                 CoinbasePayload([0x12; 32]),
                 Some(PrincipalData::Standard(StandardPrincipalData(
                     0x01, [0x02; 20],
                 ))),
+                None,
+            ),
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof.clone())),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Contract(
+                    QualifiedContractIdentifier::transient(),
+                )),
+                Some(proof.clone()),
+            ),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([0x12; 32]),
+                Some(PrincipalData::Standard(StandardPrincipalData(
+                    0x01, [0x02; 20],
+                ))),
+                Some(proof.clone()),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
+            TransactionPayload::TenureChange(
+                TenureChangePayload::mock(),
+                ThresholdSignature::mock(),
+            ),
         ];
 
         // create all kinds of transactions
@@ -1240,8 +1340,8 @@ pub mod test {
 
                     let tx = StacksTransaction {
                         version: (*version).clone(),
-                        chain_id: chain_id,
-                        auth: auth,
+                        chain_id,
+                        auth,
                         anchor_mode: (*anchor_mode).clone(),
                         post_condition_mode: (*post_condition_mode).clone(),
                         post_conditions: tx_post_condition.clone(),
@@ -1271,7 +1371,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
 
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1330,7 +1430,7 @@ pub mod test {
         };
 
         StacksBlock {
-            header: header,
+            header,
             txs: txs_anchored,
         }
     }

@@ -43,6 +43,8 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -380,6 +382,14 @@ pub trait MemPoolEventDispatcher {
         tx_results: Vec<TransactionEvent>,
         anchor_block_consensus_hash: ConsensusHash,
         anchor_block: BlockHeaderHash,
+    );
+    fn mined_nakamoto_block_event(
+        &self,
+        target_burn_height: u64,
+        block: &NakamotoBlock,
+        block_size_bytes: u64,
+        consumed: &ExecutionCost,
+        tx_results: Vec<TransactionEvent>,
     );
 }
 
@@ -2150,8 +2160,9 @@ impl MemPoolDB {
             block_hash
         );
 
-        let height = match chainstate.get_stacks_block_height(consensus_hash, block_hash) {
-            Ok(Some(h)) => h,
+        let block_id = StacksBlockId::new(consensus_hash, block_hash);
+        let height = match NakamotoChainState::get_block_header(chainstate.db(), &block_id) {
+            Ok(Some(header)) => header.stacks_block_height,
             Ok(None) => {
                 if *consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
                     0

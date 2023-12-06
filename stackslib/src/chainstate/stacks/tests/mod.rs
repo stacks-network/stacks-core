@@ -38,6 +38,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::Error as CoordinatorError;
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
@@ -265,7 +266,9 @@ pub struct TestStacksNode {
     pub key_ops: HashMap<VRFPublicKey, usize>, // map VRF public keys to their locations in the prev_keys array
     pub anchored_blocks: Vec<StacksBlock>,
     pub microblocks: Vec<Vec<StacksMicroblock>>,
+    pub nakamoto_blocks: Vec<Vec<NakamotoBlock>>,
     pub commit_ops: HashMap<BlockHeaderHash, usize>,
+    pub nakamoto_commit_ops: HashMap<StacksBlockId, usize>,
     pub test_name: String,
     forkable: bool,
 }
@@ -290,7 +293,9 @@ impl TestStacksNode {
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
+            nakamoto_blocks: vec![],
             commit_ops: HashMap::new(),
+            nakamoto_commit_ops: HashMap::new(),
             test_name: test_name.to_string(),
             forkable: true,
         }
@@ -304,7 +309,9 @@ impl TestStacksNode {
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
+            nakamoto_blocks: vec![],
             commit_ops: HashMap::new(),
+            nakamoto_commit_ops: HashMap::new(),
             test_name: test_name.to_string(),
             forkable: true,
         }
@@ -317,7 +324,9 @@ impl TestStacksNode {
             key_ops: HashMap::new(),
             anchored_blocks: vec![],
             microblocks: vec![],
+            nakamoto_blocks: vec![],
             commit_ops: HashMap::new(),
+            nakamoto_commit_ops: HashMap::new(),
             test_name: "".to_string(),
             forkable: false,
         }
@@ -352,7 +361,9 @@ impl TestStacksNode {
             key_ops: self.key_ops.clone(),
             anchored_blocks: self.anchored_blocks.clone(),
             microblocks: self.microblocks.clone(),
+            nakamoto_blocks: self.nakamoto_blocks.clone(),
             commit_ops: self.commit_ops.clone(),
+            nakamoto_commit_ops: self.nakamoto_commit_ops.clone(),
             test_name: new_test_name.to_string(),
             forkable: true,
         }
@@ -569,6 +580,8 @@ impl TestStacksNode {
         block_commit_op
     }
 
+    /// Mine a single Stacks block and a microblock stream.
+    /// Produce its block-commit.
     pub fn mine_stacks_block<F>(
         &mut self,
         sortdb: &SortitionDB,
@@ -828,8 +841,10 @@ pub fn check_mining_reward(
             if reward.coinbase > 0 {
                 block_rewards.insert(ibh.clone(), reward.clone());
             }
-            if reward.tx_fees_streamed > 0 {
-                stream_rewards.insert(ibh.clone(), reward.clone());
+            if let MinerPaymentTxFees::Epoch2 { streamed, .. } = &reward.tx_fees {
+                if *streamed > 0 {
+                    stream_rewards.insert(ibh.clone(), reward.clone());
+                }
             }
             heights.insert(ibh.clone(), i);
             confirmed.insert((
@@ -869,17 +884,19 @@ pub fn check_mining_reward(
             let mut found = false;
             for recipient in prev_block_reward {
                 if recipient.address == miner.origin_address().unwrap() {
-                    let reward: u128 = recipient.coinbase
-                        + recipient.tx_fees_anchored
-                        + (3 * recipient.tx_fees_streamed / 5);
+                    let (anchored, streamed) = match &recipient.tx_fees {
+                        MinerPaymentTxFees::Epoch2 { anchored, streamed } => (anchored, streamed),
+                        _ => panic!("Expected Epoch2 style miner rewards"),
+                    };
+                    let reward = recipient.coinbase + anchored + (3 * streamed / 5);
 
                     test_debug!(
                         "Miner {} received a reward {} = {} + {} + {} at block {}",
                         &recipient.address.to_string(),
                         reward,
                         recipient.coinbase,
-                        recipient.tx_fees_anchored,
-                        (3 * recipient.tx_fees_streamed / 5),
+                        anchored,
+                        (3 * streamed / 5),
                         i
                     );
                     total += reward;
@@ -901,7 +918,11 @@ pub fn check_mining_reward(
             }
             if let Some(ref parent_reward) = stream_rewards.get(&parent_block) {
                 if parent_reward.address == miner.origin_address().unwrap() {
-                    let parent_streamed = (2 * parent_reward.tx_fees_streamed) / 5;
+                    let streamed = match &parent_reward.tx_fees {
+                        MinerPaymentTxFees::Epoch2 { streamed, .. } => streamed,
+                        _ => panic!("Expected Epoch2 style miner reward"),
+                    };
+                    let parent_streamed = (2 * streamed) / 5;
                     let parent_ibh = StacksBlockHeader::make_index_block_hash(
                         &parent_reward.consensus_hash,
                         &parent_reward.block_hash,
@@ -1009,6 +1030,7 @@ pub fn make_coinbase_with_nonce(
         TransactionPayload::Coinbase(
             CoinbasePayload([(burnchain_height % 256) as u8; 32]),
             recipient,
+            None,
         ),
     );
     tx_coinbase.chain_id = 0x80000000;
@@ -1233,7 +1255,7 @@ pub fn make_user_stacks_transfer(
 }
 
 pub fn make_user_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64) -> StacksTransaction {
-    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None);
+    let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
     sign_standard_singlesig_tx(payload.into(), sender, nonce, tx_fee)
 }
 

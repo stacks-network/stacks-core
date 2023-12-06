@@ -167,13 +167,17 @@ pub fn announce_boot_receipts(
     let block_header_0 = StacksChainState::get_genesis_header_info(chainstate.db())
         .expect("FATAL: genesis block header not stored");
     let block_0 = StacksBlock {
-        header: block_header_0.anchored_header.clone(),
+        header: block_header_0
+            .anchored_header
+            .as_stacks_epoch2()
+            .expect("FATAL: Expected a Stacks 2.0 Genesis block")
+            .clone(),
         txs: vec![],
     };
 
     debug!("Push {} boot receipts", &boot_receipts.len());
     event_dispatcher.announce_block(
-        &block_0,
+        &block_0.into(),
         &block_header_0,
         boot_receipts,
         &StacksBlockId::sentinel(),

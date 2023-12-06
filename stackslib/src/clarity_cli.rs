@@ -23,6 +23,7 @@ use std::str::FromStr;
 use std::{env, fs, io, process};
 
 use clarity::vm::coverage::CoverageReporter;
+use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, Row, Transaction, NO_PARAMS};

@@ -102,6 +102,8 @@ fn advance_to_2_1(
         u32::max_value(),
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     ));
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -601,6 +603,8 @@ fn transition_fixes_bitcoin_rigidity() {
         u32::max_value(),
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -1045,6 +1049,8 @@ fn transition_adds_get_pox_addr_recipients() {
         v1_unlock_height,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
 
     let mut spender_sks = vec![];
@@ -1351,6 +1357,8 @@ fn transition_adds_mining_from_segwit() {
         v1_unlock_height,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
 
     let mut spender_sks = vec![];
@@ -1514,6 +1522,8 @@ fn transition_removes_pox_sunset() {
         (sunset_start_rc * reward_cycle_len - 1).into(),
         (sunset_end_rc * reward_cycle_len).into(),
         (epoch_21 as u32) + 1,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     );
@@ -1796,6 +1806,8 @@ fn transition_empty_blocks() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         (epoch_2_1 + 1) as u32,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     );
@@ -2154,6 +2166,8 @@ fn test_pox_reorgs_three_flaps() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
         );
@@ -2692,6 +2706,8 @@ fn test_pox_reorg_one_flap() {
             v1_unlock_height,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -3114,6 +3130,8 @@ fn test_pox_reorg_flap_duel() {
             (1600 * reward_cycle_len - 1).into(),
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
+            u32::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
         );
@@ -3550,6 +3568,8 @@ fn test_pox_reorg_flap_reward_cycles() {
             v1_unlock_height,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -3978,6 +3998,8 @@ fn test_pox_missing_five_anchor_blocks() {
             v1_unlock_height,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4378,6 +4400,8 @@ fn test_sortition_divergence_pre_21() {
             v1_unlock_height,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4742,6 +4766,8 @@ fn trait_invocation_cross_epoch() {
         u32::max_value(),
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -4986,6 +5012,8 @@ fn test_v1_unlock_height_with_current_stackers() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         v1_unlock_height as u32,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     );
@@ -5248,6 +5276,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
         u64::max_value() - 2,
         u64::max_value() - 1,
         v1_unlock_height as u32,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     );

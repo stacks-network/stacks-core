@@ -60,11 +60,14 @@ use stacks_common::util::secp256k1::{
 use stacks_common::util::{get_epoch_time_secs, log};
 use {rusqlite, serde_json, url};
 
+use self::dns::*;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::operations::{PegInOp, PegOutFulfillOp, PegOutRequestOp};
+use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::Error as marf_error;
@@ -755,10 +758,13 @@ impl<'a> StacksNodeState<'a> {
                     if let Some(unconfirmed_chain_tip) = unconfirmed_chain_tip_opt {
                         Ok(unconfirmed_chain_tip)
                     } else {
-                        match chainstate.get_stacks_chain_tip(sortdb) {
-                            Ok(Some(tip)) => Ok(StacksBlockHeader::make_index_block_hash(
+                        match NakamotoChainState::get_canonical_block_header(
+                            chainstate.db(),
+                            sortdb,
+                        ) {
+                            Ok(Some(tip)) => Ok(StacksBlockId::new(
                                 &tip.consensus_hash,
-                                &tip.anchored_block_hash,
+                                &tip.anchored_header.block_hash(),
                             )),
                             Ok(None) => {
                                 return Err(StacksHttpResponse::new_error(
@@ -779,26 +785,31 @@ impl<'a> StacksNodeState<'a> {
                     }
                 }
                 TipRequest::SpecificTip(tip) => Ok(tip.clone()),
-                TipRequest::UseLatestAnchoredTip => match chainstate.get_stacks_chain_tip(sortdb) {
-                    Ok(Some(tip)) => Ok(StacksBlockHeader::make_index_block_hash(
-                        &tip.consensus_hash,
-                        &tip.anchored_block_hash,
-                    )),
-                    Ok(None) => {
-                        return Err(StacksHttpResponse::new_error(
-                            preamble,
-                            &HttpNotFound::new(
-                                "No stacks chain tip exists at this point in time.".to_string(),
-                            ),
-                        ));
+                TipRequest::UseLatestAnchoredTip => {
+                    match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb) {
+                        Ok(Some(tip)) => Ok(StacksBlockId::new(
+                            &tip.consensus_hash,
+                            &tip.anchored_header.block_hash(),
+                        )),
+                        Ok(None) => {
+                            return Err(StacksHttpResponse::new_error(
+                                preamble,
+                                &HttpNotFound::new(
+                                    "No stacks chain tip exists at this point in time.".to_string(),
+                                ),
+                            ));
+                        }
+                        Err(e) => {
+                            return Err(StacksHttpResponse::new_error(
+                                preamble,
+                                &HttpServerError::new(format!(
+                                    "Failed to load chain tip: {:?}",
+                                    &e
+                                )),
+                            ));
+                        }
                     }
-                    Err(e) => {
-                        return Err(StacksHttpResponse::new_error(
-                            preamble,
-                            &HttpServerError::new(format!("Failed to load chain tip: {:?}", &e)),
-                        ));
-                    }
-                },
+                }
             }
         })
     }
@@ -1108,6 +1119,18 @@ pub enum StacksMessageID {
     StackerDBPushChunk = 25,
     // reserved
     Reserved = 255,
+}
+
+/// This enum wraps Vecs of a single kind of `BlockstackOperationType`.
+/// This allows `handle_get_burn_ops` to use an enum for the different operation
+///  types without having to buffer and re-structure a `Vec<BlockstackOperationType>`
+///  from a, e.g., `Vec<PegInOp>`
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum BurnchainOps {
+    PegIn(Vec<PegInOp>),
+    PegOutRequest(Vec<PegOutRequestOp>),
+    PegOutFulfill(Vec<PegOutFulfillOp>),
 }
 
 /// Message type for all P2P Stacks network messages
@@ -1579,18 +1602,19 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
+    use crate::chainstate::nakamoto::tests::node::TestSigners;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::accounts::MinerReward;
     use crate::chainstate::stacks::db::{StacksChainState, *};
-    use crate::chainstate::stacks::events::StacksTransactionReceipt;
+    use crate::chainstate::stacks::events::{StacksBlockEventData, StacksTransactionReceipt};
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::chain_histories::mine_smart_contract_block_contract_call_microblock;
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::{StacksMicroblockHeader, *};
     use crate::chainstate::*;
-    use crate::core::{StacksEpochExtension, NETWORK_P2P_PORT};
+    use crate::core::{StacksEpoch, StacksEpochExtension, NETWORK_P2P_PORT};
     use crate::net::asn::*;
     use crate::net::atlas::*;
     use crate::net::chat::*;
@@ -1614,7 +1638,10 @@ pub mod test {
                 BlockstackOperationType::TransferStx(_)
                 | BlockstackOperationType::DelegateStx(_)
                 | BlockstackOperationType::PreStx(_)
-                | BlockstackOperationType::StackStx(_) => Ok(()),
+                | BlockstackOperationType::StackStx(_)
+                | BlockstackOperationType::PegIn(_)
+                | BlockstackOperationType::PegOutRequest(_)
+                | BlockstackOperationType::PegOutFulfill(_) => Ok(()),
             }
         }
 
@@ -1800,7 +1827,7 @@ pub mod test {
 
     #[derive(Clone)]
     pub struct TestEventObserverBlock {
-        pub block: StacksBlock,
+        pub block: StacksBlockEventData,
         pub metadata: StacksHeaderInfo,
         pub receipts: Vec<StacksTransactionReceipt>,
         pub parent: StacksBlockId,
@@ -1828,7 +1855,7 @@ pub mod test {
     impl BlockEventDispatcher for TestEventObserver {
         fn announce_block(
             &self,
-            block: &StacksBlock,
+            block: &StacksBlockEventData,
             metadata: &StacksHeaderInfo,
             receipts: &[events::StacksTransactionReceipt],
             parent: &StacksBlockId,
@@ -1919,6 +1946,8 @@ pub mod test {
                 5,
                 u64::MAX,
                 u64::MAX,
+                u32::MAX,
+                u32::MAX,
                 u32::MAX,
                 u32::MAX,
                 u32::MAX,
@@ -2168,7 +2197,6 @@ pub mod test {
             let mut miner_factory = TestMinerFactory::new();
             let mut miner =
                 miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-
             // manually set fees
             miner.test_with_tx_fees = false;
 
@@ -2418,7 +2446,7 @@ pub mod test {
                 config: config,
                 network: peer_network,
                 sortdb: Some(sortdb),
-                miner: miner,
+                miner,
                 stacks_node: Some(stacks_node),
                 relayer: relayer,
                 mempool: Some(mempool),
@@ -2485,12 +2513,13 @@ pub mod test {
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
                 .block_height;
-            let stacks_tip_height = stacks_node
-                .chainstate
-                .get_stacks_chain_tip(&sortdb)
-                .unwrap()
-                .map(|blkdat| blkdat.height)
-                .unwrap_or(0);
+            let stacks_tip_height = NakamotoChainState::get_canonical_block_header(
+                stacks_node.chainstate.db(),
+                &sortdb,
+            )
+            .unwrap()
+            .map(|hdr| hdr.anchored_header.height())
+            .unwrap_or(0);
             let ibd = TestPeer::infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
@@ -2537,12 +2566,13 @@ pub mod test {
             let burn_tip_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
                 .unwrap()
                 .block_height;
-            let stacks_tip_height = stacks_node
-                .chainstate
-                .get_stacks_chain_tip(&sortdb)
-                .unwrap()
-                .map(|blkdat| blkdat.height)
-                .unwrap_or(0);
+            let stacks_tip_height = NakamotoChainState::get_canonical_block_header(
+                stacks_node.chainstate.db(),
+                &sortdb,
+            )
+            .unwrap()
+            .map(|hdr| hdr.anchored_header.height())
+            .unwrap_or(0);
             let ibd = TestPeer::infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
@@ -2647,6 +2677,18 @@ pub mod test {
             }
         }
 
+        /// Generate and commit the next burnchain block with the given block operations.
+        /// * if `set_consensus_hash` is true, then each op's consensus_hash field will be set to
+        /// that of the resulting block snapshot.
+        /// * if `set_burn_hash` is true, then each op's burnchain header hash field will be set to
+        /// that of the resulting block snapshot.
+        ///
+        /// Returns (
+        ///     burnchain tip block height,
+        ///     burnchain tip block hash,
+        ///     burnchain tip consensus hash,
+        ///     Option<missing PoX anchor block hash>
+        /// )
         fn inner_next_burnchain_block(
             &mut self,
             mut blockstack_ops: Vec<BlockstackOperationType>,
@@ -2659,8 +2701,12 @@ pub mod test {
             Option<BlockHeaderHash>,
         ) {
             let sortdb = self.sortdb.take().unwrap();
-            let (block_height, block_hash) = {
+            let (block_height, block_hash, epoch_id) = {
                 let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
+                let epoch_id = SortitionDB::get_stacks_epoch(&sortdb.conn(), tip.block_height + 1)
+                    .unwrap()
+                    .unwrap()
+                    .epoch_id;
 
                 if set_consensus_hash {
                     TestPeer::set_ops_consensus_hash(&mut blockstack_ops, &tip.consensus_hash);
@@ -2725,11 +2771,21 @@ pub mod test {
                 )
                 .unwrap();
 
-                (block_header.block_height, block_header_hash)
+                (block_header.block_height, block_header_hash, epoch_id)
             };
 
-            let missing_pox_anchor_block_hash_opt =
-                self.coord.handle_new_burnchain_block().unwrap();
+            let missing_pox_anchor_block_hash_opt = if epoch_id < StacksEpochId::Epoch30 {
+                self.coord
+                    .handle_new_burnchain_block()
+                    .unwrap()
+                    .into_missing_block_hash()
+            } else {
+                if self.coord.handle_new_nakamoto_burnchain_block().unwrap() {
+                    None
+                } else {
+                    Some(BlockHeaderHash([0x00; 32]))
+                }
+            };
 
             let pox_id = {
                 let ic = sortdb.index_conn();
@@ -2755,6 +2811,8 @@ pub mod test {
             )
         }
 
+        /// Pre-process an epoch 2.x Stacks block.
+        /// Validate it and store it to staging.
         pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
             let sortdb = self.sortdb.take().unwrap();
             let mut node = self.stacks_node.take().unwrap();
@@ -2819,6 +2877,8 @@ pub mod test {
             res
         }
 
+        /// Preprocess epoch 2.x microblocks.
+        /// Validate them and store them to staging.
         pub fn preprocess_stacks_microblocks(
             &mut self,
             microblocks: &Vec<StacksMicroblock>,
@@ -2869,6 +2929,8 @@ pub mod test {
             res
         }
 
+        /// Store the given epoch 2.x Stacks block and microblock to staging, and then try and
+        /// process them.
         pub fn process_stacks_epoch_at_tip(
             &mut self,
             block: &StacksBlock,
@@ -2902,6 +2964,8 @@ pub mod test {
             self.stacks_node = Some(node);
         }
 
+        /// Store the given epoch 2.x Stacks block and microblock to the given node's staging,
+        /// using the given sortition DB as well, and then try and process them.
         fn inner_process_stacks_epoch_at_tip(
             &mut self,
             sortdb: &SortitionDB,
@@ -2932,6 +2996,8 @@ pub mod test {
             Ok(())
         }
 
+        /// Store the given epoch 2.x Stacks block and microblock to the given node's staging,
+        /// and then try and process them.
         pub fn process_stacks_epoch_at_tip_checked(
             &mut self,
             block: &StacksBlock,
@@ -2946,6 +3012,8 @@ pub mod test {
             res
         }
 
+        /// Accept a new Stacks block and microblocks via the relayer, and then try to process
+        /// them.
         pub fn process_stacks_epoch(
             &mut self,
             block: &StacksBlock,
@@ -3106,13 +3174,13 @@ pub mod test {
         }
 
         /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce, and then increments
-        ///  the provided reference.
+        /// the provided reference.
         pub fn tenure_with_txs(
             &mut self,
             txs: &[StacksTransaction],
             coinbase_nonce: &mut usize,
         ) -> StacksBlockId {
-            let microblock_privkey = StacksPrivateKey::new();
+            let microblock_privkey = self.miner.next_microblock_privkey();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
             let tip =
@@ -3169,7 +3237,8 @@ pub mod test {
             tip_id
         }
 
-        // Make a tenure
+        /// Make a tenure, using `tenure_builder` to generate a Stacks block and a list of
+        /// microblocks.
         pub fn make_tenure<F>(
             &mut self,
             mut tenure_builder: F,
@@ -3316,7 +3385,7 @@ pub mod test {
             )
         }
 
-        // have this peer produce an anchored block and microblock tail using its internal miner.
+        /// Produce a default, non-empty tenure for epoch 2.x
         pub fn make_default_tenure(
             &mut self,
         ) -> (

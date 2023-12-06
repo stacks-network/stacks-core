@@ -26,12 +26,15 @@ use clarity::vm::{ClarityVersion, SymbolicExpression, SymbolicExpressionType, Va
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::{to_hex, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
+use wsts::common::Signature as Secp256k1Signature;
+use wsts::curve::point::{Compressed as Secp256k1Compressed, Point as Secp256k1Point};
+use wsts::curve::scalar::Scalar as Secp256k1Scalar;
 
 use crate::burnchains::Txid;
-use crate::chainstate::stacks::{StacksMicroblockHeader, *};
+use crate::chainstate::stacks::{TransactionPayloadID, *};
 use crate::core::*;
 use crate::net::Error as net_error;
 
@@ -49,7 +52,7 @@ impl StacksMessageCodec for TransactionContractCall {
         let contract_name: ContractName = read_next(fd)?;
         let function_name: ClarityName = read_next(fd)?;
         let function_args: Vec<Value> = {
-            let mut bound_read = BoundReader::from_reader(fd, MAX_TRANSACTION_LEN as u64);
+            let mut bound_read = BoundReader::from_reader(fd, u64::from(MAX_TRANSACTION_LEN));
             read_next(&mut bound_read)
         }?;
 
@@ -135,20 +138,116 @@ fn ClarityVersion_consensus_deserialize<R: Read>(
     }
 }
 
+impl StacksMessageCodec for TenureChangeCause {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        let byte = (*self) as u8;
+        write_next(fd, &byte)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TenureChangeCause, codec_error> {
+        let byte: u8 = read_next(fd)?;
+        TenureChangeCause::try_from(byte).map_err(|_| {
+            codec_error::DeserializeError(format!("Unrecognized TenureChangeCause byte {byte}"))
+        })
+    }
+}
+
+impl StacksMessageCodec for ThresholdSignature {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        let compressed = self.0.R.compress();
+        let bytes = compressed.as_bytes();
+        fd.write_all(bytes)
+            .map_err(crate::codec::Error::WriteError)?;
+        write_next(fd, &self.0.z.to_bytes())?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        // Read curve point
+        let mut buf = [0u8; 33];
+        fd.read_exact(&mut buf)
+            .map_err(crate::codec::Error::ReadError)?;
+        let R = Secp256k1Point::try_from(&Secp256k1Compressed::from(buf)).map_err(|_| {
+            crate::codec::Error::DeserializeError("Failed to read curve point".into())
+        })?;
+
+        // Read scalar
+        let mut buf = [0u8; 32];
+        fd.read_exact(&mut buf)
+            .map_err(crate::codec::Error::ReadError)?;
+        let z = Secp256k1Scalar::from(buf);
+
+        Ok(Self(Secp256k1Signature { R, z }))
+    }
+}
+
+impl ThresholdSignature {
+    pub fn verify(&self, public_key: &Secp256k1Point, msg: &[u8]) -> bool {
+        self.0.verify(public_key, msg)
+    }
+
+    /// Create mock data for testing. Not valid data
+    pub fn mock() -> Self {
+        Self(Secp256k1Signature {
+            R: Secp256k1Point::G(),
+            z: Secp256k1Scalar::new(),
+        })
+    }
+}
+
+impl TenureChangePayload {
+    pub fn validate(&self, signature: &ThresholdSignature) -> Result<(), TenureChangeError> {
+        // TODO
+        Ok(())
+    }
+
+    /// Create mock data for testing. Not valid data (yet)
+    #[cfg(test)]
+    pub fn mock() -> Self {
+        Self {
+            previous_tenure_end: StacksBlockId([0x55u8; 32]),
+            previous_tenure_blocks: 0x3579,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0xAAu8; 20]),
+            signers: vec![],
+        }
+    }
+}
+
+impl StacksMessageCodec for TenureChangePayload {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.previous_tenure_end)?;
+        write_next(fd, &self.previous_tenure_blocks)?;
+        write_next(fd, &self.cause)?;
+        write_next(fd, &self.pubkey_hash)?;
+        write_next(fd, &self.signers)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        Ok(Self {
+            previous_tenure_end: read_next(fd)?,
+            previous_tenure_blocks: read_next(fd)?,
+            cause: read_next(fd)?,
+            pubkey_hash: read_next(fd)?,
+            signers: read_next(fd)?,
+        })
+    }
+}
+
 impl StacksMessageCodec for TransactionPayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        match *self {
-            TransactionPayload::TokenTransfer(ref address, ref amount, ref memo) => {
+        match self {
+            TransactionPayload::TokenTransfer(address, amount, memo) => {
                 write_next(fd, &(TransactionPayloadID::TokenTransfer as u8))?;
                 write_next(fd, address)?;
                 write_next(fd, amount)?;
                 write_next(fd, memo)?;
             }
-            TransactionPayload::ContractCall(ref cc) => {
+            TransactionPayload::ContractCall(cc) => {
                 write_next(fd, &(TransactionPayloadID::ContractCall as u8))?;
                 cc.consensus_serialize(fd)?;
             }
-            TransactionPayload::SmartContract(ref sc, ref version_opt) => {
+            TransactionPayload::SmartContract(sc, version_opt) => {
                 if let Some(version) = version_opt {
                     // caller requests a specific Clarity version
                     write_next(fd, &(TransactionPayloadID::VersionedSmartContract as u8))?;
@@ -160,52 +259,81 @@ impl StacksMessageCodec for TransactionPayload {
                     sc.consensus_serialize(fd)?;
                 }
             }
-            TransactionPayload::PoisonMicroblock(ref h1, ref h2) => {
+            TransactionPayload::PoisonMicroblock(h1, h2) => {
                 write_next(fd, &(TransactionPayloadID::PoisonMicroblock as u8))?;
                 h1.consensus_serialize(fd)?;
                 h2.consensus_serialize(fd)?;
             }
-            TransactionPayload::Coinbase(ref buf, ref recipient_opt) => {
-                match recipient_opt {
-                    None => {
+            TransactionPayload::Coinbase(buf, recipient_opt, vrf_opt) => {
+                match (recipient_opt, vrf_opt) {
+                    (None, None) => {
                         // stacks 2.05 and earlier only use this path
                         write_next(fd, &(TransactionPayloadID::Coinbase as u8))?;
                         write_next(fd, buf)?;
                     }
-                    Some(recipient) => {
+                    (Some(recipient), None) => {
                         write_next(fd, &(TransactionPayloadID::CoinbaseToAltRecipient as u8))?;
                         write_next(fd, buf)?;
                         write_next(fd, &Value::Principal(recipient.clone()))?;
                     }
+                    (None, Some(vrf_proof)) => {
+                        // nakamoto coinbase
+                        // encode principal as (optional principal)
+                        write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
+                        write_next(fd, buf)?;
+                        write_next(fd, &Value::none())?;
+                        write_next(fd, &vrf_proof.to_bytes().to_vec())?;
+                    }
+                    (Some(recipient), Some(vrf_proof)) => {
+                        write_next(fd, &(TransactionPayloadID::NakamotoCoinbase as u8))?;
+                        write_next(fd, buf)?;
+                        write_next(
+                            fd,
+                            &Value::some(Value::Principal(recipient.clone())).expect(
+                                "FATAL: failed to encode recipient principal as `optional`",
+                            ),
+                        )?;
+                        write_next(fd, &vrf_proof.to_bytes().to_vec())?;
+                    }
                 }
+            }
+            TransactionPayload::TenureChange(tc, sig) => {
+                write_next(fd, &(TransactionPayloadID::TenureChange as u8))?;
+                tc.consensus_serialize(fd)?;
+                sig.consensus_serialize(fd)?;
             }
         }
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<TransactionPayload, codec_error> {
-        let type_id: u8 = read_next(fd)?;
+        let type_id_u8 = read_next(fd)?;
+        let type_id = TransactionPayloadID::from_u8(type_id_u8).ok_or_else(|| {
+            codec_error::DeserializeError(format!(
+                "Failed to parse transaction -- unknown payload ID {type_id_u8}"
+            ))
+        })?;
         let payload = match type_id {
-            x if x == TransactionPayloadID::TokenTransfer as u8 => {
+            TransactionPayloadID::TokenTransfer => {
                 let principal = read_next(fd)?;
                 let amount = read_next(fd)?;
                 let memo = read_next(fd)?;
                 TransactionPayload::TokenTransfer(principal, amount, memo)
             }
-            x if x == TransactionPayloadID::ContractCall as u8 => {
+            TransactionPayloadID::ContractCall => {
                 let payload: TransactionContractCall = read_next(fd)?;
                 TransactionPayload::ContractCall(payload)
             }
-            x if x == TransactionPayloadID::SmartContract as u8 => {
+            TransactionPayloadID::SmartContract => {
                 let payload: TransactionSmartContract = read_next(fd)?;
                 TransactionPayload::SmartContract(payload, None)
             }
-            x if x == TransactionPayloadID::VersionedSmartContract as u8 => {
+            TransactionPayloadID::VersionedSmartContract => {
                 let version = ClarityVersion_consensus_deserialize(fd)?;
                 let payload: TransactionSmartContract = read_next(fd)?;
                 TransactionPayload::SmartContract(payload, Some(version))
             }
-            x if x == TransactionPayloadID::PoisonMicroblock as u8 => {
+            TransactionPayloadID::PoisonMicroblock => {
                 let h1: StacksMicroblockHeader = read_next(fd)?;
                 let h2: StacksMicroblockHeader = read_next(fd)?;
 
@@ -226,11 +354,11 @@ impl StacksMessageCodec for TransactionPayload {
 
                 TransactionPayload::PoisonMicroblock(h1, h2)
             }
-            x if x == TransactionPayloadID::Coinbase as u8 => {
+            TransactionPayloadID::Coinbase => {
                 let payload: CoinbasePayload = read_next(fd)?;
-                TransactionPayload::Coinbase(payload, None)
+                TransactionPayload::Coinbase(payload, None, None)
             }
-            x if x == TransactionPayloadID::CoinbaseToAltRecipient as u8 => {
+            TransactionPayloadID::CoinbaseToAltRecipient => {
                 let payload: CoinbasePayload = read_next(fd)?;
                 let principal_value: Value = read_next(fd)?;
                 let recipient = match principal_value {
@@ -240,17 +368,54 @@ impl StacksMessageCodec for TransactionPayload {
                     }
                 };
 
-                TransactionPayload::Coinbase(payload, Some(recipient))
+                TransactionPayload::Coinbase(payload, Some(recipient), None)
             }
-            _ => {
-                return Err(codec_error::DeserializeError(format!(
-                    "Failed to parse transaction -- unknown payload ID {}",
-                    type_id
-                )));
+            // TODO: gate this!
+            TransactionPayloadID::NakamotoCoinbase => {
+                let payload: CoinbasePayload = read_next(fd)?;
+                let principal_value_opt: Value = read_next(fd)?;
+                let recipient_opt = if let Value::Optional(optional_data) = principal_value_opt {
+                    if let Some(principal_value) = optional_data.data {
+                        if let Value::Principal(recipient_principal) = *principal_value {
+                            Some(recipient_principal)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    return Err(codec_error::DeserializeError("Failed to parse nakamoto coinbase transaction -- did not receive an optional recipient principal value".to_string()));
+                };
+                let vrf_proof_bytes: Vec<u8> = read_next(fd)?;
+                let Some(vrf_proof) = VRFProof::from_bytes(&vrf_proof_bytes) else {
+                    return Err(codec_error::DeserializeError(
+                        "Failed to decode coinbase VRF proof".to_string(),
+                    ));
+                };
+                TransactionPayload::Coinbase(payload, recipient_opt, Some(vrf_proof))
+            }
+            TransactionPayloadID::TenureChange => {
+                let payload: TenureChangePayload = read_next(fd)?;
+                let signature: ThresholdSignature = read_next(fd)?;
+                TransactionPayload::TenureChange(payload, signature)
             }
         };
 
         Ok(payload)
+    }
+}
+
+impl<'a, H> FromIterator<&'a StacksTransaction> for MerkleTree<H>
+where
+    H: MerkleHashFunc + Clone + PartialEq + fmt::Debug,
+{
+    fn from_iter<T: IntoIterator<Item = &'a StacksTransaction>>(iter: T) -> Self {
+        let txid_vec = iter
+            .into_iter()
+            .map(|x| x.txid().as_bytes().to_vec())
+            .collect();
+        MerkleTree::new(&txid_vec)
     }
 }
 
@@ -466,7 +631,7 @@ impl StacksTransaction {
         let mut tx_bytes = vec![];
         self.consensus_serialize(&mut tx_bytes)
             .expect("BUG: Failed to serialize a transaction object");
-        tx_bytes.len() as u64
+        u64::try_from(tx_bytes.len()).expect("tx len exceeds 2^64 bytes")
     }
 
     pub fn consensus_deserialize_with_len<R: Read>(
@@ -562,10 +727,12 @@ impl StacksTransaction {
     }
 
     /// Try to convert to a coinbase payload
-    pub fn try_as_coinbase(&self) -> Option<(&CoinbasePayload, Option<&PrincipalData>)> {
+    pub fn try_as_coinbase(
+        &self,
+    ) -> Option<(&CoinbasePayload, Option<&PrincipalData>, Option<&VRFProof>)> {
         match &self.payload {
-            TransactionPayload::Coinbase(ref payload, ref recipient_opt) => {
-                Some((payload, recipient_opt.as_ref()))
+            TransactionPayload::Coinbase(ref payload, ref recipient_opt, ref vrf_proof_opt) => {
+                Some((payload, recipient_opt.as_ref(), vrf_proof_opt.as_ref()))
             }
             _ => None,
         }
@@ -1530,12 +1697,25 @@ mod test {
                 corrupt_h2.sequence += 1;
                 TransactionPayload::PoisonMicroblock(corrupt_h1, corrupt_h2)
             }
-            TransactionPayload::Coinbase(ref buf, ref recipient_opt) => {
+            TransactionPayload::Coinbase(ref buf, ref recipient_opt, ref vrf_proof_opt) => {
                 let mut corrupt_buf_bytes = buf.as_bytes().clone();
                 corrupt_buf_bytes[0] = (((corrupt_buf_bytes[0] as u16) + 1) % 256) as u8;
 
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
-                TransactionPayload::Coinbase(corrupt_buf, recipient_opt.clone())
+                TransactionPayload::Coinbase(
+                    corrupt_buf,
+                    recipient_opt.clone(),
+                    vrf_proof_opt.clone(),
+                )
+            }
+            TransactionPayload::TenureChange(ref tc, ref sig) => {
+                let mut hash = tc.pubkey_hash.as_bytes().clone();
+                hash[8] ^= 0x04; // Flip one bit
+                let corrupt_tc = TenureChangePayload {
+                    pubkey_hash: hash.into(),
+                    ..tc.clone()
+                };
+                TransactionPayload::TenureChange(corrupt_tc, sig.clone())
             }
         };
         assert!(corrupt_tx_payload.txid() != signed_tx.txid());
@@ -1772,7 +1952,8 @@ mod test {
 
     #[test]
     fn tx_stacks_transaction_payload_coinbase() {
-        let coinbase_payload = TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None);
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, None);
         let coinbase_payload_bytes = vec![
             // payload type ID
             TransactionPayloadID::Coinbase as u8,
@@ -1815,6 +1996,326 @@ mod test {
             &coinbase_payload,
             &coinbase_payload_bytes,
         );
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_nakamoto_coinbase() {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), None, Some(proof));
+        let coinbase_bytes = vec![
+            // payload type ID
+            TransactionPayloadID::NakamotoCoinbase as u8,
+            // buffer
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            // no alt recipient, so Value::none
+            0x09,
+            // proof bytes length
+            0x00,
+            0x00,
+            0x00,
+            0x50,
+            // proof bytes
+            0x92,
+            0x75,
+            0xdf,
+            0x67,
+            0xa6,
+            0x8c,
+            0x87,
+            0x45,
+            0xc0,
+            0xff,
+            0x97,
+            0xb4,
+            0x82,
+            0x01,
+            0xee,
+            0x6d,
+            0xb4,
+            0x47,
+            0xf7,
+            0xc9,
+            0x3b,
+            0x23,
+            0xae,
+            0x24,
+            0xcd,
+            0xc2,
+            0x40,
+            0x0f,
+            0x52,
+            0xfd,
+            0xb0,
+            0x8a,
+            0x1a,
+            0x6a,
+            0xc7,
+            0xec,
+            0x71,
+            0xbf,
+            0x9c,
+            0x9c,
+            0x76,
+            0xe9,
+            0x6e,
+            0xe4,
+            0x67,
+            0x5e,
+            0xbf,
+            0xf6,
+            0x06,
+            0x25,
+            0xaf,
+            0x28,
+            0x71,
+            0x85,
+            0x01,
+            0x04,
+            0x7b,
+            0xfd,
+            0x87,
+            0xb8,
+            0x10,
+            0xc2,
+            0xd2,
+            0x13,
+            0x9b,
+            0x73,
+            0xc2,
+            0x3b,
+            0xd6,
+            0x9d,
+            0xe6,
+            0x63,
+            0x60,
+            0x95,
+            0x3a,
+            0x64,
+            0x2c,
+            0x2a,
+            0x33,
+            0x0a,
+        ];
+
+        check_codec_and_corruption(&coinbase_payload, &coinbase_bytes);
+    }
+
+    #[test]
+    fn tx_stacks_transaction_payload_nakamoto_coinbase_alt_recipient() {
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+
+        let recipient = PrincipalData::from(QualifiedContractIdentifier {
+            issuer: StacksAddress {
+                version: 1,
+                bytes: Hash160([0xff; 20]),
+            }
+            .into(),
+            name: "foo-contract".into(),
+        });
+
+        let coinbase_payload =
+            TransactionPayload::Coinbase(CoinbasePayload([0x12; 32]), Some(recipient), Some(proof));
+        let coinbase_bytes = vec![
+            // payload type ID
+            TransactionPayloadID::NakamotoCoinbase as u8,
+            // buffer
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            0x12,
+            // have contract recipient, so Some(..)
+            0x0a,
+            // contract address type
+            0x06,
+            // address
+            0x01,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            0xff,
+            // name length
+            0x0c,
+            // name ('foo-contract')
+            0x66,
+            0x6f,
+            0x6f,
+            0x2d,
+            0x63,
+            0x6f,
+            0x6e,
+            0x74,
+            0x72,
+            0x61,
+            0x63,
+            0x74,
+            // proof bytes length
+            0x00,
+            0x00,
+            0x00,
+            0x50,
+            // proof bytes
+            0x92,
+            0x75,
+            0xdf,
+            0x67,
+            0xa6,
+            0x8c,
+            0x87,
+            0x45,
+            0xc0,
+            0xff,
+            0x97,
+            0xb4,
+            0x82,
+            0x01,
+            0xee,
+            0x6d,
+            0xb4,
+            0x47,
+            0xf7,
+            0xc9,
+            0x3b,
+            0x23,
+            0xae,
+            0x24,
+            0xcd,
+            0xc2,
+            0x40,
+            0x0f,
+            0x52,
+            0xfd,
+            0xb0,
+            0x8a,
+            0x1a,
+            0x6a,
+            0xc7,
+            0xec,
+            0x71,
+            0xbf,
+            0x9c,
+            0x9c,
+            0x76,
+            0xe9,
+            0x6e,
+            0xe4,
+            0x67,
+            0x5e,
+            0xbf,
+            0xf6,
+            0x06,
+            0x25,
+            0xaf,
+            0x28,
+            0x71,
+            0x85,
+            0x01,
+            0x04,
+            0x7b,
+            0xfd,
+            0x87,
+            0xb8,
+            0x10,
+            0xc2,
+            0xd2,
+            0x13,
+            0x9b,
+            0x73,
+            0xc2,
+            0x3b,
+            0xd6,
+            0x9d,
+            0xe6,
+            0x63,
+            0x60,
+            0x95,
+            0x3a,
+            0x64,
+            0x2c,
+            0x2a,
+            0x33,
+            0x0a,
+        ];
+
+        check_codec_and_corruption(&coinbase_payload, &coinbase_bytes);
     }
 
     #[test]
@@ -3273,7 +3774,7 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Mainnet,
             auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
 
         let tx_stx = StacksTransaction::new(
@@ -3292,12 +3793,22 @@ mod test {
             TransactionPayload::PoisonMicroblock(header_1, header_2),
         );
 
+        let tx_tenure_change = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            auth.clone(),
+            TransactionPayload::TenureChange(
+                TenureChangePayload::mock(),
+                ThresholdSignature::mock(),
+            ),
+        );
+
         let txs = vec![
             tx_contract_call,
             tx_smart_contract,
             tx_coinbase,
             tx_stx,
             tx_poison,
+            tx_tenure_change,
         ];
         txs
     }

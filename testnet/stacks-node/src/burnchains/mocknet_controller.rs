@@ -9,8 +9,8 @@ use stacks::burnchains::{
 use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp,
+    PegOutFulfillOp, PegOutRequestOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use stacks::chainstate::burn::BlockSnapshot;
 use stacks::core::{
@@ -259,6 +259,27 @@ impl BurnchainController for MocknetController {
                 }
                 BlockstackOperationType::DelegateStx(payload) => {
                     BlockstackOperationType::DelegateStx(DelegateStxOp {
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::PegIn(payload) => {
+                    BlockstackOperationType::PegIn(PegInOp {
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::PegOutRequest(payload) => {
+                    BlockstackOperationType::PegOutRequest(PegOutRequestOp {
+                        block_height: next_block_header.block_height,
+                        burn_header_hash: next_block_header.block_hash,
+                        ..payload
+                    })
+                }
+                BlockstackOperationType::PegOutFulfill(payload) => {
+                    BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
                         block_height: next_block_header.block_height,
                         burn_header_hash: next_block_header.block_hash,
                         ..payload

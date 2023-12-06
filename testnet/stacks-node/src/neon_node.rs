@@ -153,7 +153,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stacks::burnchains::db::BurnchainHeaderReader;
-use stacks::burnchains::{Burnchain, BurnchainParameters, BurnchainSigner, Txid};
+use stacks::burnchains::{Burnchain, BurnchainParameters, BurnchainSigner, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
@@ -164,6 +164,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
@@ -503,8 +504,8 @@ impl Globals {
                                 LeaderKeyRegistrationState::Active(RegisteredKey {
                                     target_block_height,
                                     vrf_public_key: op.public_key,
-                                    block_height: op.block_height as u64,
-                                    op_vtxindex: op.vtxindex as u32,
+                                    block_height: u64::from(op.block_height),
+                                    op_vtxindex: u32::from(op.vtxindex),
                                 });
                             activated = true;
                         } else {
@@ -1257,7 +1258,7 @@ impl BlockMinerThread {
         let mut tx = StacksTransaction::new(
             version,
             tx_auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), recipient_opt),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), recipient_opt, None),
         );
         tx.chain_id = chain_id;
         tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -1351,9 +1352,9 @@ impl BlockMinerThread {
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
     ) -> Option<ParentStacksBlockInfo> {
-        if let Some(stacks_tip) = chain_state
-            .get_stacks_chain_tip(burn_db)
-            .expect("FATAL: could not query chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chain_state.db(), burn_db)
+                .expect("FATAL: could not query chain tip")
         {
             let miner_address = self
                 .keychain
@@ -1365,7 +1366,7 @@ impl BlockMinerThread {
                 &self.burn_block,
                 miner_address,
                 &stacks_tip.consensus_hash,
-                &stacks_tip.anchored_block_hash,
+                &stacks_tip.anchored_header.block_hash(),
             ) {
                 Ok(parent_info) => Some(parent_info),
                 Err(Error::BurnchainTipChanged) => {
@@ -1422,7 +1423,7 @@ impl BlockMinerThread {
             if last_mined_blocks.len() == 1 {
                 debug!("Have only attempted one block; unconditionally trying again");
             }
-            last_mined_blocks.len() as u64 + 1
+            u64::try_from(last_mined_blocks.len()).expect("FATAL: more than 2^64 mined blocks") + 1
         } else {
             let mut best_attempt = 0;
             debug!(
@@ -1755,16 +1756,16 @@ impl BlockMinerThread {
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .expect("FATAL: could not query canonical sortition DB tip");
 
-        if let Some(stacks_tip) = chainstate
-            .get_stacks_chain_tip(sortdb)
-            .expect("FATAL: could not query canonical Stacks chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
+                .expect("FATAL: could not query canonical Stacks chain tip")
         {
             // if a block hasn't been processed within some deadline seconds of receipt, don't block
             //  mining
             let process_deadline = get_epoch_time_secs() - unprocessed_block_deadline;
             let has_unprocessed = StacksChainState::has_higher_unprocessed_blocks(
                 chainstate.db(),
-                stacks_tip.height,
+                stacks_tip.anchored_header.height(),
                 process_deadline,
             )
             .expect("FATAL: failed to query staging blocks");
@@ -1786,10 +1787,12 @@ impl BlockMinerThread {
                     // NOTE: this could be None if it's not part of the canonical PoX fork any
                     // longer
                     if let Some(highest_unprocessed_block_sn) = highest_unprocessed_block_sn_opt {
-                        if stacks_tip.height + (burnchain.pox_constants.prepare_length as u64) - 1
+                        if stacks_tip.anchored_header.height()
+                            + u64::from(burnchain.pox_constants.prepare_length)
+                            - 1
                             >= highest_unprocessed.height
                             && highest_unprocessed_block_sn.block_height
-                                + (burnchain.pox_constants.prepare_length as u64)
+                                + u64::from(burnchain.pox_constants.prepare_length)
                                 - 1
                                 >= sort_tip.block_height
                         {
@@ -1999,9 +2002,9 @@ impl BlockMinerThread {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if let Some(stacks_tip) = chain_state
-            .get_stacks_chain_tip(&burn_db)
-            .expect("FATAL: could not query chain tip")
+        if let Some(stacks_tip) =
+            NakamotoChainState::get_canonical_block_header(chain_state.db(), &burn_db)
+                .expect("FATAL: could not query chain tip")
         {
             let is_miner_blocked = self
                 .globals
@@ -2016,7 +2019,7 @@ impl BlockMinerThread {
                 &chain_state,
                 self.config.miner.unprocessed_block_deadline_secs,
             );
-            if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
+            if stacks_tip.anchored_header.block_hash() != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
                 || cur_burn_chain_tip.burn_header_hash != self.burn_block.burn_header_hash
                 || is_miner_blocked
@@ -2035,7 +2038,7 @@ impl BlockMinerThread {
                     "old_tip_burn_block_height" => self.burn_block.block_height,
                     "old_tip_burn_block_sortition_id" => %self.burn_block.sortition_id,
                     "attempt" => attempt,
-                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_block_hash,
+                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_header.block_hash(),
                     "new_stacks_tip_consensus_hash" => %stacks_tip.consensus_hash,
                     "new_tip_burn_block_height" => cur_burn_chain_tip.block_height,
                     "new_tip_burn_block_sortition_id" => %cur_burn_chain_tip.sortition_id,
@@ -3455,26 +3458,39 @@ impl ParentStacksBlockInfo {
                 .expect("Failed to look up block's parent snapshot");
 
         let parent_sortition_id = &parent_snapshot.sortition_id;
-        let parent_winning_vtxindex =
-            SortitionDB::get_block_winning_vtxindex(burn_db.conn(), parent_sortition_id)
+
+        let (parent_block_height, parent_winning_vtxindex, parent_block_total_burn) = if mine_tip_ch
+            == &FIRST_BURNCHAIN_CONSENSUS_HASH
+        {
+            (0, 0, 0)
+        } else {
+            let parent_winning_vtxindex =
+                SortitionDB::get_block_winning_vtxindex(burn_db.conn(), parent_sortition_id)
+                    .expect("SortitionDB failure.")
+                    .ok_or_else(|| {
+                        error!(
+                            "Failed to find winning vtx index for the parent sortition";
+                            "parent_sortition_id" => %parent_sortition_id
+                        );
+                        Error::WinningVtxNotFoundForChainTip
+                    })?;
+
+            let parent_block = SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
                 .expect("SortitionDB failure.")
                 .ok_or_else(|| {
                     error!(
-                        "Failed to find winning vtx index for the parent sortition";
+                        "Failed to find block snapshot for the parent sortition";
                         "parent_sortition_id" => %parent_sortition_id
                     );
-                    Error::WinningVtxNotFoundForChainTip
+                    Error::SnapshotNotFoundForChainTip
                 })?;
 
-        let parent_block = SortitionDB::get_block_snapshot(burn_db.conn(), parent_sortition_id)
-            .expect("SortitionDB failure.")
-            .ok_or_else(|| {
-                error!(
-                    "Failed to find block snapshot for the parent sortition";
-                    "parent_sortition_id" => %parent_sortition_id
-                );
-                Error::SnapshotNotFoundForChainTip
-            })?;
+            (
+                parent_block.block_height,
+                parent_winning_vtxindex,
+                parent_block.total_burn,
+            )
+        };
 
         // don't mine off of an old burnchain block
         let burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
@@ -3513,8 +3529,8 @@ impl ParentStacksBlockInfo {
         Ok(ParentStacksBlockInfo {
             stacks_parent_header: stacks_tip_header,
             parent_consensus_hash: mine_tip_ch.clone(),
-            parent_block_burn_height: parent_block.block_height,
-            parent_block_total_burn: parent_block.total_burn,
+            parent_block_burn_height: parent_block_height,
+            parent_block_total_burn: parent_block_total_burn,
             parent_winning_vtxindex,
             coinbase_nonce,
         })
@@ -3557,7 +3573,7 @@ pub struct PeerThread {
 
 impl PeerThread {
     /// set up the mempool DB connection
-    fn connect_mempool_db(config: &Config) -> MemPoolDB {
+    pub fn connect_mempool_db(config: &Config) -> MemPoolDB {
         // create estimators, metric instances for RPC handler
         let cost_estimator = config
             .make_cost_estimator()
@@ -3582,12 +3598,26 @@ impl PeerThread {
     /// Binds the addresses in the config (which may panic if the port is blocked).
     /// This is so the node will crash "early" before any new threads start if there's going to be
     /// a bind error anyway.
-    pub fn new(runloop: &RunLoop, mut net: PeerNetwork) -> PeerThread {
-        let config = runloop.config().clone();
+    pub fn new(runloop: &RunLoop, net: PeerNetwork) -> PeerThread {
+        Self::new_all(
+            runloop.get_globals(),
+            runloop.config(),
+            runloop.get_burnchain().pox_constants,
+            net,
+        )
+    }
+
+    pub fn new_all(
+        globals: Globals,
+        config: &Config,
+        pox_constants: PoxConstants,
+        mut net: PeerNetwork,
+    ) -> Self {
+        let config = config.clone();
         let mempool = Self::connect_mempool_db(&config);
         let burn_db_path = config.get_burn_db_file_path();
 
-        let sortdb = SortitionDB::open(&burn_db_path, false, runloop.get_burnchain().pox_constants)
+        let sortdb = SortitionDB::open(&burn_db_path, false, pox_constants)
             .expect("FATAL: could not open sortition DB");
 
         let chainstate =
@@ -3610,7 +3640,7 @@ impl PeerThread {
         PeerThread {
             config,
             net: Some(net),
-            globals: runloop.get_globals(),
+            globals,
             poll_timeout,
             sortdb: Some(sortdb),
             chainstate: Some(chainstate),
@@ -4135,11 +4165,8 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(
-        mut p2p_thread: PeerThread,
-        event_dispatcher: EventDispatcher,
-        should_keep_running: Arc<AtomicBool>,
-    ) {
+    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
+        let should_keep_running = p2p_thread.globals.should_keep_running.clone();
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
         // spawn a daemon thread that runs the DNS resolver.
@@ -4287,7 +4314,6 @@ impl StacksNode {
             })
             .expect("FATAL: failed to start relayer thread");
 
-        let should_keep_running_clone = globals.should_keep_running.clone();
         let p2p_event_dispatcher = runloop.get_event_dispatcher();
         let p2p_thread = PeerThread::new(runloop, p2p_net);
         let p2p_thread_handle = thread::Builder::new()
@@ -4298,7 +4324,7 @@ impl StacksNode {
             ))
             .spawn(move || {
                 debug!("p2p thread ID is {:?}", thread::current().id());
-                Self::p2p_main(p2p_thread, p2p_event_dispatcher, should_keep_running_clone);
+                Self::p2p_main(p2p_thread, p2p_event_dispatcher);
             })
             .expect("FATAL: failed to start p2p thread");
 

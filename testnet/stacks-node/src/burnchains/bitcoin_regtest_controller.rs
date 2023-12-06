@@ -8,8 +8,10 @@ use async_h1::client;
 use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use base64::encode;
+use clarity::vm::types::PrincipalData;
 use http_types::{Method, Request, Url};
 use serde::Serialize;
+use serde_json::json;
 use serde_json::value::RawValue;
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
@@ -27,8 +29,8 @@ use stacks::burnchains::{
 };
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PegInOp,
+    PegOutFulfillOp, PegOutRequestOp, PreStxOp, TransferStxOp, UserBurnSupportOp,
 };
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
@@ -48,7 +50,7 @@ use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 use stacks_common::util::hash::{hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
@@ -922,7 +924,9 @@ impl BitcoinRegtestController {
             | BlockstackOperationType::LeaderKeyRegister(_)
             | BlockstackOperationType::StackStx(_)
             | BlockstackOperationType::DelegateStx(_)
-            | BlockstackOperationType::UserBurnSupport(_) => {
+            | BlockstackOperationType::UserBurnSupport(_)
+            | BlockstackOperationType::PegOutRequest(_)
+            | BlockstackOperationType::PegIn(_) => {
                 unimplemented!();
             }
             BlockstackOperationType::PreStx(payload) => {
@@ -930,6 +934,9 @@ impl BitcoinRegtestController {
             }
             BlockstackOperationType::TransferStx(payload) => {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, utxo)
+            }
+            BlockstackOperationType::PegOutFulfill(payload) => {
+                self.build_peg_out_fulfill_tx(epoch_id, payload, op_signer, utxo)
             }
         }?;
 
@@ -1167,6 +1174,227 @@ impl BitcoinRegtestController {
 
         info!(
             "Miner node: submitting pre_stacks op - {}",
+            public_key.to_hex()
+        );
+
+        Some(tx)
+    }
+
+    #[cfg(not(test))]
+    fn build_peg_in_tx(
+        &mut self,
+        _epoch_id: StacksEpochId,
+        _payload: PegInOp,
+        _signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
+    #[cfg(test)]
+    fn build_peg_in_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: PegInOp,
+        signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+        let max_tx_size = 230;
+
+        let output_amt = DUST_UTXO_LIMIT
+            + max_tx_size * self.config.burnchain.satoshis_per_byte
+            + payload.amount;
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
+
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            bytes.push(Opcodes::PegIn as u8);
+            let (recipient_address, contract_name): (StacksAddress, String) =
+                match payload.recipient {
+                    PrincipalData::Standard(standard_principal) => {
+                        (standard_principal.into(), String::new())
+                    }
+                    PrincipalData::Contract(contract_identifier) => (
+                        contract_identifier.issuer.into(),
+                        contract_identifier.name.into(),
+                    ),
+                };
+            bytes.push(recipient_address.version);
+            bytes.extend_from_slice(recipient_address.bytes.as_bytes());
+            bytes.extend_from_slice(contract_name.as_bytes());
+            bytes
+        };
+
+        let peg_in_address_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![peg_in_address_output];
+        tx.output
+            .push(payload.peg_wallet_address.to_bitcoin_tx_out(payload.amount));
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            payload.amount,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
+
+        increment_btc_ops_sent_counter();
+
+        info!("Miner node: submitting peg-in op - {}", public_key.to_hex());
+
+        Some(tx)
+    }
+
+    #[cfg(not(test))]
+    fn build_peg_out_request_tx(
+        &mut self,
+        _epoch_id: StacksEpochId,
+        _payload: PegOutRequestOp,
+        _signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
+    #[cfg(test)]
+    fn build_peg_out_request_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: PegOutRequestOp,
+        signer: &mut BurnchainOpSigner,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+        let max_tx_size = 230;
+        let dust_amount = 10000;
+
+        let output_amt = DUST_UTXO_LIMIT
+            + dust_amount
+            + max_tx_size * self.config.burnchain.satoshis_per_byte
+            + payload.fulfillment_fee;
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
+
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            bytes.push(Opcodes::PegOutRequest as u8);
+            bytes.extend_from_slice(&payload.amount.to_be_bytes());
+            bytes.extend_from_slice(payload.signature.as_bytes());
+            bytes
+        };
+
+        let amount_and_signature_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![amount_and_signature_output];
+        tx.output
+            .push(payload.recipient.to_bitcoin_tx_out(dust_amount));
+        tx.output.push(
+            payload
+                .peg_wallet_address
+                .to_bitcoin_tx_out(payload.fulfillment_fee),
+        );
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            payload.fulfillment_fee,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
+
+        increment_btc_ops_sent_counter();
+
+        info!(
+            "Miner node: submitting peg-out request op - {}",
+            public_key.to_hex()
+        );
+
+        Some(tx)
+    }
+
+    #[cfg(not(test))]
+    fn build_peg_out_fulfill_tx(
+        &mut self,
+        _epoch_id: StacksEpochId,
+        _payload: PegOutFulfillOp,
+        _signer: &mut BurnchainOpSigner,
+        _utxo_to_use: Option<UTXO>,
+    ) -> Option<Transaction> {
+        unimplemented!()
+    }
+
+    #[cfg(test)]
+    fn build_peg_out_fulfill_tx(
+        &mut self,
+        epoch_id: StacksEpochId,
+        payload: PegOutFulfillOp,
+        signer: &mut BurnchainOpSigner,
+        utxo_to_use: Option<UTXO>,
+    ) -> Option<Transaction> {
+        let public_key = signer.get_public_key();
+        let max_tx_size = 230;
+
+        let output_amt = DUST_UTXO_LIMIT
+            + max_tx_size * self.config.burnchain.satoshis_per_byte
+            + payload.amount;
+        let (mut tx, mut utxos) =
+            self.prepare_tx(epoch_id, &public_key, output_amt, None, None, 0)?;
+
+        if let Some(utxo) = utxo_to_use {
+            utxos.utxos.insert(0, utxo);
+        }
+
+        let op_bytes = {
+            let mut bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            bytes.push(Opcodes::PegOutFulfill as u8);
+            bytes.extend_from_slice(payload.chain_tip.as_bytes());
+            bytes
+        };
+
+        let block_header_output = TxOut {
+            value: 0,
+            script_pubkey: Builder::new()
+                .push_opcode(opcodes::All::OP_RETURN)
+                .push_slice(&op_bytes)
+                .into_script(),
+        };
+
+        tx.output = vec![block_header_output];
+        tx.output
+            .push(payload.recipient.to_bitcoin_tx_out(payload.amount));
+
+        self.finalize_tx(
+            epoch_id,
+            &mut tx,
+            payload.amount,
+            0,
+            max_tx_size,
+            self.config.burnchain.satoshis_per_byte,
+            &mut utxos,
+            signer,
+        )?;
+
+        increment_btc_ops_sent_counter();
+
+        info!(
+            "Miner node: submitting peg-out fulfill op - {}",
             public_key.to_hex()
         );
 
@@ -1847,6 +2075,15 @@ impl BitcoinRegtestController {
             }
             BlockstackOperationType::TransferStx(payload) => {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, None)
+            }
+            BlockstackOperationType::PegIn(payload) => {
+                self.build_peg_in_tx(epoch_id, payload, op_signer)
+            }
+            BlockstackOperationType::PegOutRequest(payload) => {
+                self.build_peg_out_request_tx(epoch_id, payload, op_signer)
+            }
+            BlockstackOperationType::PegOutFulfill(payload) => {
+                self.build_peg_out_fulfill_tx(epoch_id, payload, op_signer, None)
             }
             BlockstackOperationType::StackStx(_payload) => unimplemented!(),
             BlockstackOperationType::DelegateStx(payload) => {

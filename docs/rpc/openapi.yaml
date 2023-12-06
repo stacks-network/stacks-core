@@ -39,7 +39,28 @@ paths:
                 $ref: ./api/transaction/post-core-node-transactions-error.schema.json
               example:
                 $ref: ./api/transaction/post-core-node-transactions-error.example.json
-
+  /v2/burn_ops/{burn_height}/{op_type}:
+    get:
+      summary: Get burn operations
+      description: Get all burn operations of type `op_type` successfully read at `burn_height`. Valid `op_type`s are `peg_in`, `peg_out_request` and `peg_out_fulfill`.
+      tags:
+        - Info
+      operationId: get_burn_ops
+      responses:
+        200:
+          description: Burn operations list
+          content:
+            application/json:
+              examples:
+                peg_in:
+                  value:
+                    $ref: ./api/core-node/get-burn-ops-peg-in.example.json
+                peg_out_request:
+                  value:
+                    $ref: ./api/core-node/get-burn-ops-peg-out-request.example.json
+                peg_out_fulfill:
+                  value:
+                    $ref: ./api/core-node/get-burn-ops-peg-out-fulfill.example.json
   /v2/contracts/interface/{contract_address}/{contract_name}:
     get:
       summary: Get contract interface

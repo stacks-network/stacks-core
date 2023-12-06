@@ -37,7 +37,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::comm::*;
 use crate::chainstate::coordinator::*;
 use crate::chainstate::stacks::*;
-use crate::core::STACKS_EPOCH_2_1_MARKER;
+use crate::core::{STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_3_0_MARKER};
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use crate::util_lib::db::*;
@@ -375,13 +375,16 @@ impl TestBurnchainBlock {
             Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
         txop.consensus_hash = self.parent_snapshot.consensus_hash.clone();
 
+        let miner_pubkey_hash160 = miner.nakamoto_miner_hash160();
+        txop.set_nakamoto_signing_key(&miner_pubkey_hash160);
+
         self.txs
             .push(BlockstackOperationType::LeaderKeyRegister(txop.clone()));
 
         txop
     }
 
-    pub fn add_leader_block_commit(
+    pub(crate) fn inner_add_block_commit(
         &mut self,
         ic: &SortitionDBConn,
         miner: &mut TestMiner,
@@ -390,6 +393,8 @@ impl TestBurnchainBlock {
         leader_key: &LeaderKeyRegisterOp,
         fork_snapshot: Option<&BlockSnapshot>,
         parent_block_snapshot: Option<&BlockSnapshot>,
+        new_seed: Option<VRFSeed>,
+        epoch_marker: u8,
     ) -> LeaderBlockCommitOp {
         let input = (Txid([0; 32]), 0);
         let pubks = miner
@@ -410,15 +415,17 @@ impl TestBurnchainBlock {
             None => SortitionDB::get_first_block_snapshot(ic).unwrap(),
         };
 
-        // prove on the last-ever sortition's hash to produce the new seed
-        let proof = miner
-            .make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
-            .expect(&format!(
-                "FATAL: no private key for {}",
-                leader_key.public_key.to_hex()
-            ));
+        let new_seed = new_seed.unwrap_or_else(|| {
+            // prove on the last-ever sortition's hash to produce the new seed
+            let proof = miner
+                .make_proof(&leader_key.public_key, &last_snapshot.sortition_hash)
+                .expect(&format!(
+                    "FATAL: no private key for {}",
+                    leader_key.public_key.to_hex()
+                ));
 
-        let new_seed = VRFSeed::from_proof(&proof);
+            VRFSeed::from_proof(&proof)
+        });
 
         let get_commit_res = SortitionDB::get_block_commit(
             ic.conn(),
@@ -466,7 +473,7 @@ impl TestBurnchainBlock {
         txop.txid =
             Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
 
-        txop.memo = vec![STACKS_EPOCH_2_1_MARKER << 3];
+        txop.memo = vec![epoch_marker << 3];
         self.txs
             .push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
 
@@ -474,7 +481,29 @@ impl TestBurnchainBlock {
         txop
     }
 
-    // TODO: user burn support
+    /// Add an epoch 2.x block-commit
+    pub fn add_leader_block_commit(
+        &mut self,
+        ic: &SortitionDBConn,
+        miner: &mut TestMiner,
+        block_hash: &BlockHeaderHash,
+        burn_fee: u64,
+        leader_key: &LeaderKeyRegisterOp,
+        fork_snapshot: Option<&BlockSnapshot>,
+        parent_block_snapshot: Option<&BlockSnapshot>,
+    ) -> LeaderBlockCommitOp {
+        self.inner_add_block_commit(
+            ic,
+            miner,
+            block_hash,
+            burn_fee,
+            leader_key,
+            fork_snapshot,
+            parent_block_snapshot,
+            None,
+            STACKS_EPOCH_2_4_MARKER,
+        )
+    }
 
     pub fn patch_from_chain_tip(&mut self, parent_snapshot: &BlockSnapshot) -> () {
         assert_eq!(parent_snapshot.block_height + 1, self.block_height);

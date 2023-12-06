@@ -31,7 +31,7 @@ jobs:
         test-name:
           - tests::bitcoin_regtest::bitcoind_integration_test
           - tests::integrations::integration_test_get_info
-          - tests::neon_integrations::antientropy_integration_test ## forced failure
+          - tests::neon_integrations::antientropy_integration_test
           - tests::neon_integrations::bad_microblock_pubkey
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::bitcoind_integration_test

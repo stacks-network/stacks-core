@@ -310,6 +310,9 @@ fn test_stackerdb_dkg() {
                         info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
                         schnorr_proof = Some(proof);
                     }
+                    OperationResult::DkgError(..) | OperationResult::SignError(..) => {
+                        todo!()
+                    }
                 }
             }
             if aggregate_group_key.is_some() && frost_signature.is_some() && schnorr_proof.is_some()

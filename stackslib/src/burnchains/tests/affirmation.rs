@@ -488,6 +488,8 @@ fn test_read_prepare_phase_commits() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
@@ -562,6 +564,8 @@ fn test_parent_block_commits() {
         0,
         u64::MAX - 1,
         u64::MAX,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -667,6 +671,8 @@ fn test_filter_orphan_block_commits() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
@@ -738,6 +744,8 @@ fn test_filter_missed_block_commits() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
@@ -806,6 +814,8 @@ fn test_find_heaviest_block_commit() {
         0,
         u64::MAX - 1,
         u64::MAX,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1029,6 +1039,8 @@ fn test_find_heaviest_parent_commit_many_commits() {
         0,
         u64::MAX - 1,
         u64::MAX,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1295,6 +1307,8 @@ fn test_update_pox_affirmation_maps_3_forks() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
@@ -1555,6 +1569,8 @@ fn test_update_pox_affirmation_maps_unique_anchor_block() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
@@ -1755,6 +1771,8 @@ fn test_update_pox_affirmation_maps_absent() {
         0,
         u64::MAX - 1,
         u64::MAX,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -2231,6 +2249,8 @@ fn test_update_pox_affirmation_maps_nothing() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     );
     burnchain.first_block_height = first_height;
     burnchain.first_block_hash = first_bhh.clone();
@@ -2505,6 +2525,8 @@ fn test_update_pox_affirmation_fork_2_cycles() {
         5,
         u64::MAX - 1,
         u64::MAX,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -2807,6 +2829,8 @@ fn test_update_pox_affirmation_fork_duel() {
         5,
         u64::MAX - 1,
         u64::MAX,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,

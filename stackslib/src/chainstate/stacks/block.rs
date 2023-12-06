@@ -35,6 +35,7 @@ use stacks_common::util::vrf::*;
 use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{ConsensusHash, *};
+use crate::chainstate::stacks::db::StacksBlockHeaderTypes;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
 use crate::core::*;
 use crate::net::Error as net_error;
@@ -97,9 +98,14 @@ impl StacksBlockHeader {
         }
     }
 
+    /// Is `to_check` equal to the `FIRST_STACKS_BLOCK_HASH`?
+    pub fn is_first_block_hash(to_check: &BlockHeaderHash) -> bool {
+        *to_check == FIRST_STACKS_BLOCK_HASH
+    }
+
     /// Is this a first-mined block header?  i.e. builds off of the boot code?
     pub fn is_first_mined(&self) -> bool {
-        self.parent_block == FIRST_STACKS_BLOCK_HASH.clone()
+        Self::is_first_block_hash(&self.parent_block)
     }
 
     pub fn block_hash(&self) -> BlockHeaderHash {
@@ -131,7 +137,7 @@ impl StacksBlockHeader {
     }
 
     pub fn from_parent(
-        parent_header: &StacksBlockHeader,
+        parent_header_hash: BlockHeaderHash,
         parent_microblock_header: Option<&StacksMicroblockHeader>,
         total_work: &StacksWorkScore,
         proof: &VRFProof,
@@ -148,7 +154,7 @@ impl StacksBlockHeader {
             version: STACKS_BLOCK_VERSION,
             total_work: total_work.clone(),
             proof: proof.clone(),
-            parent_block: parent_header.block_hash(),
+            parent_block: parent_header_hash,
             parent_microblock: parent_microblock,
             parent_microblock_sequence: parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
@@ -158,14 +164,14 @@ impl StacksBlockHeader {
     }
 
     pub fn from_parent_empty(
-        parent_header: &StacksBlockHeader,
+        parent_header: &StacksBlockHeaderTypes,
         parent_microblock_header: Option<&StacksMicroblockHeader>,
         work_delta: &StacksWorkScore,
         proof: &VRFProof,
         microblock_pubkey_hash: &Hash160,
     ) -> StacksBlockHeader {
         StacksBlockHeader::from_parent(
-            parent_header,
+            parent_header.block_hash(),
             parent_microblock_header,
             work_delta,
             proof,
@@ -388,7 +394,7 @@ impl StacksBlock {
         let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txids);
         let tx_merkle_root = merkle_tree.root();
         let header = StacksBlockHeader::from_parent(
-            parent_header,
+            parent_header.block_hash(),
             Some(parent_microblock_header),
             work_delta,
             proof,
@@ -562,25 +568,35 @@ impl StacksBlock {
         txs: &[StacksTransaction],
         epoch_id: StacksEpochId,
     ) -> bool {
-        if epoch_id < StacksEpochId::Epoch21 {
-            // nothing new since the start of the system is supported.
-            // Expand this list of things to check for as needed.
-            // * no pay-to-contract coinbases
-            // * no versioned smart contract payloads
-            for tx in txs.iter() {
-                if let TransactionPayload::Coinbase(_, ref recipient_opt) = &tx.payload {
-                    if recipient_opt.is_some() {
-                        // not supported
-                        error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
-                        return false;
-                    }
+        for tx in txs.iter() {
+            if let TransactionPayload::Coinbase(_, ref recipient_opt, ref proof_opt) = &tx.payload {
+                if proof_opt.is_some() && epoch_id < StacksEpochId::Epoch30 {
+                    // not supported
+                    error!("Coinbase with VRF proof not supported before Stacks 3.0"; "txid" => %tx.txid());
+                    return false;
                 }
-                if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
-                    if version_opt.is_some() {
-                        // not supported
-                        error!("Versioned smart contracts not supported before Stacks 2.1");
-                        return false;
-                    }
+                if proof_opt.is_none() && epoch_id >= StacksEpochId::Epoch30 {
+                    // not supported
+                    error!("Coinbase with VRF proof is required in Stacks 3.0 and later"; "txid" => %tx.txid());
+                    return false;
+                }
+                if recipient_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
+                    // not supported
+                    error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
+                    return false;
+                }
+            }
+            if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
+                if version_opt.is_some() && epoch_id < StacksEpochId::Epoch21 {
+                    // not supported
+                    error!("Versioned smart contracts not supported before Stacks 2.1");
+                    return false;
+                }
+            }
+            if let TransactionPayload::TenureChange(..) = &tx.payload {
+                if epoch_id < StacksEpochId::Epoch30 {
+                    error!("TenureChange transaction not supported before Stacks 3.0"; "txid" => %tx.txid());
+                    return false;
                 }
             }
         }
@@ -1421,13 +1437,13 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
 
         let tx_coinbase_2 = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([1u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([1u8; 32]), None, None),
         );
 
         let mut tx_invalid_coinbase = tx_coinbase.clone();
@@ -1555,7 +1571,7 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
 
         let mut tx_coinbase_offchain = tx_coinbase.clone();
@@ -1686,7 +1702,7 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
 
         let tx_coinbase_contract = StacksTransaction::new(
@@ -1697,7 +1713,16 @@ mod test {
                 Some(PrincipalData::Contract(
                     QualifiedContractIdentifier::transient(),
                 )),
+                None,
             ),
+        );
+
+        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
+        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
+        let tx_coinbase_proof = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, Some(proof)),
         );
 
         let stx_address = StacksAddress {
@@ -1756,6 +1781,19 @@ mod test {
             ),
         );
 
+        let tenure_change_payload = TenureChangePayload {
+            previous_tenure_end: StacksBlockId([0x00; 32]),
+            previous_tenure_blocks: 0,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0x00; 20]),
+            signers: vec![],
+        };
+        let tx_tenure_change = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::TenureChange(tenure_change_payload, ThresholdSignature::mock()),
+        );
+
         let dup_txs = vec![
             tx_coinbase.clone(),
             tx_transfer.clone(),
@@ -1767,6 +1805,9 @@ mod test {
         let no_coinbase = vec![tx_transfer.clone()];
         let coinbase_contract = vec![tx_coinbase_contract.clone()];
         let versioned_contract = vec![tx_versioned_smart_contract.clone()];
+        let nakamoto_coinbase = vec![tx_coinbase_proof.clone()];
+        let tenure_change_tx = vec![tx_tenure_change.clone()];
+        let nakamoto_txs = vec![tx_coinbase_proof.clone(), tx_tenure_change.clone()];
 
         assert!(!StacksBlock::validate_transactions_unique(&dup_txs));
         assert!(!StacksBlock::validate_transactions_network(
@@ -1783,7 +1824,6 @@ mod test {
             &coinbase_contract,
             StacksEpochId::Epoch2_05
         ));
-
         assert!(StacksBlock::validate_transactions_static_epoch(
             &coinbase_contract,
             StacksEpochId::Epoch21
@@ -1795,6 +1835,30 @@ mod test {
         ));
         assert!(StacksBlock::validate_transactions_static_epoch(
             &versioned_contract,
+            StacksEpochId::Epoch21
+        ));
+        assert!(!StacksBlock::validate_transactions_static_epoch(
+            &nakamoto_coinbase,
+            StacksEpochId::Epoch21
+        ));
+        assert!(StacksBlock::validate_transactions_static_epoch(
+            &nakamoto_coinbase,
+            StacksEpochId::Epoch30
+        ));
+        assert!(!StacksBlock::validate_transactions_static_epoch(
+            &coinbase_contract,
+            StacksEpochId::Epoch30
+        ));
+        assert!(!StacksBlock::validate_transactions_static_epoch(
+            &tenure_change_tx,
+            StacksEpochId::Epoch21
+        ));
+        assert!(StacksBlock::validate_transactions_static_epoch(
+            &nakamoto_txs,
+            StacksEpochId::Epoch30
+        ));
+        assert!(!StacksBlock::validate_transactions_static_epoch(
+            &nakamoto_txs,
             StacksEpochId::Epoch21
         ));
     }

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use serde_json::json;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksAddress;
 

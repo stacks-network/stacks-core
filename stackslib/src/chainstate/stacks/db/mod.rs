@@ -34,6 +34,7 @@ use clarity::vm::events::*;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::TupleData;
 use clarity::vm::Value;
+use lazy_static::lazy_static;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, NO_PARAMS};
 use serde::de::Error as de_Error;
@@ -48,6 +49,10 @@ use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn, *};
 use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
+use crate::chainstate::nakamoto::{
+    HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
+    NAKAMOTO_CHAINSTATE_SCHEMA_1,
+};
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
 use crate::chainstate::stacks::db::accounts::*;
@@ -128,6 +133,12 @@ pub struct StacksAccount {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum MinerPaymentTxFees {
+    Epoch2 { anchored: u128, streamed: u128 },
+    Nakamoto { parent_fees: u128 },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct MinerPaymentSchedule {
     pub address: StacksAddress,
     pub recipient: PrincipalData,
@@ -136,9 +147,7 @@ pub struct MinerPaymentSchedule {
     pub parent_block_hash: BlockHeaderHash,
     pub parent_consensus_hash: ConsensusHash,
     pub coinbase: u128,
-    pub tx_fees_anchored: u128,
-    pub tx_fees_streamed: u128,
-    pub stx_burns: u128,
+    pub tx_fees: MinerPaymentTxFees,
     pub burnchain_commit_burn: u64,
     pub burnchain_sortition_burn: u64,
     pub miner: bool, // is this a schedule payment for the block's miner?
@@ -147,15 +156,42 @@ pub struct MinerPaymentSchedule {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum StacksBlockHeaderTypes {
+    Epoch2(StacksBlockHeader),
+    Nakamoto(NakamotoBlockHeader),
+}
+
+impl From<StacksBlockHeader> for StacksBlockHeaderTypes {
+    fn from(value: StacksBlockHeader) -> Self {
+        Self::Epoch2(value)
+    }
+}
+
+impl From<NakamotoBlockHeader> for StacksBlockHeaderTypes {
+    fn from(value: NakamotoBlockHeader) -> Self {
+        Self::Nakamoto(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StacksHeaderInfo {
-    pub anchored_header: StacksBlockHeader,
+    /// Stacks block header
+    pub anchored_header: StacksBlockHeaderTypes,
+    /// Last microblock header (Stacks 2.x only; this is None in Stacks 3.x)
     pub microblock_tail: Option<StacksMicroblockHeader>,
+    /// Height of this Stacks block
     pub stacks_block_height: u64,
+    /// MARF root hash of the headers DB (not consensus critical)
     pub index_root: TrieHash,
+    /// consensus hash of the burnchain block in which this miner was selected to produce this block
     pub consensus_hash: ConsensusHash,
+    /// Hash of the burnchain block in which this miner was selected to produce this block
     pub burn_header_hash: BurnchainHeaderHash,
+    /// Height of the burnchain block
     pub burn_header_height: u32,
+    /// Timestamp of the burnchain block
     pub burn_header_timestamp: u64,
+    /// Size of the block corresponding to `anchored_header` in bytes
     pub anchored_block_size: u64,
 }
 
@@ -261,19 +297,59 @@ impl DBConfig {
             StacksEpochId::Epoch22 => self.version == "3" || self.version == "4",
             StacksEpochId::Epoch23 => self.version == "3" || self.version == "4",
             StacksEpochId::Epoch24 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch25 => self.version == "3" || self.version == "4",
+            StacksEpochId::Epoch30 => self.version == "3" || self.version == "4",
+        }
+    }
+}
+
+impl StacksBlockHeaderTypes {
+    pub fn block_hash(&self) -> BlockHeaderHash {
+        match &self {
+            StacksBlockHeaderTypes::Epoch2(x) => x.block_hash(),
+            StacksBlockHeaderTypes::Nakamoto(x) => x.block_hash(),
+        }
+    }
+
+    pub fn is_first_mined(&self) -> bool {
+        match self {
+            StacksBlockHeaderTypes::Epoch2(x) => x.is_first_mined(),
+            StacksBlockHeaderTypes::Nakamoto(x) => x.is_first_mined(),
+        }
+    }
+
+    pub fn height(&self) -> u64 {
+        match self {
+            StacksBlockHeaderTypes::Epoch2(x) => x.total_work.work,
+            StacksBlockHeaderTypes::Nakamoto(x) => x.chain_length,
+        }
+    }
+
+    pub fn as_stacks_epoch2(&self) -> Option<&StacksBlockHeader> {
+        match &self {
+            StacksBlockHeaderTypes::Epoch2(ref x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn as_stacks_nakamoto(&self) -> Option<&NakamotoBlockHeader> {
+        match &self {
+            StacksBlockHeaderTypes::Nakamoto(ref x) => Some(x),
+            _ => None,
         }
     }
 }
 
 impl StacksHeaderInfo {
     pub fn index_block_hash(&self) -> StacksBlockId {
-        self.anchored_header.index_block_hash(&self.consensus_hash)
+        let block_hash = self.anchored_header.block_hash();
+        StacksBlockId::new(&self.consensus_hash, &block_hash)
     }
 
     pub fn regtest_genesis() -> StacksHeaderInfo {
         let burnchain_params = BurnchainParameters::bitcoin_regtest();
         StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis_block_header(),
+            anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: TrieHash([0u8; 32]),
@@ -292,7 +368,7 @@ impl StacksHeaderInfo {
         first_burnchain_block_timestamp: u64,
     ) -> StacksHeaderInfo {
         StacksHeaderInfo {
-            anchored_header: StacksBlockHeader::genesis_block_header(),
+            anchored_header: StacksBlockHeader::genesis_block_header().into(),
             microblock_tail: None,
             stacks_block_height: 0,
             index_root: root_hash,
@@ -306,6 +382,14 @@ impl StacksHeaderInfo {
 
     pub fn is_first_mined(&self) -> bool {
         self.anchored_header.is_first_mined()
+    }
+
+    pub fn is_epoch_2_block(&self) -> bool {
+        matches!(self.anchored_header, StacksBlockHeaderTypes::Epoch2(_))
+    }
+
+    pub fn is_nakamoto_block(&self) -> bool {
+        matches!(self.anchored_header, StacksBlockHeaderTypes::Nakamoto(_))
     }
 }
 
@@ -334,13 +418,22 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let burn_header_height: u64 = u64::from_column(row, "burn_header_height")?;
         let burn_header_timestamp = u64::from_column(row, "burn_header_timestamp")?;
-        let stacks_header = StacksBlockHeader::from_row(row)?;
         let anchored_block_size_str: String = row.get_unwrap("block_size");
         let anchored_block_size = anchored_block_size_str
             .parse::<u64>()
             .map_err(|_| db_error::ParseError)?;
 
-        if block_height != stacks_header.total_work.work {
+        let stacks_header: StacksBlockHeaderTypes = {
+            let header_type: HeaderTypeNames = row
+                .get("header_type")
+                .unwrap_or_else(|_e| HeaderTypeNames::Epoch2);
+            match header_type {
+                HeaderTypeNames::Epoch2 => StacksBlockHeader::from_row(row)?.into(),
+                HeaderTypeNames::Nakamoto => NakamotoBlockHeader::from_row(row)?.into(),
+            }
+        };
+
+        if block_height != stacks_header.height() {
             return Err(db_error::ParseError);
         }
 
@@ -559,7 +652,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &'static str = "3";
+pub const CHAINSTATE_VERSION: &'static str = "4";
 
 const CHAINSTATE_INITIAL_SCHEMA: &'static [&'static str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -788,6 +881,7 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
+    "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
 ];
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
@@ -976,8 +1070,11 @@ impl StacksChainState {
                         }
                     }
                     "3" => {
-                        // done
-                        break;
+                        // migrate to nakamoto 1
+                        info!("Migrating chainstate schema from version 3 to 4: nakamoto support");
+                        for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+                            tx.execute_batch(cmd)?;
+                        }
                     }
                     _ => {
                         error!(
@@ -1932,9 +2029,9 @@ impl StacksChainState {
     where
         F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
     {
-        match StacksChainState::has_stacks_block(self.db(), parent_tip) {
-            Ok(true) => {}
-            Ok(false) => {
+        match NakamotoChainState::get_block_header(self.db(), parent_tip) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
                 return None;
             }
             Err(e) => {
@@ -2237,7 +2334,7 @@ impl StacksChainState {
     /// Get the appropriate MARF index hash to use to identify a chain tip, given a block header
     pub fn get_index_hash(
         consensus_hash: &ConsensusHash,
-        header: &StacksBlockHeader,
+        header_hash: &BlockHeaderHash,
     ) -> StacksBlockId {
         if consensus_hash == &FIRST_BURNCHAIN_CONSENSUS_HASH {
             StacksBlockHeader::make_index_block_hash(
@@ -2245,7 +2342,7 @@ impl StacksChainState {
                 &FIRST_STACKS_BLOCK_HASH,
             )
         } else {
-            header.index_block_hash(consensus_hash)
+            StacksBlockId::new(consensus_hash, header_hash)
         }
     }
 
@@ -2323,7 +2420,7 @@ impl StacksChainState {
     }
 
     /// Store all on-burnchain STX operations' txids by index block hash
-    fn store_burnchain_txids(
+    pub fn store_burnchain_txids(
         tx: &DBTx,
         index_block_hash: &StacksBlockId,
         burn_stack_stx_ops: Vec<StackStxOp>,
@@ -2400,7 +2497,8 @@ impl StacksChainState {
             new_tip.total_work.work
         );
 
-        let parent_hash = StacksChainState::get_index_hash(parent_consensus_hash, parent_tip);
+        let parent_hash =
+            StacksChainState::get_index_hash(parent_consensus_hash, &parent_tip.block_hash());
 
         // store each indexed field
         test_debug!(
@@ -2422,7 +2520,7 @@ impl StacksChainState {
         );
 
         let new_tip_info = StacksHeaderInfo {
-            anchored_header: new_tip.clone(),
+            anchored_header: new_tip.clone().into(),
             microblock_tail: microblock_tail_opt,
             index_root: root_hash,
             stacks_block_height: new_tip.total_work.work,

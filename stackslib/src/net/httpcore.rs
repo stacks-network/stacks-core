@@ -38,8 +38,8 @@ use url::Url;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::stacks::db::blocks::StagingBlock;
-use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::core::{MemPoolDB, StacksEpoch};
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::common::HTTP_PREAMBLE_MAX_ENCODED_SIZE;
@@ -413,11 +413,10 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
         preamble: &HttpRequestPreamble,
         sortdb: &SortitionDB,
         chainstate: &StacksChainState,
-    ) -> Result<StagingBlock, StacksHttpResponse> {
-        chainstate
-            .get_stacks_chain_tip(sortdb)
+    ) -> Result<StacksHeaderInfo, StacksHttpResponse> {
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
             .map_err(|e| {
-                let msg = format!("Failed to load stacks chain tip: {:?}", &e);
+                let msg = format!("Failed to load stacks chain tip header: {:?}", &e);
                 warn!("{}", &msg);
                 StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
             })?

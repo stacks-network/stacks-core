@@ -28,6 +28,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use mio::net as mio_net;
 use rand::prelude::*;
 use rand::thread_rng;
+use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{PoxId, SortitionId};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::hash::to_hex;
@@ -45,6 +46,7 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
+use crate::core::StacksEpoch;
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
 use crate::net::asn::ASEntry4;
 use crate::net::atlas::{AtlasDB, AttachmentInstance, AttachmentsDownloader};
@@ -61,7 +63,7 @@ use crate::net::prune::*;
 use crate::net::relay::{RelayerStats, *, *};
 use crate::net::server::*;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, StackerDBs};
-use crate::net::{Error as net_error, Neighbor, NeighborKey, RPCHandlerArgs, *};
+use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// inter-thread request to send a p2p message from another thread in this program.
@@ -3948,6 +3950,8 @@ impl PeerNetwork {
 
                             // hint to the downloader to start scanning at the sortition
                             // height we just synchronized
+                            // NOTE: this only works in Stacks 2.x.
+                            // Nakamoto uses a different state machine
                             let start_download_sortition = if let Some(ref inv_state) =
                                 self.inv_state
                             {
@@ -3956,7 +3960,6 @@ impl PeerNetwork {
                                         sortdb.conn(),
                                     )
                                     .expect("FATAL: failed to load canonical stacks chain tip hash from sortition DB");
-
                                 let stacks_tip_sortition_height =
                                     SortitionDB::get_block_snapshot_consensus(
                                         sortdb.conn(),
@@ -5580,8 +5583,16 @@ impl PeerNetwork {
         network_result: &mut NetworkResult,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), net_error> {
-        let (canonical_consensus_hash, canonical_block_hash) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let (canonical_consensus_hash, canonical_block_hash) = if let Some(header) =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)?
+        {
+            (header.consensus_hash, header.anchored_header.block_hash())
+        } else {
+            (
+                FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                FIRST_STACKS_BLOCK_HASH.clone(),
+            )
+        };
 
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
 

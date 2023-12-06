@@ -106,7 +106,9 @@ pub trait HeadersDB {
 pub trait BurnStateDB {
     fn get_v1_unlock_height(&self) -> u32;
     fn get_v2_unlock_height(&self) -> u32;
+    fn get_v3_unlock_height(&self) -> u32;
     fn get_pox_3_activation_height(&self) -> u32;
+    fn get_pox_4_activation_height(&self) -> u32;
 
     /// Returns the *burnchain block height* for the `sortition_id` is associated with.
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32>;
@@ -195,8 +197,16 @@ impl BurnStateDB for &dyn BurnStateDB {
         (*self).get_v2_unlock_height()
     }
 
+    fn get_v3_unlock_height(&self) -> u32 {
+        (*self).get_v3_unlock_height()
+    }
+
     fn get_pox_3_activation_height(&self) -> u32 {
         (*self).get_pox_3_activation_height()
+    }
+
+    fn get_pox_4_activation_height(&self) -> u32 {
+        (*self).get_pox_4_activation_height()
     }
 
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
@@ -373,7 +383,15 @@ impl BurnStateDB for NullBurnStateDB {
         u32::MAX
     }
 
+    fn get_v3_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
     fn get_pox_3_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_4_activation_height(&self) -> u32 {
         u32::MAX
     }
 
@@ -814,11 +832,26 @@ impl<'a> ClarityDatabase<'a> {
         self.burn_state_db.get_pox_3_activation_height()
     }
 
+    /// Return the height for PoX 4 activation from the burn state db
+    pub fn get_pox_4_activation_height(&self) -> u32 {
+        self.burn_state_db.get_pox_4_activation_height()
+    }
+
     /// Return the height for PoX v2 -> v3 auto unlocks
     ///   from the burn state db
     pub fn get_v2_unlock_height(&mut self) -> u32 {
         if self.get_clarity_epoch_version() >= StacksEpochId::Epoch22 {
             self.burn_state_db.get_v2_unlock_height()
+        } else {
+            u32::MAX
+        }
+    }
+
+    /// Return the height for PoX v3 -> v4 auto unlocks
+    ///   from the burn state db
+    pub fn get_v3_unlock_height(&mut self) -> u32 {
+        if self.get_clarity_epoch_version() >= StacksEpochId::Epoch24 {
+            self.burn_state_db.get_v3_unlock_height()
         } else {
             u32::MAX
         }
@@ -1900,8 +1933,8 @@ impl<'a> ClarityDatabase<'a> {
             stx_balance.amount_locked(),
             stx_balance.unlock_height(),
             cur_burn_height,
-            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()),
-            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()));
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height(), self.get_v3_unlock_height()),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height(), self.get_v3_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }
@@ -1919,8 +1952,8 @@ impl<'a> ClarityDatabase<'a> {
             stx_balance.amount_locked(),
             stx_balance.unlock_height(),
             cur_burn_height,
-            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()),
-            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height()));
+            stx_balance.get_available_balance_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height(), self.get_v3_unlock_height()),
+            stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height(), self.get_v3_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
     }

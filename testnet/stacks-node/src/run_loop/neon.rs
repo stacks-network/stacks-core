@@ -41,6 +41,7 @@ use crate::syncctl::{PoxSyncWatchdog, PoxSyncWatchdogComms};
 use crate::{
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
+
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]
@@ -185,7 +186,7 @@ impl RunLoop {
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
             counters: Counters::new(),
-            should_keep_running: should_keep_running,
+            should_keep_running,
             event_dispatcher,
             pox_watchdog: None,
             is_miner: None,

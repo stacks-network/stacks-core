@@ -233,6 +233,10 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch23 => ":2.1",
                     // reuse cost estimates in Epoch24
                     StacksEpochId::Epoch24 => ":2.1",
+                    // reuse cost estimates in Epoch25
+                    StacksEpochId::Epoch25 => ":2.1",
+                    // reuse cost estimates in Epoch30
+                    StacksEpochId::Epoch30 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",
@@ -242,6 +246,7 @@ impl PessimisticEstimator {
             TransactionPayload::SmartContract(..) => "contract-publish".to_string(),
             TransactionPayload::PoisonMicroblock(_, _) => "poison-ublock".to_string(),
             TransactionPayload::Coinbase(..) => "coinbase".to_string(),
+            TransactionPayload::TenureChange(..) => "tenure-change".to_string(),
         };
 
         format!("{}:{}", &tx_descriptor, field)
