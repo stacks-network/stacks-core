@@ -659,7 +659,13 @@ pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
         TypeSignature::SequenceType(SequenceSubtype::BufferType(length)) => {
             u32::from(length) as i32
         }
-        TypeSignature::SequenceType(_) => todo!(),
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(length))) => {
+            let mut size = u32::from(length) as i32 * 4;
+            if include_repr {
+                size += 8; // offset + length
+            }
+            size
+        }
         TypeSignature::NoType => 4,   // i32
         TypeSignature::BoolType => 4, // i32
         TypeSignature::TupleType(tuple_ty) => {
@@ -845,6 +851,13 @@ fn read_from_wasm(
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
             Value::string_ascii_from_bytes(buffer)
         }
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
+            let mut buffer: Vec<u8> = vec![0; length as usize];
+            memory
+                .read(store, offset as usize, &mut buffer)
+                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+            Value::string_utf8_from_unicode_scalars(buffer)
+        }
         TypeSignature::PrincipalType => {
             debug_assert!(
                 length >= STANDARD_PRINCIPAL_BYTES as i32 && length <= PRINCIPAL_BYTES_MAX as i32
@@ -884,9 +897,6 @@ fn read_from_wasm(
                     },
                 )))
             }
-        }
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
-            todo!("type not yet implemented: {:?}", ty)
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(_b)) => {
             let mut buffer: Vec<u8> = vec![0; length as usize];
@@ -1706,8 +1716,21 @@ fn wasm_to_clarity_value(
         }
         // A `NoType` will be a dummy value that should not be used.
         TypeSignature::NoType => Ok((None, 1)),
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
-            todo!("Wasm value type not implemented: {:?}", type_sig)
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => {
+            let offset = buffer[value_index]
+                .i32()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+            let length = buffer[value_index + 1]
+                .i32()
+                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+            let mut string_buffer: Vec<u8> = vec![0; length as usize];
+            memory
+                .read(store, offset as usize, &mut string_buffer)
+                .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
+            Ok((
+                Some(Value::string_utf8_from_unicode_scalars(string_buffer)?),
+                2,
+            ))
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(_buffer_length)) => {
             let offset = buffer[value_index]
