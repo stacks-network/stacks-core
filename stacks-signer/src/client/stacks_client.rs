@@ -1,4 +1,5 @@
 use blockstack_lib::burnchains::Txid;
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -50,6 +51,28 @@ impl From<&Config> for StacksClient {
 }
 
 impl StacksClient {
+    /// Retrieve the current miner public key
+    pub fn get_miner_public_key(&self) -> Result<StacksPublicKey, ClientError> {
+        // TODO: Depends on https://github.com/stacks-network/stacks-core/issues/4018
+        todo!("Get the miner public key from the stacks node to verify the miner blocks were signed by the correct miner");
+    }
+
+    /// Check if the proposed Nakamoto block is a valid block
+    pub fn is_valid_nakamoto_block(&self, _block: &NakamotoBlock) -> Result<bool, ClientError> {
+        // TODO: Depends on https://github.com/stacks-network/stacks-core/issues/3866 
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.block_proposal_path())
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        todo!("Call the appropriate RPC endpoint to check if the proposed Nakamoto block is valid");
+    }
+
     /// Retrieve the current DKG aggregate public key
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
@@ -299,6 +322,10 @@ impl StacksClient {
             "{}/v2/contracts/call-read/{contract_addr}/{contract_name}/{function_name}",
             self.http_origin
         )
+    }
+
+    fn block_proposal_path(&self) -> String {
+        format!("{}/v2/block-proposal", self.http_origin)
     }
 }
 

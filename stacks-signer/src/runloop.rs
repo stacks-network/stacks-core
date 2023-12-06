@@ -191,6 +191,27 @@ impl<C: Coordinator> RunLoop<C> {
                     // Received a block proposal from the miner.
                     // If the signer is the coordinator, then trigger a Signing round for the block
                     if coordinator_id == self.signing_round.signer_id {
+                        // Don't bother triggering a signing round for the block if it is invalid
+                        if !self.stacks_client.is_valid_nakamoto_block(&block).unwrap_or_else(|e| {
+                            warn!("Failed to validate block: {:?}", e);
+                            false
+                        }) {
+                            warn!("Received an invalid block proposal from the miner. Ignoring block proposal: {:?}", block);
+                            return;
+                        }
+
+                        // TODO: dependent on https://github.com/stacks-network/stacks-core/issues/4018
+                        // let miner_public_key = self.stacks_client.get_miner_public_key().expect("Failed to get miner public key. Cannot verify blocks.");
+                        // let Some(block_miner_public_key) = block.header.recover_miner_pk() else {
+                        //     warn!("Failed to recover miner public key from block. Ignoring block proposal: {:?}", block);
+                        //     return;
+                        // };
+                        // if block_miner_public_key != miner_public_key {
+                        //     warn!("Received a block proposal signed with an invalid miner public key. Ignoring block proposal: {:?}.", block);
+                        //     return;
+                        // }
+                        
+                        // This is a block proposal from the miner. Trigger a signing round for it.
                         self.commands.push_back(RunLoopCommand::Sign {
                             message: block.serialize_to_vec(),
                             is_taproot: false,
@@ -236,6 +257,7 @@ impl<C: Coordinator> RunLoop<C> {
             })
             .collect();
         // First process all messages as a signer
+        // TODO: deserialize the packet into a block and verify its contents
         let mut outbound_messages = self
             .signing_round
             .process_inbound_messages(&inbound_messages)

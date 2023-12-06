@@ -65,6 +65,7 @@ pub enum StackerDBMessage {
     // TODO: update this to use a struct that lists optional error code if the block is invalid
     // to prove that the signers have considered the block but rejected it. This should include
     // hints about how to fix the block
+    // Update to use NakamotoBlockProposal. Depends on https://github.com/stacks-network/stacks-core/pull/4084
     Block(NakamotoBlock),
     /// DKG and Signing round data for other signers to observe
     Packet(Packet),
