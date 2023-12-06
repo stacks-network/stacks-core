@@ -166,11 +166,16 @@ impl<C: Coordinator> RunLoop<C> {
         }
     }
 
-    /// Process the event as both a signer and a coordinator
-    fn process_event(
+    /// Process the event as a miner message from the miner stacker-db
+    fn process_event_miner(
         &mut self,
-        event: &StackerDBChunksEvent,
+        _event: &StackerDBChunksEvent,
     ) -> (Vec<Packet>, Vec<OperationResult>) {
+        todo!("Process miner event")
+    }
+
+    /// Process the event as a signer message from the signer stacker-db
+    fn process_event_signer(&mut self, event: &StackerDBChunksEvent) -> Vec<OperationResult> {
         // Determine the current coordinator id and public key for verification
         let (_coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys);
@@ -196,15 +201,30 @@ impl<C: Coordinator> RunLoop<C> {
                 vec![]
             });
         // Next process the message as the coordinator
-        let (messages, results) = self
+        let (messages, operation_results) = self
             .coordinator
             .process_inbound_messages(&inbound_messages)
             .unwrap_or_else(|e| {
-                error!("Failed to process inbound messages as a coordinator: {e}");
+                error!("Failed to process inbound messages as a signer: {e}");
                 (vec![], vec![])
             });
+
         outbound_messages.extend(messages);
-        (outbound_messages, results)
+        debug!(
+            "Sending {} messages to other stacker-db instances.",
+            outbound_messages.len()
+        );
+        for msg in outbound_messages {
+            let ack = self
+                .stackerdb
+                .send_message_with_retry(self.signing_round.signer_id, msg);
+            if let Ok(ack) = ack {
+                debug!("ACK: {:?}", ack);
+            } else {
+                warn!("Failed to send message to stacker-db instance: {:?}", ack);
+            }
+        }
+        operation_results
     }
 }
 
@@ -310,32 +330,26 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
         }
         // Process any arrived events
         if let Some(event) = event {
-            let (outbound_messages, operation_results) = self.process_event(&event);
-            debug!(
-                "Sending {} messages to other stacker-db instances.",
-                outbound_messages.len()
-            );
-            for msg in outbound_messages {
-                let ack = self
-                    .stackerdb
-                    .send_message_with_retry(self.signing_round.signer_id, msg);
-                if let Ok(ack) = ack {
-                    debug!("ACK: {:?}", ack);
-                } else {
-                    warn!("Failed to send message to stacker-db instance: {:?}", ack);
-                }
-            }
-
-            let nmb_results = operation_results.len();
-            if nmb_results > 0 {
-                // We finished our command. Update the state
-                self.state = State::Idle;
-                match res.send(operation_results) {
-                    Ok(_) => debug!("Successfully sent {} operation result(s)", nmb_results),
-                    Err(e) => {
-                        warn!("Failed to send operation results: {:?}", e);
+            if event.contract_id == *self.stackerdb.miners_contract_id() {
+                self.process_event_miner(&event);
+            } else if event.contract_id == *self.stackerdb.signers_contract_id() {
+                let operation_results = self.process_event_signer(&event);
+                let nmb_results = operation_results.len();
+                if nmb_results > 0 {
+                    // We finished our command. Update the state
+                    self.state = State::Idle;
+                    match res.send(operation_results) {
+                        Ok(_) => debug!("Successfully sent {} operation result(s)", nmb_results),
+                        Err(e) => {
+                            warn!("Failed to send operation results: {:?}", e);
+                        }
                     }
                 }
+            } else {
+                warn!(
+                    "Received event from unknown contract ID: {}",
+                    event.contract_id
+                );
             }
         }
         // The process the next command
