@@ -33,7 +33,7 @@ fn observe_100_blocks() {
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
         events_keys: vec![EventKeyType::AnyEvent],
     });
