@@ -6,14 +6,17 @@ use stacks_common::types::chainstate::TrieHash;
 use super::{Error, node::{TriePtr, TrieNodeType}, MarfTrieId};
 
 pub trait DbBackend: Sized {
-    fn establish(uri: &str)-> Result<Self, DbError>;
+    type ConnType: DbConnection;
+    fn establish(uri: &str)-> Result<Self::ConnType, DbError>;
 }
+
+pub trait DbConnection: Sized {}
 
 pub trait TransactionalDb
 where
-    Self: DbBackend
+    Self: DbConnection
 {
-    type TxType<'conn>: DbTransactionType<'conn> where Self: 'conn;
+    type TxType<'conn>: DbTransaction<'conn> where Self: 'conn;
     
     fn transaction<'conn, 'tx, E>(
         &'conn mut self
@@ -22,16 +25,14 @@ where
         E: From<DbError>;
 }
 
-pub trait DbTransactionType<'conn>: DbTransaction {}
-
-pub trait DbTransaction {
+pub trait DbTransaction<'conn> {
     fn commit(self) -> Result<(), DbError>;
     fn rollback(self) -> Result<(), DbError>;
 }
 
 pub struct DbTransactionGuard<'conn, TxType>
 where
-    TxType: DbTransactionType<'conn>,
+    TxType: DbTransaction<'conn>,
  {
     tx: TxType,
     _phantom: PhantomData<&'conn ()>,
@@ -39,7 +40,7 @@ where
 
 impl<'conn, TxType> DbTransactionGuard<'conn, TxType>
 where
-    TxType: DbTransactionType<'conn>
+    TxType: DbTransaction<'conn>
 {
     pub fn new(tx: TxType) -> Self {
         Self {
@@ -51,7 +52,7 @@ where
 
 impl<'conn, TxType> Deref for DbTransactionGuard<'conn, TxType>
 where
-    TxType: DbTransactionType<'conn>,
+    TxType: DbTransaction<'conn>,
 {
     type Target = TxType;
 
@@ -60,9 +61,9 @@ where
     }
 }
 
-impl<'conn, TxType> DbTransaction for DbTransactionGuard<'conn, TxType> 
+impl<'conn, TxType> DbTransaction<'conn> for DbTransactionGuard<'conn, TxType> 
 where
-    TxType: DbTransactionType<'conn>,
+    TxType: DbTransaction<'conn>,
 {
     fn commit(self) -> Result<(), DbError> {
         self.tx.commit()

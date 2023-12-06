@@ -7,22 +7,110 @@ use super::{
     MarfTrieId, Error,
     node::{TriePtr, TrieNodeType}, 
     db::{
-        self, DbError, DbTransactionType, DbTransaction, TransactionalDb, 
-        DbBackend, DbTransactionGuard
+        self, DbError, DbTransaction, TransactionalDb, 
+        DbBackend, DbTransactionGuard, DbConnection
     },
     trie_db::TrieDb
 };
 
+#[derive(Debug, Clone, Copy)]
+pub enum SQLitePragma {
+    JournalMode(SQLiteJournalMode),
+    AutomaticIndex(bool),
+    BusyTimeout(u32),
+    CacheSize(SQLiteCacheSize),
+    CellSizeCheck(bool),
+    CheckpointFullSync(bool),
+    DeferForeignKeys(bool),
+    Encoding(SQLiteEncoding),
+    ForeignKeys(bool),
+    FullFSync(bool),
+    HardHeapLimit(u64),
+    IgnoreCheckConstraints(bool),
+    JournalSizeLimit(u64),
+    LockingMode(SQLiteLockingMode),
+    MaxPageCount(u32),
+    MmapSize(u64),
+    PageCount(u32),
+    QueryOnly(bool),
+    Synchronous(SQLiteSynchronizationMode),
+    TempStore(SQLiteTempStore),
+    Threads(u32),
+    UserVersion(u32),
+    WalAutoCheckpoint(u32),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SQLiteWalCheckpointMode {
+    Passive,
+    Full,
+    Restart,
+    Truncate,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SQLiteTempStore {
+    Default,
+    File,
+    Memory,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SQLiteSynchronizationMode {
+    Off,
+    Normal,
+    Full,
+    Extra
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SQLiteLockingMode {
+    Normal,
+    Exclusive,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SQLiteEncoding {
+    Utf8,
+    Utf16,
+    Utf16LE,
+    Utf16BE,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SQLiteJournalMode {
+    Delete,
+    Truncate,
+    Persist,
+    Memory,
+    Wal,
+    Off,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SQLiteCacheSize {
+    KibiBytes(u32),
+    Pages(u32),
+}
+
 pub struct SQLiteDb {
     path: PathBuf,
+    pragmas: Vec<SQLitePragma>,
+}
+
+pub struct SQLiteDbConnection {
     conn: Connection
 }
 
 impl DbBackend for SQLiteDb {
-    fn establish(uri: &str)-> Result<Self, DbError> {
-        todo!()
+    type ConnType = SQLiteDbConnection;
+
+    fn establish(uri: &str)-> Result<Self::ConnType, DbError> {
+        Ok(SQLiteDb::open(uri, &[])?)
     }
 }
+
+impl DbConnection for SQLiteDbConnection {}
 
 pub struct SQLiteTransaction<'conn> {
     tx: Transaction<'conn>
@@ -35,9 +123,7 @@ impl<'conn> SQLiteTransaction<'conn> {
     }
 }
 
-impl<'conn> DbTransactionType<'conn> for SQLiteTransaction<'conn> {}
-
-impl DbTransaction for SQLiteTransaction<'_> {
+impl<'conn> DbTransaction<'conn> for SQLiteTransaction<'conn> {
     fn commit(self) -> Result<(), DbError> {
         self.tx.commit()?;
         Ok(())
@@ -50,16 +136,15 @@ impl DbTransaction for SQLiteTransaction<'_> {
 }
 
 impl SQLiteDb {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, DbError> {
+    pub fn open<P: AsRef<Path>>(path: P, pragmas: &[SQLitePragma]) -> Result<SQLiteDbConnection, DbError> {
         let conn = Connection::open(path.as_ref())?;
-        Ok(Self {
-            path: path.as_ref().to_path_buf(),
-            conn: conn.into()
+        Ok(SQLiteDbConnection {
+            conn
         })
     }
 }
 
-impl TransactionalDb for SQLiteDb {
+impl TransactionalDb for SQLiteDbConnection {
     type TxType<'conn> = SQLiteTransaction<'conn>;
 
     fn transaction<'conn, 'tx, E>(
