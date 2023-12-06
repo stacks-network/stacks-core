@@ -35,6 +35,9 @@ const BLOCK_SLOT_ID: u32 = 9;
 /// The StackerDB messages that can be sent through the .signers contract
 pub enum StackerDBMessage {
     /// The latest Nakamoto block for miners to observe
+    // TODO: update this to use a struct that lists optional error code if the block is invalid
+    // to prove that the signers have considered the block but rejected it. This should include
+    // hints about how to fix the block
     Block(NakamotoBlock),
     /// DKG and Signing round data for other signers to observe
     Packet(Packet),

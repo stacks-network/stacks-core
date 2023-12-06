@@ -5,6 +5,7 @@ use std::time::Duration;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
@@ -15,7 +16,9 @@ use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys};
 use wsts::v2;
 
-use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
+use crate::client::{
+    retry_with_exponential_backoff, ClientError, StackerDB, StackerDBMessage, StacksClient,
+};
 use crate::config::Config;
 
 /// Which operation to perform
@@ -167,11 +170,36 @@ impl<C: Coordinator> RunLoop<C> {
     }
 
     /// Process the event as a miner message from the miner stacker-db
-    fn process_event_miner(
-        &mut self,
-        _event: &StackerDBChunksEvent,
-    ) -> (Vec<Packet>, Vec<OperationResult>) {
-        todo!("Process miner event")
+    fn process_event_miner(&mut self, event: &StackerDBChunksEvent) {
+        // Determine the current coordinator id and public key for verification
+        let (coordinator_id, _coordinator_public_key) =
+            calculate_coordinator(&self.signing_round.public_keys);
+        event.modified_slots.iter().for_each(|chunk| {
+            let mut ptr = &chunk.data[..];
+            let Some(stacker_db_message) = read_next::<StackerDBMessage, _>(&mut ptr).ok() else {
+                warn!("Received an unrecognized message type from .miners stacker-db slot id {}: {:?}", chunk.slot_id, ptr);
+                return;
+            };
+            match stacker_db_message {
+                StackerDBMessage::Packet(_packet) => {
+                    // We should never actually be receiving packets from the miner stacker-db.
+                    warn!(
+                        "Received a packet from the miner stacker-db. This should never happen..."
+                    );
+                }
+                StackerDBMessage::Block(block) => {
+                    // Received a block proposal from the miner.
+                    // If the signer is the coordinator, then trigger a Signing round for the block
+                    if coordinator_id == self.signing_round.signer_id {
+                        self.commands.push_back(RunLoopCommand::Sign {
+                            message: block.serialize_to_vec(),
+                            is_taproot: false,
+                            merkle_root: None,
+                        });
+                    }
+                }
+            }
+        });
     }
 
     /// Process the event as a signer message from the signer stacker-db
@@ -184,11 +212,26 @@ impl<C: Coordinator> RunLoop<C> {
             .modified_slots
             .iter()
             .filter_map(|chunk| {
-                let packet = bincode::deserialize::<Packet>(&chunk.data).ok()?;
-                if packet.verify(&self.signing_round.public_keys, coordinator_public_key) {
-                    Some(packet)
-                } else {
-                    None
+                let mut ptr = &chunk.data[..];
+                let Some(stacker_db_message) = read_next::<StackerDBMessage, _>(&mut ptr).ok() else {
+                    warn!("Received an unrecognized message type from .signers stacker-db slot id {}: {:?}", chunk.slot_id, ptr);
+                    return None;
+                };
+                match stacker_db_message {
+                    StackerDBMessage::Packet(packet) => {
+                        if packet.verify(
+                            &self.signing_round.public_keys,
+                            coordinator_public_key,
+                        ) {
+                            Some(packet)
+                        } else {
+                            None
+                        }
+                    }
+                    StackerDBMessage::Block(_block) => {
+                        // Blocks are meant to be read by observing miners. Ignore them.
+                        None
+                    }
                 }
             })
             .collect();
