@@ -99,7 +99,7 @@ impl<C: Coordinator> RunLoop<C> {
                     Ok(msg) => {
                         let ack = self
                             .stackerdb
-                            .send_message_with_retry(self.signing_round.signer_id, msg);
+                            .send_message_with_retry(self.signing_round.signer_id, msg.into());
                         debug!("ACK: {:?}", ack);
                         self.state = State::Dkg;
                         true
@@ -125,7 +125,7 @@ impl<C: Coordinator> RunLoop<C> {
                     Ok(msg) => {
                         let ack = self
                             .stackerdb
-                            .send_message_with_retry(self.signing_round.signer_id, msg);
+                            .send_message_with_retry(self.signing_round.signer_id, msg.into());
                         debug!("ACK: {:?}", ack);
                         self.state = State::Sign;
                         true
@@ -217,7 +217,7 @@ impl<C: Coordinator> RunLoop<C> {
         for msg in outbound_messages {
             let ack = self
                 .stackerdb
-                .send_message_with_retry(self.signing_round.signer_id, msg);
+                .send_message_with_retry(self.signing_round.signer_id, msg.into());
             if let Ok(ack) = ack {
                 debug!("ACK: {:?}", ack);
             } else {
