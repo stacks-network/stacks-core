@@ -12,6 +12,7 @@ use libstackerdb::Error as StackerDBError;
 use slog::slog_debug;
 pub use stackerdb::*;
 pub use stacks_client::*;
+use stacks_common::codec::Error as CodecError;
 use stacks_common::debug;
 
 /// Backoff timer initial interval in milliseconds
@@ -24,7 +25,7 @@ const BACKOFF_MAX_INTERVAL: u64 = 16384;
 pub enum ClientError {
     /// An error occurred serializing the message
     #[error("Unable to serialize stacker-db message: {0}")]
-    StackerDBSerializationError(#[from] bincode::Error),
+    StackerDBSerializationError(#[from] CodecError),
     /// Failed to sign stacker-db chunk
     #[error("Failed to sign stacker-db chunk: {0}")]
     FailToSign(#[from] StackerDBError),
