@@ -654,7 +654,7 @@ impl Relayer {
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_nakamoto_block(
         sortdb: &SortitionDB,
-        sort_handle: &SortitionHandleConn,
+        sort_handle: &mut SortitionHandleConn,
         chainstate: &mut StacksChainState,
         block: NakamotoBlock,
     ) -> Result<bool, chainstate_error> {
