@@ -13,6 +13,11 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::HashMap;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+
 use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::{
@@ -30,9 +35,9 @@ use stacks::chainstate::stacks::miner::{
     get_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::core::FIRST_STACKS_BLOCK_HASH;
-use stacks::core::STACKS_EPOCH_3_0_MARKER;
+use stacks::core::{
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER,
+};
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks::monitoring::increment_stx_blocks_mined_counter;
@@ -46,21 +51,13 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
-use std::collections::HashMap;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::RecvTimeoutError;
-use std::thread::JoinHandle;
-use std::time::Duration;
-use std::time::Instant;
 
-use super::Error as NakamotoNodeError;
 use super::{
     fault_injection_skip_mining, open_chainstate_with_faults, BlockCommits, Config,
-    EventDispatcher, Keychain, BLOCK_PROCESSOR_STACK_SIZE,
+    Error as NakamotoNodeError, EventDispatcher, Keychain, BLOCK_PROCESSOR_STACK_SIZE,
 };
 use crate::burnchains::BurnchainController;
-use crate::globals::Globals;
-use crate::globals::RelayerDirective;
+use crate::globals::{Globals, RelayerDirective};
 use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective};
 use crate::neon_node::LeaderKeyRegistrationState;
 use crate::run_loop::nakamoto::RunLoop;
@@ -127,8 +124,9 @@ pub struct RelayerThread {
     ///  to check if it should issue a block commit or try to register a VRF key
     next_initiative: Instant,
     is_miner: bool,
-    /// This is the last snapshot in which the relayer committed
-    last_committed_at: Option<BlockSnapshot>,
+    /// This is the last snapshot in which the relayer committed, and the parent_tenure_id
+    ///  which was committed to
+    last_committed: Option<(BlockSnapshot, StacksBlockId)>,
 }
 
 impl RelayerThread {
@@ -193,7 +191,7 @@ impl RelayerThread {
             miner_thread: None,
             is_miner,
             next_initiative: Instant::now() + Duration::from_secs(10),
-            last_committed_at: None,
+            last_committed: None,
         }
     }
 
@@ -759,7 +757,10 @@ impl RelayerThread {
         );
 
         self.last_commits.insert(txid, ());
-        self.last_committed_at = Some(last_committed_at);
+        self.last_committed = Some((
+            last_committed_at,
+            StacksBlockId::new(&tenure_start_ch, &tenure_start_bh),
+        ));
         self.globals.counters.bump_naka_submitted_commits();
 
         Ok(())
@@ -800,7 +801,10 @@ impl RelayerThread {
             return None;
         };
 
-        let should_commit = if let Some(last_committed_at) = self.last_committed_at.as_ref() {
+        // check if the burnchain changed, if so, we should issue a commit.
+        //  if not, we may still want to update a commit if we've received a new tenure start block
+        let burnchain_changed = if let Some((last_committed_at, ..)) = self.last_committed.as_ref()
+        {
             // if the new sortition tip has a different consesus hash than the last commit,
             //  issue a new commit
             sort_tip.consensus_hash != last_committed_at.consensus_hash
@@ -820,37 +824,38 @@ impl RelayerThread {
             ));
         };
 
-        if should_commit {
-            // TODO: just use `get_block_header_by_consensus_hash`?
-            let first_block_hash = if chain_tip_header
-                .anchored_header
-                .as_stacks_nakamoto()
-                .is_some()
-            {
-                // if the parent block is a nakamoto block, find the starting block of its tenure
-                let Ok(Some(first_block)) =
-                    NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                        self.chainstate_ref().db(),
-                        &chain_tip_header.consensus_hash,
-                    )
-                else {
-                    warn!("Failure getting the first block of tenure in order to assemble block commit";
-                          "tenure_consensus_hash" => %chain_tip_header.consensus_hash,
-                          "tip_block_hash" => %chain_tip_header.anchored_header.block_hash());
-                    return None;
-                };
-                first_block.anchored_header.block_hash()
-            } else {
-                // otherwise the parent block is a epoch2 block, just return its hash directly
-                chain_tip_header.anchored_header.block_hash()
-            };
-            return Some(RelayerDirective::NakamotoTenureStartProcessed(
-                chain_tip_header.consensus_hash,
-                first_block_hash,
-            ));
-        }
+        // get the starting block of the chain tip's tenure
+        let Ok(Some(chain_tip_tenure_start)) =
+            NakamotoChainState::get_block_header_by_consensus_hash(
+                self.chainstate_ref().db(),
+                &chain_tip_header.consensus_hash,
+            )
+        else {
+            warn!("Failure getting the first block of tenure in order to assemble block commit";
+                  "tenure_consensus_hash" => %chain_tip_header.consensus_hash,
+                  "tip_block_hash" => %chain_tip_header.anchored_header.block_hash());
+            return None;
+        };
 
-        return None;
+        let chain_tip_tenure_id = chain_tip_tenure_start.index_block_hash();
+        let should_commit = burnchain_changed
+            || if let Some((_, last_committed_tenure_id)) = self.last_committed.as_ref() {
+                // if the tenure ID of the chain tip has changed, issue a new commit
+                last_committed_tenure_id != &chain_tip_tenure_id
+            } else {
+                // should be unreachable, but either way, if
+                //  `self.last_committed` is None, we should issue a commit
+                true
+            };
+
+        if should_commit {
+            Some(RelayerDirective::NakamotoTenureStartProcessed(
+                chain_tip_header.consensus_hash,
+                chain_tip_header.anchored_header.block_hash(),
+            ))
+        } else {
+            None
+        }
     }
 
     /// Main loop of the relayer.
