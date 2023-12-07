@@ -20,13 +20,6 @@ use std::sync::mpsc::Receiver;
 use std::thread;
 use std::thread::JoinHandle;
 
-use super::{Config, EventDispatcher, Keychain};
-use crate::burnchains::bitcoin_regtest_controller::addr2str;
-use crate::globals::Globals;
-use crate::globals::RelayerDirective;
-use crate::neon_node::LeaderKeyRegistrationState;
-use crate::run_loop::nakamoto::RunLoop;
-use crate::run_loop::RegisteredKey;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::types::QualifiedContractIdentifier;
 use stacks::burnchains::{Burnchain, BurnchainSigner, Txid};
@@ -51,6 +44,13 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+
+use super::{Config, EventDispatcher, Keychain};
+use crate::burnchains::bitcoin_regtest_controller::addr2str;
+use crate::globals::{Globals, RelayerDirective};
+use crate::neon_node::LeaderKeyRegistrationState;
+use crate::run_loop::nakamoto::RunLoop;
+use crate::run_loop::RegisteredKey;
 
 pub mod miner;
 pub mod peer;

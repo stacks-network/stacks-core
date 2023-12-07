@@ -13,44 +13,31 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::cmp;
 use std::collections::VecDeque;
-
 use std::default::Default;
 use std::net::SocketAddr;
 use std::sync::mpsc::TrySendError;
-
-use std::thread;
 use std::time::Duration;
+use std::{cmp, thread};
 
 use stacks::burnchains::db::BurnchainHeaderReader;
 use stacks::burnchains::PoxConstants;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
-
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::signal_mining_blocked;
-
 use stacks::core::mempool::MemPoolDB;
-
 use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, UnitEstimator};
-
 use stacks::net::dns::{DNSClient, DNSResolver};
 use stacks::net::p2p::PeerNetwork;
-
 use stacks::net::RPCHandlerArgs;
-
 use stacks_common::util::hash::Sha256Sum;
 
-use crate::burnchains::make_bitcoin_indexer;
-use crate::globals::Globals;
-use crate::globals::RelayerDirective;
-
-use crate::run_loop::nakamoto::RunLoop;
-
-use crate::{Config, EventDispatcher};
-
 use super::open_chainstate_with_faults;
+use crate::burnchains::make_bitcoin_indexer;
+use crate::globals::{Globals, RelayerDirective};
+use crate::run_loop::nakamoto::RunLoop;
+use crate::{Config, EventDispatcher};
 
 /// Thread that runs the network state machine, handling both p2p and http requests.
 pub struct PeerThread {
