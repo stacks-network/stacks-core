@@ -1365,7 +1365,6 @@ impl StacksChainState {
                         // the stackers granted a tenure extension.
                         // reset the runtime cost
                         debug!("TenureChange extends block tenure");
-                        clarity_tx.reset_cost(ExecutionCost::zero());
                     }
                 }
 
