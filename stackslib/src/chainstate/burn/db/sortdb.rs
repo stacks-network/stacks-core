@@ -8957,13 +8957,14 @@ pub mod tests {
         }
     }
 
-    fn make_fork_run(
+    pub fn make_fork_run(
         db: &mut SortitionDB,
         start_snapshot: &BlockSnapshot,
         length: u64,
         bit_pattern: u8,
-    ) -> () {
+    ) -> Vec<BlockSnapshot> {
         let mut last_snapshot = start_snapshot.clone();
+        let mut new_snapshots = vec![];
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {
                 accumulated_coinbase_ustx: 0,
@@ -8991,6 +8992,7 @@ pub mod tests {
                 canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
                 miner_pk_hash: None,
             };
+            new_snapshots.push(snapshot.clone());
             {
                 let mut tx = SortitionHandleTx::begin(db, &last_snapshot.sortition_id).unwrap();
                 let _index_root = tx
@@ -9010,6 +9012,7 @@ pub mod tests {
                 .unwrap()
                 .unwrap();
         }
+        new_snapshots
     }
 
     #[test]
