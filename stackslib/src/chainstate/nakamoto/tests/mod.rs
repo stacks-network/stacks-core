@@ -34,14 +34,18 @@ use stdext::prelude::Integer;
 use stx_genesis::GenesisData;
 
 use crate::burnchains::{PoxConstants, Txid};
+use crate::chainstate::burn::db::sortdb::tests::make_fork_run;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::tests::{
     get_burnchain, get_burnchain_db, get_chainstate, get_rw_sortdb, get_sortition_db, p2pkh_from,
     pox_addr_from, setup_states_with_epochs,
 };
+use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
+use crate::chainstate::nakamoto::tenure::NakamotoTenure;
+use crate::chainstate::nakamoto::tests::node::TestSigners;
 use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, NakamotoTenure,
+    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, FIRST_STACKS_BLOCK_ID,
 };
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
@@ -152,40 +156,43 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     };
 
     // sortition-inducing tenure change
-    let tenure_change_payload = TransactionPayload::TenureChange(TenureChangePayload {
-        consensus_hash: ConsensusHash([0x04; 20]),
-        prev_consensus_hash: ConsensusHash([0x03; 20]),
+    let tenure_change_payload = TenureChangePayload {
+        tenure_consensus_hash: ConsensusHash([0x04; 20]),
+        prev_tenure_consensus_hash: ConsensusHash([0x03; 20]),
+        sortition_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: header.parent_block_id.clone(),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
         signature: ThresholdSignature::mock(),
         signers: vec![],
-    });
+    };
 
     // non-sortition-inducing tenure change
-    let tenure_extend_payload = TransactionPayload::TenureChange(TenureChangePayload {
-        consensus_hash: ConsensusHash([0x04; 20]),
-        prev_consensus_hash: ConsensusHash([0x03; 20]),
+    let tenure_extend_payload = TenureChangePayload {
+        tenure_consensus_hash: ConsensusHash([0x04; 20]),
+        prev_tenure_consensus_hash: ConsensusHash([0x04; 20]),
+        sortition_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: header.parent_block_id.clone(),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::Extended,
         pubkey_hash: Hash160([0x02; 20]),
         signature: ThresholdSignature::mock(),
         signers: vec![],
-    });
+    };
 
-    let invalid_tenure_change_payload = TransactionPayload::TenureChange(TenureChangePayload {
+    let invalid_tenure_change_payload = TenureChangePayload {
         // bad parent block ID
-        consensus_hash: ConsensusHash([0x04; 20]),
-        prev_consensus_hash: ConsensusHash([0x03; 20]),
+        tenure_consensus_hash: ConsensusHash([0x04; 20]),
+        prev_tenure_consensus_hash: ConsensusHash([0x03; 20]),
+        sortition_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: StacksBlockId([0x00; 32]),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
         signature: ThresholdSignature::mock(),
         signers: vec![],
-    });
+    };
 
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
     let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
@@ -200,7 +207,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let mut tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        tenure_change_payload.clone(),
+        TransactionPayload::TenureChange(tenure_change_payload.clone()),
     );
     tenure_change_tx.chain_id = 0x80000000;
     tenure_change_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -208,7 +215,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let mut tenure_extend_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        tenure_extend_payload.clone(),
+        TransactionPayload::TenureChange(tenure_extend_payload.clone()),
     );
     tenure_extend_tx.chain_id = 0x80000000;
     tenure_extend_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -216,7 +223,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let mut invalid_tenure_change_tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(&private_key).unwrap(),
-        invalid_tenure_change_payload.clone(),
+        TransactionPayload::TenureChange(invalid_tenure_change_payload.clone()),
     );
     invalid_tenure_change_tx.chain_id = 0x80000000;
     invalid_tenure_change_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -270,8 +277,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![tenure_change_tx.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(false));
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -284,8 +293,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![coinbase_tx.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -299,8 +310,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![tenure_change_tx.clone(), invalid_coinbase_tx.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -317,8 +330,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         ],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -331,8 +346,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![coinbase_tx.clone(), tenure_change_tx.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -349,8 +366,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         ],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -367,8 +386,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         ],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -382,8 +403,13 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![tenure_change_tx.clone(), coinbase_tx.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(true));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
     assert_eq!(block.get_coinbase_tx(), Some(&coinbase_tx));
-    assert_eq!(block.get_tenure_change_tx(), Some(&tenure_change_tx));
+    assert_eq!(
+        block.get_tenure_change_tx_payload(),
+        Some(&tenure_change_payload)
+    );
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), Some(&proof));
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -397,8 +423,13 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![tenure_extend_tx.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), None);
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(true));
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), Some(&tenure_extend_tx));
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(
+        block.get_tenure_extend_tx_payload(),
+        Some(&tenure_extend_payload)
+    );
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -412,8 +443,13 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![tenure_extend_tx.clone(), stx_transfer.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), None);
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(true));
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), Some(&tenure_extend_tx));
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(
+        block.get_tenure_extend_tx_payload(),
+        Some(&tenure_extend_payload)
+    );
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -426,8 +462,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![tenure_extend_tx.clone(), tenure_extend_tx.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(false));
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -440,8 +478,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         txs: vec![stx_transfer.clone(), tenure_extend_tx.clone()],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(false));
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -458,8 +498,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         ],
     };
     assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
     assert_eq!(block.get_coinbase_tx(), None);
-    assert_eq!(block.get_tenure_change_tx(), None);
+    assert_eq!(block.get_tenure_change_tx_payload(), None);
+    assert_eq!(block.get_tenure_extend_tx_payload(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
         block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30),
@@ -556,8 +598,9 @@ pub fn test_load_store_update_nakamoto_blocks() {
     };
 
     let tenure_change_payload = TenureChangePayload {
-        consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
-        prev_consensus_hash: ConsensusHash([0x01; 20]),
+        tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
+        prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
+        sortition_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: epoch2_parent_block_id.clone(),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -609,7 +652,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         parent_block_id: epoch2_parent_block_id.clone(),
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
@@ -652,7 +695,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         version: 1,
         chain_length: 458,
         burn_spent: 127,
-        consensus_hash: tenure_change_payload.consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         parent_block_id: nakamoto_header.block_id(),
         tx_merkle_root: nakamoto_tx_merkle_root_2,
         state_index_root: TrieHash([0x07; 32]),
@@ -691,11 +734,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         .unwrap();
 
     let nakamoto_tenure = NakamotoTenure {
-        consensus_hash: tenure_change_payload.consensus_hash.clone(),
-        prev_consensus_hash: tenure_change_payload.prev_consensus_hash.clone(),
+        tenure_id_consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
+        prev_tenure_id_consensus_hash: tenure_change_payload.prev_tenure_consensus_hash.clone(),
+        sortition_consensus_hash: tenure_change_payload.sortition_consensus_hash.clone(),
+        cause: tenure_change_payload.cause,
         block_hash: nakamoto_block.header.block_hash(),
         block_id: nakamoto_block.header.block_id(),
-        tenure_height: epoch2_header.total_work.work + 1,
+        coinbase_height: epoch2_header.total_work.work + 1,
+        tenure_index: 1,
         num_blocks_confirmed: 1,
     };
 
@@ -722,7 +768,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // no tenure rows
         assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_tenure_height(&tx).unwrap(),
+            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64).unwrap(),
             None
         );
 
@@ -731,7 +777,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
             &tx,
             &tenure_change_payload
         )
-        .unwrap());
+        .unwrap()
+        .is_some());
 
         // this will fail without a tenure (e.g. due to foreign key constraints)
         NakamotoChainState::insert_stacks_block_header(
@@ -758,7 +805,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // no tenure rows
         assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_tenure_height(&tx).unwrap(),
+            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64).unwrap(),
             None
         );
 
@@ -767,6 +814,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
             &tx,
             &nakamoto_header,
             epoch2_header.total_work.work + 1,
+            1,
             &tenure_change_payload,
         )
         .unwrap();
@@ -783,7 +831,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // have a tenure
         assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_tenure_height(&tx)
+            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64)
                 .unwrap()
                 .unwrap(),
             epoch2_header.total_work.work + 1
@@ -815,7 +863,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // same tenure
         assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_tenure_height(&tx)
+            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64)
                 .unwrap()
                 .unwrap(),
             epoch2_header.total_work.work + 1
@@ -848,7 +896,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // same tenure
         assert_eq!(
-            NakamotoChainState::get_highest_nakamoto_tenure_height(&tx)
+            NakamotoChainState::get_highest_nakamoto_coinbase_height(&tx, i64::MAX as u64)
                 .unwrap()
                 .unwrap(),
             epoch2_header.total_work.work + 1
@@ -1029,19 +1077,19 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
     // can get tenure height of nakamoto blocks and epoch2 blocks
     assert_eq!(
-        NakamotoChainState::get_tenure_height(chainstate.db(), &nakamoto_header.block_id())
+        NakamotoChainState::get_coinbase_height(chainstate.db(), &nakamoto_header.block_id())
             .unwrap()
             .unwrap(),
         epoch2_header_info.anchored_header.height() + 1
     );
     assert_eq!(
-        NakamotoChainState::get_tenure_height(chainstate.db(), &nakamoto_header_2.block_id())
+        NakamotoChainState::get_coinbase_height(chainstate.db(), &nakamoto_header_2.block_id())
             .unwrap()
             .unwrap(),
         epoch2_header_info.anchored_header.height() + 1
     );
     assert_eq!(
-        NakamotoChainState::get_tenure_height(
+        NakamotoChainState::get_coinbase_height(
             chainstate.db(),
             &epoch2_header_info.index_block_hash()
         )
@@ -1179,7 +1227,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
 /// Tests:
 /// * NakamotoBlockHeader::check_miner_signature
-/// * NakamotoBlockHeader::check_tenure_change_tx
+/// * NakamotoBlockHeader::check_tenure_tx
 /// * NakamotoBlockHeader::check_coinbase_tx
 #[test]
 fn test_nakamoto_block_static_verification() {
@@ -1203,8 +1251,9 @@ fn test_nakamoto_block_static_verification() {
     coinbase_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
 
     let tenure_change_payload = TenureChangePayload {
-        consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
-        prev_consensus_hash: ConsensusHash([0x01; 20]),
+        tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
+        prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
+        sortition_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: StacksBlockId([0x03; 32]),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -1214,8 +1263,9 @@ fn test_nakamoto_block_static_verification() {
     };
 
     let tenure_change_payload_bad_ch = TenureChangePayload {
-        consensus_hash: ConsensusHash([0x05; 20]), // wrong
-        prev_consensus_hash: ConsensusHash([0x01; 20]),
+        tenure_consensus_hash: ConsensusHash([0x05; 20]), // wrong
+        prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
+        sortition_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: StacksBlockId([0x03; 32]),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -1225,8 +1275,9 @@ fn test_nakamoto_block_static_verification() {
     };
 
     let tenure_change_payload_bad_miner_sig = TenureChangePayload {
-        consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
-        prev_consensus_hash: ConsensusHash([0x01; 20]),
+        tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
+        prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
+        sortition_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: StacksBlockId([0x03; 32]),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -1299,7 +1350,7 @@ fn test_nakamoto_block_static_verification() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
@@ -1317,7 +1368,7 @@ fn test_nakamoto_block_static_verification() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root_bad_ch,
         state_index_root: TrieHash([0x07; 32]),
@@ -1335,7 +1386,7 @@ fn test_nakamoto_block_static_verification() {
         version: 1,
         chain_length: 457,
         burn_spent: 126,
-        consensus_hash: tenure_change_payload.consensus_hash.clone(),
+        consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         parent_block_id: StacksBlockId([0x03; 32]),
         tx_merkle_root: nakamoto_tx_merkle_root_bad_miner_sig,
         state_index_root: TrieHash([0x07; 32]),
@@ -1356,7 +1407,7 @@ fn test_nakamoto_block_static_verification() {
         StacksPublicKey::from_private(&private_key)
     );
     assert_eq!(
-        nakamoto_block.get_miner_pubkh().unwrap(),
+        nakamoto_block.recover_miner_pubkh().unwrap(),
         tenure_change_payload.pubkey_hash
     );
 
@@ -1369,11 +1420,9 @@ fn test_nakamoto_block_static_verification() {
         ))
         .is_err());
 
-    assert!(nakamoto_block.check_tenure_change_tx().is_ok());
-    assert!(nakamoto_block_bad_ch.check_tenure_change_tx().is_err());
-    assert!(nakamoto_block_bad_miner_sig
-        .check_tenure_change_tx()
-        .is_err());
+    assert!(nakamoto_block.check_tenure_tx().is_ok());
+    assert!(nakamoto_block_bad_ch.check_tenure_tx().is_err());
+    assert!(nakamoto_block_bad_miner_sig.check_tenure_tx().is_err());
 
     let vrf_alt_privkey = VRFPrivateKey::new();
     let vrf_alt_pubkey = VRFPublicKey::from_private(&vrf_alt_privkey);
@@ -1387,4 +1436,136 @@ fn test_nakamoto_block_static_verification() {
     assert!(nakamoto_block
         .check_coinbase_tx(&vrf_alt_pubkey, &sortition_hash)
         .is_err());
+}
+
+/// Tests that getting the highest nakamoto tenure works in the presence of forks
+#[test]
+pub fn test_get_highest_nakamoto_tenure() {
+    let test_signers = TestSigners::default();
+    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
+
+    // extract chainstate and sortdb -- we don't need the peer anymore
+    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.sortdb.as_mut().unwrap();
+
+    // seed a single fork of tenures
+    let last_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    let snapshots = make_fork_run(sort_db, &last_snapshot, 5, 0);
+    let mut last_header: Option<NakamotoBlockHeader> = None;
+    let mut last_tenure_change: Option<TenureChangePayload> = None;
+    let mut all_headers = vec![];
+    let mut all_tenure_changes = vec![];
+    for (i, sn) in snapshots.iter().enumerate() {
+        let block_header = NakamotoBlockHeader {
+            version: 0,
+            chain_length: i as u64,
+            burn_spent: i as u64,
+            consensus_hash: sn.consensus_hash.clone(),
+            parent_block_id: last_header
+                .as_ref()
+                .map(|hdr| hdr.block_id())
+                .unwrap_or(FIRST_STACKS_BLOCK_ID.clone()),
+            tx_merkle_root: Sha512Trunc256Sum([0x00; 32]),
+            state_index_root: TrieHash([0x00; 32]),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: ThresholdSignature::mock(),
+        };
+        let tenure_change = TenureChangePayload {
+            tenure_consensus_hash: sn.consensus_hash.clone(),
+            prev_tenure_consensus_hash: last_tenure_change
+                .as_ref()
+                .map(|tc| tc.tenure_consensus_hash.clone())
+                .unwrap_or(FIRST_BURNCHAIN_CONSENSUS_HASH.clone()),
+            sortition_consensus_hash: sn.consensus_hash.clone(),
+            previous_tenure_end: block_header.block_id(),
+            previous_tenure_blocks: 1,
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: Hash160([0x00; 20]),
+            signature: ThresholdSignature::mock(),
+            signers: vec![],
+        };
+
+        let tx = chainstate.db_tx_begin().unwrap();
+        NakamotoChainState::insert_nakamoto_tenure(
+            &tx,
+            &block_header,
+            1 + i as u64,
+            1 + i as u64,
+            &tenure_change,
+        )
+        .unwrap();
+        tx.commit().unwrap();
+
+        all_headers.push(block_header.clone());
+        all_tenure_changes.push(tenure_change.clone());
+
+        last_header = Some(block_header);
+        last_tenure_change = Some(tenure_change);
+    }
+
+    // highest tenure should be the last one we inserted
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    debug!("tip = {:?}", &tip);
+    let highest_tenure = NakamotoChainState::get_highest_nakamoto_tenure(
+        chainstate.db(),
+        &mut sort_db.index_handle(&tip.sortition_id),
+    )
+    .unwrap()
+    .unwrap();
+
+    let last_tenure_change = last_tenure_change.unwrap();
+    let last_header = last_header.unwrap();
+    assert_eq!(
+        highest_tenure.tenure_id_consensus_hash,
+        last_tenure_change.tenure_consensus_hash
+    );
+    assert_eq!(
+        highest_tenure.prev_tenure_id_consensus_hash,
+        last_tenure_change.prev_tenure_consensus_hash
+    );
+    assert_eq!(
+        highest_tenure.sortition_consensus_hash,
+        last_tenure_change.sortition_consensus_hash
+    );
+    assert_eq!(highest_tenure.cause, last_tenure_change.cause);
+    assert_eq!(highest_tenure.block_hash, last_header.block_hash());
+    assert_eq!(highest_tenure.block_id, last_header.block_id());
+    assert_eq!(highest_tenure.coinbase_height, 5);
+    assert_eq!(highest_tenure.tenure_index, 5);
+    assert_eq!(highest_tenure.num_blocks_confirmed, 1);
+
+    // uh oh, a bitcoin fork!
+    let last_snapshot = snapshots[2].clone();
+    let snapshots = make_fork_run(sort_db, &last_snapshot, 7, 0x80);
+
+    let new_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    debug!("tip = {:?}", &new_tip);
+
+    // new tip doesn't include the last two tenures
+    let highest_tenure = NakamotoChainState::get_highest_nakamoto_tenure(
+        chainstate.db(),
+        &mut sort_db.index_handle(&new_tip.sortition_id),
+    )
+    .unwrap()
+    .unwrap();
+    let last_tenure_change = &all_tenure_changes[2];
+    let last_header = &all_headers[2];
+    assert_eq!(
+        highest_tenure.tenure_id_consensus_hash,
+        last_tenure_change.tenure_consensus_hash
+    );
+    assert_eq!(
+        highest_tenure.prev_tenure_id_consensus_hash,
+        last_tenure_change.prev_tenure_consensus_hash
+    );
+    assert_eq!(
+        highest_tenure.sortition_consensus_hash,
+        last_tenure_change.sortition_consensus_hash
+    );
+    assert_eq!(highest_tenure.cause, last_tenure_change.cause);
+    assert_eq!(highest_tenure.block_hash, last_header.block_hash());
+    assert_eq!(highest_tenure.block_id, last_header.block_id());
+    assert_eq!(highest_tenure.coinbase_height, 3);
+    assert_eq!(highest_tenure.tenure_index, 3);
+    assert_eq!(highest_tenure.num_blocks_confirmed, 1);
 }
