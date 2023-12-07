@@ -14,9 +14,7 @@ use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCode
 use crate::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::util::hash::{to_hex, DoubleSha256, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
-use crate::util::secp256k1::{
-    MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey,
-};
+use crate::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use crate::util::uint::Uint256;
 use crate::util::vrf::{VRFProof, VRF_PROOF_ENCODED_SIZE};
 
