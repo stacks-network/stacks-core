@@ -17,6 +17,10 @@
 use std::collections::HashSet;
 use std::ops::DerefMut;
 
+pub mod coordinator;
+pub mod miner;
+pub mod tenure;
+
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
@@ -45,7 +49,8 @@ use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use wsts::curve::point::Point;
 
 use super::burn::db::sortdb::{
-    get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionHandleConn, SortitionHandleTx,
+    get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionHandle,
+    SortitionHandleConn, SortitionHandleTx,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::db::accounts::MinerReward;
@@ -64,6 +69,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
@@ -77,9 +83,6 @@ use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
 };
-
-pub mod coordinator;
-pub mod miner;
 
 #[cfg(test)]
 pub mod tests;
@@ -143,34 +146,7 @@ lazy_static! {
                     
                      PRIMARY KEY(block_hash,consensus_hash)
     );"#.into(),
-    r#"
-        -- Table for all processed tenures.
-        -- This represents all BlockFound tenure changes, not extensions.
-        -- Every time we insert a header which has `tenure_changed == 1`, we should insert a record into this table as well.
-        -- Note that not every sortition is represented here.  If a tenure is extended, then no new tenure record is created
-        -- for it.
-        CREATE TABLE nakamoto_tenures (
-            -- consensus hash of start-tenure block (i.e. the consensus hash of the sortition in which the miner's block-commit
-            -- was mined)
-            consensus_hash TEXT NOT NULL,
-            -- consensus hash of the previous tenure's start-tenure block
-            prev_consensus_hash TEXT NOT NULL,
-            -- block hash of start-tenure block
-            block_hash TEXT NOT NULL,
-            -- block ID of this start block (this is the StacksBlockId of the above consensus_hash and block_hash)
-            block_id TEXT NOT NULL,
-            -- this field is the total number of *tenures* in the chain history (including this tenure),
-            -- as of the _end_ of this block.  A block can contain multiple TenureChanges; if so, then this
-            -- is the height of the _last_ TenureChange.
-            tenure_height INTEGER NOT NULL,
-            -- number of blocks this tenure confirms
-            num_blocks_confirmed INTEGER NOT NULL,
-
-            PRIMARY KEY(consensus_hash)
-        );
-        CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);
-        CREATE INDEX nakamoto_tenures_by_block_and_consensus_hashes ON nakamoto_tenures(consensus_hash,block_hash);
-    "#.into(),
+    NAKAMOTO_TENURES_SCHEMA.into(),
     r#"
       -- Table for Nakamoto block headers
       CREATE TABLE nakamoto_block_headers (
@@ -226,8 +202,8 @@ lazy_static! {
                      tenure_tx_fees TEXT NOT NULL,
                      -- nakamoto block's VRF proof, if this is a tenure-start block
                      vrf_proof TEXT,
-              PRIMARY KEY(consensus_hash,block_hash),
-              FOREIGN KEY(consensus_hash) REFERENCES nakamoto_tenures(consensus_hash)
+
+              PRIMARY KEY(consensus_hash,block_hash)
           );
           CREATE INDEX nakamoto_block_headers_by_consensus_hash ON nakamoto_block_headers(consensus_hash);
     "#.into(),
@@ -243,6 +219,7 @@ lazy_static! {
 }
 
 /// Matured miner reward schedules
+#[derive(Debug, Clone)]
 pub struct MaturedMinerPaymentSchedules {
     /// miners whose rewards matured
     pub latest_miners: Vec<MinerPaymentSchedule>,
@@ -260,6 +237,7 @@ impl MaturedMinerPaymentSchedules {
 }
 
 /// Calculated matured miner rewards, from scheduled rewards
+#[derive(Debug, Clone)]
 pub struct MaturedMinerRewards {
     /// this block's reward recipient
     /// NOTE: in epoch2, if a PoisonMicroblock report was successful, then the recipient is the
@@ -330,30 +308,6 @@ pub struct NakamotoBlockHeader {
     pub signer_signature: ThresholdSignature,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct NakamotoBlock {
-    pub header: NakamotoBlockHeader,
-    pub txs: Vec<StacksTransaction>,
-}
-
-pub struct NakamotoChainState;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct NakamotoTenure {
-    /// consensus hash of start-tenure block
-    pub consensus_hash: ConsensusHash,
-    /// consensus hash of parent tenure's start-tenure block
-    pub prev_consensus_hash: ConsensusHash,
-    /// block hash of start-tenure block
-    pub block_hash: BlockHeaderHash,
-    /// block ID of this start block
-    pub block_id: StacksBlockId,
-    /// number of tenures so far, including this one
-    pub tenure_height: u64,
-    /// number of blocks this tenure confirms
-    pub num_blocks_confirmed: u32,
-}
-
 impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
     fn from_row(row: &rusqlite::Row) -> Result<NakamotoBlockHeader, DBError> {
         let version = row.get("version")?;
@@ -384,27 +338,13 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
     }
 }
 
-impl FromRow<NakamotoTenure> for NakamotoTenure {
-    fn from_row(row: &rusqlite::Row) -> Result<NakamotoTenure, DBError> {
-        let consensus_hash = row.get("consensus_hash")?;
-        let prev_consensus_hash = row.get("prev_consensus_hash")?;
-        let block_hash = row.get("block_hash")?;
-        let block_id = row.get("block_id")?;
-        let tenure_height_i64: i64 = row.get("tenure_height")?;
-        let tenure_height = tenure_height_i64
-            .try_into()
-            .map_err(|_| DBError::ParseError)?;
-        let num_blocks_confirmed: u32 = row.get("num_blocks_confirmed")?;
-        Ok(NakamotoTenure {
-            consensus_hash,
-            prev_consensus_hash,
-            block_hash,
-            block_id,
-            tenure_height,
-            num_blocks_confirmed,
-        })
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub struct NakamotoBlock {
+    pub header: NakamotoBlockHeader,
+    pub txs: Vec<StacksTransaction>,
 }
+
+pub struct NakamotoChainState;
 
 impl StacksMessageCodec for NakamotoBlockHeader {
     fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
@@ -572,22 +512,61 @@ impl NakamotoBlock {
     }
 
     /// Get the tenure-change transaction in Nakamoto.
-    /// If it's present, then it's the first transaction (i.e. tx 0)
-    pub fn get_tenure_change_tx(&self) -> Option<&StacksTransaction> {
+    /// If it's present, then it's the first transaction (i.e. tx 0).
+    /// NOTE: this does _not_ return a tenure-extend transaction payload.
+    pub fn get_tenure_change_tx_payload(&self) -> Option<&TenureChangePayload> {
         let wellformed = self.is_wellformed_tenure_start_block();
         if let Some(false) = wellformed {
             // block isn't well-formed
+            return None;
+        } else if wellformed.is_none() {
+            // no tenure-change
             return None;
         }
 
         // if it exists, it's the first
         self.txs.get(0).and_then(|tx| {
-            if let TransactionPayload::TenureChange(..) = &tx.payload {
-                Some(tx)
+            if let TransactionPayload::TenureChange(ref tc) = &tx.payload {
+                Some(tc)
             } else {
                 None
             }
         })
+    }
+
+    /// Get the tenure-extend transaction in Nakamoto.
+    /// If it's present, then it's the first transaction (i.e. tx 0)
+    /// NOTE: this does _not_ return a tenure-change transaction payload.
+    pub fn get_tenure_extend_tx_payload(&self) -> Option<&TenureChangePayload> {
+        let wellformed = self.is_wellformed_tenure_extend_block();
+        if let Some(false) = wellformed {
+            // block isn't well-formed
+            return None;
+        } else if wellformed.is_none() {
+            // no tenure extend
+            return None;
+        }
+
+        // if it exists, it's the first
+        self.txs.get(0).and_then(|tx| {
+            if let TransactionPayload::TenureChange(ref tc) = &tx.payload {
+                Some(tc)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get the tenure-change or tenure-extend transaction in Nakamoto, if it exists.
+    /// At most one will exist.
+    pub fn get_tenure_tx_payload(&self) -> Option<&TenureChangePayload> {
+        if let Some(payload) = self.get_tenure_change_tx_payload() {
+            return Some(payload);
+        }
+        if let Some(payload) = self.get_tenure_extend_tx_payload() {
+            return Some(payload);
+        }
+        return None;
     }
 
     /// Get the coinbase transaction in Nakamoto.
@@ -627,6 +606,116 @@ impl NakamotoBlock {
                 }
             })
             .flatten()
+    }
+
+    /// Determine if this is a well-formed tenure-extend block.
+    /// * It has exactly one TenureChange, and it does _not_ require a sortiton (it's `cause` is
+    /// `Extended`)
+    /// * Its consensus hash and previous consensus hash values point to this block.
+    /// * There is no coinbase
+    /// * There are no other TenureChange transactions
+    ///
+    /// Returns Some(true) if the above are true
+    /// Returns Some(false) if at least one of the above is false
+    /// Returns None if this block is not a tenure-extend block
+    pub fn is_wellformed_tenure_extend_block(&self) -> Option<bool> {
+        // find coinbases
+        let coinbase_positions = self
+            .txs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, tx)| {
+                if let TransactionPayload::Coinbase(..) = &tx.payload {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if coinbase_positions.len() > 0 {
+            // can't be
+            return None;
+        }
+
+        // find all tenure changes, even if they're not sortition-induced
+        let tenure_change_positions = self
+            .txs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, tx)| {
+                if let TransactionPayload::TenureChange(..) = &tx.payload {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if tenure_change_positions.len() == 0 {
+            return None;
+        }
+
+        if tenure_change_positions.len() > 1 {
+            // invalid
+            debug!(
+                "Invalid block -- {} tenure txs",
+                tenure_change_positions.len()
+            );
+            return Some(false);
+        }
+
+        let tc_idx = 0;
+        if tenure_change_positions != vec![tc_idx] {
+            // invalid -- wrong placement
+            debug!(
+                "Invalid block -- tenure txs at {:?}, expected {:?}",
+                &tenure_change_positions,
+                &vec![tc_idx]
+            );
+            return Some(false);
+        }
+
+        let TransactionPayload::TenureChange(tc_payload) = &self.txs[tc_idx].payload else {
+            // this transaction is not a tenure change
+            // (should be unreachable)
+            debug!(
+                "Invalid block -- tx at index {} is not a tenure tx",
+                &tc_idx
+            );
+            return Some(false);
+        };
+        if tc_payload.cause != TenureChangeCause::Extended {
+            // not a tenure-extend, and can't be valid since all other tenure-change types require
+            // a coinbase (which is not present)
+            debug!("Invalid block -- tenure tx is not a tenure extension");
+            return Some(false);
+        }
+
+        if tc_payload.previous_tenure_end != self.header.parent_block_id {
+            // discontinuous
+            debug!(
+                "Invalid block -- discontiguous: {} != {}",
+                &tc_payload.previous_tenure_end, &self.header.parent_block_id
+            );
+            return Some(false);
+        }
+
+        if tc_payload.tenure_consensus_hash != self.header.consensus_hash
+            || tc_payload.prev_tenure_consensus_hash != self.header.consensus_hash
+        {
+            // tenure-extends don't change the current miner
+            debug!(
+                "Invalid block -- expected {} = {} && {} = {}",
+                &tc_payload.tenure_consensus_hash,
+                &self.header.consensus_hash,
+                &tc_payload.prev_tenure_consensus_hash,
+                &self.header.consensus_hash
+            );
+            return Some(false);
+        }
+
+        Some(true)
     }
 
     /// Determine if this is a well-formed first block in a tenure.
@@ -675,11 +764,17 @@ impl NakamotoBlock {
 
         if coinbase_positions.len() > 1 || tenure_change_positions.len() > 1 {
             // never valid to have more than one of each
+            debug!(
+                "Invalid block -- have {} coinbases and {} tenure txs",
+                coinbase_positions.len(),
+                tenure_change_positions.len()
+            );
             return Some(false);
         }
 
         if coinbase_positions.len() == 1 && tenure_change_positions.len() == 0 {
             // coinbase unaccompanied by a tenure change
+            debug!("Invalid block -- have coinbase without tenure change");
             return Some(false);
         }
 
@@ -688,6 +783,11 @@ impl NakamotoBlock {
             // It must be the first tx
             if tenure_change_positions != vec![0] {
                 // wrong position
+                debug!(
+                    "Invalid block -- tenure change positions = {:?}, expected {:?}",
+                    &tenure_change_positions,
+                    &vec![0]
+                );
                 return Some(false);
             }
 
@@ -695,11 +795,13 @@ impl NakamotoBlock {
             let TransactionPayload::TenureChange(tc_payload) = &self.txs[0].payload else {
                 // this transaction is not a tenure change
                 // (should be unreachable)
+                debug!("Invalid block -- first transaction is not a tenure change");
                 return Some(false);
             };
 
             if tc_payload.cause.expects_sortition() {
                 // not valid
+                debug!("Invalid block -- no coinbase, but tenure change expects sortition");
                 return Some(false);
             }
 
@@ -713,6 +815,7 @@ impl NakamotoBlock {
         if coinbase_positions != vec![coinbase_idx] || tenure_change_positions != vec![tc_idx] {
             // invalid -- expect exactly one sortition-induced tenure change and exactly one coinbase expected,
             // and the tenure change must be the first transaction and the coinbase must be the second transaction
+            debug!("Invalid block -- coinbase and/or tenure change txs are in the wrong position -- ({:?}, {:?}) != ({:?}, {:?})", &coinbase_positions, &tenure_change_positions, &vec![coinbase_idx], &vec![tc_idx]);
             return Some(false);
         }
 
@@ -720,15 +823,21 @@ impl NakamotoBlock {
         let TransactionPayload::TenureChange(tc_payload) = &self.txs[tc_idx].payload else {
             // this transaction is not a tenure change
             // (should be unreachable)
+            debug!("Invalid block -- tx index {} is not a tenure tx", tc_idx);
             return Some(false);
         };
         if !tc_payload.cause.expects_sortition() {
             // the only tenure change allowed in a block with a coinbase is a sortition-triggered
             // tenure change
+            debug!("Invalid block -- tenure change does not expect a sortition");
             return Some(false);
         }
         if tc_payload.previous_tenure_end != self.header.parent_block_id {
             // discontinuous
+            debug!(
+                "Invalid block -- discontiguous -- {} != {}",
+                &tc_payload.previous_tenure_end, &self.header.parent_block_id
+            );
             return Some(false);
         }
 
@@ -736,10 +845,15 @@ impl NakamotoBlock {
         let TransactionPayload::Coinbase(_, _, vrf_proof_opt) = &self.txs[coinbase_idx].payload
         else {
             // this transaction is not a coinbase (but this should be unreachable)
+            debug!(
+                "Invalid block -- tx index {} is not a coinbase",
+                coinbase_idx
+            );
             return Some(false);
         };
         if vrf_proof_opt.is_none() {
             // not a Nakamoto coinbase
+            debug!("Invalid block -- no VRF proof in coinbase");
             return Some(false);
         }
 
@@ -782,7 +896,7 @@ impl NakamotoBlock {
     }
 
     /// Get the miner's public key hash160 from this signature
-    pub(crate) fn get_miner_pubkh(&self) -> Result<Hash160, ChainstateError> {
+    pub(crate) fn recover_miner_pubkh(&self) -> Result<Hash160, ChainstateError> {
         let recovered_miner_pubk = self.header.recover_miner_pk().ok_or_else(|| {
             warn!(
                 "Nakamoto Stacks block downloaded with unrecoverable miner public key";
@@ -801,7 +915,7 @@ impl NakamotoBlock {
         &self,
         miner_pubkey_hash160: &Hash160,
     ) -> Result<(), ChainstateError> {
-        let recovered_miner_hash160 = self.get_miner_pubkh()?;
+        let recovered_miner_hash160 = self.recover_miner_pubkh()?;
         if &recovered_miner_hash160 != miner_pubkey_hash160 {
             warn!(
                 "Nakamoto Stacks block signature mismatch: {recovered_miner_hash160} != {miner_pubkey_hash160} from leader-key";
@@ -818,44 +932,46 @@ impl NakamotoBlock {
 
     /// Verify that if this block has a tenure-change, that it is consistent with our header's
     /// consensus_hash and miner_signature.  If there is no tenure change tx in this block, then
-    /// this is a no-op
-    pub(crate) fn check_tenure_change_tx(&self) -> Result<(), ChainstateError> {
+    /// this is a no-op.
+    ///
+    /// This check applies to both tenure-changes and tenure-extends
+    pub(crate) fn check_tenure_tx(&self) -> Result<(), ChainstateError> {
         // If this block has a tenure-change, then verify that the miner public key is the same as
         // the leader key.  This is required for all tenure-change causes.
-        if let Some(tenure_change_tx) = self.get_tenure_change_tx() {
-            // in all cases, the miner public key must match that of the tenure change
-            let tc_payload = tenure_change_tx
-                .try_as_tenure_change()
-                .expect("FATAL: `get_tenure_change_tx()` did not return a tenure-change");
-            let recovered_miner_hash160 = self.get_miner_pubkh()?;
-            if tc_payload.pubkey_hash != recovered_miner_hash160 {
-                warn!(
-                    "Invalid tenure-change transaction -- bad miner pubkey hash160";
-                    "block_hash" => %self.header.block_hash(),
-                    "block_id" => %self.header.block_id(),
-                    "pubkey_hash" => %tc_payload.pubkey_hash,
-                    "recovered_miner_hash160" => %recovered_miner_hash160
-                );
-                return Err(ChainstateError::InvalidStacksBlock(
-                    "Invalid tenure change -- bad miner pubkey hash160".into(),
-                ));
-            }
+        let Some(tc_payload) = self.get_tenure_tx_payload() else {
+            return Ok(());
+        };
 
-            // in all cases, the tenure change's consensus hash must match the block's consensus
-            // hash
-            if tc_payload.consensus_hash != self.header.consensus_hash {
-                warn!(
-                    "Invalid tenure-change transaction -- bad consensus hash";
-                    "block_hash" => %self.header.block_hash(),
-                    "block_id" => %self.header.block_id(),
-                    "consensus_hash" => %self.header.consensus_hash,
-                    "tc_payload.consensus_hash" => %tc_payload.consensus_hash
-                );
-                return Err(ChainstateError::InvalidStacksBlock(
-                    "Invalid tenure change -- bad consensus hash".into(),
-                ));
-            }
+        // in all cases, the miner public key must match that of the tenure change
+        let recovered_miner_hash160 = self.recover_miner_pubkh()?;
+        if tc_payload.pubkey_hash != recovered_miner_hash160 {
+            warn!(
+                "Invalid tenure-change transaction -- bad miner pubkey hash160";
+                "block_hash" => %self.header.block_hash(),
+                "block_id" => %self.header.block_id(),
+                "pubkey_hash" => %tc_payload.pubkey_hash,
+                "recovered_miner_hash160" => %recovered_miner_hash160
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid tenure change -- bad miner pubkey hash160".into(),
+            ));
         }
+
+        // in all cases, the tenure change's consensus hash must match the block's consensus
+        // hash
+        if tc_payload.tenure_consensus_hash != self.header.consensus_hash {
+            warn!(
+                "Invalid tenure-change transaction -- bad consensus hash";
+                "block_hash" => %self.header.block_hash(),
+                "block_id" => %self.header.block_id(),
+                "consensus_hash" => %self.header.consensus_hash,
+                "tc_payload.tenure_consensus_hash" => %tc_payload.tenure_consensus_hash
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Invalid tenure change -- bad consensus hash".into(),
+            ));
+        }
+
         Ok(())
     }
 
@@ -910,28 +1026,29 @@ impl NakamotoBlock {
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
     ///
     /// Arguments
-    /// -- `burn_chain_tip` is the BlockSnapshot containing the block-commit for this block's
-    /// tenure
+    /// -- `tenure_burn_chain_tip` is the BlockSnapshot containing the block-commit for this block's
+    /// tenure.  It is not always the tip of the burnchain.
+    /// -- `expected_burn` is the total number of burnchain tokens spent
     /// -- `leader_key` is the miner's leader key registration transaction
-    /// -- `bloc_commit` is the block-commit for this tenure
     ///
     /// Verifies the following:
     /// -- (self.header.consensus_hash) that this block falls into this block-commit's tenure
-    /// -- (self.header.burn_spent) that this block's burn total matches `burn_chain_tip`'s total burn
+    /// -- (self.header.burn_spent) that this block's burn total matches `burn_tip`'s total burn
     /// -- (self.header.miner_signature) that this miner signed this block
     /// -- if this block has a tenure change, then it's consistent with the miner's public key and
     /// self.header.consensus_hash
     /// -- if this block has a coinbase, then that it's VRF proof was generated by this miner
     pub fn validate_against_burnchain(
         &self,
-        burn_chain_tip: &BlockSnapshot,
+        tenure_burn_chain_tip: &BlockSnapshot,
+        expected_burn: u64,
         leader_key: &LeaderKeyRegisterOp,
     ) -> Result<(), ChainstateError> {
         // this block's consensus hash must match the sortition that selected it
-        if burn_chain_tip.consensus_hash != self.header.consensus_hash {
+        if tenure_burn_chain_tip.consensus_hash != self.header.consensus_hash {
             warn!("Invalid Nakamoto block: consensus hash does not match sortition";
                   "consensus_hash" => %self.header.consensus_hash,
-                  "sortition.consensus_hash" => %burn_chain_tip.consensus_hash
+                  "sortition.consensus_hash" => %tenure_burn_chain_tip.consensus_hash
             );
             return Err(ChainstateError::InvalidStacksBlock(
                 "Invalid Nakamoto block: invalid consensus hash".into(),
@@ -939,10 +1056,10 @@ impl NakamotoBlock {
         }
 
         // this block must commit to all of the work seen so far
-        if self.header.burn_spent != burn_chain_tip.total_burn {
+        if self.header.burn_spent != expected_burn {
             warn!("Invalid Nakamoto block header: invalid total burns";
                   "header.burn_spent" => self.header.burn_spent,
-                  "burn_chain_tip.total_burn" => burn_chain_tip.total_burn
+                  "expected_burn" => expected_burn,
             );
             return Err(ChainstateError::InvalidStacksBlock(
                 "Invalid Nakamoto block: invalid total burns".into(),
@@ -962,8 +1079,11 @@ impl NakamotoBlock {
             })?;
 
         self.check_miner_signature(&miner_pubkey_hash160)?;
-        self.check_tenure_change_tx()?;
-        self.check_coinbase_tx(&leader_key.public_key, &burn_chain_tip.sortition_hash)?;
+        self.check_tenure_tx()?;
+        self.check_coinbase_tx(
+            &leader_key.public_key,
+            &tenure_burn_chain_tip.sortition_hash,
+        )?;
 
         // not verified by this method:
         // * chain_length       (need parent block header)
@@ -971,6 +1091,7 @@ impl NakamotoBlock {
         // * block-commit seed  (need parent block)
         // * tx_merkle_root     (already verified; validated on deserialization)
         // * state_index_root   (validated on process_block())
+        // * stacker signature  (validated on accept_block())
         Ok(())
     }
 
@@ -1005,12 +1126,23 @@ impl NakamotoBlock {
         if let Some(valid) = self.is_wellformed_tenure_start_block() {
             if !valid {
                 // bad tenure change
+                warn!("Not a well-formed tenure-start block");
                 return false;
             }
             if self.get_coinbase_tx().is_none() {
                 return false;
             }
-            if self.get_tenure_change_tx().is_none() {
+            if self.get_tenure_change_tx_payload().is_none() {
+                return false;
+            }
+        }
+        if let Some(valid) = self.is_wellformed_tenure_extend_block() {
+            if !valid {
+                // bad tenure extend
+                warn!("Not a well-formed tenure-extend block");
+                return false;
+            }
+            if self.get_tenure_extend_tx_payload().is_none() {
                 return false;
             }
         }
@@ -1344,24 +1476,64 @@ impl NakamotoChainState {
         Ok(Some(receipt))
     }
 
+    /// Get the expected total burnchain tokens spent so far for a given block.
+    /// * if the block has a tenure-change tx, then this is the tx's sortition consensus hash's
+    /// snapshot's burn total (since the miner will have produced this tenure-change tx in reaction
+    /// to the arrival of this new sortition)
+    /// * otherwise, it's the highest processed tenure's sortition consensus hash's snapshot's burn
+    /// total.
+    ///
+    /// TODO: unit test
+    pub(crate) fn get_expected_burns<SH: SortitionHandle>(
+        sort_handle: &mut SH,
+        chainstate_conn: &Connection,
+        block: &NakamotoBlock,
+    ) -> Result<Option<u64>, ChainstateError> {
+        let target_ch = if let Some(tenure_payload) = block.get_tenure_tx_payload() {
+            tenure_payload.sortition_consensus_hash
+        } else if let Some(highest_tenure) =
+            Self::get_highest_nakamoto_tenure(chainstate_conn, sort_handle)?
+        {
+            highest_tenure.sortition_consensus_hash
+        } else {
+            // no nakamoto tenures yet, so this is the consensus hash of the canonical stacks tip
+            let (consensus_hash, _) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(sort_handle.sqlite())?;
+            consensus_hash
+        };
+
+        let Some(sn) = SortitionDB::get_block_snapshot_consensus(sort_handle.sqlite(), &target_ch)?
+        else {
+            warn!("Unacceptable Nakamoto block -- no sortition for tenure";
+                  "sortition_consensus_hash" => %target_ch
+            );
+            return Ok(None);
+        };
+        Ok(Some(sn.total_burn))
+    }
+
     /// Validate that a Nakamoto block attaches to the burn chain state.
     /// Called before inserting the block into the staging DB.
     /// Wraps `NakamotoBlock::validate_against_burnchain()`, and
     /// verifies that all transactions in the block are allowed in this epoch.
     pub fn validate_nakamoto_block_burnchain(
         db_handle: &SortitionHandleConn,
+        expected_burn: u64,
         block: &NakamotoBlock,
         mainnet: bool,
         chain_id: u32,
     ) -> Result<(), ChainstateError> {
         // find the sortition-winning block commit for this block, as well as the block snapshot
-        // containing the parent block-commit
+        // containing the parent block-commit.  This is the snapshot that corresponds to when the
+        // miner begain its tenure; it may not be the burnchain tip.
         let block_hash = block.header.block_hash();
         let consensus_hash = &block.header.consensus_hash;
 
-        // burn chain tip that selected this commit's block
-        let Some(burn_chain_tip) =
-            SortitionDB::get_block_snapshot_consensus(db_handle, &consensus_hash)?
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(db_handle)?;
+
+        // burn chain tip that selected this commit's block (the tenure sortition)
+        let Some(tenure_burn_chain_tip) =
+            SortitionDB::get_block_snapshot_consensus(db_handle, consensus_hash)?
         else {
             warn!("No sortition for {}", &consensus_hash);
             return Err(ChainstateError::InvalidStacksBlock(
@@ -1369,15 +1541,36 @@ impl NakamotoChainState {
             ));
         };
 
+        // tenure sortition is canonical
+        let Some(ancestor_sort_id) = get_ancestor_sort_id(
+            db_handle,
+            tenure_burn_chain_tip.block_height,
+            &sort_tip.sortition_id,
+        )?
+        else {
+            // not canonical
+            warn!("Invalid consensus hash: snapshot is not canonical"; "consensus_hash" => %consensus_hash);
+            return Err(ChainstateError::InvalidStacksBlock(
+                "No sortition for block's consensus hash -- not canonical".into(),
+            ));
+        };
+        if ancestor_sort_id != tenure_burn_chain_tip.sortition_id {
+            // not canonical
+            warn!("Invalid consensus hash: snapshot is not canonical"; "consensus_hash" => %consensus_hash);
+            return Err(ChainstateError::InvalidStacksBlock(
+                "No sortition for block's consensus hash -- not canonical".into(),
+            ));
+        };
+
         // the block-commit itself
         let Some(block_commit) = db_handle.get_block_commit_by_txid(
-            &burn_chain_tip.sortition_id,
-            &burn_chain_tip.winning_block_txid,
+            &tenure_burn_chain_tip.sortition_id,
+            &tenure_burn_chain_tip.winning_block_txid,
         )?
         else {
             warn!(
                 "No block commit for {} in sortition for {}",
-                &burn_chain_tip.winning_block_txid, &consensus_hash
+                &tenure_burn_chain_tip.winning_block_txid, &consensus_hash
             );
             return Err(ChainstateError::InvalidStacksBlock(
                 "No block-commit in sortition for block's consensus hash".into(),
@@ -1393,7 +1586,9 @@ impl NakamotoChainState {
             .expect("FATAL: have block commit but no leader key");
 
         // attaches to burn chain
-        if let Err(e) = block.validate_against_burnchain(&burn_chain_tip, &leader_key) {
+        if let Err(e) =
+            block.validate_against_burnchain(&tenure_burn_chain_tip, expected_burn, &leader_key)
+        {
             warn!(
                 "Invalid Nakamoto block, could not validate on burnchain";
                 "consensus_hash" => %consensus_hash,
@@ -1406,9 +1601,11 @@ impl NakamotoChainState {
 
         // check the _next_ block's tenure, since when Nakamoto's miner activates, the current chain tip
         // will be in epoch 2.5 (the next block will be epoch 3.0)
-        let cur_epoch =
-            SortitionDB::get_stacks_epoch(db_handle.deref(), burn_chain_tip.block_height + 1)?
-                .expect("FATAL: no epoch defined for current Stacks block");
+        let cur_epoch = SortitionDB::get_stacks_epoch(
+            db_handle.deref(),
+            tenure_burn_chain_tip.block_height + 1,
+        )?
+        .expect("FATAL: no epoch defined for current Stacks block");
 
         // static checks on transactions all pass
         let valid = block.validate_transactions_static(mainnet, chain_id, cur_epoch.epoch_id);
@@ -1480,7 +1677,8 @@ impl NakamotoChainState {
     pub fn accept_block(
         config: &ChainstateConfig,
         block: NakamotoBlock,
-        db_handle: &SortitionHandleConn,
+        db_handle: &mut SortitionHandleConn,
+        // TODO: need a separate connection for the headers
         staging_db_tx: &rusqlite::Transaction,
         aggregate_public_key: &Point,
     ) -> Result<bool, ChainstateError> {
@@ -1498,14 +1696,34 @@ impl NakamotoChainState {
                 &block.block_id()
             );
             return Err(ChainstateError::InvalidStacksBlock(
-                "Not a well-formed first block".into(),
+                "Not a well-formed first-tenure block".into(),
             ));
         }
+
+        // if this is a tenure-extend block, then make sure it's well-formed
+        if let Some(false) = block.is_wellformed_tenure_extend_block() {
+            warn!(
+                "Block {} is not a well-formed tenure-extend block",
+                &block.block_id()
+            );
+            return Err(ChainstateError::InvalidStacksBlock(
+                "Not a well-formed tenure-extend block".into(),
+            ));
+        }
+
+        let Some(expected_burn) = Self::get_expected_burns(db_handle, staging_db_tx, &block)?
+        else {
+            warn!("Unacceptable Nakamoto block: unable to find its paired sortition";
+                  "block_id" => %block.block_id()
+            );
+            return Ok(false);
+        };
 
         // this block must be consistent with its miner's leader-key and block-commit, and must
         // contain only transactions that are valid in this epoch.
         if let Err(e) = Self::validate_nakamoto_block_burnchain(
             db_handle,
+            expected_burn,
             &block,
             config.mainnet,
             config.chain_id,
@@ -1557,9 +1775,9 @@ impl NakamotoChainState {
                 ).optional()?.is_none()
                );
 
-        let block_id = block.block_id();
+        let _block_id = block.block_id();
         Self::store_block(staging_db_tx, block, burn_attachable, stacks_attachable)?;
-        test_debug!("Stored Nakamoto block {}", &block_id);
+        test_debug!("Stored Nakamoto block {}", &_block_id);
         Ok(true)
     }
 
@@ -1598,62 +1816,6 @@ impl NakamotoChainState {
             })
     }
 
-    /// Create the block reward for a NakamotoBlock
-    /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
-    ///    accumulated rewards from missed sortitions or initial mining rewards.
-    /// TODO: unit test
-    pub fn make_scheduled_miner_reward(
-        mainnet: bool,
-        epoch_id: StacksEpochId,
-        parent_block_hash: &BlockHeaderHash,
-        parent_consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-        block_consensus_hash: &ConsensusHash,
-        block_height: u64,
-        coinbase_tx: &StacksTransaction,
-        parent_fees: u128,
-        burnchain_commit_burn: u64,
-        burnchain_sortition_burn: u64,
-        coinbase_reward_ustx: u128,
-    ) -> MinerPaymentSchedule {
-        let miner_auth = coinbase_tx.get_origin();
-        let miner_addr = miner_auth.get_address(mainnet);
-
-        let recipient = if epoch_id >= StacksEpochId::Epoch21 {
-            // pay to tx-designated recipient, or if there is none, pay to the origin
-            match coinbase_tx.try_as_coinbase() {
-                Some((_, recipient_opt, _)) => recipient_opt
-                    .cloned()
-                    .unwrap_or(miner_addr.to_account_principal()),
-                None => miner_addr.to_account_principal(),
-            }
-        } else {
-            // pre-2.1, always pay to the origin
-            miner_addr.to_account_principal()
-        };
-
-        // N.B. a `MinerPaymentSchedule` that pays to a contract can never be created before 2.1,
-        // per the above check (and moreover, a Stacks block with a pay-to-alt-recipient coinbase would
-        // not become valid until after 2.1 activates).
-        let miner_reward = MinerPaymentSchedule {
-            address: miner_addr,
-            recipient,
-            block_hash: block_hash.clone(),
-            consensus_hash: block_consensus_hash.clone(),
-            parent_block_hash: parent_block_hash.clone(),
-            parent_consensus_hash: parent_consensus_hash.clone(),
-            coinbase: coinbase_reward_ustx,
-            tx_fees: MinerPaymentTxFees::Nakamoto { parent_fees },
-            burnchain_commit_burn,
-            burnchain_sortition_burn,
-            miner: true,
-            stacks_block_height: block_height,
-            vtxindex: 0,
-        };
-
-        miner_reward
-    }
-
     /// Return the total ExecutionCost consumed during the tenure up to and including
     ///  `block`
     pub fn get_total_tenure_cost_at(
@@ -1683,32 +1845,31 @@ impl NakamotoChainState {
             .map_err(|_| ChainstateError::DBError(DBError::ParseError))
     }
 
-    /// Return a Nakamoto StacksHeaderInfo at a given tenure height in the fork identified by `tip_index_hash`.
+    /// Return a Nakamoto StacksHeaderInfo at a given coinbase height in the fork identified by `tip_index_hash`.
     /// * For Stacks 2.x, this is the Stacks block's header
     /// * For Stacks 3.x (Nakamoto), this is the first block in the miner's tenure.
-    /// TODO: unit test
-    pub fn get_header_by_tenure_height(
+    pub fn get_header_by_coinbase_height(
         tx: &mut StacksDBTx,
         tip_index_hash: &StacksBlockId,
-        tenure_height: u64,
+        coinbase_height: u64,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         // query for block header info at the tenure-height, then check if in fork
-        let qry = "SELECT consensus_hash FROM nakamoto_tenures WHERE tenure_height = ?1";
+        let qry = "SELECT DISTINCT tenure_id_consensus_hash AS consensus_hash FROM nakamoto_tenures WHERE coinbase_height = ?1";
 
         let candidate_chs: Vec<ConsensusHash> =
-            query_rows(tx.tx(), qry, &[u64_to_sql(tenure_height)?])?;
+            query_rows(tx.tx(), qry, &[u64_to_sql(coinbase_height)?])?;
 
         if candidate_chs.len() == 0 {
             // no nakamoto_tenures at that tenure height, check if there's a stack block header where
-            //   block_height = tenure_height
+            //   block_height = coinbase_height
             let Some(ancestor_at_height) = tx
-                .get_ancestor_block_hash(tenure_height, tip_index_hash)?
+                .get_ancestor_block_hash(coinbase_height, tip_index_hash)?
                 .map(|ancestor| Self::get_block_header(tx.tx(), &ancestor))
                 .transpose()?
                 .flatten()
             else {
                 warn!("No such epoch2 ancestor";
-                      "tenure_height" => tenure_height,
+                      "coinbase_height" => coinbase_height,
                       "tip_index_hash" => %tip_index_hash,
                 );
                 return Ok(None);
@@ -1741,47 +1902,6 @@ impl NakamotoChainState {
         Ok(None)
     }
 
-    /// Return the tenure height of `block` if it was a nakamoto block, or the
-    ///  Stacks block height of `block` if it was an epoch-2 block
-    ///
-    /// In Stacks 2.x, the tenure height and block height are the
-    /// same. A miner's tenure in Stacks 2.x is entirely encompassed
-    /// in the single Bitcoin-anchored Stacks block they produce, as
-    /// well as the microblock stream they append to it.
-    pub fn get_tenure_height(
-        chainstate_conn: &Connection,
-        block: &StacksBlockId,
-    ) -> Result<Option<u64>, ChainstateError> {
-        let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let result: Option<NakamotoBlockHeader> =
-            query_row_panic(chainstate_conn, sql, &[&block], || {
-                "FATAL: multiple rows for the same block hash".to_string()
-            })?;
-        if let Some(nak_hdr) = result {
-            let nak_qry = "SELECT tenure_height FROM nakamoto_tenures WHERE consensus_hash = ?1";
-            let opt_height: Option<i64> = chainstate_conn
-                .query_row(nak_qry, &[&nak_hdr.consensus_hash], |row| row.get(0))
-                .optional()?;
-            if let Some(height) = opt_height {
-                return Ok(Some(
-                    u64::try_from(height).map_err(|_| DBError::ParseError)?,
-                ));
-            } else {
-                // should be unreachable
-                return Err(DBError::NotFoundError.into());
-            }
-        }
-
-        let epoch_2_qry = "SELECT block_height FROM block_headers WHERE index_block_hash = ?1";
-        let opt_height: Option<i64> = chainstate_conn
-            .query_row(epoch_2_qry, &[block], |row| row.get(0))
-            .optional()?;
-        opt_height
-            .map(u64::try_from)
-            .transpose()
-            .map_err(|_| ChainstateError::DBError(DBError::ParseError))
-    }
-
     /// Load block header (either Epoch-2 rules or Nakamoto) by `index_block_hash`
     pub fn get_block_header(
         chainstate_conn: &Connection,
@@ -1804,7 +1924,6 @@ impl NakamotoChainState {
     }
 
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
-    /// TODO: unit test
     pub fn get_canonical_block_header(
         chainstate_conn: &Connection,
         sortdb: &SortitionDB,
@@ -1875,8 +1994,6 @@ impl NakamotoChainState {
     ///
     /// Returns NoSuchBlockError if the block header for `consensus_hash` does not exist, or if the
     /// parent block header info does not exist (i.e. the chainstate DB is missing something)
-    ///
-    /// TODO: unit test
     pub fn get_parent_vrf_proof(
         chainstate_conn: &Connection,
         sortdb_conn: &Connection,
@@ -1912,45 +2029,6 @@ impl NakamotoChainState {
                 })?;
 
         Ok(parent_vrf_proof)
-    }
-
-    /// Get the first block header in a Nakamoto tenure
-    pub fn get_nakamoto_tenure_start_block_header(
-        chainstate_conn: &Connection,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
-        let sql = "SELECT * FROM nakamoto_block_headers WHERE consensus_hash = ?1 ORDER BY block_height ASC LIMIT 1";
-        query_row_panic(chainstate_conn, sql, &[&consensus_hash], || {
-            "FATAL: multiple rows for the same consensus hash".to_string()
-        })
-        .map_err(ChainstateError::DBError)
-    }
-
-    /// Get the last block header in a Nakamoto tenure
-    pub fn get_nakamoto_tenure_finish_block_header(
-        chainstate_conn: &Connection,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
-        let sql = "SELECT * FROM nakamoto_block_headers WHERE consensus_hash = ?1 ORDER BY block_height DESC LIMIT 1";
-        query_row_panic(chainstate_conn, sql, &[&consensus_hash], || {
-            "FATAL: multiple rows for the same consensus hash".to_string()
-        })
-        .map_err(ChainstateError::DBError)
-    }
-
-    /// Get the number of blocks in a tenure.
-    /// Only works for Nakamoto blocks, not Stacks epoch2 blocks.
-    /// Returns 0 if the consensus hash is not found.
-    pub fn get_nakamoto_tenure_length(
-        chainstate_conn: &Connection,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<u32, ChainstateError> {
-        let sql = "SELECT IFNULL(COUNT(block_hash),0) FROM nakamoto_block_headers WHERE consensus_hash = ?1";
-        let count_i64 = query_int(chainstate_conn, sql, &[&consensus_hash])?;
-        let count: u32 = count_i64
-            .try_into()
-            .expect("FATAL: too many blocks in tenure");
-        Ok(count)
     }
 
     /// Get the status of a Nakamoto block.
@@ -2111,318 +2189,6 @@ impl NakamotoChainState {
         Ok(())
     }
 
-    /// Insert a nakamoto tenure.
-    /// No validation will be done.
-    pub(crate) fn insert_nakamoto_tenure(
-        tx: &Connection,
-        block_header: &NakamotoBlockHeader,
-        tenure_height: u64,
-        tenure: &TenureChangePayload,
-    ) -> Result<(), ChainstateError> {
-        // NOTE: this is checked with check_nakamoto_tenure()
-        assert_eq!(block_header.consensus_hash, tenure.consensus_hash);
-        let args: &[&dyn ToSql] = &[
-            &tenure.consensus_hash,
-            &tenure.prev_consensus_hash,
-            &block_header.block_hash(),
-            &block_header.block_id(),
-            &u64_to_sql(tenure_height)?,
-            &tenure.previous_tenure_blocks,
-        ];
-        tx.execute(
-            "INSERT INTO nakamoto_tenures
-                (consensus_hash, prev_consensus_hash, block_hash, block_id,
-                tenure_height, num_blocks_confirmed)
-            VALUES
-                (?1,?2,?3,?4,?5,?6)",
-            args,
-        )?;
-
-        Ok(())
-    }
-
-    /// Get the highest tenure height processed.
-    /// Returns Ok(Some(tenure_height)) if we have processed at least one tenure
-    /// Returns Ok(None) if we have not yet processed a Nakamoto tenure
-    /// Returns Err(..) on database errors
-    pub fn get_highest_nakamoto_tenure_height(
-        conn: &Connection,
-    ) -> Result<Option<u64>, ChainstateError> {
-        match conn
-            .query_row(
-                "SELECT IFNULL(MAX(tenure_height), 0) FROM nakamoto_tenures",
-                NO_PARAMS,
-                |row| Ok(u64::from_row(row).expect("Expected u64 in database")),
-            )
-            .optional()?
-        {
-            Some(height_i64) => {
-                if height_i64 == 0 {
-                    // this never happens, so it's None
-                    Ok(None)
-                } else {
-                    Ok(Some(
-                        height_i64.try_into().map_err(|_| DBError::ParseError)?,
-                    ))
-                }
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Get the highest processed tenure on the canonical sortition history.
-    /// TODO: unit test
-    pub fn get_highest_nakamoto_tenure(
-        conn: &Connection,
-        sort_tx: &mut SortitionHandleTx,
-    ) -> Result<Option<NakamotoTenure>, ChainstateError> {
-        let Some(max_sort_height) = Self::get_highest_nakamoto_tenure_height(conn)? else {
-            // no tenures yet
-            return Ok(None);
-        };
-
-        let sql = "SELECT * FROM nakamoto_tenures WHERE tenure_height = ?1";
-        let args: &[&dyn ToSql] = &[&u64_to_sql(max_sort_height)?];
-        let tenures: Vec<NakamotoTenure> = query_rows(conn, sql, args)?;
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx)?;
-
-        // find the one that's in the canonical sortition history
-        for tenure in tenures.into_iter() {
-            let Some(sn) =
-                SortitionDB::get_block_snapshot_consensus(sort_tx, &tenure.consensus_hash)?
-            else {
-                // not in sortition DB.
-                // This is unreachable, but be defensive and just skip it.
-                continue;
-            };
-            let Some(_ancestor_sort_id) =
-                get_ancestor_sort_id_tx(sort_tx, sn.block_height, &tip.sortition_id)?
-            else {
-                // not canonical
-                continue;
-            };
-            return Ok(Some(tenure));
-        }
-        // not found
-        Ok(None)
-    }
-
-    /// Verify that a tenure change tx is a valid first-ever tenure change.  It must connect to an
-    /// epoch2 block.
-    /// TODO: unit test
-    pub(crate) fn check_first_nakamoto_tenure_change(
-        headers_conn: &Connection,
-        tenure_payload: &TenureChangePayload,
-    ) -> Result<bool, ChainstateError> {
-        let Some(parent_header) =
-            Self::get_block_header(headers_conn, &tenure_payload.previous_tenure_end)?
-        else {
-            warn!("Invalid tenure-change: no parent epoch2 header";
-                  "consensus_hash" => %tenure_payload.consensus_hash,
-                  "previous_tenure_end" => %tenure_payload.previous_tenure_end
-            );
-            return Ok(false);
-        };
-        if parent_header.anchored_header.as_stacks_epoch2().is_none() {
-            warn!("Invalid tenure-change: parent header is not epoch2";
-                  "consensus_hash" => %tenure_payload.consensus_hash,
-                  "previous_tenure_end" => %tenure_payload.previous_tenure_end
-            );
-            return Ok(false);
-        }
-        if tenure_payload.previous_tenure_blocks != 1 {
-            warn!("Invalid tenure-change: expected 1 previous tenure block";
-                  "consensus_hash" => %tenure_payload.consensus_hash,
-            );
-            return Ok(false);
-        }
-        return Ok(true);
-    }
-
-    /// Check a Nakamoto tenure transaction's validity with respect to the last-processed tenure
-    /// and the sortition DB.  This validates the following fields:
-    /// * consensus_hash
-    /// * prev_consensus_hash
-    /// * previous_tenure_end
-    /// * previous_tenure_blocks
-    /// * cause
-    ///
-    /// Returns Ok(true) on success
-    /// Returns Ok(false) if the tenure change is invalid
-    /// Returns Err(..) on DB error
-    /// TODO: unit test
-    pub(crate) fn check_nakamoto_tenure(
-        headers_conn: &Connection,
-        sort_tx: &mut SortitionHandleTx,
-        block_header: &NakamotoBlockHeader,
-        tenure_payload: &TenureChangePayload,
-    ) -> Result<bool, ChainstateError> {
-        if !tenure_payload.cause.expects_sortition() {
-            // not paired with a sortition
-            return Ok(true);
-        }
-
-        // block header must match tenure
-        if block_header.consensus_hash != tenure_payload.consensus_hash {
-            warn!("Invalid tenure-change (or block) -- mismatched consensus hash";
-                  "tenure_payload.consensus_hash" => %tenure_payload.consensus_hash,
-                  "block_header.consensus_hash" => %block_header.consensus_hash
-            );
-            return Ok(false);
-        }
-
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx)?;
-
-        // the target sortition must exist, and it must be on the canonical fork
-        let Some(sn) =
-            SortitionDB::get_block_snapshot_consensus(sort_tx, &tenure_payload.consensus_hash)?
-        else {
-            // no sortition
-            warn!("Invalid tenure-change: no such snapshot"; "consensus_hash" => %tenure_payload.consensus_hash);
-            return Ok(false);
-        };
-        let Some(_ancestor_sort_id) =
-            get_ancestor_sort_id_tx(sort_tx, sn.block_height, &tip.sortition_id)?
-        else {
-            // not canonical
-            warn!("Invalid tenure-change: snapshot is not canonical"; "consensus_hash" => %tenure_payload.consensus_hash);
-            return Ok(false);
-        };
-        if tenure_payload.prev_consensus_hash != FIRST_BURNCHAIN_CONSENSUS_HASH {
-            // the parent sortition must exist, must be canonical, and must be an ancestor of the
-            // sortition for the given consensus hash.
-            let Some(prev_sn) = SortitionDB::get_block_snapshot_consensus(
-                sort_tx,
-                &tenure_payload.prev_consensus_hash,
-            )?
-            else {
-                // no parent sortition
-                warn!("Invalid tenure-change: no such parent snapshot"; "prev_consensus_hash" => %tenure_payload.prev_consensus_hash);
-                return Ok(false);
-            };
-            let Some(_ancestor_sort_id) =
-                get_ancestor_sort_id_tx(sort_tx, sn.block_height, &tip.sortition_id)?
-            else {
-                // parent not canonical
-                warn!("Invalid tenure-change: parent snapshot is not canonical"; "prev_consensus_hash" => %tenure_payload.prev_consensus_hash);
-                return Ok(false);
-            };
-            if prev_sn.block_height >= sn.block_height {
-                // parent comes after child
-                warn!("Invalid tenure-change: parent snapshot comes after child"; "consensus_hash" => %tenure_payload.consensus_hash, "prev_consensus_hash" => %tenure_payload.prev_consensus_hash);
-                return Ok(false);
-            }
-        }
-
-        // validate cause
-        match tenure_payload.cause {
-            TenureChangeCause::BlockFound => {
-                // there must have been a block-commit which one sortition
-                if !sn.sortition {
-                    warn!("Invalid tenure-change: no block found";
-                          "consensus_hash" => %tenure_payload.consensus_hash
-                    );
-                    return Ok(false);
-                }
-            }
-            TenureChangeCause::Extended => {}
-        }
-
-        let Some(highest_processed_tenure) =
-            Self::get_highest_nakamoto_tenure(headers_conn, sort_tx)?
-        else {
-            // no previous tenures.  This is the first tenure change.  It should point to an epoch
-            // 2.x block.
-            return Self::check_first_nakamoto_tenure_change(headers_conn, tenure_payload);
-        };
-
-        let Some(last_tenure_finish_block_id) = Self::get_nakamoto_tenure_finish_block_header(
-            headers_conn,
-            &highest_processed_tenure.consensus_hash,
-        )?
-        .map(|hdr| hdr.index_block_hash()) else {
-            // last tenure doesn't exist (should be unreachable)
-            warn!("Invalid tenure-change: no blocks found for highest processed tenure";
-                  "consensus_hash" => %highest_processed_tenure.consensus_hash,
-            );
-            return Ok(false);
-        };
-
-        if last_tenure_finish_block_id != tenure_payload.previous_tenure_end
-            || highest_processed_tenure.consensus_hash != tenure_payload.prev_consensus_hash
-        {
-            // not continuous -- this tenure-change does not point to the end of the
-            // last-processed tenure, or does not point to the last-processed tenure's sortition
-            warn!("Invalid tenure-change: discontiguous";
-                  "consensus_hash" => %tenure_payload.consensus_hash,
-                  "prev_consensus_hash" => %tenure_payload.prev_consensus_hash,
-                  "highest_processed_tenure.consensus_hash" => %highest_processed_tenure.consensus_hash,
-                  "last_tenure_finish_block_id" => %last_tenure_finish_block_id,
-                  "tenure_payload.previous_tenure_end" => %tenure_payload.previous_tenure_end
-            );
-            return Ok(false);
-        }
-
-        let tenure_len = Self::get_nakamoto_tenure_length(
-            headers_conn,
-            &highest_processed_tenure.consensus_hash,
-        )?;
-        if tenure_len != tenure_payload.previous_tenure_blocks {
-            // invalid -- does not report the correct number of blocks in the past tenure
-            warn!("Invalid tenure-change: wrong number of blocks";
-                  "consensus_hash" => %tenure_payload.consensus_hash,
-                  "highest_processed_tenure.consensus_hash" => %highest_processed_tenure.consensus_hash,
-                  "tenure_len" => tenure_len,
-                  "tenure_payload.previous_tenure_blocks" => tenure_payload.previous_tenure_blocks
-            );
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
-    /// Advance the tenures table with a validated block's tenure data.
-    /// Only stores tenures that are paired with sortitions
-    /// TODO: unit test
-    pub(crate) fn advance_nakamoto_tenure(
-        headers_tx: &mut StacksDBTx,
-        sort_tx: &mut SortitionHandleTx,
-        block: &NakamotoBlock,
-        parent_tenure_height: u64,
-    ) -> Result<u64, ChainstateError> {
-        let tenure_height = parent_tenure_height
-            .checked_add(1)
-            .expect("FATAL: too many tenures");
-
-        for tx in block.txs.iter() {
-            let TransactionPayload::TenureChange(ref tenure_change_payload) = &tx.payload else {
-                continue;
-            };
-
-            if !Self::check_nakamoto_tenure(
-                headers_tx,
-                sort_tx,
-                &block.header,
-                tenure_change_payload,
-            )? {
-                return Err(ChainstateError::InvalidStacksTransaction(
-                    "Invalid tenure-change".into(),
-                    false,
-                ));
-            }
-
-            Self::insert_nakamoto_tenure(
-                headers_tx,
-                &block.header,
-                tenure_height,
-                tenure_change_payload,
-            )?;
-            return Ok(tenure_height);
-        }
-        // no new tenure
-        return Ok(parent_tenure_height);
-    }
-
     /// Append a Stacks block to an existing Stacks block, and grant the miner the block reward.
     /// Return the new Stacks header info.
     fn advance_tip(
@@ -2575,85 +2341,6 @@ impl NakamotoChainState {
         Ok(new_tip_info)
     }
 
-    /// Get scheduled miner rewards that have matured when this tenure starts.
-    /// Returns (list of miners to pay, any residual payments to the parent miner) on success.
-    /// TODO: unit test
-    pub(crate) fn get_matured_miner_reward_schedules(
-        chainstate_tx: &mut ChainstateTx,
-        tip_index_hash: &StacksBlockId,
-        tenure_height: u64,
-    ) -> Result<Option<MaturedMinerPaymentSchedules>, ChainstateError> {
-        let mainnet = chainstate_tx.get_config().mainnet;
-
-        // find matured miner rewards, so we can grant them within the Clarity DB tx.
-        if tenure_height < MINER_REWARD_MATURITY {
-            return Ok(Some(MaturedMinerPaymentSchedules::genesis(mainnet)));
-        }
-
-        let matured_tenure_height = tenure_height - MINER_REWARD_MATURITY;
-        let matured_tenure_block_header = Self::get_header_by_tenure_height(
-            chainstate_tx,
-            &tip_index_hash,
-            matured_tenure_height,
-        )?
-        .ok_or_else(|| {
-            warn!("Matured tenure data not found");
-            ChainstateError::NoSuchBlockError
-        })?;
-
-        let latest_miners = StacksChainState::get_scheduled_block_rewards_at_block(
-            chainstate_tx.deref_mut(),
-            &matured_tenure_block_header.index_block_hash(),
-        )?;
-        let parent_miner = StacksChainState::get_parent_matured_miner(
-            chainstate_tx.deref_mut(),
-            mainnet,
-            &latest_miners,
-        )?;
-        Ok(Some(MaturedMinerPaymentSchedules {
-            latest_miners,
-            parent_miner,
-        }))
-    }
-
-    /// Calculate the total matured rewards from the scheduled matured rewards.
-    /// This takes a ClarityTx, so PoisonMicroblocks can be taken into account (which deduct
-    /// STX from the block reward for offending miners).
-    /// The recipient of the block reward may not be the miner, but may be a PoisonMicroblock
-    /// reporter (both are captured as the sole `recipient` in the `MaturedMinerRewards` struct).
-    ///
-    /// Returns Ok(Some(rewards)) if we were able to calculate the rewards
-    /// Returns Ok(None) if there are no matured rewards yet
-    /// Returns Err(..) on DB error
-    /// TODO: unit test
-    pub(crate) fn calculate_matured_miner_rewards(
-        clarity_tx: &mut ClarityTx,
-        sortdb_conn: &Connection,
-        parent_stacks_height: u64,
-        matured_miner_schedule: MaturedMinerPaymentSchedules,
-    ) -> Result<Option<MaturedMinerRewards>, ChainstateError> {
-        let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
-            clarity_tx,
-            sortdb_conn,
-            parent_stacks_height,
-            matured_miner_schedule.latest_miners,
-            matured_miner_schedule.parent_miner,
-        ) {
-            Ok(Some((recipient, _user_burns, parent, reward_info))) => Some(MaturedMinerRewards {
-                recipient,
-                parent_reward: parent,
-                reward_info,
-            }),
-            Ok(None) => None,
-            Err(e) => {
-                let msg = format!("Failed to load miner rewards: {:?}", &e);
-                warn!("{}", &msg);
-                return Err(ChainstateError::InvalidStacksBlock(msg));
-            }
-        };
-        Ok(matured_miner_rewards_opt)
-    }
-
     /// Begin block-processing and return all of the pre-processed state within a
     /// `SetupBlockResult`.
     ///
@@ -2675,7 +2362,9 @@ impl NakamotoChainState {
     /// * burn_header_hash, burn_header_height: pointer to the Bitcoin block that identifies the
     /// tenure of this block to be processed
     /// * new_tenure: whether or not this block is the start of a new tenure
-    /// * tenure_height: the number of tenures that this block confirms (including epoch2 blocks)
+    /// * coinbase_height: the number of tenures that this block confirms (including epoch2 blocks)
+    ///   (this is equivalent to the number of coinbases)
+    /// * tenure_extend: whether or not to reset the tenure's ongoing execution cost
     ///
     /// Returns clarity_tx, list of receipts, microblock execution cost,
     /// microblock fees, microblock burns, list of microblock tx receipts,
@@ -2693,7 +2382,8 @@ impl NakamotoChainState {
         burn_header_hash: BurnchainHeaderHash,
         burn_header_height: u32,
         new_tenure: bool,
-        tenure_height: u64,
+        coinbase_height: u64,
+        tenure_extend: bool,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
         let parent_sortition_id = sortition_dbconn
@@ -2703,7 +2393,11 @@ impl NakamotoChainState {
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_rewards_schedule_opt = if new_tenure {
-            Self::get_matured_miner_reward_schedules(chainstate_tx, &tip_index_hash, tenure_height)?
+            Self::get_matured_miner_reward_schedules(
+                chainstate_tx,
+                &tip_index_hash,
+                coinbase_height,
+            )?
         } else {
             // no rewards if mid-tenure
             None
@@ -2743,8 +2437,9 @@ impl NakamotoChainState {
             .transpose()?
             .flatten();
 
-        // Nakamoto must load block cost from parent if this block isn't a tenure change
-        let initial_cost = if new_tenure {
+        // Nakamoto must load block cost from parent if this block isn't a tenure change.
+        // If this is a tenure-extend, then the execution cost is reset.
+        let initial_cost = if new_tenure || tenure_extend {
             ExecutionCost::zero()
         } else {
             let parent_cost_total =
@@ -2874,201 +2569,6 @@ impl NakamotoChainState {
         Ok(lockup_events)
     }
 
-    /// Check that a given Nakamoto block's tenure's sortition exists and was processed.
-    /// Return the sortition's burnchain block's hash and its burnchain height
-    /// TODO: unit test
-    pub(crate) fn check_sortition_exists(
-        burn_dbconn: &mut SortitionHandleTx,
-        block_consensus_hash: &ConsensusHash,
-    ) -> Result<(BurnchainHeaderHash, u64), ChainstateError> {
-        // check that the burnchain block that this block is associated with has been processed.
-        // N.B. we must first get its hash, and then verify that it's in the same Bitcoin fork as
-        // our `burn_dbconn` indicates.
-        let burn_header_hash =
-            SortitionDB::get_burnchain_header_hash_by_consensus(burn_dbconn, block_consensus_hash)?
-                .ok_or_else(|| {
-                    warn!(
-                        "Unrecognized consensus hash";
-                        "consensus_hash" => %block_consensus_hash,
-                    );
-                    ChainstateError::NoSuchBlockError
-                })?;
-
-        let sortition_tip = burn_dbconn.context.chain_tip.clone();
-        let burn_header_height = burn_dbconn
-            .get_block_snapshot(&burn_header_hash, &sortition_tip)?
-            .ok_or_else(|| {
-                warn!(
-                    "Tried to process Nakamoto block before its burn view was processed";
-                    "burn_header_hash" => %burn_header_hash,
-                );
-                ChainstateError::NoSuchBlockError
-            })?
-            .block_height;
-
-        Ok((burn_header_hash, burn_header_height))
-    }
-
-    /// Check that this block is in the same tenure as its parent, and that this tenure is the
-    /// highest-seen tenure.
-    /// Returns Ok(bool) to indicate whether or not this block is in the same tenure as its parent.
-    /// Returns Err(..) on DB error
-    /// TODO: unit test
-    pub(crate) fn check_tenure_continuity(
-        headers_conn: &Connection,
-        sort_tx: &mut SortitionHandleTx,
-        parent_ch: &ConsensusHash,
-        block_header: &NakamotoBlockHeader,
-    ) -> Result<bool, ChainstateError> {
-        // block must have the same consensus hash as its parent
-        if block_header.is_first_mined() || parent_ch != &block_header.consensus_hash {
-            return Ok(false);
-        }
-
-        // block must be in the same tenure as the highest-processed tenure
-        let Some(highest_tenure) = Self::get_highest_nakamoto_tenure(headers_conn, sort_tx)? else {
-            // no tenures yet, so definitely not continuous
-            return Ok(false);
-        };
-
-        if &highest_tenure.consensus_hash != parent_ch {
-            // this block is not in the highest-known tenure, so it can't be continuous
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
-    /// Calculate the scheduled block-reward for this tenure.
-    /// - chainstate_tx: the transaction open against the chainstate
-    /// - burn_dbconn: the sortition fork tx open against the sortition DB
-    /// - block: the block being processed
-    /// - parent_tenure_height: the number of tenures represented by the parent of this block
-    /// - chain_tip_burn_header_height: the height of the burnchain block mined when this block was
-    /// produced
-    /// - burnchain_commit_burn: how many burnchain tokens were spent by this block's tenure's block-commit
-    /// - burnchain_sortition_burn: total burnchain tokens spent by all miners for this block's
-    /// tenure
-    ///
-    /// Returns the scheduled reward for this block's miner, subject to:
-    /// - accumulated STX from missed sortitions
-    /// - initial mining bonus, if any
-    /// - the coinbase reward at this burnchain block height
-    /// - the parent tenure's total fees
-    ///
-    /// TODO: unit test
-    pub(crate) fn calculate_scheduled_tenure_reward(
-        chainstate_tx: &mut ChainstateTx,
-        burn_dbconn: &mut SortitionHandleTx,
-        block: &NakamotoBlock,
-        evaluated_epoch: StacksEpochId,
-        parent_tenure_height: u64,
-        chain_tip_burn_header_height: u64,
-        burnchain_commit_burn: u64,
-        burnchain_sortition_burn: u64,
-    ) -> Result<MinerPaymentSchedule, ChainstateError> {
-        let mainnet = chainstate_tx.get_config().mainnet;
-
-        // figure out if there any accumulated rewards by
-        //   getting the snapshot that elected this block.
-        let accumulated_rewards = SortitionDB::get_block_snapshot_consensus(
-            burn_dbconn.tx(),
-            &block.header.consensus_hash,
-        )?
-        .expect("CORRUPTION: failed to load snapshot that elected processed block")
-        .accumulated_coinbase_ustx;
-
-        let coinbase_at_block = StacksChainState::get_coinbase_reward(
-            chain_tip_burn_header_height,
-            burn_dbconn.context.first_block_height,
-        );
-
-        let total_coinbase = coinbase_at_block.saturating_add(accumulated_rewards);
-        let parent_tenure_start_header: StacksHeaderInfo = Self::get_header_by_tenure_height(
-            chainstate_tx,
-            &block.header.parent_block_id,
-            parent_tenure_height,
-        )?
-        .ok_or_else(|| {
-            warn!("While processing tenure change, failed to look up parent tenure";
-                  "parent_tenure_height" => parent_tenure_height,
-                  "parent_block_id" => %block.header.parent_block_id,
-                  "block_hash" => %block.header.block_hash(),
-                  "block_consensus_hash" => %block.header.consensus_hash);
-            ChainstateError::NoSuchBlockError
-        })?;
-        // fetch the parent tenure fees by reading the total tx fees from this block's
-        // *parent* (not parent_tenure_start_header), because `parent_block_id` is the last
-        // block of that tenure, so contains a total fee accumulation for the whole tenure
-        let parent_tenure_fees = if parent_tenure_start_header.is_nakamoto_block() {
-            Self::get_total_tenure_tx_fees_at(
-                chainstate_tx,
-                &block.header.parent_block_id
-            )?.ok_or_else(|| {
-                warn!("While processing tenure change, failed to look up parent block's total tx fees";
-                      "parent_block_id" => %block.header.parent_block_id,
-                      "block_hash" => %block.header.block_hash(),
-                      "block_consensus_hash" => %block.header.consensus_hash);
-                ChainstateError::NoSuchBlockError
-            })?
-        } else {
-            // if the parent tenure is an epoch-2 block, don't pay
-            // any fees to them in this schedule: nakamoto blocks
-            // cannot confirm microblock transactions, and
-            // anchored transactions are scheduled
-            // by the parent in epoch-2.
-            0
-        };
-
-        Ok(Self::make_scheduled_miner_reward(
-            mainnet,
-            evaluated_epoch,
-            &parent_tenure_start_header.anchored_header.block_hash(),
-            &parent_tenure_start_header.consensus_hash,
-            &block.header.block_hash(),
-            &block.header.consensus_hash,
-            block.header.chain_length,
-            block
-                .get_coinbase_tx()
-                .ok_or(ChainstateError::InvalidStacksBlock(
-                    "No coinbase transaction in tenure changing block".into(),
-                ))?,
-            parent_tenure_fees,
-            burnchain_commit_burn,
-            burnchain_sortition_burn,
-            total_coinbase,
-        ))
-    }
-
-    /// Get the burnchain block info of a given tenure's consensus hash.
-    /// Used for the tx receipt.
-    /// TODO: unit test
-    pub(crate) fn get_tenure_burn_block_info(
-        burn_dbconn: &Connection,
-        first_mined: bool,
-        ch: &ConsensusHash,
-    ) -> Result<(BurnchainHeaderHash, u64, u64), ChainstateError> {
-        // get burn block stats, for the transaction receipt
-        let (burn_block_hash, burn_block_height, burn_block_timestamp) = if first_mined {
-            (BurnchainHeaderHash([0; 32]), 0, 0)
-        } else {
-            match SortitionDB::get_block_snapshot_consensus(burn_dbconn, ch)? {
-                Some(sn) => (
-                    sn.burn_header_hash,
-                    sn.block_height,
-                    sn.burn_header_timestamp,
-                ),
-                None => {
-                    // shouldn't happen
-                    warn!("CORRUPTION: {} does not correspond to a burn block", ch,);
-                    (BurnchainHeaderHash([0; 32]), 0, 0)
-                }
-            }
-        };
-
-        Ok((burn_block_hash, burn_block_height, burn_block_timestamp))
-    }
-
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     pub fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
@@ -3144,18 +2644,36 @@ impl NakamotoChainState {
             false
         };
 
-        let parent_tenure_height = if block.is_first_mined() {
+        let tenure_extend = if let Some(tenure_extend) = block.is_wellformed_tenure_extend_block() {
+            if !tenure_extend {
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Invalid tenure extend in nakamoto block".into(),
+                ));
+            }
+            if new_tenure {
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Both started and extended tenure".into(),
+                ));
+            }
+            true
+        } else {
+            false
+        };
+
+        let parent_coinbase_height = if block.is_first_mined() {
             0
         } else {
-            Self::get_tenure_height(chainstate_tx.deref(), &parent_block_id)?.ok_or_else(|| {
-                warn!(
-                    "Parent of Nakamoto block in block headers DB yet";
-                    "block_hash" => %block.header.block_hash(),
-                    "parent_block_hash" => %parent_block_hash,
-                    "parent_block_id" => %parent_block_id
-                );
-                ChainstateError::NoSuchBlockError
-            })?
+            Self::get_coinbase_height(chainstate_tx.deref(), &parent_block_id)?.ok_or_else(
+                || {
+                    warn!(
+                        "Parent of Nakamoto block in block headers DB yet";
+                        "block_hash" => %block.header.block_hash(),
+                        "parent_block_hash" => %parent_block_hash,
+                        "parent_block_id" => %parent_block_id
+                    );
+                    ChainstateError::NoSuchBlockError
+                },
+            )?
         };
 
         // verify VRF proof, if present
@@ -3176,18 +2694,29 @@ impl NakamotoChainState {
 
         // process the tenure-change if it happened, so that when block-processing begins, it happens in whatever the
         // current tenure is
-        let tenure_height =
-            Self::advance_nakamoto_tenure(chainstate_tx, burn_dbconn, block, parent_tenure_height)?;
+        let coinbase_height = Self::advance_nakamoto_tenure(
+            chainstate_tx,
+            burn_dbconn,
+            block,
+            parent_coinbase_height,
+        )?;
         if new_tenure {
             // tenure height must have advanced
-            if tenure_height
-                != parent_tenure_height
+            if coinbase_height
+                != parent_coinbase_height
                     .checked_add(1)
                     .expect("Too many tenures")
             {
                 // this should be unreachable
                 return Err(ChainstateError::InvalidStacksBlock(
                     "Could not advance tenure, even though tenure changed".into(),
+                ));
+            }
+        } else {
+            if coinbase_height != parent_coinbase_height {
+                // this should be unreachable
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "Advanced tenure even though a new tenure did not happen".into(),
                 ));
             }
         }
@@ -3217,7 +2746,8 @@ impl NakamotoChainState {
                 ChainstateError::InvalidStacksBlock("Burn block height exceeded u32".into())
             })?,
             new_tenure,
-            tenure_height,
+            coinbase_height,
+            tenure_extend,
         )?;
 
         let starting_cost = clarity_tx.cost_so_far();
@@ -3328,7 +2858,7 @@ impl NakamotoChainState {
                 burn_dbconn,
                 block,
                 evaluated_epoch,
-                parent_tenure_height,
+                parent_coinbase_height,
                 chain_tip_burn_header_height.into(),
                 burnchain_commit_burn,
                 burnchain_sortition_burn,
