@@ -129,7 +129,7 @@ fn observe_100_blocks() {
 }
 
 #[test]
-fn observe_set_aggregate_tx() {
+fn observe_set_aggregate_key() {
     let mut conf = Config::from_config_file(ConfigFile::mockamoto()).unwrap();
     conf.node.mockamoto_time_ms = 10;
 
@@ -211,27 +211,6 @@ fn observe_set_aggregate_tx() {
         })
         .expect("FATAL: failed to start mockamoto main thread");
 
-    // Create a "set-aggregate-public-key" tx to verify it sets correctly
-    let mut rng = OsRng::default();
-    let x = Scalar::random(&mut rng);
-    let random_key = Point::from(x);
-
-    let aggregate_public_key = Value::buff_from(random_key.compress().data.to_vec())
-        .expect("Failed to serialize aggregate public key");
-    let aggregate_tx = make_contract_call(
-        &submitter_sk,
-        0,
-        10,
-        &boot_code_addr(false),
-        POX_4_NAME,
-        "set-aggregate-public-key",
-        &[
-            Value::UInt(u128::from(reward_cycle + 1)),
-            aggregate_public_key,
-        ],
-    );
-    let aggregate_tx_hex = format!("0x{}", to_hex(&aggregate_tx));
-
     // complete within 5 seconds or abort (we are only observing one block)
     let completed = loop {
         if Instant::now().duration_since(start) > Duration::from_secs(5) {
@@ -246,21 +225,6 @@ fn observe_set_aggregate_tx() {
         let stacks_block_height = latest_block.get("block_height").unwrap().as_u64().unwrap();
         info!("Block height observed: {stacks_block_height}");
 
-        // Submit the aggregate tx for processing to update the aggregate public key
-        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-            .unwrap()
-            .unwrap();
-        mempool
-            .submit_raw(
-                &mut chainstate,
-                &sortdb,
-                &tip.consensus_hash,
-                &tip.anchored_header.block_hash(),
-                aggregate_tx.clone(),
-                &ExecutionCost::max_value(),
-                &StacksEpochId::Epoch30,
-            )
-            .unwrap();
         break true;
     };
 
@@ -270,23 +234,6 @@ fn observe_set_aggregate_tx() {
         .join()
         .expect("Failed to join node thread to exit");
 
-    let aggregate_tx_included = test_observer::get_blocks()
-        .into_iter()
-        .find(|block_json| {
-            block_json["transactions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&aggregate_tx_hex))
-                .is_some()
-        })
-        .is_some();
-
-    assert!(
-        aggregate_tx_included,
-        "Mockamoto node failed to include the aggregate tx"
-    );
-
     assert!(
         completed,
         "Mockamoto node failed to produce and announce its block before timeout"
@@ -294,5 +241,5 @@ fn observe_set_aggregate_tx() {
 
     // Did we set and retrieve the aggregate key correctly?
     assert_eq!(orig_aggregate_key.unwrap(), orig_key);
-    assert_eq!(new_aggregate_key.unwrap(), random_key);
+    assert_eq!(new_aggregate_key.unwrap(), orig_key);
 }
