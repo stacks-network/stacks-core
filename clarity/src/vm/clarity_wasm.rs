@@ -1813,7 +1813,7 @@ fn wasm_to_clarity_value(
                 index += increment;
             }
             let tuple = TupleData::from_data(data_map)?;
-            Ok((Some(tuple.into()), index))
+            Ok((Some(tuple.into()), index - value_index))
         }
         TypeSignature::TraitReferenceType(_t) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
