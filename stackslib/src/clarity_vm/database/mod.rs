@@ -24,7 +24,9 @@ use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{
     ChainstateTx, MinerPaymentSchedule, StacksChainState, StacksHeaderInfo,
 };
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MARF};
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieMerkleProof};
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::clarity_vm::special::handle_contract_call_special_cases;
@@ -186,7 +188,10 @@ impl<'a> HeadersDB for ChainstateTx<'a> {
     }
 }
 
-impl HeadersDB for MARF<StacksBlockId> {
+impl<Conn> HeadersDB for MARF<StacksBlockId, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn get_stacks_block_header_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
@@ -372,11 +377,14 @@ pub trait SortitionDBRef: BurnStateDB {
     fn sqlite_conn(&self) -> &Connection;
 }
 
-fn get_pox_start_cycle_info(
-    handle: &mut SortitionHandleConn,
+fn get_pox_start_cycle_info<Conn>(
+    handle: &mut SortitionHandleConn<Conn>,
     parent_stacks_block_burn_ht: u64,
     cycle_index: u64,
-) -> Result<Option<PoxStartCycleInfo>, ChainstateError> {
+) -> Result<Option<PoxStartCycleInfo>, ChainstateError> 
+where
+    Conn: DbConnection + TrieDb
+{
     let descended_from_last_pox_anchor = match handle.get_last_anchor_block_hash()? {
         Some(pox_anchor) => handle.descended_from(parent_stacks_block_burn_ht, &pox_anchor)?,
         None => return Ok(None),
@@ -421,7 +429,10 @@ impl SortitionDBRef for SortitionHandleTx<'_> {
     }
 }
 
-impl SortitionDBRef for SortitionDBConn<'_> {
+impl<Conn> SortitionDBRef for SortitionDBConn<'_, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn get_pox_start_cycle_info(
         &self,
         sortition_id: &SortitionId,
@@ -563,7 +574,10 @@ impl BurnStateDB for SortitionHandleTx<'_> {
     }
 }
 
-impl BurnStateDB for SortitionDBConn<'_> {
+impl<Conn> BurnStateDB for SortitionDBConn<'_, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         match SortitionDB::get_block_snapshot(self.conn(), sortition_id) {
             Ok(Some(x)) => Some(x.block_height as u32),

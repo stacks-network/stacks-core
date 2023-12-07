@@ -31,6 +31,8 @@ use {serde, serde_json};
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::{decode_tx_stream, MemPoolDB, MemPoolSyncData};
 use crate::net::http::{
     parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
@@ -248,7 +250,10 @@ impl HttpRequest for RPCMempoolQueryRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCMempoolQueryRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.mempool_query = None;
@@ -260,7 +265,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let mempool_query = self
             .mempool_query

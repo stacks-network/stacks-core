@@ -58,6 +58,9 @@ use crate::core::{
 use crate::util_lib::boot;
 use crate::util_lib::strings::VecDisplay;
 
+use super::index::db::DbConnection;
+use super::index::trie_db::TrieDb;
+
 const BOOT_CODE_POX_BODY: &'static str = std::include_str!("pox.clar");
 const BOOT_CODE_POX_TESTNET_CONSTS: &'static str = std::include_str!("pox-testnet.clar");
 const BOOT_CODE_POX_MAINNET_CONSTS: &'static str = std::include_str!("pox-mainnet.clar");
@@ -193,7 +196,10 @@ impl RewardSet {
     }
 }
 
-impl StacksChainState {
+impl<Conn> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Return the MARF key used to store whether or not a given PoX
     ///  cycle's "start" has been handled by the Stacks fork yet. This
     ///  is used in Stacks 2.1 to help process unlocks.
@@ -450,7 +456,7 @@ impl StacksChainState {
 
     fn eval_boot_code_read_only(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         stacks_block_id: &StacksBlockId,
         boot_contract_name: &str,
         code: &str,
@@ -485,7 +491,7 @@ impl StacksChainState {
     #[cfg(test)]
     pub fn get_stacking_minimum(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         stacks_block_id: &StacksBlockId,
     ) -> Result<u128, Error> {
         self.eval_boot_code_read_only(
@@ -499,7 +505,7 @@ impl StacksChainState {
 
     pub fn get_total_ustx_stacked(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         tip: &StacksBlockId,
         reward_cycle: u128,
         pox_contract: &str,
@@ -538,7 +544,7 @@ impl StacksChainState {
     #[cfg(test)]
     pub fn test_get_total_ustx_stacked(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         stacks_block_id: &StacksBlockId,
         reward_cycle: u128,
     ) -> Result<u128, Error> {
@@ -554,7 +560,7 @@ impl StacksChainState {
     /// Is PoX active in the given reward cycle?
     pub fn is_pox_active(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         stacks_block_id: &StacksBlockId,
         reward_cycle: u128,
         pox_contract: &str,
@@ -723,7 +729,7 @@ impl StacksChainState {
 
     fn get_reward_addresses_pox_1(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
@@ -801,7 +807,7 @@ impl StacksChainState {
 
     fn get_reward_addresses_pox_2(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
@@ -890,7 +896,7 @@ impl StacksChainState {
 
     fn get_reward_addresses_pox_3(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
@@ -981,7 +987,7 @@ impl StacksChainState {
     /// TODO: also return their stacker signer keys (as part of `RawRewardSetEntry`
     fn get_reward_addresses_pox_4(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
@@ -1074,7 +1080,7 @@ impl StacksChainState {
     pub fn get_reward_addresses(
         &mut self,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         current_burn_height: u64,
         block_id: &StacksBlockId,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
@@ -1090,7 +1096,7 @@ impl StacksChainState {
     pub fn get_reward_addresses_in_cycle(
         &mut self,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         reward_cycle: u64,
         block_id: &StacksBlockId,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
@@ -1131,7 +1137,7 @@ impl StacksChainState {
     /// Get the aggregate public key for a given reward cycle from pox 4
     pub fn get_aggregate_public_key_pox_4(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Option<Point>, Error> {
@@ -1396,19 +1402,25 @@ pub mod test {
         .unwrap()
     }
 
-    pub fn instantiate_pox_peer<'a>(
+    pub fn instantiate_pox_peer<'a, Conn>(
         burnchain: &Burnchain,
         test_name: &str,
-    ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
+    ) -> (TestPeer<'a, Conn>, Vec<StacksPrivateKey>) 
+    where
+        Conn: DbConnection + TrieDb
+    {
         instantiate_pox_peer_with_epoch(burnchain, test_name, None, None)
     }
 
-    pub fn instantiate_pox_peer_with_epoch<'a>(
+    pub fn instantiate_pox_peer_with_epoch<'a, Conn>(
         burnchain: &Burnchain,
         test_name: &str,
         epochs: Option<Vec<StacksEpoch>>,
         observer: Option<&'a TestEventObserver>,
-    ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
+    ) -> (TestPeer<'a, Conn>, Vec<StacksPrivateKey>)
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
         peer_config.burnchain = burnchain.clone();
         peer_config.epochs = epochs;
@@ -1455,7 +1467,14 @@ pub mod test {
         (peer, keys.to_vec())
     }
 
-    pub fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
+    pub fn eval_at_tip<Conn>(
+        peer: &mut TestPeer<Conn>, 
+        boot_contract: &str, 
+        expr: &str
+    ) -> Value 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -1478,12 +1497,15 @@ pub mod test {
         )
     }
 
-    fn eval_contract_at_tip(
-        peer: &mut TestPeer,
+    fn eval_contract_at_tip<Conn>(
+        peer: &mut TestPeer<Conn>,
         addr: &StacksAddress,
         name: &str,
         expr: &str,
-    ) -> Value {
+    ) -> Value 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -1499,7 +1521,12 @@ pub mod test {
         value
     }
 
-    pub fn get_liquid_ustx(peer: &mut TestPeer) -> u128 {
+    pub fn get_liquid_ustx<Conn>(
+        peer: &mut TestPeer<Conn>,
+    ) -> u128 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let value = eval_at_tip(peer, "pox", "stx-liquid-supply");
         if let Value::UInt(inner_uint) = value {
             return inner_uint;
@@ -1508,7 +1535,13 @@ pub mod test {
         }
     }
 
-    pub fn get_balance(peer: &mut TestPeer, addr: &PrincipalData) -> u128 {
+    pub fn get_balance<Conn>(
+        peer: &mut TestPeer<Conn>, 
+        addr: &PrincipalData
+    ) -> u128 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let value = eval_at_tip(
             peer,
             "pox",
@@ -1521,10 +1554,13 @@ pub mod test {
         }
     }
 
-    pub fn get_stacker_info(
-        peer: &mut TestPeer,
+    pub fn get_stacker_info<Conn>(
+        peer: &mut TestPeer<Conn>,
         addr: &PrincipalData,
-    ) -> Option<(u128, PoxAddress, u128, u128)> {
+    ) -> Option<(u128, PoxAddress, u128, u128)> 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let value_opt = eval_at_tip(
             peer,
             "pox",
@@ -1549,9 +1585,10 @@ pub mod test {
         Some((amount_ustx, pox_addr, lock_period, first_reward_cycle))
     }
 
-    pub fn with_sortdb<F, R>(peer: &mut TestPeer, todo: F) -> R
+    pub fn with_sortdb<Conn, F, R>(peer: &mut TestPeer<Conn>, todo: F) -> R
     where
-        F: FnOnce(&mut StacksChainState, &SortitionDB) -> R,
+        F: FnOnce(&mut StacksChainState<Conn>, &SortitionDB<Conn>) -> R,
+        Conn: DbConnection + TrieDb,
     {
         let sortdb = peer.sortdb.take().unwrap();
         let r = todo(peer.chainstate(), &sortdb);
@@ -1559,7 +1596,13 @@ pub mod test {
         r
     }
 
-    pub fn get_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
+    pub fn get_account<Conn>(
+        peer: &mut TestPeer<Conn>, 
+        addr: &PrincipalData
+    ) -> StacksAccount 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let account = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -1573,7 +1616,13 @@ pub mod test {
         account
     }
 
-    fn get_contract(peer: &mut TestPeer, addr: &QualifiedContractIdentifier) -> Option<Contract> {
+    fn get_contract<Conn>(
+        peer: &mut TestPeer<Conn>, 
+        addr: &QualifiedContractIdentifier
+    ) -> Option<Contract> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let contract_opt = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
@@ -2024,12 +2073,15 @@ pub mod test {
         make_pox_contract_call(key, nonce, "reject-pox", vec![])
     }
 
-    pub fn get_reward_addresses_with_par_tip(
-        state: &mut StacksChainState,
+    pub fn get_reward_addresses_with_par_tip<Conn>(
+        state: &mut StacksChainState<Conn>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<(PoxAddress, u128)>, Error> {
+    ) -> Result<Vec<(PoxAddress, u128)>, Error> 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let burn_block_height = get_par_burn_block_height(state, block_id);
         get_reward_set_entries_at_block(state, burnchain, sortdb, block_id, burn_block_height).map(
             |addrs| {
@@ -2041,13 +2093,16 @@ pub mod test {
         )
     }
 
-    pub fn get_reward_set_entries_at_block(
-        state: &mut StacksChainState,
+    pub fn get_reward_set_entries_at_block<Conn>(
+        state: &mut StacksChainState<Conn>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
         burn_block_height: u64,
-    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+    ) -> Result<Vec<RawRewardSetEntry>, Error> 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         state
             .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
             .and_then(|mut addrs| {
@@ -2056,11 +2111,14 @@ pub mod test {
             })
     }
 
-    pub fn get_parent_tip(
+    pub fn get_parent_tip<Conn>(
         parent_opt: &Option<&StacksBlock>,
-        chainstate: &StacksChainState,
-        sortdb: &SortitionDB,
-    ) -> StacksHeaderInfo {
+        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
+    ) -> StacksHeaderInfo 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
             None => StacksChainState::get_genesis_header_info(chainstate.db()).unwrap(),
@@ -2477,10 +2535,13 @@ pub mod test {
         }
     }
 
-    pub fn get_par_burn_block_height(
-        state: &mut StacksChainState,
+    pub fn get_par_burn_block_height<Conn>(
+        state: &mut StacksChainState<Conn>,
         block_id: &StacksBlockId,
-    ) -> u64 {
+    ) -> u64 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let parent_block_id = StacksChainState::get_parent_block_id(state.db(), block_id)
             .unwrap()
             .unwrap();

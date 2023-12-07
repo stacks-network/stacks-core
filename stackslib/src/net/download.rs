@@ -36,6 +36,7 @@ use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, Sortiti
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{Error as chainstate_error, StacksBlockHeader};
 use crate::core::{
     EMPTY_MICROBLOCK_PARENT_HASH, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -431,7 +432,13 @@ impl BlockDownloader {
     /// Finish fetching blocks.  Return true once all reply handles have been fulfilled (either
     /// with data, or with an error).
     /// Store blocks as we get them.
-    pub fn getblocks_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn getblocks_try_finish<Conn>(
+        &mut self, 
+        network: &mut PeerNetwork<Conn>
+    ) -> Result<bool, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksFinish);
 
         // requests that are still pending
@@ -557,10 +564,13 @@ impl BlockDownloader {
         self.state = BlockDownloaderState::GetMicroblocksFinish;
     }
 
-    pub fn getmicroblocks_try_finish(
+    pub fn getmicroblocks_try_finish<Conn>(
         &mut self,
-        network: &mut PeerNetwork,
-    ) -> Result<bool, net_error> {
+        network: &mut PeerNetwork<Conn>,
+    ) -> Result<bool, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksFinish);
 
         // requests that are still pending
@@ -684,14 +694,17 @@ impl BlockDownloader {
     /// Get the availability of each block in the given sortition range, using the inv state.
     /// Return the local block headers, paired with the list of peers that can serve them.
     /// Possibly less than the given range request.
-    pub fn get_block_availability(
+    pub fn get_block_availability<Conn>(
         _local_peer: &LocalPeer,
         inv_state: &InvState,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         header_cache: &mut BlockHeaderCache,
         sortition_height_start: u64,
         mut sortition_height_end: u64,
-    ) -> Result<Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)>, net_error> {
+    ) -> Result<Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)>, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let first_block_height = sortdb.first_block_height;
 
         // what blocks do we have in this range?
@@ -836,13 +849,16 @@ impl BlockDownloader {
 
     /// Find out which neighbors can serve a confirmed microblock stream, given the
     /// burn/block-header-hashes of the sortition that _produced_ them.
-    fn get_microblock_stream_availability(
+    fn get_microblock_stream_availability<Conn>(
         _local_peer: &LocalPeer,
         inv_state: &InvState,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-    ) -> Result<Vec<NeighborKey>, net_error> {
+    ) -> Result<Vec<NeighborKey>, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)?
             .ok_or_else(|| net_error::DBError(db_error::NotFoundError))?;
 
@@ -1024,10 +1040,13 @@ impl BlockDownloader {
     }
 }
 
-impl PeerNetwork {
+impl<Conn> PeerNetwork<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn with_downloader_state<F, R>(&mut self, handler: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut BlockDownloader) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork<Conn>, &mut BlockDownloader) -> Result<R, net_error>,
     {
         let mut downloader = self.block_downloader.take();
         let res = match downloader {
@@ -1070,7 +1089,7 @@ impl PeerNetwork {
     /// already have an anchored block?
     fn need_anchored_block(
         _local_peer: &LocalPeer,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<bool, net_error> {
@@ -1092,7 +1111,7 @@ impl PeerNetwork {
     /// Are we able to download a microblock stream between two blocks at this time?
     pub fn can_download_microblock_stream(
         _local_peer: &LocalPeer,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<Conn>,
         parent_consensus_hash: &ConsensusHash,
         parent_block_hash: &BlockHeaderHash,
         child_consensus_hash: &ConsensusHash,
@@ -1187,8 +1206,8 @@ impl PeerNetwork {
     /// sortitions.  The same keys can be used to fetch confirmed microblock streams.
     fn make_requests(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<Conn>,
         downloader: &BlockDownloader,
         start_sortition_height: u64,
         microblocks: bool,
@@ -1532,8 +1551,8 @@ impl PeerNetwork {
     /// Make requests for missing anchored blocks
     fn make_block_requests(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         downloader: &BlockDownloader,
         start_sortition_height: u64,
     ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
@@ -1549,8 +1568,8 @@ impl PeerNetwork {
     /// Make requests for missing confirmed microblocks
     fn make_confirmed_microblock_requests(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         downloader: &BlockDownloader,
         start_sortition_height: u64,
     ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
@@ -1570,8 +1589,8 @@ impl PeerNetwork {
     /// Go start resolving block URLs to their IP addresses
     pub fn block_dns_lookups_begin(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         dns_client: &mut DNSClient,
     ) -> Result<(), net_error> {
         test_debug!("{:?}: block_dns_lookups_begin", &self.local_peer);
@@ -1912,7 +1931,7 @@ impl PeerNetwork {
     /// sends out a request via the HTTP peer.  Returns the event ID in the http peer that's
     /// handling the request.
     pub fn begin_request<T: Requestable>(
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<Conn>,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
     ) -> Option<(T, usize)> {
@@ -2054,8 +2073,8 @@ impl PeerNetwork {
     /// Returns (done?, at-chain-tip?, blocks-we-got, microblocks-we-got) on success
     fn finish_downloads(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
     ) -> Result<
         (
             bool,
@@ -2338,8 +2357,8 @@ impl PeerNetwork {
     /// * List of broken p2p neighbor keys to disconnect from
     pub fn download_blocks(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         dns_client: &mut DNSClient,
         ibd: bool,
     ) -> Result<
@@ -2535,11 +2554,14 @@ pub mod test {
     use crate::util_lib::strings::*;
     use crate::util_lib::test::*;
 
-    fn get_peer_availability(
-        peer: &mut TestPeer,
+    fn get_peer_availability<Conn>(
+        peer: &mut TestPeer<Conn>,
         start_height: u64,
         end_height: u64,
-    ) -> Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> {
+    ) -> Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let inv_state = peer.network.inv_state.take().unwrap();
         let availability = peer
             .with_network_state(
@@ -2712,11 +2734,14 @@ pub mod test {
         })
     }
 
-    fn get_blocks_inventory(
-        peer: &mut TestPeer,
+    fn get_blocks_inventory<Conn>(
+        peer: &mut TestPeer<Conn>,
         start_height: u64,
         end_height: u64,
-    ) -> BlocksInvData {
+    ) -> BlocksInvData 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let block_hashes = {
             let num_headers = end_height - start_height;
             let ic = peer.sortdb.as_mut().unwrap().index_conn();
@@ -2739,7 +2764,7 @@ pub mod test {
         inv
     }
 
-    pub fn run_get_blocks_and_microblocks<T, F, P, C, D>(
+    pub fn run_get_blocks_and_microblocks<Conn, T, F, P, C, D>(
         test_name: &str,
         port_base: u16,
         num_peers: usize,
@@ -2748,20 +2773,21 @@ pub mod test {
         mut peer_func: P,
         mut check_breakage: C,
         mut done_func: D,
-    ) -> Vec<TestPeer>
+    ) -> Vec<TestPeer<Conn>>
     where
+        Conn: DbConnection + TrieDb,
         T: FnOnce(&mut Vec<TestPeerConfig>) -> (),
         F: FnOnce(
             usize,
-            &mut Vec<TestPeer>,
+            &mut Vec<TestPeer<Conn>>,
         ) -> Vec<(
             ConsensusHash,
             Option<StacksBlock>,
             Option<Vec<StacksMicroblock>>,
         )>,
-        P: FnMut(&mut Vec<TestPeer>) -> (),
-        C: FnMut(&mut TestPeer) -> bool,
-        D: FnMut(&mut Vec<TestPeer>) -> bool,
+        P: FnMut(&mut Vec<TestPeer<Conn>>) -> (),
+        C: FnMut(&mut TestPeer<Conn>) -> bool,
+        D: FnMut(&mut Vec<TestPeer<Conn>>) -> bool,
     {
         assert!(num_peers > 0);
         let first_sortition_height = 0;
@@ -3101,10 +3127,10 @@ pub mod test {
         })
     }
 
-    fn make_contract_call_transaction(
+    fn make_contract_call_transaction<Conn>(
         miner: &mut TestMiner,
-        sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &mut SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         spending_account: &mut TestMiner,
         contract_address: StacksAddress,
         contract_name: &str,
@@ -3113,7 +3139,10 @@ pub mod test {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         nonce_offset: u64,
-    ) -> StacksTransaction {
+    ) -> StacksTransaction 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let tx_cc = {
             let mut tx_cc = StacksTransaction::new(
                 TransactionVersion::Testnet,

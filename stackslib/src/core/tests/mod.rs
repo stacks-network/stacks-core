@@ -45,6 +45,8 @@ use crate::chainstate::stacks::db::test::{
 };
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{MarfTrieId, TrieHashExtension};
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::test::codec_all_transactions;
@@ -81,13 +83,16 @@ fn mempool_db_init() {
     let _mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 }
 
-pub fn make_block(
-    chainstate: &mut StacksChainState,
+pub fn make_block<Conn>(
+    chainstate: &mut StacksChainState<Conn>,
     block_consensus: ConsensusHash,
     parent: &(ConsensusHash, BlockHeaderHash),
     burn_height: u64,
     block_height: u64,
-) -> (ConsensusHash, BlockHeaderHash) {
+) -> (ConsensusHash, BlockHeaderHash) 
+where
+    Conn: DbConnection + TrieDb
+{
     let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
 
     let anchored_header = StacksBlockHeader {

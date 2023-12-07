@@ -58,6 +58,8 @@ use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::blocks::{CheckError, MINIMUM_TX_FEE_RATE_PER_BYTE};
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{Error as chain_error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::{ClarityConnection, Error as clarity_error};
 use crate::clarity_vm::database::marf::MarfedKV;
@@ -82,9 +84,12 @@ use crate::{monitoring, version_string};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
-pub struct ConversationHttp {
+pub struct ConversationHttp<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// send/receive buffering state-machine for interfacing with a non-blocking socket
-    connection: ConnectionHttp,
+    connection: ConnectionHttp<Conn>,
     /// poll ID for this struct's associated socket
     conn_id: usize,
     /// time (in seconds) for how long an attempt to connect to a peer is allowed to take
@@ -110,9 +115,9 @@ pub struct ConversationHttp {
     /// stacks canonical chain tip that this peer reported
     canonical_stacks_tip_height: Option<u32>,
     /// Ongoing replies
-    reply_streams: VecDeque<(ReplyHandleHttp, HttpResponseContents, bool)>,
+    reply_streams: VecDeque<(ReplyHandleHttp<Conn>, HttpResponseContents, bool)>,
     /// outstanding request
-    pending_request: Option<ReplyHandleHttp>,
+    pending_request: Option<ReplyHandleHttp<Conn>>,
     /// outstanding response
     pending_response: Option<StacksHttpResponse>,
     /// whether or not there's an error response pending
@@ -121,7 +126,10 @@ pub struct ConversationHttp {
     socket_send_buffer_size: u32,
 }
 
-impl fmt::Display for ConversationHttp {
+impl<Conn> fmt::Display for ConversationHttp<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -133,7 +141,10 @@ impl fmt::Display for ConversationHttp {
     }
 }
 
-impl fmt::Debug for ConversationHttp {
+impl<Conn> fmt::Debug for ConversationHttp<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -145,7 +156,10 @@ impl fmt::Debug for ConversationHttp {
     }
 }
 
-impl ConversationHttp {
+impl<Conn> ConversationHttp<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn new(
         peer_addr: SocketAddr,
         outbound_url: Option<UrlString>,
@@ -153,7 +167,7 @@ impl ConversationHttp {
         conn_opts: &ConnectionOptions,
         conn_id: usize,
         socket_send_buffer_size: u32,
-    ) -> ConversationHttp {
+    ) -> ConversationHttp<Conn> {
         let stacks_http = StacksHttp::new(peer_addr.clone(), conn_opts);
         ConversationHttp {
             connection: ConnectionHttp::new(stacks_http, conn_opts, None),
@@ -199,7 +213,7 @@ impl ConversationHttp {
 
     /// Start a HTTP request from this peer, and expect a response.
     /// Returns the request handle; does not set the handle into this connection.
-    fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp, net_error> {
+    fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp<Conn>, net_error> {
         test_debug!(
             "{:?},id={}: Start HTTP request {:?}",
             &self.peer_host,
@@ -279,7 +293,7 @@ impl ConversationHttp {
     pub fn handle_request(
         &mut self,
         req: StacksHttpRequest,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<Option<StacksMessageType>, net_error> {
         // NOTE: This may set node.relay_message
         let keep_alive = req.preamble().keep_alive;
@@ -410,8 +424,8 @@ impl ConversationHttp {
     /// If we are not done yet, then return Ok(reply-handle) if we can try again, or net_error if
     /// we cannot.
     fn try_send_recv_response(
-        req: ReplyHandleHttp,
-    ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp, net_error>> {
+        req: ReplyHandleHttp<Conn>,
+    ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp<Conn>, net_error>> {
         match req.try_send_recv() {
             Ok(message) => match message {
                 StacksHttpMessage::Request(_) => {
@@ -520,7 +534,7 @@ impl ConversationHttp {
     /// Returns the list of messages we'll need to forward to the peer network
     pub fn chat(
         &mut self,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<Vec<StacksMessageType>, net_error> {
         // if we have an in-flight error, then don't take any more requests.
         if self.pending_error_response {

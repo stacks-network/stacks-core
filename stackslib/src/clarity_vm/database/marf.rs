@@ -14,7 +14,9 @@ use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MarfTransaction, MARF};
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{
     ClarityMarfTrieId, Error, MARFValue, MarfTrieId, TrieMerkleProof,
 };
@@ -29,17 +31,23 @@ use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 ///   loop will need to invoke these two methods (begin + commit) outside of the context of the VM.
 ///   NOTE: Clarity will panic if you try to execute it from a non-initialized MarfedKV context.
 ///   (See: vm::tests::with_marfed_environment())
-pub struct MarfedKV {
+pub struct MarfedKV<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     chain_tip: StacksBlockId,
-    marf: MARF<StacksBlockId>,
+    marf: MARF<StacksBlockId, Conn>,
 }
 
-impl MarfedKV {
+impl<Conn> MarfedKV<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn setup_db(
         path_str: &str,
         unconfirmed: bool,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MARF<StacksBlockId>> {
+    ) -> InterpreterResult<MARF<StacksBlockId, Conn>> {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
@@ -82,7 +90,7 @@ impl MarfedKV {
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MarfedKV> {
+    ) -> InterpreterResult<MarfedKV<Conn>> {
         let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -96,7 +104,7 @@ impl MarfedKV {
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MarfedKV> {
+    ) -> InterpreterResult<MarfedKV<Conn>> {
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -107,7 +115,7 @@ impl MarfedKV {
     }
 
     // used by benchmarks
-    pub fn temporary() -> MarfedKV {
+    pub fn temporary() -> MarfedKV<Conn> {
         use std::env;
 
         use rand::Rng;
@@ -140,7 +148,7 @@ impl MarfedKV {
     pub fn begin_read_only<'a>(
         &'a mut self,
         at_block: Option<&StacksBlockId>,
-    ) -> ReadOnlyMarfStore<'a> {
+    ) -> ReadOnlyMarfStore<'a, Conn> {
         let chain_tip = if let Some(at_block) = at_block {
             self.marf.open_block(at_block).unwrap_or_else(|e| {
                 error!(
@@ -162,7 +170,7 @@ impl MarfedKV {
     pub fn begin_read_only_checked<'a>(
         &'a mut self,
         at_block: Option<&StacksBlockId>,
-    ) -> InterpreterResult<ReadOnlyMarfStore<'a>> {
+    ) -> InterpreterResult<ReadOnlyMarfStore<'a, Conn>> {
         let chain_tip = if let Some(at_block) = at_block {
             self.marf.open_block(at_block).map_err(|e| {
                 debug!(
@@ -240,7 +248,7 @@ impl MarfedKV {
         &self.chain_tip
     }
 
-    pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId> {
+    pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId, Conn> {
         &mut self.marf
     }
 
@@ -249,7 +257,7 @@ impl MarfedKV {
         self.marf.sqlite_conn()
     }
 
-    pub fn index_conn<'a, C>(&'a self, context: C) -> IndexDBConn<'a, C, StacksBlockId> {
+    pub fn index_conn<'a, C>(&'a self, context: C) -> IndexDBConn<'a, Conn, C, StacksBlockId> {
         IndexDBConn {
             index: &self.marf,
             context,
@@ -262,12 +270,18 @@ pub struct WritableMarfStore<'a> {
     marf: MarfTransaction<'a, StacksBlockId>,
 }
 
-pub struct ReadOnlyMarfStore<'a> {
+pub struct ReadOnlyMarfStore<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     chain_tip: StacksBlockId,
-    marf: &'a mut MARF<StacksBlockId>,
+    marf: &'a mut MARF<StacksBlockId, Conn>,
 }
 
-impl<'a> ReadOnlyMarfStore<'a> {
+impl<'a, Conn> ReadOnlyMarfStore<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn as_clarity_db<'b>(
         &'b mut self,
         headers_db: &'b dyn HeadersDB,
@@ -288,7 +302,10 @@ impl<'a> ReadOnlyMarfStore<'a> {
     }
 }
 
-impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
+impl<'a, Conn> ClarityBackingStore for ReadOnlyMarfStore<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn get_side_store(&mut self) -> &Connection {
         self.marf.sqlite_conn()
     }

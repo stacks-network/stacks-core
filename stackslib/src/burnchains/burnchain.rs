@@ -62,6 +62,8 @@ use crate::chainstate::coordinator::comm::CoordinatorChannels;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::{POX_2_MAINNET_CODE, POX_2_TESTNET_CODE};
 use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::{
     StacksEpoch, StacksEpochId, MINING_COMMITMENT_WINDOW, NETWORK_ID_MAINNET, NETWORK_ID_TESTNET,
     PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_2_0_LAST_BLOCK_TO_PROCESS,
@@ -77,7 +79,9 @@ impl BurnchainStateTransitionOps {
             consumed_leader_keys: vec![],
         }
     }
-    pub fn from(o: BurnchainStateTransition) -> BurnchainStateTransitionOps {
+    pub fn from(
+        o: BurnchainStateTransition
+    ) -> BurnchainStateTransitionOps {
         BurnchainStateTransitionOps {
             accepted_ops: o.accepted_ops,
             consumed_leader_keys: o.consumed_leader_keys,
@@ -650,13 +654,16 @@ impl Burnchain {
     }
 
     /// Connect to the burnchain databases.  They may or may not already exist.
-    pub fn connect_db(
+    pub fn connect_db<Conn>(
         &self,
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
         epochs: Vec<StacksEpoch>,
-    ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
+    ) -> Result<(SortitionDB<Conn>, BurnchainDB), burnchain_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
         let db_path = self.get_db_path();
@@ -696,7 +703,13 @@ impl Burnchain {
     }
 
     /// Open just the sortition database
-    pub fn open_sortition_db(&self, readwrite: bool) -> Result<SortitionDB, burnchain_error> {
+    pub fn open_sortition_db<Conn>(
+        &self, 
+        readwrite: bool
+    ) -> Result<SortitionDB<Conn>, burnchain_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let sort_db_path = self.get_db_path();
         if let Err(e) = fs::metadata(&sort_db_path) {
             warn!(
@@ -711,7 +724,13 @@ impl Burnchain {
     }
 
     /// Open the burn databases.  They must already exist.
-    pub fn open_db(&self, readwrite: bool) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
+    pub fn open_db<Conn>(
+        &self, 
+        readwrite: bool
+    ) -> Result<(SortitionDB<Conn>, BurnchainDB), burnchain_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let burn_db = self.open_burnchain_db(readwrite)?;
         let sort_db = self.open_sortition_db(readwrite)?;
         Ok((sort_db, burn_db))
@@ -1037,13 +1056,17 @@ impl Burnchain {
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
     ///   *only* to be used by legacy stacks node interfaces, like the Helium node
-    pub fn process_block_and_sortition_deprecated<B: BurnchainHeaderReader>(
-        db: &mut SortitionDB,
+    pub fn process_block_and_sortition_deprecated<Conn, B>(
+        db: &mut SortitionDB<Conn>,
         burnchain_db: &mut BurnchainDB,
         burnchain: &Burnchain,
         indexer: &B,
         block: &BurnchainBlock,
-    ) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> {
+    ) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> 
+    where
+        Conn: DbConnection + TrieDb,
+        B: BurnchainHeaderReader,
+    {
         debug!(
             "Process block {} {}",
             block.block_height(),
@@ -1140,12 +1163,13 @@ impl Burnchain {
     /// Deprecated top-level burnchain sync.
     /// Returns (snapshot of new burnchain tip, last state-transition processed if any)
     /// If this method returns Err(burnchain_error::TrySyncAgain), then call this method again.
-    pub fn sync_with_indexer_deprecated<
-        I: BurnchainIndexer + BurnchainHeaderReader + 'static + Send,
-    >(
+    pub fn sync_with_indexer_deprecated<I>(
         &mut self,
         indexer: &mut I,
-    ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> {
+    ) -> Result<(BlockSnapshot, Option<BurnchainStateTransition>), burnchain_error> 
+    where
+        I: BurnchainIndexer + BurnchainHeaderReader + 'static + Send
+    {
         self.setup_chainstate(indexer)?;
         let (mut sortdb, mut burnchain_db) = self.connect_db(
             true,

@@ -108,14 +108,17 @@ pub const NEIGHBOR_WALK_INTERVAL: u64 = 0;
 #[cfg(not(test))]
 pub const NEIGHBOR_WALK_INTERVAL: u64 = 120; // seconds
 
-impl PeerNetwork {
+impl<Conn> PeerNetwork<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Begin an outbound walk or a pingback walk, depending on whether or not we have pingback
     /// state.
     /// If we do, then do a pingback walk with 50% probability.  Otherwise do an outbound walk.
     /// If we don't, then always do an outbound walk.
     fn new_outbound_or_pingback_walk(
         &self,
-    ) -> Result<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>, net_error> {
+    ) -> Result<NeighborWalk<Conn, PeerDBNeighborWalk, PeerNetworkComms>, net_error> {
         if self.get_walk_pingbacks().len() == 0 {
             // unconditionally do an outbound walk
             return NeighborWalk::instantiate_walk(
@@ -177,7 +180,7 @@ impl PeerNetwork {
     /// Errors out if inbound walks are disabled.
     fn new_maybe_inbound_walk(
         &self,
-    ) -> Result<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>, net_error> {
+    ) -> Result<NeighborWalk<Conn, PeerDBNeighborWalk, PeerNetworkComms>, net_error> {
         // not IBD. Time to try an inbound neighbor
         if self.connection_opts.disable_inbound_walks {
             debug!(
@@ -205,7 +208,7 @@ impl PeerNetwork {
     fn new_neighbor_walk(
         &mut self,
         ibd: bool,
-    ) -> Option<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>> {
+    ) -> Option<NeighborWalk<Conn, PeerDBNeighborWalk, PeerNetworkComms>> {
         // alternate between starting walks from inbound and outbound neighbors.
         // fall back to pingbacks-only walks if no options exist.
         debug!(

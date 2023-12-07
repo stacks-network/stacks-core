@@ -59,6 +59,8 @@ use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
     C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
@@ -432,7 +434,10 @@ impl StagingMicroblock {
     }
 }
 
-impl StacksChainState {
+impl<Conn> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn get_index_block_pathbuf(blocks_dir: &str, index_block_hash: &StacksBlockId) -> PathBuf {
         let block_hash_bytes = index_block_hash.as_bytes();
         let mut block_path = PathBuf::from(blocks_dir);
@@ -1488,7 +1493,7 @@ impl StacksChainState {
 
     /// only used in integration tests with stacks-node
     pub fn get_parent_consensus_hash(
-        sort_ic: &SortitionDBConn,
+        sort_ic: &SortitionDBConn<Conn>,
         parent_block_hash: &BlockHeaderHash,
         my_consensus_hash: &ConsensusHash,
     ) -> Result<Option<ConsensusHash>, Error> {
@@ -1513,7 +1518,7 @@ impl StacksChainState {
     /// Doesn't matter if it's staging or not.
     #[cfg(test)]
     pub fn load_parent_block_header(
-        sort_ic: &SortitionDBConn,
+        sort_ic: &SortitionDBConn<Conn>,
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
@@ -1644,14 +1649,14 @@ impl StacksChainState {
             &block.header.parent_microblock_sequence,
             &block.header.microblock_pubkey_hash,
             &u64_to_sql(block.header.total_work.work)?,
-            &attachable,
-            &0,
-            &0,
+            &attachable as &dyn ToSql,
+            &0 as &dyn ToSql,
+            &0 as &dyn ToSql,
             &u64_to_sql(commit_burn)?,
             &u64_to_sql(sortition_burn)?,
             &index_block_hash,
             &u64_to_sql(get_epoch_time_secs())?,
-            &0,
+            &0 as &dyn ToSql,
             &u64_to_sql(download_time)?,
         ];
 
@@ -1716,8 +1721,8 @@ impl StacksChainState {
             &microblock.header.prev_block,
             &index_microblock_hash,
             &microblock.header.sequence,
-            &0,
-            &0,
+            &0 as &dyn ToSql,
+            &0 as &dyn ToSql,
         ];
 
         tx.execute(&sql, args)
@@ -2224,7 +2229,7 @@ impl StacksChainState {
         burnchain: &Burnchain,
         indexer: &B,
         burnchain_db: &BurnchainDB,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<Conn>,
     ) -> Result<AffirmationMap, Error> {
         BurnchainDB::get_canonical_affirmation_map(
             burnchain_db.conn(),
@@ -3243,7 +3248,7 @@ impl StacksChainState {
     /// (ostensibly) selected this block for inclusion.
     fn validate_anchored_block_burnchain(
         blocks_conn: &DBConn,
-        db_handle: &SortitionHandleConn,
+        db_handle: &SortitionHandleConn<Conn>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         mainnet: bool,
@@ -3432,7 +3437,7 @@ impl StacksChainState {
     /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
     pub fn preprocess_anchored_block(
         &mut self,
-        sort_ic: &SortitionDBConn,
+        sort_ic: &SortitionDBConn<Conn>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         parent_consensus_hash: &ConsensusHash,
@@ -3649,7 +3654,7 @@ impl StacksChainState {
     #[cfg(test)]
     pub fn preprocess_stacks_epoch(
         &mut self,
-        sort_ic: &SortitionDBConn,
+        sort_ic: &SortitionDBConn<Conn>,
         snapshot: &BlockSnapshot,
         block: &StacksBlock,
         microblocks: &Vec<StacksMicroblock>,
@@ -4901,7 +4906,7 @@ impl StacksChainState {
     ///  though it would theoretically be safe).
     pub fn setup_block<'a, 'b>(
         chainstate_tx: &'b mut ChainstateTx,
-        clarity_instance: &'a mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance<Conn>,
         burn_dbconn: &'b dyn BurnStateDB,
         sortition_dbconn: &'b dyn SortitionDBRef,
         conn: &Connection, // connection to the sortition DB
@@ -5227,7 +5232,7 @@ impl StacksChainState {
     /// event observer has emitted.
     fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
-        clarity_instance: &'a mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance<Conn>,
         burn_dbconn: &mut SortitionHandleTx,
         pox_constants: &PoxConstants,
         parent_chain_tip: &StacksHeaderInfo,
@@ -6161,7 +6166,7 @@ impl StacksChainState {
     pub fn process_blocks_at_tip(
         &mut self,
         burnchain_db_conn: &DBConn,
-        sort_db: &mut SortitionDB,
+        sort_db: &mut SortitionDB<Conn>,
         max_blocks: usize,
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
         let tx = sort_db.tx_begin_at_tip();
@@ -6959,11 +6964,14 @@ pub mod test {
         microblocks[l - 1].block_hash()
     }
 
-    fn assert_block_staging_not_processed(
-        chainstate: &mut StacksChainState,
+    fn assert_block_staging_not_processed<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) -> () 
+    where
+        Conn: DbConnection + TrieDb
+    {
         assert!(StacksChainState::load_staging_block_data(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7002,11 +7010,14 @@ pub mod test {
         );
     }
 
-    fn assert_block_not_stored(
-        chainstate: &mut StacksChainState,
+    fn assert_block_not_stored<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) -> () 
+    where
+        Conn: DbConnection + TrieDb
+    {
         assert!(!StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7026,11 +7037,14 @@ pub mod test {
         );
     }
 
-    fn assert_block_stored_rejected(
-        chainstate: &mut StacksChainState,
+    fn assert_block_stored_rejected<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) -> () 
+    where
+        Conn: DbConnection + TrieDb
+    {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7087,11 +7101,14 @@ pub mod test {
         );
     }
 
-    fn assert_block_stored_not_staging(
-        chainstate: &mut StacksChainState,
+    fn assert_block_stored_not_staging<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
-    ) -> () {
+    ) -> () 
+    where
+        Conn: DbConnection + TrieDb
+    {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
             &chainstate.blocks_path,
@@ -7161,14 +7178,17 @@ pub mod test {
         );
     }
 
-    pub fn store_staging_block(
-        chainstate: &mut StacksChainState,
+    pub fn store_staging_block<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         parent_consensus_hash: &ConsensusHash,
         commit_burn: u64,
         sortition_burn: u64,
-    ) {
+    ) 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let blocks_path = chainstate.blocks_path.clone();
         let mut tx = chainstate.db_tx_begin().unwrap();
         StacksChainState::store_staging_block(
@@ -7192,12 +7212,15 @@ pub mod test {
         );
     }
 
-    pub fn store_staging_microblock(
-        chainstate: &mut StacksChainState,
+    pub fn store_staging_microblock<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         parent_consensus_hash: &ConsensusHash,
         parent_anchored_block_hash: &BlockHeaderHash,
         microblock: &StacksMicroblock,
-    ) {
+    ) 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut tx = chainstate.db_tx_begin().unwrap();
         StacksChainState::store_staging_microblock(
             &mut tx,
@@ -7217,12 +7240,15 @@ pub mod test {
             .unwrap());
     }
 
-    pub fn set_block_processed(
-        chainstate: &mut StacksChainState,
+    pub fn set_block_processed<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         accept: bool,
-    ) {
+    )
+    where
+        Conn: DbConnection + TrieDb 
+    {
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(consensus_hash, anchored_block_hash);
         assert!(
@@ -7249,11 +7275,14 @@ pub mod test {
         );
     }
 
-    pub fn set_block_orphaned(
-        chainstate: &mut StacksChainState,
+    pub fn set_block_orphaned<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
-    ) {
+    )
+    where
+        Conn: DbConnection + TrieDb 
+    {
         let blocks_path = chainstate.blocks_path.clone();
 
         let mut tx = chainstate.db_tx_begin().unwrap();
@@ -7267,12 +7296,15 @@ pub mod test {
         tx.commit().unwrap();
     }
 
-    pub fn set_microblocks_processed(
-        chainstate: &mut StacksChainState,
+    pub fn set_microblocks_processed<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         child_consensus_hash: &ConsensusHash,
         child_anchored_block_hash: &BlockHeaderHash,
         tail_microblock_hash: &BlockHeaderHash,
-    ) {
+    )
+    where
+        Conn: DbConnection + TrieDb 
+    {
         let child_index_block_hash = StacksBlockHeader::make_index_block_hash(
             child_consensus_hash,
             child_anchored_block_hash,
@@ -7311,7 +7343,12 @@ pub mod test {
         .unwrap());
     }
 
-    fn process_next_orphaned_staging_block(chainstate: &mut StacksChainState) -> bool {
+    fn process_next_orphaned_staging_block<Conn>(
+        chainstate: &mut StacksChainState<Conn>
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let blocks_path = chainstate.blocks_path.clone();
         let mut tx = chainstate.db_tx_begin().unwrap();
         let res =
@@ -7320,12 +7357,15 @@ pub mod test {
         res
     }
 
-    fn drop_staging_microblocks(
-        chainstate: &mut StacksChainState,
+    fn drop_staging_microblocks<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_microblock: &BlockHeaderHash,
-    ) {
+    )
+    where
+        Conn: DbConnection + TrieDb 
+    {
         let mut tx = chainstate.db_tx_begin().unwrap();
         StacksChainState::drop_staging_microblocks(
             &mut tx,

@@ -2,13 +2,14 @@ use std::{io::Write, cell::{RefCell, Ref, RefMut}, path::{PathBuf, Path}};
 
 use rusqlite::{Connection, Transaction, blob::Blob};
 use stacks_common::types::chainstate::TrieHash;
+use url::Url;
 
 use super::{
     MarfTrieId, Error,
     node::{TriePtr, TrieNodeType}, 
     db::{
-        self, DbError, DbTransaction, TransactionalDb, 
-        DbBackend, DbTransactionGuard, DbConnection
+        self, DbError, DbTransaction, TransactionalDb, DbTransactionGuard, 
+        DbConnection
     },
     trie_db::TrieDb
 };
@@ -93,24 +94,29 @@ pub enum SQLiteCacheSize {
     Pages(u32),
 }
 
-pub struct SQLiteDb {
+pub struct SQLiteDbConnection {
     path: PathBuf,
+    conn: Connection,
     pragmas: Vec<SQLitePragma>,
 }
 
-pub struct SQLiteDbConnection {
-    conn: Connection
-}
-
-impl DbBackend for SQLiteDb {
-    type ConnType = SQLiteDbConnection;
-
-    fn establish(uri: &str)-> Result<Self::ConnType, DbError> {
-        Ok(SQLiteDb::open(uri, &[])?)
+impl DbConnection for SQLiteDbConnection {
+    fn establish<P: AsRef<Path>>(uri: P)-> Result<Self, DbError> {
+        let conn = Connection::open(uri.as_ref())?;
+        Ok(Self {
+            path: uri.as_ref().to_path_buf(),
+            conn,
+            pragmas: vec![],
+        })
     }
 }
 
-impl DbConnection for SQLiteDbConnection {}
+impl SQLiteDbConnection {
+    pub fn set_pragma(mut self, pragma: SQLitePragma) -> Self {
+        self.pragmas.push(pragma);
+        self
+    }
+}
 
 pub struct SQLiteTransaction<'conn> {
     tx: Transaction<'conn>
@@ -135,15 +141,6 @@ impl<'conn> DbTransaction<'conn> for SQLiteTransaction<'conn> {
     }
 }
 
-impl SQLiteDb {
-    pub fn open<P: AsRef<Path>>(path: P, pragmas: &[SQLitePragma]) -> Result<SQLiteDbConnection, DbError> {
-        let conn = Connection::open(path.as_ref())?;
-        Ok(SQLiteDbConnection {
-            conn
-        })
-    }
-}
-
 impl TransactionalDb for SQLiteDbConnection {
     type TxType<'conn> = SQLiteTransaction<'conn>;
 
@@ -165,7 +162,7 @@ impl From<rusqlite::Error> for DbError {
     }
 }
 
-impl TrieDb for SQLiteDb {
+impl TrieDb for SQLiteDbConnection {
 
     fn create_tables_if_needed(&self) -> Result<(), Error> {
         todo!()

@@ -35,6 +35,8 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
 };
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
@@ -132,7 +134,10 @@ impl HttpRequest for RPCPostBlockRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPostBlockRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCPostBlockRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.consensus_hash = None;
@@ -144,7 +149,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         // get out the request body
         let block = self

@@ -35,7 +35,9 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::sleep_ms;
 
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::marf::{MarfConnection, MarfTransaction, MARF};
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{Error as MARFError, MARFValue, MarfTrieId};
 
 pub type DBConn = rusqlite::Connection;
@@ -578,13 +580,21 @@ pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
 }
 
 /// Read-only connection to a MARF-indexed DB
-pub struct IndexDBConn<'a, C, T: MarfTrieId> {
-    pub index: &'a MARF<T>,
-    pub context: C,
+pub struct IndexDBConn<'a, Conn, Ctx, Id>
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb
+{
+    pub index: &'a MARF<Id, Conn>,
+    pub context: Ctx,
 }
 
-impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
-    pub fn new(index: &'a MARF<T>, context: C) -> IndexDBConn<'a, C, T> {
+impl<'a, Conn, Ctx, Id> IndexDBConn<'a, Conn, Ctx, Id>
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb 
+{
+    pub fn new(index: &'a MARF<Id, Conn>, context: Ctx) -> IndexDBConn<'a, Conn, Ctx, Id> {
         IndexDBConn { index, context }
     }
 
@@ -592,22 +602,22 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     pub fn get_ancestor_block_hash(
         &self,
         block_height: u64,
-        tip_block_hash: &T,
-    ) -> Result<Option<T>, Error> {
+        tip_block_hash: &Id,
+    ) -> Result<Option<Id>, Error> {
         get_ancestor_block_hash(self.index, block_height, tip_block_hash)
     }
 
     /// Get the height of an ancestor block, if it is indeed the ancestor.
     pub fn get_ancestor_block_height(
         &self,
-        ancestor_block_hash: &T,
-        tip_block_hash: &T,
+        ancestor_block_hash: &Id,
+        tip_block_hash: &Id,
     ) -> Result<Option<u64>, Error> {
         get_ancestor_block_height(self.index, ancestor_block_hash, tip_block_hash)
     }
 
     /// Get a value from the fork index
-    pub fn get_indexed(&self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+    pub fn get_indexed(&self, header_hash: &Id, key: &str) -> Result<Option<String>, Error> {
         let mut ro_index = self.index.reopen_readonly()?;
         get_indexed(&mut ro_index, header_hash, key)
     }
@@ -617,27 +627,43 @@ impl<'a, C, T: MarfTrieId> IndexDBConn<'a, C, T> {
     }
 }
 
-impl<'a, C, T: MarfTrieId> Deref for IndexDBConn<'a, C, T> {
+impl<'a, Conn, Ctx, Id: MarfTrieId> Deref for IndexDBConn<'a, Conn, Ctx, Id>
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb 
+{
     type Target = DBConn;
     fn deref(&self) -> &DBConn {
         self.conn()
     }
 }
 
-pub struct IndexDBTx<'a, C: Clone, T: MarfTrieId> {
-    _index: Option<MarfTransaction<'a, T>>,
-    pub context: C,
-    block_linkage: Option<(T, T)>,
+pub struct IndexDBTx<'a, Ctx, Id>
+where
+    Ctx: Clone,
+    Id: MarfTrieId,
+{
+    _index: Option<MarfTransaction<'a, Id>>,
+    pub context: Ctx,
+    block_linkage: Option<(Id, Id)>,
 }
 
-impl<'a, C: Clone, T: MarfTrieId> Deref for IndexDBTx<'a, C, T> {
+impl<'a, Ctx, Id> Deref for IndexDBTx<'a, Ctx, Id> 
+where
+    Id: MarfTrieId,
+    Ctx: Clone
+{
     type Target = DBTx<'a>;
     fn deref(&self) -> &DBTx<'a> {
         self.tx()
     }
 }
 
-impl<'a, C: Clone, T: MarfTrieId> DerefMut for IndexDBTx<'a, C, T> {
+impl<'a, Ctx, Id> DerefMut for IndexDBTx<'a, Ctx, Id>
+where
+    Ctx: Clone,
+    Id: MarfTrieId 
+{
     fn deref_mut(&mut self) -> &mut DBTx<'a> {
         self.tx_mut()
     }
@@ -683,7 +709,7 @@ pub fn tx_begin_immediate_sqlite<'a>(conn: &'a mut Connection) -> Result<DBTx<'a
 
 #[cfg(feature = "profile-sqlite")]
 fn trace_profile(query: &str, duration: Duration) {
-    let obj = json!({"millis":duration.as_millis(), "query":query});
+    let obj = serde_json::json!({"millis":duration.as_millis(), "query":query});
     debug!(
         "sqlite trace profile {}",
         serde_json::to_string(&obj).unwrap()
@@ -709,11 +735,15 @@ pub fn sqlite_open<P: AsRef<Path>>(
 }
 
 /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
-pub fn get_ancestor_block_hash<T: MarfTrieId>(
-    index: &MARF<T>,
-    block_height: u64,
-    tip_block_hash: &T,
-) -> Result<Option<T>, Error> {
+pub fn get_ancestor_block_hash<Id, Conn>(
+        index: &MARF<Id, Conn>,
+        block_height: u64,
+        tip_block_hash: &Id,
+    ) -> Result<Option<Id>, Error>
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb 
+{
     assert!(block_height < u32::MAX as u64);
     let mut read_only = index.reopen_readonly()?;
     let bh = read_only.get_block_at_height(block_height as u32, tip_block_hash)?;
@@ -721,11 +751,15 @@ pub fn get_ancestor_block_hash<T: MarfTrieId>(
 }
 
 /// Get the height of an ancestor block, if it is indeed the ancestor.
-pub fn get_ancestor_block_height<T: MarfTrieId>(
-    index: &MARF<T>,
-    ancestor_block_hash: &T,
-    tip_block_hash: &T,
-) -> Result<Option<u64>, Error> {
+pub fn get_ancestor_block_height<Id, Conn>(
+    index: &MARF<Id, Conn>,
+    ancestor_block_hash: &Id,
+    tip_block_hash: &Id,
+) -> Result<Option<u64>, Error> 
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb
+{
     let mut read_only = index.reopen_readonly()?;
     let height_opt = read_only
         .get_block_height(ancestor_block_hash, tip_block_hash)?
@@ -759,11 +793,16 @@ fn load_indexed(conn: &DBConn, marf_value: &MARFValue) -> Result<Option<String>,
 }
 
 /// Get a value from the fork index
-fn get_indexed<T: MarfTrieId, M: MarfConnection<T>>(
-    index: &mut M,
-    header_hash: &T,
+fn get_indexed<Id, Conn, Marf>(
+    index: &mut Marf,
+    header_hash: &Id,
     key: &str,
-) -> Result<Option<String>, Error> {
+) -> Result<Option<String>, Error> 
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb,
+    Marf: MarfConnection<Id>
+{
     match index.get(header_hash, key) {
         Ok(Some(marf_value)) => {
             let value = load_indexed(index.sqlite_conn(), &marf_value)?
@@ -782,25 +821,35 @@ fn get_indexed<T: MarfTrieId, M: MarfConnection<T>>(
     }
 }
 
-impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
-    pub fn new(index: &'a mut MARF<T>, context: C) -> IndexDBTx<'a, C, T> {
+impl<'a, Ctx, Id> IndexDBTx<'a, Ctx, Id> 
+where
+    Ctx: Clone,
+    Id: MarfTrieId
+{
+    pub fn new<Conn>(
+        index: &'a mut MARF<Id, Conn>, 
+        context: Ctx
+    ) -> IndexDBTx<'a, Ctx, Id> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let tx = index
             .begin_tx()
             .expect("BUG: failure to begin MARF transaction");
         IndexDBTx {
             _index: Some(tx),
             block_linkage: None,
-            context: context,
+            context,
         }
     }
 
-    pub fn index(&self) -> &MarfTransaction<'a, T> {
+    pub fn index(&self) -> &MarfTransaction<'a, Id> {
         self._index
             .as_ref()
             .expect("BUG: MarfTransaction lost, but IndexDBTx still exists")
     }
 
-    fn index_mut(&mut self) -> &mut MarfTransaction<'a, T> {
+    fn index_mut(&mut self) -> &mut MarfTransaction<'a, Id> {
         self._index
             .as_mut()
             .expect("BUG: MarfTransaction lost, but IndexDBTx still exists")
@@ -837,8 +886,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     pub fn get_ancestor_block_hash(
         &mut self,
         block_height: u64,
-        tip_block_hash: &T,
-    ) -> Result<Option<T>, Error> {
+        tip_block_hash: &Id,
+    ) -> Result<Option<Id>, Error> {
         self.index_mut()
             .get_block_at_height(
                 block_height.try_into().expect("Height > u32::max()"),
@@ -850,8 +899,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     /// Get the height of an ancestor block, if it is indeed the ancestor.
     pub fn get_ancestor_block_height(
         &mut self,
-        ancestor_block_hash: &T,
-        tip_block_hash: &T,
+        ancestor_block_hash: &Id,
+        tip_block_hash: &Id,
     ) -> Result<Option<u64>, Error> {
         let height_opt = self
             .index_mut()
@@ -871,7 +920,7 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Get a value from the fork index
-    pub fn get_indexed(&mut self, header_hash: &T, key: &str) -> Result<Option<String>, Error> {
+    pub fn get_indexed(&mut self, header_hash: &Id, key: &str) -> Result<Option<String>, Error> {
         get_indexed(self.index_mut(), header_hash, key)
     }
 
@@ -880,8 +929,8 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     /// a commit if you want to save the MARF state.
     pub fn put_indexed_all(
         &mut self,
-        parent_header_hash: &T,
-        header_hash: &T,
+        parent_header_hash: &Id,
+        header_hash: &Id,
         keys: &Vec<String>,
         values: &Vec<String>,
     ) -> Result<TrieHash, Error> {
@@ -918,13 +967,17 @@ impl<'a, C: Clone, T: MarfTrieId> IndexDBTx<'a, C, T> {
     }
 
     /// Get the root hash
-    pub fn get_root_hash_at(&mut self, bhh: &T) -> Result<TrieHash, Error> {
+    pub fn get_root_hash_at(&mut self, bhh: &Id) -> Result<TrieHash, Error> {
         let root_hash = self.index_mut().get_root_hash_at(bhh)?;
         Ok(root_hash)
     }
 }
 
-impl<'a, C: Clone, T: MarfTrieId> Drop for IndexDBTx<'a, C, T> {
+impl<'a, Ctx, Id> Drop for IndexDBTx<'a, Ctx, Id> 
+where
+    Ctx: Clone,
+    Id: MarfTrieId
+{
     fn drop(&mut self) {
         if let Some((ref parent, ref child)) = self.block_linkage {
             let index_tx = self

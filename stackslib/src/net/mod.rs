@@ -71,6 +71,8 @@ use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::Error as marf_error;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{
     Error as chainstate_error, Error as chain_error, StacksBlock, StacksBlockHeader,
     StacksMicroblock, StacksPublicKey, StacksTransaction, TransactionPayload,
@@ -628,23 +630,29 @@ impl<'a> RPCHandlerArgs<'a> {
 }
 
 /// Wrapper around Stacks chainstate data that an HTTP request handler might need
-pub struct StacksNodeState<'a> {
-    inner_network: Option<&'a mut PeerNetwork>,
-    inner_sortdb: Option<&'a SortitionDB>,
-    inner_chainstate: Option<&'a mut StacksChainState>,
+pub struct StacksNodeState<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    inner_network: Option<&'a mut PeerNetwork<Conn>>,
+    inner_sortdb: Option<&'a SortitionDB<Conn>>,
+    inner_chainstate: Option<&'a mut StacksChainState<Conn>>,
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
 }
 
-impl<'a> StacksNodeState<'a> {
+impl<'a, Conn> StacksNodeState<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn new(
-        inner_network: &'a mut PeerNetwork,
-        inner_sortdb: &'a SortitionDB,
-        inner_chainstate: &'a mut StacksChainState,
+        inner_network: &'a mut PeerNetwork<Conn>,
+        inner_sortdb: &'a SortitionDB<Conn>,
+        inner_chainstate: &'a mut StacksChainState<Conn>,
         inner_mempool: &'a mut MemPoolDB,
         inner_rpc_args: &'a RPCHandlerArgs<'a>,
-    ) -> StacksNodeState<'a> {
+    ) -> StacksNodeState<'a, Conn> {
         StacksNodeState {
             inner_network: Some(inner_network),
             inner_sortdb: Some(inner_sortdb),
@@ -659,9 +667,9 @@ impl<'a> StacksNodeState<'a> {
     pub fn with_node_state<F, R>(&mut self, func: F) -> R
     where
         F: FnOnce(
-            &mut PeerNetwork,
-            &SortitionDB,
-            &mut StacksChainState,
+            &mut PeerNetwork<Conn>,
+            &SortitionDB<Conn>,
+            &mut StacksChainState<Conn>,
             &mut MemPoolDB,
             &RPCHandlerArgs<'a>,
         ) -> R,
@@ -1609,6 +1617,7 @@ pub mod test {
     use crate::chainstate::stacks::db::accounts::MinerReward;
     use crate::chainstate::stacks::db::{StacksChainState, *};
     use crate::chainstate::stacks::events::{StacksBlockEventData, StacksTransactionReceipt};
+    use crate::chainstate::stacks::index::trie_db::TrieDb;
     use crate::chainstate::stacks::miner::*;
     use crate::chainstate::stacks::tests::chain_histories::mine_smart_contract_block_contract_call_microblock;
     use crate::chainstate::stacks::tests::*;
@@ -2092,18 +2101,22 @@ pub mod test {
         thread_handle.join().unwrap();
     }
 
-    pub struct TestPeer<'a> {
+    pub struct TestPeer<'a, Conn>
+    where
+        Conn: DbConnection + TrieDb 
+    {
         pub config: TestPeerConfig,
-        pub network: PeerNetwork,
-        pub sortdb: Option<SortitionDB>,
+        pub network: PeerNetwork<Conn>,
+        pub sortdb: Option<SortitionDB<Conn>>,
         pub miner: TestMiner,
-        pub stacks_node: Option<TestStacksNode>,
+        pub stacks_node: Option<TestStacksNode<Conn>>,
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
         pub indexer: Option<BitcoinIndexer>,
         pub coord: ChainsCoordinator<
             'a,
+            Conn,
             TestEventObserver,
             (),
             OnChainRewardSetProvider,
@@ -2113,8 +2126,11 @@ pub mod test {
         >,
     }
 
-    impl<'a> TestPeer<'a> {
-        pub fn new(config: TestPeerConfig) -> TestPeer<'a> {
+    impl<'a, Conn> TestPeer<'a, Conn> 
+    where
+        Conn: DbConnection + TrieDb
+    {
+        pub fn new(config: TestPeerConfig) -> TestPeer<'a, Conn> {
             TestPeer::new_with_observer(config, None)
         }
 
@@ -2192,7 +2208,7 @@ pub mod test {
         pub fn new_with_observer(
             mut config: TestPeerConfig,
             observer: Option<&'a TestEventObserver>,
-        ) -> TestPeer<'a> {
+        ) -> TestPeer<'a, Conn> {
             let test_path = TestPeer::make_test_path(&config);
             let mut miner_factory = TestMinerFactory::new();
             let mut miner =
@@ -2968,8 +2984,8 @@ pub mod test {
         /// using the given sortition DB as well, and then try and process them.
         fn inner_process_stacks_epoch_at_tip(
             &mut self,
-            sortdb: &SortitionDB,
-            node: &mut TestStacksNode,
+            sortdb: &SortitionDB<Conn>,
+            node: &mut TestStacksNode<Conn>,
             block: &StacksBlock,
             microblocks: &Vec<StacksMicroblock>,
         ) -> Result<(), coordinator_error> {
@@ -3068,19 +3084,19 @@ pub mod test {
             self.mempool.as_mut().unwrap()
         }
 
-        pub fn chainstate(&mut self) -> &mut StacksChainState {
+        pub fn chainstate(&mut self) -> &mut StacksChainState<Conn> {
             &mut self.stacks_node.as_mut().unwrap().chainstate
         }
 
-        pub fn sortdb(&mut self) -> &mut SortitionDB {
+        pub fn sortdb(&mut self) -> &mut SortitionDB<Conn> {
             self.sortdb.as_mut().unwrap()
         }
 
         pub fn with_db_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
             F: FnOnce(
-                &mut SortitionDB,
-                &mut StacksChainState,
+                &mut SortitionDB<Conn>,
+                &mut StacksChainState<Conn>,
                 &mut Relayer,
                 &mut MemPoolDB,
             ) -> Result<R, net_error>,
@@ -3105,10 +3121,10 @@ pub mod test {
         pub fn with_mining_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
             F: FnOnce(
-                &mut SortitionDB,
+                &mut SortitionDB<Conn>,
                 &mut TestMiner,
                 &mut TestMiner,
-                &mut TestStacksNode,
+                &mut TestStacksNode<Conn>,
             ) -> Result<R, net_error>,
         {
             let mut stacks_node = self.stacks_node.take().unwrap();
@@ -3127,9 +3143,9 @@ pub mod test {
         pub fn with_network_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
             F: FnOnce(
-                &mut SortitionDB,
-                &mut StacksChainState,
-                &mut PeerNetwork,
+                &mut SortitionDB<Conn>,
+                &mut StacksChainState<Conn>,
+                &mut PeerNetwork<Conn>,
                 &mut Relayer,
                 &mut MemPoolDB,
             ) -> Result<R, net_error>,
@@ -3155,9 +3171,9 @@ pub mod test {
         pub fn with_peer_state<F, R>(&mut self, f: F) -> Result<R, net_error>
         where
             F: FnOnce(
-                &mut TestPeer,
-                &mut SortitionDB,
-                &mut StacksChainState,
+                &mut TestPeer<Conn>,
+                &mut SortitionDB<Conn>,
+                &mut StacksChainState<Conn>,
                 &mut MemPoolDB,
             ) -> Result<R, net_error>,
         {
@@ -3250,8 +3266,8 @@ pub mod test {
         where
             F: FnMut(
                 &mut TestMiner,
-                &mut SortitionDB,
-                &mut StacksChainState,
+                &mut SortitionDB<Conn>,
+                &mut StacksChainState<Conn>,
                 VRFProof,
                 Option<&StacksBlock>,
                 Option<&StacksMicroblockHeader>,

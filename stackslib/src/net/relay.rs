@@ -41,6 +41,7 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoCh
 use crate::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{StacksBlockHeader, TransactionPayload};
 use crate::clarity_vm::clarity::Error as clarity_error;
 use crate::core::mempool::{MemPoolDB, *};
@@ -482,16 +483,25 @@ impl Relayer {
         }
     }
 
-    pub fn from_p2p(network: &mut PeerNetwork, stacker_dbs: StackerDBs) -> Relayer {
+    pub fn from_p2p<Conn>(
+        network: &mut PeerNetwork<Conn>, 
+        stacker_dbs: StackerDBs
+    ) -> Relayer 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let handle = network.new_handle(1024);
         Relayer::new(handle, stacker_dbs)
     }
 
     /// Given blocks pushed to us, verify that they correspond to expected block data.
-    pub fn validate_blocks_push(
-        conn: &SortitionDBConn,
+    pub fn validate_blocks_push<Conn>(
+        conn: &SortitionDBConn<Conn>,
         blocks_data: &BlocksData,
-    ) -> Result<(), net_error> {
+    ) -> Result<(), net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
             let block_hash = block.block_hash();
 
@@ -529,11 +539,14 @@ impl Relayer {
     }
 
     /// Get the snapshot of the parent of a given Stacks block
-    pub fn get_parent_stacks_block_snapshot(
-        sort_handle: &SortitionHandleConn,
+    pub fn get_parent_stacks_block_snapshot<Conn>(
+        sort_handle: &SortitionHandleConn<Conn>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-    ) -> Result<BlockSnapshot, chainstate_error> {
+    ) -> Result<BlockSnapshot, chainstate_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let parent_block_snapshot = match sort_handle
             .get_block_snapshot_of_parent_stacks_block(consensus_hash, block_hash)
         {
@@ -568,13 +581,16 @@ impl Relayer {
     /// Insert a staging block that got relayed to us somehow -- e.g. uploaded via http, downloaded
     /// by us, or pushed via p2p.
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
-    pub fn process_new_anchored_block(
-        sort_ic: &SortitionDBConn,
-        chainstate: &mut StacksChainState,
+    pub fn process_new_anchored_block<Conn>(
+        sort_ic: &SortitionDBConn<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         download_time: u64,
-    ) -> Result<bool, chainstate_error> {
+    ) -> Result<bool, chainstate_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         debug!(
             "Handle incoming block {}/{}",
             consensus_hash,
@@ -652,12 +668,15 @@ impl Relayer {
     /// Insert a staging Nakamoto block that got relayed to us somehow -- e.g. uploaded via http,
     /// downloaded by us, or pushed via p2p.
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
-    pub fn process_new_nakamoto_block(
-        sortdb: &SortitionDB,
-        sort_handle: &SortitionHandleConn,
-        chainstate: &mut StacksChainState,
+    pub fn process_new_nakamoto_block<Conn>(
+        sortdb: &SortitionDB<Conn>,
+        sort_handle: &SortitionHandleConn<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         block: NakamotoBlock,
-    ) -> Result<bool, chainstate_error> {
+    ) -> Result<bool, chainstate_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         debug!(
             "Handle incoming Nakamoto block {}/{}",
             &block.header.consensus_hash,
@@ -840,11 +859,14 @@ impl Relayer {
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the set of consensus hashes for the sortitions that selected these blocks, and the
     /// blocks themselves
-    fn preprocess_downloaded_blocks(
-        sort_ic: &SortitionDBConn,
+    fn preprocess_downloaded_blocks<Conn>(
+        sort_ic: &SortitionDBConn<Conn>,
         network_result: &mut NetworkResult,
-        chainstate: &mut StacksChainState,
-    ) -> HashMap<ConsensusHash, StacksBlock> {
+        chainstate: &mut StacksChainState<Conn>,
+    ) -> HashMap<ConsensusHash, StacksBlock> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut new_blocks = HashMap::new();
 
         for (consensus_hash, block, download_time) in network_result.blocks.iter() {
@@ -946,11 +968,14 @@ impl Relayer {
     /// Return consensus hashes for the sortitions that elected the blocks we got, as well as the
     /// list of peers that served us invalid data.
     /// Does not fail; just logs warnings.
-    fn preprocess_pushed_blocks(
-        sort_ic: &SortitionDBConn,
+    fn preprocess_pushed_blocks<Conn>(
+        sort_ic: &SortitionDBConn<Conn>,
         network_result: &mut NetworkResult,
-        chainstate: &mut StacksChainState,
-    ) -> Result<(HashMap<ConsensusHash, StacksBlock>, Vec<NeighborKey>), net_error> {
+        chainstate: &mut StacksChainState<Conn>,
+    ) -> Result<(HashMap<ConsensusHash, StacksBlock>, Vec<NeighborKey>), net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut new_blocks = HashMap::new();
         let mut bad_neighbors = vec![];
 
@@ -1051,11 +1076,14 @@ impl Relayer {
     /// Preprocess all downloaded, confirmed microblock streams.
     /// Does not fail on invalid blocks; just logs a warning.
     /// Returns the consensus hashes for the sortitions that elected the stacks anchored blocks that produced these streams.
-    fn preprocess_downloaded_microblocks(
-        sort_ic: &SortitionDBConn,
+    fn preprocess_downloaded_microblocks<Conn>(
+        sort_ic: &SortitionDBConn<Conn>,
         network_result: &mut NetworkResult,
-        chainstate: &mut StacksChainState,
-    ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> {
+        chainstate: &mut StacksChainState<Conn>,
+    ) -> HashMap<ConsensusHash, (StacksBlockId, Vec<StacksMicroblock>)> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut ret = HashMap::new();
         for (consensus_hash, microblock_stream, _download_time) in
             network_result.confirmed_microblocks.iter()
@@ -1153,11 +1181,14 @@ impl Relayer {
     /// Preprocess all unconfirmed microblocks pushed to us.
     /// Return the list of MicroblockData messages we need to broadcast to our neighbors, as well
     /// as the list of neighbors we need to ban because they sent us invalid microblocks.
-    fn preprocess_pushed_microblocks(
-        sort_ic: &SortitionDBConn,
+    fn preprocess_pushed_microblocks<Conn>(
+        sort_ic: &SortitionDBConn<Conn>,
         network_result: &mut NetworkResult,
-        chainstate: &mut StacksChainState,
-    ) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> {
+        chainstate: &mut StacksChainState<Conn>,
+    ) -> Result<(Vec<(Vec<RelayData>, MicroblocksData)>, Vec<NeighborKey>), net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut new_microblocks: HashMap<
             StacksBlockId,
             (Vec<RelayData>, HashMap<BlockHeaderHash, StacksMicroblock>),
@@ -1505,10 +1536,10 @@ impl Relayer {
     /// * set of confirmed microblock consensus hashes for newly-discovered microblock streams, and the streams, so we can turn them into MicroblocksAvailable / MicroblocksData messages
     /// * list of unconfirmed microblocks that got pushed to us, as well as their relayers (so we can forward them)
     /// * list of neighbors that served us invalid data (so we can ban them)
-    pub fn process_new_blocks(
+    pub fn process_new_blocks<Conn>(
         network_result: &mut NetworkResult,
-        sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &mut SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         coord_comms: Option<&CoordinatorChannels>,
     ) -> Result<
         (
@@ -1518,7 +1549,10 @@ impl Relayer {
             Vec<NeighborKey>,
         ),
         net_error,
-    > {
+    > 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut new_blocks = HashMap::new();
         let mut bad_neighbors = vec![];
 
@@ -1613,10 +1647,13 @@ impl Relayer {
     }
 
     /// Produce blocks-available messages from blocks we just got.
-    pub fn load_blocks_available_data(
-        sortdb: &SortitionDB,
+    pub fn load_blocks_available_data<Conn>(
+        sortdb: &SortitionDB<Conn>,
         consensus_hashes: Vec<ConsensusHash>,
-    ) -> Result<BlocksAvailableMap, net_error> {
+    ) -> Result<BlocksAvailableMap, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut ret = BlocksAvailableMap::new();
         for ch in consensus_hashes.into_iter() {
             let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &ch)? {
@@ -1695,13 +1732,16 @@ impl Relayer {
 
     /// Store all new transactions we received, and return the list of transactions that we need to
     /// forward (as well as their relay hints).  Also, garbage-collect the mempool.
-    fn process_transactions(
+    fn process_transactions<Conn>(
         network_result: &mut NetworkResult,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         mempool: &mut MemPoolDB,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-    ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> {
+    ) -> Result<Vec<(Vec<RelayData>, StacksTransaction)>, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let chain_tip =
             match NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)? {
                 Some(tip) => tip,
@@ -1802,10 +1842,13 @@ impl Relayer {
 
     /// Set up the unconfirmed chain state off of the canonical chain tip.
     /// Only relevant in Stacks 2.x.  Nakamoto nodes should not call this.
-    pub fn setup_unconfirmed_state(
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
-    ) -> Result<ProcessedUnconfirmedState, Error> {
+    pub fn setup_unconfirmed_state<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
+    ) -> Result<ProcessedUnconfirmedState, Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let canonical_tip = StacksBlockHeader::make_index_block_hash(
@@ -1825,10 +1868,13 @@ impl Relayer {
 
     /// Set up unconfirmed chain state in a read-only fashion.
     /// Only relevant in Stacks 2.x.  Nakamoto nodes should not call this.
-    pub fn setup_unconfirmed_state_readonly(
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
-    ) -> Result<(), Error> {
+    pub fn setup_unconfirmed_state_readonly<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
+    ) -> Result<(), Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let (canonical_consensus_hash, canonical_block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let canonical_tip = StacksBlockHeader::make_index_block_hash(
@@ -1847,10 +1893,13 @@ impl Relayer {
 
     /// Reload unconfirmed microblock stream.
     /// Only call if we're in Stacks 2.x
-    pub fn refresh_unconfirmed(
-        chainstate: &mut StacksChainState,
-        sortdb: &mut SortitionDB,
-    ) -> ProcessedUnconfirmedState {
+    pub fn refresh_unconfirmed<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &mut SortitionDB<Conn>,
+    ) -> ProcessedUnconfirmedState 
+    where
+        Conn: DbConnection + TrieDb
+    {
         match Relayer::setup_unconfirmed_state(chainstate, sortdb) {
             Ok(processed_unconfirmed_state) => processed_unconfirmed_state,
             Err(e) => {
@@ -1993,17 +2042,20 @@ impl Relayer {
     /// * Reload the unconfirmed state, if necessary.
     /// Mask errors from invalid data -- all errors due to invalid blocks and invalid data should be captured, and
     /// turned into peer bans.
-    pub fn process_network_result(
+    pub fn process_network_result<Conn>(
         &mut self,
         _local_peer: &LocalPeer,
         network_result: &mut NetworkResult,
-        sortdb: &mut SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &mut SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         mempool: &mut MemPoolDB,
         ibd: bool,
         coord_comms: Option<&CoordinatorChannels>,
         event_observer: Option<&dyn RelayEventDispatcher>,
-    ) -> Result<ProcessedNetReceipts, net_error> {
+    ) -> Result<ProcessedNetReceipts, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut num_new_blocks = 0;
         let mut num_new_confirmed_microblocks = 0;
         let mut num_new_unconfirmed_microblocks = 0;
@@ -2165,7 +2217,10 @@ impl Relayer {
     }
 }
 
-impl PeerNetwork {
+impl<Conn> PeerNetwork<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Find out which neighbors need at least one (micro)block from the availability set.
     /// For outbound neighbors (i.e. ones we have inv data for), send (Micro)BlocksData messages if
     /// we can; fall back to (Micro)BlocksAvailable messages if we can't.
@@ -3189,7 +3244,13 @@ pub mod test {
         })
     }
 
-    fn is_peer_connected(peer: &TestPeer, dest: &NeighborKey) -> bool {
+    fn is_peer_connected<Conn>(
+        peer: &TestPeer<Conn>, 
+        dest: &NeighborKey
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let event_id = match peer.network.events.get(dest) {
             Some(evid) => *evid,
             None => {
@@ -3207,12 +3268,15 @@ pub mod test {
         }
     }
 
-    fn push_message(
-        peer: &mut TestPeer,
+    fn push_message<Conn>(
+        peer: &mut TestPeer<Conn>,
         dest: &NeighborKey,
         relay_hints: Vec<RelayData>,
         msg: StacksMessageType,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let event_id = match peer.network.events.get(dest) {
             Some(evid) => *evid,
             None => {
@@ -3316,11 +3380,14 @@ pub mod test {
         }
     }
 
-    fn broadcast_message(
-        broadcaster: &mut TestPeer,
+    fn broadcast_message<Conn>(
+        broadcaster: &mut TestPeer<Conn>,
         relay_hints: Vec<RelayData>,
         msg: StacksMessageType,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let request = NetworkRequest::Broadcast(relay_hints, msg);
         match broadcaster.network.dispatch_request(request) {
             Ok(_) => true,
@@ -3331,13 +3398,16 @@ pub mod test {
         }
     }
 
-    fn push_block(
-        peer: &mut TestPeer,
+    fn push_block<Conn>(
+        peer: &mut TestPeer<Conn>,
         dest: &NeighborKey,
         relay_hints: Vec<RelayData>,
         consensus_hash: ConsensusHash,
         block: StacksBlock,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_debug!(
             "{:?}: Push block {}/{} to {:?}",
             peer.to_neighbor().addr,
@@ -3360,12 +3430,15 @@ pub mod test {
         push_message(peer, dest, relay_hints, msg)
     }
 
-    fn broadcast_block(
-        peer: &mut TestPeer,
+    fn broadcast_block<Conn>(
+        peer: &mut TestPeer<Conn>,
         relay_hints: Vec<RelayData>,
         consensus_hash: ConsensusHash,
         block: StacksBlock,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_debug!(
             "{:?}: Broadcast block {}/{}",
             peer.to_neighbor().addr,
@@ -3387,14 +3460,17 @@ pub mod test {
         broadcast_message(peer, relay_hints, msg)
     }
 
-    fn push_microblocks(
-        peer: &mut TestPeer,
+    fn push_microblocks<Conn>(
+        peer: &mut TestPeer<Conn>,
         dest: &NeighborKey,
         relay_hints: Vec<RelayData>,
         consensus_hash: ConsensusHash,
         block_hash: BlockHeaderHash,
         microblocks: Vec<StacksMicroblock>,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_debug!(
             "{:?}: Push {} microblocksblock {}/{} to {:?}",
             peer.to_neighbor().addr,
@@ -3413,13 +3489,16 @@ pub mod test {
         push_message(peer, dest, relay_hints, msg)
     }
 
-    fn broadcast_microblocks(
-        peer: &mut TestPeer,
+    fn broadcast_microblocks<Conn>(
+        peer: &mut TestPeer<Conn>,
         relay_hints: Vec<RelayData>,
         consensus_hash: ConsensusHash,
         block_hash: BlockHeaderHash,
         microblocks: Vec<StacksMicroblock>,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_debug!(
             "{:?}: broadcast {} microblocksblock {}/{}",
             peer.to_neighbor().addr,
@@ -3437,12 +3516,15 @@ pub mod test {
         broadcast_message(peer, relay_hints, msg)
     }
 
-    fn push_transaction(
-        peer: &mut TestPeer,
+    fn push_transaction<Conn>(
+        peer: &mut TestPeer<Conn>,
         dest: &NeighborKey,
         relay_hints: Vec<RelayData>,
         tx: StacksTransaction,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_debug!(
             "{:?}: Push tx {} to {:?}",
             peer.to_neighbor().addr,
@@ -3453,11 +3535,14 @@ pub mod test {
         push_message(peer, dest, relay_hints, msg)
     }
 
-    fn broadcast_transaction(
-        peer: &mut TestPeer,
+    fn broadcast_transaction<Conn>(
+        peer: &mut TestPeer<Conn>,
         relay_hints: Vec<RelayData>,
         tx: StacksTransaction,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_debug!("{:?}: broadcast tx {}", peer.to_neighbor().addr, tx.txid(),);
         let msg = StacksMessageType::Transaction(tx);
         broadcast_message(peer, relay_hints, msg)
@@ -3977,12 +4062,15 @@ pub mod test {
         })
     }
 
-    fn make_test_smart_contract_transaction(
-        peer: &mut TestPeer,
+    fn make_test_smart_contract_transaction<Conn>(
+        peer: &mut TestPeer<Conn>,
         name: &str,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-    ) -> StacksTransaction {
+    ) -> StacksTransaction 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // make a smart contract
         let contract = "
         (define-data-var bar int 0)

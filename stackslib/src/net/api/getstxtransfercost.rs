@@ -29,6 +29,8 @@ use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
@@ -77,7 +79,10 @@ impl HttpRequest for RPCGetStxTransferCostRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCGetStxTransferCostRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -86,7 +91,7 @@ impl RPCRequestHandler for RPCGetStxTransferCostRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         // todo -- need to actually estimate the cost / length for token transfers
         //   right now, it just uses the minimum.

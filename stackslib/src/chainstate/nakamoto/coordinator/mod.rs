@@ -40,6 +40,8 @@ use crate::chainstate::coordinator::{
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::Error as ChainstateError;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
@@ -51,16 +53,19 @@ use crate::util_lib::db::Error as DBError;
 pub mod tests;
 
 impl OnChainRewardSetProvider {
-    pub fn get_reward_set_nakamoto(
+    pub fn get_reward_set_nakamoto<Conn>(
         &self,
         // NOTE: this value is the first burnchain block in the prepare phase which has a Stacks
         // block (unlike in Stacks 2.x, where this is the first block of the reward phase)
         current_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<Conn>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
-    ) -> Result<RewardSet, Error> {
+    ) -> Result<RewardSet, Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
             .expect("FATAL: no reward cycle for burn height")
@@ -109,11 +114,14 @@ impl OnChainRewardSetProvider {
 /// phase, then the returned list is empty.  If the burnchain block is in a prepare phase, then all
 /// consensus hashes back to the first block in the prepare phase are loaded and returned in
 /// ascending height order.
-fn find_prepare_phase_sortitions(
-    sort_db: &SortitionDB,
+fn find_prepare_phase_sortitions<Conn>(
+    sort_db: &SortitionDB<Conn>,
     burnchain: &Burnchain,
     sortition_tip: &SortitionId,
-) -> Result<Vec<BlockSnapshot>, Error> {
+) -> Result<Vec<BlockSnapshot>, Error> 
+where
+    Conn: DbConnection + TrieDb
+{
     let mut prepare_phase_sn = SortitionDB::get_block_snapshot(sort_db.conn(), sortition_tip)?
         .ok_or(DBError::NotFoundError)?;
 
@@ -153,14 +161,18 @@ fn find_prepare_phase_sortitions(
 /// Returns Err(Error::NotInPreparePhase) if `burn_height` is not in the prepare phase
 /// Returns Err(Error::RewardCycleAlreadyProcessed) if the reward set for this reward cycle has
 /// already been processed.
-pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
+pub fn get_nakamoto_reward_cycle_info<Conn, U>(
     burn_height: u64,
     sortition_tip: &SortitionId,
     burnchain: &Burnchain,
-    chain_state: &mut StacksChainState,
-    sort_db: &mut SortitionDB,
+    chain_state: &mut StacksChainState<Conn>,
+    sort_db: &mut SortitionDB<Conn>,
     provider: &U,
-) -> Result<Option<RewardCycleInfo>, Error> {
+) -> Result<Option<RewardCycleInfo>, Error> 
+where
+    Conn: DbConnection + TrieDb,
+    U: RewardSetProvider
+{
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
         .expect(&format!(
             "FATAL: no epoch defined for burn height {}",
@@ -307,11 +319,14 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 /// * we're guaranteed to have an anchor block
 /// * we pre-compute the reward set at the start of the prepare phase, so we only need to load it
 /// up here at the start of the reward phase.
-pub fn get_nakamoto_next_recipients(
+pub fn get_nakamoto_next_recipients<Conn>(
     sortition_tip: &BlockSnapshot,
-    sort_db: &mut SortitionDB,
+    sort_db: &mut SortitionDB<Conn>,
     burnchain: &Burnchain,
-) -> Result<Option<RewardSetInfo>, Error> {
+) -> Result<Option<RewardSetInfo>, Error> 
+where
+    Conn: DbConnection + TrieDb
+{
     let reward_cycle_info = if burnchain.is_reward_cycle_start(sortition_tip.block_height + 1) {
         // load up new reward cycle info so we can start using *that*
         let prepare_phase_sortitions =
@@ -341,15 +356,15 @@ pub fn get_nakamoto_next_recipients(
         .map_err(Error::from)
 }
 
-impl<
-        'a,
-        T: BlockEventDispatcher,
-        N: CoordinatorNotices,
-        U: RewardSetProvider,
-        CE: CostEstimator + ?Sized,
-        FE: FeeEstimator + ?Sized,
-        B: BurnchainHeaderReader,
-    > ChainsCoordinator<'a, T, N, U, CE, FE, B>
+impl<'a, Conn, T, N, U, CE, FE, B> ChainsCoordinator<'a, Conn, T, N, U, CE, FE, B>
+where
+    Conn: DbConnection + TrieDb,
+    T: BlockEventDispatcher,
+    N: CoordinatorNotices,
+    U: RewardSetProvider,
+    CE: CostEstimator + ?Sized,
+    FE: FeeEstimator + ?Sized,
+    B: BurnchainHeaderReader,
 {
     /// Check to see if we're in the last of the 2.x epochs, and we have the first PoX anchor block
     /// for epoch 3.

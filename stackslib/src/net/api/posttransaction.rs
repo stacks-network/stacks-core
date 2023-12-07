@@ -33,6 +33,8 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
@@ -171,7 +173,10 @@ impl HttpRequest for RPCPostTransactionRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPostTransactionRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCPostTransactionRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.tx = None;
@@ -183,7 +188,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tx = self
             .tx

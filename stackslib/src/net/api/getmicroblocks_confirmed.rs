@@ -28,6 +28,8 @@ use {serde, serde_json};
 
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::api::getmicroblocks_indexed::StacksIndexedMicroblockStream;
 use crate::net::http::{
     parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
@@ -54,10 +56,13 @@ impl RPCMicroblocksConfirmedRequestHandler {
 
 impl StacksIndexedMicroblockStream {
     /// Make a new indexed microblock streamer using the descendent Stacks anchored block
-    pub fn new_confirmed(
-        chainstate: &StacksChainState,
+    pub fn new_confirmed<Conn>(
+        chainstate: &StacksChainState<Conn>,
         child_block_id: &StacksBlockId,
-    ) -> Result<Self, ChainError> {
+    ) -> Result<Self, ChainError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let tail_microblock_index_hash =
             if let Some(bhh) = chainstate.get_confirmed_microblock_index_hash(child_block_id)? {
                 bhh
@@ -101,7 +106,10 @@ impl HttpRequest for RPCMicroblocksConfirmedRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCMicroblocksConfirmedRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -112,7 +120,7 @@ impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .block_id

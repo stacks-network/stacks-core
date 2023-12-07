@@ -45,6 +45,7 @@ use crate::chainstate::coordinator::{
     static_get_stacks_tip_affirmation_map,
 };
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::core::StacksEpoch;
 use crate::monitoring::{update_inbound_neighbors, update_outbound_neighbors};
@@ -203,7 +204,10 @@ pub enum MempoolSyncState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
-pub struct PeerNetwork {
+pub struct PeerNetwork<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     // constants
     pub peer_version: u32,
     pub epochs: Vec<StacksEpoch>,
@@ -259,7 +263,7 @@ pub struct PeerNetwork {
     have_data_to_download: bool,
 
     // neighbor walk state
-    pub walk: Option<NeighborWalk<PeerDBNeighborWalk, PeerNetworkComms>>,
+    pub walk: Option<NeighborWalk<Conn, PeerDBNeighborWalk, PeerNetworkComms>>,
     pub walk_deadline: u64,
     pub walk_count: u64,
     pub walk_attempts: u64,
@@ -309,7 +313,7 @@ pub struct PeerNetwork {
     pub prune_inbound_counts: HashMap<NeighborKey, u64>,
 
     // http endpoint, used for driving HTTP conversations (some of which we initiate)
-    pub http: Option<HttpPeer>,
+    pub http: Option<HttpPeer<Conn>>,
 
     // our own neighbor address that we bind on
     bind_nk: NeighborKey,
@@ -348,7 +352,10 @@ pub struct PeerNetwork {
     fault_last_disconnect: u64,
 }
 
-impl PeerNetwork {
+impl<Conn> PeerNetwork<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn new(
         peerdb: PeerDB,
         atlasdb: AtlasDB,
@@ -363,7 +370,7 @@ impl PeerNetwork {
             (StackerDBConfig, StackerDBSync<PeerNetworkComms>),
         >,
         epochs: Vec<StacksEpoch>,
-    ) -> PeerNetwork {
+    ) -> PeerNetwork<Conn> {
         let http = HttpPeer::new(
             connection_opts.clone(),
             0,
@@ -514,9 +521,9 @@ impl PeerNetwork {
     /// Do something with the HTTP peer.
     /// NOTE: the HTTP peer is *always* instantiated; it's just an Option<..> so its methods can
     /// receive a ref to the PeerNetwork that contains it.
-    pub fn with_http<F, R>(network: &mut PeerNetwork, to_do: F) -> R
+    pub fn with_http<F, R>(network: &mut PeerNetwork<Conn>, to_do: F) -> R
     where
-        F: FnOnce(&mut PeerNetwork, &mut HttpPeer) -> R,
+        F: FnOnce(&mut PeerNetwork<Conn>, &mut HttpPeer<Conn>) -> R,
     {
         let mut http = network
             .http
@@ -694,11 +701,11 @@ impl PeerNetwork {
 
     /// Run a closure with the network state
     pub fn with_network_state<F, R>(
-        peer_network: &mut PeerNetwork,
+        peer_network: &mut PeerNetwork<Conn>,
         closure: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut NetworkState) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork<Conn>, &mut NetworkState) -> Result<R, net_error>,
     {
         let mut net = peer_network.network.take();
         let res = match net {
@@ -713,11 +720,11 @@ impl PeerNetwork {
 
     /// Run a closure with the attachments_downloader
     pub fn with_attachments_downloader<F, R>(
-        peer_network: &mut PeerNetwork,
+        peer_network: &mut PeerNetwork<Conn>,
         closure: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut AttachmentsDownloader) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork<Conn>, &mut AttachmentsDownloader) -> Result<R, net_error>,
     {
         let mut attachments_downloader = peer_network.attachments_downloader.take();
         let res = match attachments_downloader {
@@ -1873,7 +1880,7 @@ impl PeerNetwork {
     /// so `todo` can take a mutable ref to the PeerNetwork
     fn with_p2p_convo<F, R>(&mut self, event_id: usize, todo: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut ConversationP2P, &mut mio_net::TcpStream) -> R,
+        F: FnOnce(&mut PeerNetwork<Conn>, &mut ConversationP2P, &mut mio_net::TcpStream) -> R,
     {
         // "check out" the conversation and client socket.
         // If one of them is missing, then "check in" the other so we can properly deregister the
@@ -1914,8 +1921,8 @@ impl PeerNetwork {
     fn process_p2p_conversation(
         &mut self,
         event_id: usize,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
     ) -> Result<(Vec<StacksMessage>, bool), net_error> {
         self.with_p2p_convo(event_id, |network, convo, client_sock| {
             // get incoming bytes and update the state of this conversation.
@@ -2001,8 +2008,8 @@ impl PeerNetwork {
     /// unhandled messages grouped by event_id.
     fn process_ready_sockets(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         poll_state: &mut NetworkPollState,
     ) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
         let mut to_remove = vec![];
@@ -2707,7 +2714,11 @@ impl PeerNetwork {
 
     /// Update the state of our neighbors' block inventories.
     /// Return true if we finish
-    fn do_network_inv_sync(&mut self, sortdb: &SortitionDB, ibd: bool) -> (bool, bool) {
+    fn do_network_inv_sync(
+        &mut self, 
+        sortdb: &SortitionDB<Conn>, 
+        ibd: bool
+    ) -> (bool, bool) {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
             test_debug!("{:?}: inv sync is disabled", &self.local_peer);
             return (true, false);
@@ -2739,8 +2750,8 @@ impl PeerNetwork {
     /// Download blocks, and add them to our network result.
     fn do_network_block_download(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         dns_client: &mut DNSClient,
         ibd: bool,
         network_result: &mut NetworkResult,
@@ -2854,8 +2865,8 @@ impl PeerNetwork {
         nk: &NeighborKey,
         reward_cycle: u64,
         height: u64,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<Conn>,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
     ) -> Option<(ConsensusHash, StacksBlock)> {
@@ -2918,8 +2929,8 @@ impl PeerNetwork {
         nk: &NeighborKey,
         reward_cycle: u64,
         height: u64,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<Conn>,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
     ) -> Option<(ConsensusHash, BlockHeaderHash, Vec<StacksMicroblock>)> {
@@ -3022,7 +3033,11 @@ impl PeerNetwork {
     /// Push any blocks and microblock streams that we're holding onto out to our neighbors.
     /// Start with the most-recently-arrived data, since this node is likely to have already
     /// fetched older data via the block-downloader.
-    fn try_push_local_data(&mut self, sortdb: &SortitionDB, chainstate: &StacksChainState) {
+    fn try_push_local_data(
+        &mut self, 
+        sortdb: &SortitionDB<Conn>, 
+        chainstate: &StacksChainState<Conn>
+    ) {
         if self.antientropy_last_push_ts + self.connection_opts.antientropy_retry
             >= get_epoch_time_secs()
         {
@@ -3815,8 +3830,8 @@ impl PeerNetwork {
     /// Return true if we need to prune connections.
     fn do_network_work(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
         ibd: bool,
@@ -4258,7 +4273,7 @@ impl PeerNetwork {
     /// If updated, return the sortition height of the bit in the inv that was set.
     fn handle_unsolicited_inv_update(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         event_id: usize,
         outbound_neighbor_key: &NeighborKey,
         consensus_hash: &ConsensusHash,
@@ -4422,8 +4437,8 @@ impl PeerNetwork {
 
     /// Do we need a block or microblock stream, given its sortition's consensus hash?
     fn need_block_or_microblock_stream(
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         is_microblock: bool,
     ) -> Result<bool, net_error> {
@@ -4451,8 +4466,8 @@ impl PeerNetwork {
     /// Return whether or not we need to buffer this message
     fn handle_unsolicited_BlocksAvailable(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<Conn>,
         event_id: usize,
         new_blocks: &BlocksAvailableData,
         ibd: bool,
@@ -4552,8 +4567,8 @@ impl PeerNetwork {
     /// Return whether or not we need to buffer this message
     fn handle_unsolicited_MicroblocksAvailable(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<Conn>,
         event_id: usize,
         new_mblocks: &BlocksAvailableData,
         ibd: bool,
@@ -4651,7 +4666,7 @@ impl PeerNetwork {
     /// Mask errors.
     fn handle_unsolicited_BlocksData(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         event_id: usize,
         new_blocks: &BlocksData,
         buffer: bool,
@@ -4773,7 +4788,7 @@ impl PeerNetwork {
     /// Returns whether or not to pass to the relayer (if buffer is false).
     fn handle_unsolicited_MicroblocksData(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<Conn>,
         event_id: usize,
         new_microblocks: &MicroblocksData,
         buffer: bool,
@@ -4848,8 +4863,8 @@ impl PeerNetwork {
     /// Returns (x, true) if the relayer should receive the message
     fn handle_unsolicited_message(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<Conn>,
         event_id: usize,
         preamble: &Preamble,
         payload: &StacksMessageType,
@@ -4924,8 +4939,8 @@ impl PeerNetwork {
     /// If buffer is true, then re-try handling this message once the burnchain view advances.
     fn handle_unsolicited_messages(
         &mut self,
-        sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<Conn>,
         unsolicited: HashMap<usize, Vec<StacksMessage>>,
         ibd: bool,
         buffer: bool,
@@ -5208,13 +5223,16 @@ impl PeerNetwork {
     /// * hint to the download state machine to start looking for the new block at the new
     /// stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
-    pub fn refresh_burnchain_view<B: BurnchainHeaderReader>(
+    pub fn refresh_burnchain_view<B>(
         &mut self,
         indexer: &B,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         ibd: bool,
-    ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> {
+    ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> 
+    where
+        B: BurnchainHeaderReader,
+    {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
@@ -5371,9 +5389,9 @@ impl PeerNetwork {
     fn dispatch_network(
         &mut self,
         network_result: &mut NetworkResult,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<Conn>,
         mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
         ibd: bool,
@@ -5529,8 +5547,8 @@ impl PeerNetwork {
     /// Has to be done here, since only the p2p network has the unconfirmed state.
     fn store_transaction(
         mempool: &mut MemPoolDB,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         burnchain_tip: &BlockSnapshot,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -5578,8 +5596,8 @@ impl PeerNetwork {
     /// relayed.
     pub fn store_transactions(
         mempool: &mut MemPoolDB,
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
         network_result: &mut NetworkResult,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), net_error> {
@@ -5650,18 +5668,21 @@ impl PeerNetwork {
     ///
     /// This method can only fail if the internal network object (self.network) is not
     /// instantiated.
-    pub fn run<B: BurnchainHeaderReader>(
+    pub fn run<B>(
         &mut self,
         indexer: &B,
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         mempool: &mut MemPoolDB,
         dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
         ibd: bool,
         poll_timeout: u64,
         handler_args: &RPCHandlerArgs,
-    ) -> Result<NetworkResult, net_error> {
+    ) -> Result<NetworkResult, net_error> 
+    where
+        B: BurnchainHeaderReader,
+    {
         debug!(">>>>>>>>>>>>>>>>>>>>>>> Begin Network Dispatch (poll for {}) >>>>>>>>>>>>>>>>>>>>>>>>>>>>", poll_timeout);
         let mut poll_states = match self.network {
             None => {
@@ -5810,7 +5831,12 @@ mod test {
         neighbor
     }
 
-    fn make_test_p2p_network(initial_neighbors: &Vec<Neighbor>) -> PeerNetwork {
+    fn make_test_p2p_network<Conn>(
+        initial_neighbors: &Vec<Neighbor>
+    ) -> PeerNetwork<Conn> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.inbox_maxlen = 5;
         conn_opts.outbox_maxlen = 5;

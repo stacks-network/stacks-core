@@ -46,6 +46,8 @@ use crate::chainstate::burn::operations::{
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::*;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::Error as db_error;

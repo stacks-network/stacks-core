@@ -444,10 +444,12 @@ impl BlockEventDispatcher for NullEventDispatcher {
     }
 }
 
-pub fn make_coordinator<'a>(
+pub fn make_coordinator<'a, Conn>(
     path: &str,
     burnchain: Option<Burnchain>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
+) -> ChainsCoordinator<'a, Conn, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
+where
+    Conn: DbConnection + TrieDb
 {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
@@ -460,11 +462,13 @@ pub fn make_coordinator<'a>(
     )
 }
 
-pub fn make_coordinator_atlas<'a>(
+pub fn make_coordinator_atlas<'a, Conn>(
     path: &str,
     burnchain: Option<Burnchain>,
     atlas_config: Option<AtlasConfig>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
+) -> ChainsCoordinator<'a, Conn, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
+where
+    Conn: DbConnection + TrieDb
 {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
@@ -482,14 +486,17 @@ pub fn make_coordinator_atlas<'a>(
 struct StubbedRewardSetProvider(Vec<PoxAddress>);
 
 impl RewardSetProvider for StubbedRewardSetProvider {
-    fn get_reward_set(
+    fn get_reward_set<Conn>(
         &self,
         _current_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<Conn>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
-    ) -> Result<RewardSet, chainstate::coordinator::Error> {
+    ) -> Result<RewardSet, chainstate::coordinator::Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         Ok(RewardSet {
             rewarded_addresses: self.0.clone(),
             start_cycle_state: PoxStartCycleInfo {
@@ -499,11 +506,13 @@ impl RewardSetProvider for StubbedRewardSetProvider {
     }
 }
 
-fn make_reward_set_coordinator<'a>(
+fn make_reward_set_coordinator<'a, Conn>(
     path: &str,
     addrs: Vec<PoxAddress>,
     pox_consts: Option<PoxConstants>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), StubbedRewardSetProvider, (), (), BitcoinIndexer>
+) -> ChainsCoordinator<'a, Conn, NullEventDispatcher, (), StubbedRewardSetProvider, (), (), BitcoinIndexer>
+where
+    Conn: DbConnection + TrieDb
 {
     let burnchain = get_burnchain(path, None);
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
@@ -537,7 +546,13 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
     b
 }
 
-pub fn get_sortition_db(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
+pub fn get_sortition_db<Conn>(
+    path: &str, 
+    pox_consts: Option<PoxConstants>
+) -> SortitionDB<Conn>
+where
+    Conn: DbConnection + TrieDb
+{
     let burnchain = get_burnchain(path, pox_consts);
     SortitionDB::open(
         &burnchain.get_db_path(),
@@ -547,7 +562,13 @@ pub fn get_sortition_db(path: &str, pox_consts: Option<PoxConstants>) -> Sortiti
     .unwrap()
 }
 
-pub fn get_rw_sortdb(path: &str, pox_consts: Option<PoxConstants>) -> SortitionDB {
+pub fn get_rw_sortdb<Conn>(
+    path: &str, 
+    pox_consts: Option<PoxConstants>
+) -> SortitionDB<Conn>
+where
+    Conn: DbConnection + TrieDb
+{
     let burnchain = get_burnchain(path, pox_consts);
     SortitionDB::open(
         &burnchain.get_db_path(),
@@ -566,21 +587,29 @@ pub fn get_chainstate_path_str(path: &str) -> String {
     format!("{}/chainstate/", path)
 }
 
-pub fn get_chainstate(path: &str) -> StacksChainState {
+pub fn get_chainstate<Conn>(
+    path: &str
+) -> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     let (chainstate, _) =
         StacksChainState::open(false, 0x80000000, &get_chainstate_path_str(path), None).unwrap();
     chainstate
 }
 
-fn make_genesis_block(
-    sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+fn make_genesis_block<Conn>(
+    sort_db: &SortitionDB<Conn>,
+    state: &mut StacksChainState<Conn>,
     parent_block: &BlockHeaderHash,
     miner: &StacksPrivateKey,
     my_burn: u64,
     vrf_key: &VRFPrivateKey,
     key_index: u32,
-) -> (BlockstackOperationType, StacksBlock) {
+) -> (BlockstackOperationType, StacksBlock)
+where
+    Conn: DbConnection + TrieDb
+{
     make_genesis_block_with_recipients(
         sort_db,
         state,
@@ -595,16 +624,19 @@ fn make_genesis_block(
 
 /// build a stacks block with just the coinbase off of
 ///  parent_block, in the canonical sortition fork.
-fn make_genesis_block_with_recipients(
-    sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+fn make_genesis_block_with_recipients<Conn>(
+    sort_db: &SortitionDB<Conn>,
+    state: &mut StacksChainState<Conn>,
     parent_block: &BlockHeaderHash,
     miner: &StacksPrivateKey,
     my_burn: u64,
     vrf_key: &VRFPrivateKey,
     key_index: u32,
     recipients: Option<&RewardSetInfo>,
-) -> (BlockstackOperationType, StacksBlock) {
+) -> (BlockstackOperationType, StacksBlock)
+where
+    Conn: DbConnection + TrieDb
+{
     let tx_auth = TransactionAuth::from_p2pkh(miner).unwrap();
 
     let mut tx = StacksTransaction::new(
@@ -692,9 +724,9 @@ fn make_genesis_block_with_recipients(
     (BlockstackOperationType::LeaderBlockCommit(commit_op), block)
 }
 
-fn make_stacks_block(
-    sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+fn make_stacks_block<Conn>(
+    sort_db: &SortitionDB<Conn>,
+    state: &mut StacksChainState<Conn>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -702,7 +734,10 @@ fn make_stacks_block(
     my_burn: u64,
     vrf_key: &VRFPrivateKey,
     key_index: u32,
-) -> (BlockstackOperationType, StacksBlock) {
+) -> (BlockstackOperationType, StacksBlock) 
+where
+    Conn: DbConnection + TrieDb
+{
     make_stacks_block_with_recipients(
         sort_db,
         state,
@@ -717,9 +752,9 @@ fn make_stacks_block(
     )
 }
 
-fn make_stacks_block_from_parent_sortition(
-    sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+fn make_stacks_block_from_parent_sortition<Conn>(
+    sort_db: &SortitionDB<Conn>,
+    state: &mut StacksChainState<Conn>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -728,7 +763,10 @@ fn make_stacks_block_from_parent_sortition(
     vrf_key: &VRFPrivateKey,
     key_index: u32,
     parent_sortition: BlockSnapshot,
-) -> (BlockstackOperationType, StacksBlock) {
+) -> (BlockstackOperationType, StacksBlock) 
+where
+    Conn: DbConnection + TrieDb
+{
     // NOTE: assumes no sunset
     make_stacks_block_with_input(
         sort_db,
@@ -752,9 +790,9 @@ fn make_stacks_block_from_parent_sortition(
 /// build a stacks block with just the coinbase off of
 ///  parent_block, in the canonical sortition fork of SortitionDB.
 /// parent_block _must_ be included in the StacksChainState
-fn make_stacks_block_with_recipients(
-    sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+fn make_stacks_block_with_recipients<Conn>(
+    sort_db: &SortitionDB<Conn>,
+    state: &mut StacksChainState<Conn>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -763,7 +801,10 @@ fn make_stacks_block_with_recipients(
     vrf_key: &VRFPrivateKey,
     key_index: u32,
     recipients: Option<&RewardSetInfo>,
-) -> (BlockstackOperationType, StacksBlock) {
+) -> (BlockstackOperationType, StacksBlock) 
+where
+    Conn: DbConnection + TrieDb
+{
     make_stacks_block_with_recipients_and_sunset_burn(
         sort_db,
         state,
@@ -783,9 +824,9 @@ fn make_stacks_block_with_recipients(
 /// build a stacks block with just the coinbase off of
 ///  parent_block, in the canonical sortition fork of SortitionDB.
 /// parent_block _must_ be included in the StacksChainState
-fn make_stacks_block_with_recipients_and_sunset_burn(
-    sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+fn make_stacks_block_with_recipients_and_sunset_burn<Conn>(
+    sort_db: &SortitionDB<Conn>,
+    state: &mut StacksChainState<Conn>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -796,7 +837,10 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
     recipients: Option<&RewardSetInfo>,
     sunset_burn: u64,
     post_sunset_burn: bool,
-) -> (BlockstackOperationType, StacksBlock) {
+) -> (BlockstackOperationType, StacksBlock) 
+where
+    Conn: DbConnection + TrieDb
+{
     make_stacks_block_with_input(
         sort_db,
         state,
@@ -820,9 +864,9 @@ fn make_stacks_block_with_recipients_and_sunset_burn(
 ///  parent_block, in the canonical sortition fork of SortitionDB.
 /// parent_block _must_ be included in the StacksChainState
 /// `txs`: transactions to try to include in block
-fn make_stacks_block_with_input(
-    sort_db: &SortitionDB,
-    state: &mut StacksChainState,
+fn make_stacks_block_with_input<Conn>(
+    sort_db: &SortitionDB<Conn>,
+    state: &mut StacksChainState<Conn>,
     burnchain: &Burnchain,
     parent_block: &BlockHeaderHash,
     parent_height: u64,
@@ -836,7 +880,10 @@ fn make_stacks_block_with_input(
     input: (Txid, u32),
     parents_sortition_opt: Option<BlockSnapshot>,
     txs: &[StacksTransaction],
-) -> (BlockstackOperationType, StacksBlock) {
+) -> (BlockstackOperationType, StacksBlock) 
+where
+    Conn: DbConnection + TrieDb
+{
     let tx_auth = TransactionAuth::from_p2pkh(miner).unwrap();
 
     let mut tx = StacksTransaction::new(
@@ -3602,12 +3649,15 @@ fn test_sbtc_ops() {
 // from the pox-2 contract.
 // Given an address, it retrieves the fields `amount-ustx` and `pox-addr` from the map
 // `delegation-state` in pox-2.
-fn get_delegation_info_pox_2(
-    chainstate: &mut StacksChainState,
+fn get_delegation_info_pox_2<Conn>(
+    chainstate: &mut StacksChainState<Conn>,
     burn_dbconn: &dyn BurnStateDB,
     parent_tip: &StacksBlockId,
     del_addr: &StacksAddress,
-) -> Option<(u128, Option<PoxAddress>)> {
+) -> Option<(u128, Option<PoxAddress>)> 
+where
+    Conn: DbConnection + TrieDb
+{
     let result = chainstate
         .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
             conn.with_readonly_clarity_env(
@@ -5110,13 +5160,16 @@ fn atlas_stop_start() {
     );
 }
 
-fn get_total_stacked_info(
-    chainstate: &mut StacksChainState,
+fn get_total_stacked_info<Conn>(
+    chainstate: &mut StacksChainState<Conn>,
     burn_dbconn: &dyn BurnStateDB,
     parent_tip: &StacksBlockId,
     reward_cycle: u64,
     is_pox_2: bool,
-) -> Result<u128, InterpreterError> {
+) -> Result<u128, InterpreterError> 
+where
+    Conn: DbConnection + TrieDb
+{
     chainstate
         .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
             conn.with_readonly_clarity_env(
@@ -6966,7 +7019,14 @@ fn test_pox_fork_out_of_order() {
     );
 }
 
-fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -> Value {
+fn eval_at_chain_tip<Conn>(
+    chainstate_path: &str, 
+    sort_db: &SortitionDB<Conn>, 
+    eval: &str
+) -> Value 
+where
+    Conn: DbConnection + TrieDb,
+{
     let stacks_tip = SortitionDB::get_canonical_stacks_chain_tip_hash(sort_db.conn()).unwrap();
     test_debug!(
         "Canonical chain tip at {} is {:?}",
@@ -6994,13 +7054,19 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
         .unwrap()
 }
 
-fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProvider>(
+fn reveal_block<Conn, T, N, U>(
     chainstate_path: &str,
-    sort_db: &SortitionDB,
-    coord: &mut ChainsCoordinator<T, N, U, (), (), BitcoinIndexer>,
+    sort_db: &SortitionDB<Conn>,
+    coord: &mut ChainsCoordinator<Conn, T, N, U, (), (), BitcoinIndexer>,
     my_sortition: &SortitionId,
     block: &StacksBlock,
-) {
+) 
+where
+    Conn: DbConnection + TrieDb,
+    T: BlockEventDispatcher,
+    N: CoordinatorNotices,
+    U: RewardSetProvider
+{
     let mut chainstate = get_chainstate(chainstate_path);
     let sortition = SortitionDB::get_block_snapshot(sort_db.conn(), &my_sortition)
         .unwrap()
@@ -7009,12 +7075,15 @@ fn reveal_block<T: BlockEventDispatcher, N: CoordinatorNotices, U: RewardSetProv
     coord.handle_new_stacks_block().unwrap();
 }
 
-fn preprocess_block(
-    chain_state: &mut StacksChainState,
-    sort_db: &SortitionDB,
+fn preprocess_block<Conn>(
+    chain_state: &mut StacksChainState<Conn>,
+    sort_db: &SortitionDB<Conn>,
     my_sortition: &BlockSnapshot,
     block: StacksBlock,
-) {
+)
+where
+    Conn: DbConnection + TrieDb,
+{
     let ic = sort_db.index_conn();
     let parent_consensus_hash = SortitionDB::get_block_snapshot_for_winning_stacks_block(
         &ic,

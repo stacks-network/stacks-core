@@ -64,10 +64,13 @@ impl Default for ProcessedUnconfirmedState {
     }
 }
 
-pub struct UnconfirmedState {
+pub struct UnconfirmedState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub confirmed_chain_tip: StacksBlockId,
     pub unconfirmed_chain_tip: StacksBlockId,
-    pub clarity_inst: ClarityInstance,
+    pub clarity_inst: ClarityInstance<Conn>,
     pub mined_txs: UnconfirmedTxMap,
     pub cost_so_far: ExecutionCost,
     pub bytes_so_far: u64,
@@ -90,10 +93,13 @@ pub struct UnconfirmedState {
     pub disable_bytes_check: bool,
 }
 
-impl UnconfirmedState {
+impl<Conn> UnconfirmedState<Conn>
+where
+    Conn: DbConnection + TrieDb
+{
     /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
     /// call .refresh() to instatiate and store the underlying state trie.
-    fn new(chainstate: &StacksChainState, tip: StacksBlockId) -> Result<UnconfirmedState, Error> {
+    fn new(chainstate: &StacksChainState<Conn>, tip: StacksBlockId) -> Result<UnconfirmedState<Conn>, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &chainstate.clarity_state_index_root,
             None,
@@ -133,7 +139,7 @@ impl UnconfirmedState {
 
     /// Make a read-only copy of this unconfirmed state.  The resulting unconfiremd state cannot
     /// be refreshed, but it will represent a snapshot of the existing unconfirmed state.
-    pub fn make_readonly_owned(&self) -> Result<UnconfirmedState, Error> {
+    pub fn make_readonly_owned(&self) -> Result<UnconfirmedState<Conn>, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &self.clarity_state_index_root,
             None,
@@ -170,9 +176,9 @@ impl UnconfirmedState {
 
     /// Make a new unconfirmed state, but don't do anything with it yet, and deny refreshes.
     fn new_readonly(
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<Conn>,
         tip: StacksBlockId,
-    ) -> Result<UnconfirmedState, Error> {
+    ) -> Result<UnconfirmedState<Conn>, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &chainstate.clarity_state_index_root,
             None,
@@ -217,7 +223,7 @@ impl UnconfirmedState {
     /// Idempotent.
     fn append_microblocks(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<Conn>,
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
     ) -> Result<ProcessedUnconfirmedState, Error> {
@@ -371,7 +377,7 @@ impl UnconfirmedState {
     /// Load up the Stacks microblock stream to process, composed of only the new microblocks
     fn load_child_microblocks(
         &self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<Conn>,
     ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
         let (consensus_hash, anchored_block_hash) =
             match chainstate.get_block_header_hashes(&self.confirmed_chain_tip)? {
@@ -393,7 +399,7 @@ impl UnconfirmedState {
     /// Returns ProcessedUnconfirmedState for the microblocks newly added to the unconfirmed state
     pub fn refresh(
         &mut self,
-        chainstate: &StacksChainState,
+        chainstate: &StacksChainState<Conn>,
         burn_dbconn: &dyn BurnStateDB,
     ) -> Result<ProcessedUnconfirmedState, Error> {
         assert!(
@@ -484,9 +490,12 @@ impl UnconfirmedState {
     }
 }
 
-impl StacksChainState {
+impl<Conn> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Clear the current unconfirmed state
-    fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState) {
+    fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState<Conn>) {
         if !unconfirmed.have_state {
             debug!(
                 "Dropping empty unconfirmed state off of {} ({})",
@@ -515,7 +524,7 @@ impl StacksChainState {
         &self,
         burn_dbconn: &dyn BurnStateDB,
         anchored_block_id: StacksBlockId,
-    ) -> Result<(UnconfirmedState, ProcessedUnconfirmedState), Error> {
+    ) -> Result<(UnconfirmedState<Conn>, ProcessedUnconfirmedState), Error> {
         debug!("Make new unconfirmed state off of {}", &anchored_block_id);
         let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id)?;
         let processed_unconfirmed_state = unconfirmed_state.refresh(self, burn_dbconn)?;

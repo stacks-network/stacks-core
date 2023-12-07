@@ -58,6 +58,8 @@ use crate::chainstate::stacks::db::{
     MINER_REWARD_MATURITY,
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, TransactionError,
     TransactionProblematic, TransactionResult, TransactionSkipped,
@@ -104,9 +106,12 @@ pub struct NakamotoBlockBuilder {
     header: NakamotoBlockHeader,
 }
 
-pub struct MinerTenureInfo<'a> {
+pub struct MinerTenureInfo<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub chainstate_tx: ChainstateTx<'a>,
-    pub clarity_instance: &'a mut ClarityInstance,
+    pub clarity_instance: &'a mut ClarityInstance<Conn>,
     pub burn_tip: BurnchainHeaderHash,
     /// This is the expected burn tip height (i.e., the current burnchain tip + 1)
     ///  of the mined block
@@ -281,12 +286,15 @@ impl NakamotoBlockBuilder {
     /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
     /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
     /// expire.
-    pub fn load_tenure_info<'a>(
+    pub fn load_tenure_info<'a, Conn>(
         &self,
-        chainstate: &'a mut StacksChainState,
-        burn_dbconn: &'a SortitionDBConn,
+        chainstate: &'a mut StacksChainState<Conn>,
+        burn_dbconn: &'a SortitionDBConn<Conn>,
         tenure_start: bool,
-    ) -> Result<MinerTenureInfo<'a>, Error> {
+    ) -> Result<MinerTenureInfo<'a, Conn>, Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         debug!("Nakamoto miner tenure begin");
 
         let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
@@ -390,11 +398,14 @@ impl NakamotoBlockBuilder {
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
     /// yet known).
-    pub fn tenure_begin<'a, 'b>(
+    pub fn tenure_begin<'a, 'b, Conn>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn,
-        info: &'b mut MinerTenureInfo<'a>,
-    ) -> Result<ClarityTx<'b, 'b>, Error> {
+        burn_dbconn: &'a SortitionDBConn<Conn>,
+        info: &'b mut MinerTenureInfo<'a, Conn>,
+    ) -> Result<ClarityTx<'b, 'b>, Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let SetupBlockResult {
             clarity_tx,
             matured_miner_rewards_opt,
@@ -487,10 +498,10 @@ impl NakamotoBlockBuilder {
 
     /// Given access to the mempool, mine a nakamoto block.
     /// It will not be signed.
-    pub fn build_nakamoto_block(
+    pub fn build_nakamoto_block<Conn>(
         // not directly used; used as a handle to open other chainstates
-        chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        chainstate_handle: &StacksChainState<Conn>,
+        burn_dbconn: &SortitionDBConn<Conn>,
         mempool: &mut MemPoolDB,
         // tenure ID -- this is the index block hash of the start block of the last tenure (i.e.
         // the data we committed to in the block-commit)
@@ -504,7 +515,10 @@ impl NakamotoBlockBuilder {
         new_tenure_info: Option<NakamotoTenureStart>,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-    ) -> Result<(NakamotoBlock, ExecutionCost, u64), Error> {
+    ) -> Result<(NakamotoBlock, ExecutionCost, u64), Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),
             parent_stacks_header.anchored_header.block_hash(),
@@ -599,12 +613,15 @@ impl NakamotoBlockBuilder {
     }
 
     #[cfg(test)]
-    pub fn make_nakamoto_block_from_txs(
+    pub fn make_nakamoto_block_from_txs<Conn>(
         mut self,
-        chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
+        chainstate_handle: &StacksChainState<Conn>,
+        burn_dbconn: &SortitionDBConn<Conn>,
         mut txs: Vec<StacksTransaction>,
-    ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> {
+    ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         debug!("Build Nakamoto block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 

@@ -46,8 +46,10 @@ use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
 use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::tests::make_coinbase;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
@@ -62,7 +64,12 @@ const USTX_PER_HOLDER: u128 = 1_000_000;
 
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
-fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
+fn get_tip<Conn>(
+    sortdb: Option<&SortitionDB<Conn>>
+) -> BlockSnapshot
+where
+    Conn: DbConnection + TrieDb
+{
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
 }
 
@@ -3310,7 +3317,12 @@ fn pox_3_getters() {
     assert_eq!(rejected, 0);
 }
 
-fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
+fn get_burn_pox_addr_info<Conn>(
+    peer: &mut TestPeer<Conn>
+) -> (Vec<PoxAddress>, u128)
+where
+    Conn: DbConnection + TrieDb
+{
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;

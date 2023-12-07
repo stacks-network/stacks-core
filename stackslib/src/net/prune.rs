@@ -34,7 +34,10 @@ use crate::net::Error as net_error;
 use crate::net::*;
 use crate::util_lib::db::{DBConn, Error as db_error};
 
-impl PeerNetwork {
+impl<Conn> PeerNetwork<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Find out which organizations have which of our outbound neighbors.
     /// Gives back a map from the organization ID to the list of (neighbor, neighbor-stats) tuples.
     /// Connections in `preserve` are not considered in the distribution.

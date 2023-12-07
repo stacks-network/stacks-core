@@ -5,12 +5,9 @@ use stacks_common::types::chainstate::TrieHash;
 
 use super::{Error, node::{TriePtr, TrieNodeType}, MarfTrieId};
 
-pub trait DbBackend: Sized {
-    type ConnType: DbConnection;
-    fn establish(uri: &str)-> Result<Self::ConnType, DbError>;
+pub trait DbConnection: Sized {
+    fn establish<P: AsRef<Path>>(uri: P)-> Result<Self, DbError>;
 }
-
-pub trait DbConnection: Sized {}
 
 pub trait TransactionalDb
 where

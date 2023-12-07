@@ -29,6 +29,8 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
@@ -98,7 +100,10 @@ impl HttpRequest for RPCGetTransactionUnconfirmedRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCGetTransactionUnconfirmedRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.txid = None;
@@ -109,7 +114,7 @@ impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let txid = self
             .txid

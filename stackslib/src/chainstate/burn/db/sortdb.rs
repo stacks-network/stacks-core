@@ -71,8 +71,10 @@ use crate::chainstate::nakamoto::NakamotoBlockHeader;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::boot::PoxStartCycleInfo;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{
     ClarityMarfTrieId, Error as MARFError, MARFValue, MarfTrieId,
 };
@@ -910,9 +912,12 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_peg_out_fulfill_burn_header_hash ON peg_out_fulfillments(burn_header_hash);",
 ];
 
-pub struct SortitionDB {
+pub struct SortitionDB<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub readwrite: bool,
-    pub marf: MARF<SortitionId>,
+    pub marf: MARF<SortitionId, Conn>,
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
     pub pox_constants: PoxConstants,
@@ -931,8 +936,10 @@ pub struct SortitionHandleContext {
     pub chain_tip: SortitionId,
 }
 
-pub type SortitionDBConn<'a> = IndexDBConn<'a, SortitionDBTxContext, SortitionId>;
-pub type SortitionDBTx<'a> = IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
+pub type SortitionDBConn<'a, Conn: DbConnection + TrieDb> = 
+    IndexDBConn<'a, Conn, SortitionDBTxContext, SortitionId>;
+pub type SortitionDBTx<'a> = 
+    IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
 
 ///
 /// These structs are used to keep an open "handle" to the
@@ -941,8 +948,10 @@ pub type SortitionDBTx<'a> = IndexDBTx<'a, SortitionDBTxContext, SortitionId>;
 ///   much simpler, because they don't have to worry about passing
 ///   around the open chain tip everywhere.
 ///
-pub type SortitionHandleConn<'a> = IndexDBConn<'a, SortitionHandleContext, SortitionId>;
-pub type SortitionHandleTx<'a> = IndexDBTx<'a, SortitionHandleContext, SortitionId>;
+pub type SortitionHandleConn<'a, Conn: DbConnection + TrieDb> = 
+    IndexDBConn<'a, Conn, SortitionHandleContext, SortitionId>;
+pub type SortitionHandleTx<'a> = 
+    IndexDBTx<'a, SortitionHandleContext, SortitionId>;
 
 ///
 /// This trait is used for functions that
@@ -974,11 +983,15 @@ pub fn get_block_commit_by_txid(
     query_row(conn, qry, args)
 }
 
-pub fn get_ancestor_sort_id<C: SortitionContext>(
-    ic: &IndexDBConn<'_, C, SortitionId>,
+pub fn get_ancestor_sort_id<Conn, Ctx>(
+    ic: &IndexDBConn<'_, Conn, Ctx, SortitionId>,
     block_height: u64,
     tip_block_hash: &SortitionId,
-) -> Result<Option<SortitionId>, db_error> {
+) -> Result<Option<SortitionId>, db_error>
+where
+    Conn: DbConnection + TrieDb,
+    Ctx: SortitionContext
+{
     let adjusted_height = match get_adjusted_block_height(&ic.context, block_height) {
         Some(x) => x,
         None => return Ok(None),
@@ -987,11 +1000,14 @@ pub fn get_ancestor_sort_id<C: SortitionContext>(
     ic.get_ancestor_block_hash(adjusted_height, &tip_block_hash)
 }
 
-pub fn get_ancestor_sort_id_tx<C: SortitionContext>(
-    ic: &mut IndexDBTx<'_, C, SortitionId>,
+pub fn get_ancestor_sort_id_tx<Ctx>(
+    ic: &mut IndexDBTx<'_, Ctx, SortitionId>,
     block_height: u64,
     tip_block_hash: &SortitionId,
-) -> Result<Option<SortitionId>, db_error> {
+) -> Result<Option<SortitionId>, db_error>
+where
+    Ctx: SortitionContext
+{
     let adjusted_height = match get_adjusted_block_height(&ic.context, block_height) {
         Some(x) => x,
         None => return Ok(None),
@@ -1235,10 +1251,13 @@ pub trait SortitionHandle {
 impl<'a> SortitionHandleTx<'a> {
     /// begin a MARF transaction with this connection
     ///  this is used by _writing_ contexts
-    pub fn begin(
-        conn: &'a mut SortitionDB,
+    pub fn begin<Conn>(
+        conn: &'a mut SortitionDB<Conn>,
         parent_chain_tip: &SortitionId,
-    ) -> Result<SortitionHandleTx<'a>, db_error> {
+    ) -> Result<SortitionHandleTx<'a>, db_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         if !conn.readwrite {
             return Err(db_error::ReadOnly);
         }
@@ -1557,7 +1576,10 @@ impl SortitionHandle for SortitionHandleTx<'_> {
     }
 }
 
-impl SortitionHandle for SortitionHandleConn<'_> {
+impl<Conn> SortitionHandle for SortitionHandleConn<'_, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn get_block_snapshot_by_height(
         &mut self,
         block_height: u64,
@@ -1890,12 +1912,15 @@ impl<'a> SortitionHandleTx<'a> {
     }
 }
 
-impl<'a> SortitionHandleConn<'a> {
+impl<'a, Conn> SortitionHandleConn<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// open a reader handle from a consensus hash
     pub fn open_reader_consensus(
-        connection: &'a SortitionDBConn<'a>,
+        connection: &'a SortitionDBConn<'a, Conn>,
         chain_tip: &ConsensusHash,
-    ) -> Result<SortitionHandleConn<'a>, db_error> {
+    ) -> Result<SortitionHandleConn<'a, Conn>, db_error> {
         let sn = match SortitionDB::get_block_snapshot_consensus(&connection.conn(), chain_tip)? {
             Some(sn) => {
                 if !sn.pox_valid {
@@ -2070,9 +2095,9 @@ impl<'a> SortitionHandleConn<'a> {
 
     /// open a reader handle
     pub fn open_reader(
-        connection: &'a SortitionDBConn<'a>,
+        connection: &'a SortitionDBConn<'a, Conn>,
         chain_tip: &SortitionId,
-    ) -> Result<SortitionHandleConn<'a>, db_error> {
+    ) -> Result<SortitionHandleConn<'a, Conn>, db_error> {
         Ok(SortitionHandleConn {
             context: SortitionHandleContext {
                 chain_tip: chain_tip.clone(),
@@ -2691,7 +2716,10 @@ impl<'a> SortitionHandleConn<'a> {
 }
 
 // Connection methods
-impl SortitionDB {
+impl<Conn> SortitionDB<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Begin a transaction.
     pub fn tx_begin<'a>(&'a mut self) -> Result<SortitionDBTx<'a>, db_error> {
         if !self.readwrite {
@@ -2709,7 +2737,7 @@ impl SortitionDB {
     }
 
     /// Make an indexed connectino
-    pub fn index_conn<'a>(&'a self) -> SortitionDBConn<'a> {
+    pub fn index_conn<'a>(&'a self) -> SortitionDBConn<'a, Conn> {
         SortitionDBConn::new(
             &self.marf,
             SortitionDBTxContext {
@@ -2719,7 +2747,7 @@ impl SortitionDB {
         )
     }
 
-    pub fn index_handle<'a>(&'a self, chain_tip: &SortitionId) -> SortitionHandleConn<'a> {
+    pub fn index_handle<'a>(&'a self, chain_tip: &SortitionId) -> SortitionHandleConn<'a, Conn> {
         SortitionHandleConn::new(
             &self.marf,
             SortitionHandleContext {
@@ -2752,7 +2780,7 @@ impl SortitionDB {
         self.marf.sqlite_conn()
     }
 
-    fn open_index(index_path: &str) -> Result<MARF<SortitionId>, db_error> {
+    fn open_index(index_path: &str) -> Result<MARF<SortitionId, Conn>, db_error> {
         test_debug!("Open index at {}", index_path);
         let open_opts = MARFOpenOpts::default();
         let marf = MARF::from_path(index_path, open_opts).map_err(|_e| db_error::Corruption)?;
@@ -2767,7 +2795,7 @@ impl SortitionDB {
         path: &str,
         readwrite: bool,
         pox_constants: PoxConstants,
-    ) -> Result<SortitionDB, db_error> {
+    ) -> Result<SortitionDB<Conn>, db_error> {
         let index_path = db_mkdirs(path)?;
         debug!(
             "Open sortdb as '{}', with index as '{}'",
@@ -2800,7 +2828,7 @@ impl SortitionDB {
         epochs: &[StacksEpoch],
         pox_constants: PoxConstants,
         readwrite: bool,
-    ) -> Result<SortitionDB, db_error> {
+    ) -> Result<SortitionDB<Conn>, db_error> {
         let create_flag = match fs::metadata(path) {
             Err(e) => {
                 if e.kind() == ErrorKind::NotFound {
@@ -2870,7 +2898,7 @@ impl SortitionDB {
     pub fn connect_test(
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
-    ) -> Result<SortitionDB, db_error> {
+    ) -> Result<SortitionDB<Conn>, db_error> {
         use crate::core::StacksEpochExtension;
         SortitionDB::connect_test_with_epochs(
             first_block_height,
@@ -2886,7 +2914,7 @@ impl SortitionDB {
         first_block_height: u64,
         first_burn_hash: &BurnchainHeaderHash,
         epochs: Vec<StacksEpoch>,
-    ) -> Result<SortitionDB, db_error> {
+    ) -> Result<SortitionDB<Conn>, db_error> {
         let mut rng = rand::thread_rng();
         let mut buf = [0u8; 32];
         rng.fill_bytes(&mut buf);
@@ -2913,7 +2941,7 @@ impl SortitionDB {
         first_burn_hash: &BurnchainHeaderHash,
         first_burn_header_timestamp: u64,
         readwrite: bool,
-    ) -> Result<SortitionDB, db_error> {
+    ) -> Result<SortitionDB<Conn>, db_error> {
         let create_flag = match fs::metadata(path) {
             Err(e) => {
                 if e.kind() == ErrorKind::NotFound {
@@ -3640,8 +3668,11 @@ impl<'a> SortitionDBTx<'a> {
     }
 }
 
-impl<'a> SortitionDBConn<'a> {
-    pub fn as_handle<'b>(&'b self, chain_tip: &SortitionId) -> SortitionHandleConn<'b> {
+impl<'a, Conn> SortitionDBConn<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    pub fn as_handle<'b>(&'b self, chain_tip: &SortitionId) -> SortitionHandleConn<'b, Conn> {
         SortitionHandleConn {
             index: self.index,
             context: SortitionHandleContext {
@@ -3822,7 +3853,10 @@ impl<'a> SortitionDBConn<'a> {
 }
 
 // High-level functions used by ChainsCoordinator
-impl SortitionDB {
+impl<Conn> SortitionDB<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn get_sortition_id(
         &self,
         burnchain_header_hash: &BurnchainHeaderHash,
@@ -4271,7 +4305,7 @@ impl SortitionDB {
     /// Get a burn blockchain snapshot, given a burnchain configuration struct.
     /// Used mainly by the network code to determine what the chain tip currently looks like.
     pub fn get_burnchain_view(
-        conn: &SortitionDBConn,
+        conn: &SortitionDBConn<Conn>,
         burnchain: &Burnchain,
         chain_tip: &BlockSnapshot,
     ) -> Result<BurnchainView, db_error> {
@@ -4376,7 +4410,10 @@ impl SortitionDB {
 }
 
 // Querying methods
-impl SortitionDB {
+impl<Conn> SortitionDB<Conn>
+where
+    Conn: DbConnection + TrieDb
+{
     /// Get the canonical burn chain tip -- the tip of the longest burn chain we know about.
     /// Break ties deterministically by ordering on burnchain block hash.
     pub fn get_canonical_burn_chain_tip(conn: &Connection) -> Result<BlockSnapshot, db_error> {
@@ -4578,7 +4615,7 @@ impl SortitionDB {
         Ok(ret)
     }
 
-    pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a> {
+    pub fn index_handle_at_tip<'a>(&'a self) -> SortitionHandleConn<'a, Conn> {
         let sortition_id = SortitionDB::get_canonical_sortition_tip(self.conn()).unwrap();
         self.index_handle(&sortition_id)
     }
@@ -4871,11 +4908,14 @@ impl SortitionDB {
     /// block in this fork, find the snapshot of the block at that height.
     ///
     /// Returns None if there is no ancestor at this height.
-    pub fn get_ancestor_snapshot<C: SortitionContext>(
-        ic: &IndexDBConn<'_, C, SortitionId>,
+    pub fn get_ancestor_snapshot<Ctx>(
+        ic: &IndexDBConn<'_, Conn, Ctx, SortitionId>,
         ancestor_block_height: u64,
         tip_block_hash: &SortitionId,
-    ) -> Result<Option<BlockSnapshot>, db_error> {
+    ) -> Result<Option<BlockSnapshot>, db_error>
+    where
+        Ctx: SortitionContext
+    {
         assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
 
         let ancestor = match get_ancestor_sort_id(ic, ancestor_block_height, tip_block_hash)? {
@@ -4894,11 +4934,14 @@ impl SortitionDB {
 
     /// Given the fork index hash of a chain tip, and a block height that is an ancestor of the last
     /// block in this fork, find the snapshot of the block at that height.
-    pub fn get_ancestor_snapshot_tx<C: SortitionContext>(
-        ic: &mut IndexDBTx<'_, C, SortitionId>,
+    pub fn get_ancestor_snapshot_tx<Ctx: SortitionContext>(
+        ic: &mut IndexDBTx<'_, Ctx, SortitionId>,
         ancestor_block_height: u64,
         tip_block_hash: &SortitionId,
-    ) -> Result<Option<BlockSnapshot>, db_error> {
+    ) -> Result<Option<BlockSnapshot>, db_error> 
+    where
+        Ctx: SortitionContext
+    {
         assert!(ancestor_block_height < BLOCK_HEIGHT_MAX);
 
         let ancestor = match get_ancestor_sort_id_tx(ic, ancestor_block_height, tip_block_hash)? {
@@ -4917,12 +4960,15 @@ impl SortitionDB {
 
     /// Get a parent block commit at a specific location in the burn chain on a particular fork.
     /// Returns None if there is no block commit at this location.
-    pub fn get_block_commit_parent<C: SortitionContext>(
-        ic: &IndexDBConn<'_, C, SortitionId>,
+    pub fn get_block_commit_parent<Ctx>(
+        ic: &IndexDBConn<'_, Conn, Ctx, SortitionId>,
         block_height: u64,
         vtxindex: u32,
         tip: &SortitionId,
-    ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    ) -> Result<Option<LeaderBlockCommitOp>, db_error> 
+    where
+        Ctx: SortitionContext
+    {
         assert!(block_height < BLOCK_HEIGHT_MAX);
         let ancestor_id = match get_ancestor_sort_id(ic, block_height, tip)? {
             Some(id) => id,
@@ -4956,12 +5002,15 @@ impl SortitionDB {
     /// matching block commit's fork index root (block_height and vtxindex are the leader's
     /// calculated location in this fork).
     /// Returns None if there is no leader key at this location.
-    pub fn get_leader_key_at<C: SortitionContext>(
-        ic: &IndexDBConn<'_, C, SortitionId>,
+    pub fn get_leader_key_at<Ctx>(
+        ic: &IndexDBConn<'_, Conn, Ctx, SortitionId>,
         key_block_height: u64,
         key_vtxindex: u32,
         tip: &SortitionId,
-    ) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
+    ) -> Result<Option<LeaderKeyRegisterOp>, db_error> 
+    where
+        Ctx: SortitionContext
+    {
         assert!(key_block_height < BLOCK_HEIGHT_MAX);
         let ancestor_snapshot = match SortitionDB::get_ancestor_snapshot(ic, key_block_height, tip)?
         {
@@ -5018,7 +5067,7 @@ impl SortitionDB {
 
     /// Get a block snapshot for a winning block hash in a given burn chain fork.
     pub fn get_block_snapshot_for_winning_stacks_block(
-        ic: &SortitionDBConn,
+        ic: &SortitionDBConn<Conn>,
         tip: &SortitionId,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<BlockSnapshot>, db_error> {
@@ -5036,7 +5085,7 @@ impl SortitionDB {
     /// given sortition fork.
     #[cfg(test)]
     pub fn get_block_snapshot_for_winning_nakamoto_tenure(
-        ic: &SortitionDBConn,
+        ic: &SortitionDBConn<Conn>,
         tip: &SortitionId,
         last_tenure_id: &StacksBlockId,
     ) -> Result<Option<BlockSnapshot>, db_error> {
@@ -6486,7 +6535,10 @@ impl<'a> SortitionHandleTx<'a> {
     }
 }
 
-impl ChainstateDB for SortitionDB {
+impl<Conn> ChainstateDB for SortitionDB<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn backup(_backup_path: &str) -> Result<(), db_error> {
         return Err(db_error::NotImplemented);
     }
@@ -6591,13 +6643,16 @@ pub mod tests {
         tx.commit().unwrap();
     }
 
-    pub fn test_append_snapshot_with_winner(
-        db: &mut SortitionDB,
+    pub fn test_append_snapshot_with_winner<Conn>(
+        db: &mut SortitionDB<Conn>,
         next_hash: BurnchainHeaderHash,
         block_ops: &Vec<BlockstackOperationType>,
         parent_sn: Option<BlockSnapshot>,
         winning_block_commit: Option<LeaderBlockCommitOp>,
-    ) -> BlockSnapshot {
+    ) -> BlockSnapshot 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut sn = match parent_sn {
             Some(sn) => sn,
             None => SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap(),
@@ -6630,11 +6685,14 @@ pub mod tests {
         sn
     }
 
-    pub fn test_append_snapshot(
-        db: &mut SortitionDB,
+    pub fn test_append_snapshot<Conn>(
+        db: &mut SortitionDB<Conn>,
         next_hash: BurnchainHeaderHash,
         block_ops: &Vec<BlockstackOperationType>,
-    ) -> BlockSnapshot {
+    ) -> BlockSnapshot 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_append_snapshot_with_winner(db, next_hash, block_ops, None, None)
     }
 
@@ -8102,7 +8160,13 @@ pub mod tests {
     /// Verify that the snapshots in a fork are well-formed -- i.e. the block heights are
     /// sequential and the parent block hash of the ith block is equal to the block hash of the
     /// (i-1)th block.
-    fn verify_fork_integrity(db: &mut SortitionDB, tip: &SortitionId) {
+    fn verify_fork_integrity<Conn>(
+        db: &mut SortitionDB<Conn>, 
+        tip: &SortitionId
+    )
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut child = SortitionDB::get_block_snapshot(db.conn(), tip)
             .unwrap()
             .unwrap();
@@ -8957,12 +9021,15 @@ pub mod tests {
         }
     }
 
-    fn make_fork_run(
-        db: &mut SortitionDB,
+    fn make_fork_run<Conn>(
+        db: &mut SortitionDB<Conn>,
         start_snapshot: &BlockSnapshot,
         length: u64,
         bit_pattern: u8,
-    ) -> () {
+    ) -> () 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut last_snapshot = start_snapshot.clone();
         for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
             let snapshot = BlockSnapshot {

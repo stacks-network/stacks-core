@@ -52,6 +52,9 @@ use crate::net::test::*;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
 
+use super::index::db::DbConnection;
+use super::index::trie_db::TrieDb;
+
 pub mod accounting;
 pub mod block_construction;
 pub mod chain_histories;
@@ -190,18 +193,24 @@ impl TestMinerTracePoint {
     }
 }
 
-pub struct TestMinerTrace {
+pub struct TestMinerTrace<Conn>
+where
+    Conn: DbConnection + TrieDb 
+{
     pub points: Vec<TestMinerTracePoint>,
-    pub burn_node: TestBurnchainNode,
+    pub burn_node: TestBurnchainNode<Conn>,
     pub miners: Vec<TestMiner>,
 }
 
-impl TestMinerTrace {
+impl<Conn> TestMinerTrace<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn new(
-        burn_node: TestBurnchainNode,
+        burn_node: TestBurnchainNode<Conn>,
         miners: Vec<TestMiner>,
         points: Vec<TestMinerTracePoint>,
-    ) -> TestMinerTrace {
+    ) -> TestMinerTrace<Conn> {
         TestMinerTrace {
             points: points,
             burn_node: burn_node,
@@ -260,8 +269,11 @@ impl TestMinerTrace {
     }
 }
 
-pub struct TestStacksNode {
-    pub chainstate: StacksChainState,
+pub struct TestStacksNode<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    pub chainstate: StacksChainState<Conn>,
     pub prev_keys: Vec<LeaderKeyRegisterOp>, // _all_ keys generated
     pub key_ops: HashMap<VRFPublicKey, usize>, // map VRF public keys to their locations in the prev_keys array
     pub anchored_blocks: Vec<StacksBlock>,
@@ -273,13 +285,16 @@ pub struct TestStacksNode {
     forkable: bool,
 }
 
-impl TestStacksNode {
+impl<Conn> TestStacksNode<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn new(
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
         mut initial_balance_recipients: Vec<StacksAddress>,
-    ) -> TestStacksNode {
+    ) -> TestStacksNode<Conn> {
         initial_balance_recipients.sort();
         let initial_balances = initial_balance_recipients
             .into_iter()
@@ -301,7 +316,7 @@ impl TestStacksNode {
         }
     }
 
-    pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode {
+    pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode<Conn> {
         let chainstate = open_chainstate(mainnet, chain_id, test_name);
         TestStacksNode {
             chainstate: chainstate,
@@ -317,7 +332,7 @@ impl TestStacksNode {
         }
     }
 
-    pub fn from_chainstate(chainstate: StacksChainState) -> TestStacksNode {
+    pub fn from_chainstate(chainstate: StacksChainState<Conn>) -> TestStacksNode<Conn> {
         TestStacksNode {
             chainstate: chainstate,
             prev_keys: vec![],
@@ -333,7 +348,7 @@ impl TestStacksNode {
     }
 
     // NOTE: can't do this if instantiated via from_chainstate()
-    pub fn fork(&self, new_test_name: &str) -> TestStacksNode {
+    pub fn fork(&self, new_test_name: &str) -> TestStacksNode<Conn> {
         if !self.forkable {
             panic!("Tried to fork an unforkable chainstate instance");
         }
@@ -370,7 +385,7 @@ impl TestStacksNode {
     }
 
     pub fn next_burn_block(
-        sortdb: &mut SortitionDB,
+        sortdb: &mut SortitionDB<Conn>,
         fork: &mut TestBurnchainFork,
     ) -> TestBurnchainBlock {
         let burn_block = {
@@ -399,7 +414,7 @@ impl TestStacksNode {
     }
 
     pub fn add_block_commit(
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         block_hash: &BlockHeaderHash,
@@ -443,7 +458,7 @@ impl TestStacksNode {
 
     pub fn get_last_accepted_anchored_block(
         &self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         miner: &TestMiner,
     ) -> Option<StacksBlock> {
         for bc in miner.block_commits.iter().rev() {
@@ -505,7 +520,7 @@ impl TestStacksNode {
     }
 
     pub fn get_last_winning_snapshot(
-        ic: &SortitionDBConn,
+        ic: &SortitionDBConn<Conn>,
         fork_tip: &BlockSnapshot,
         miner: &TestMiner,
     ) -> Option<BlockSnapshot> {
@@ -535,7 +550,7 @@ impl TestStacksNode {
 
     pub fn make_tenure_commitment(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         stacks_block: &StacksBlock,
@@ -584,7 +599,7 @@ impl TestStacksNode {
     /// Produce its block-commit.
     pub fn mine_stacks_block<F>(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         miner: &mut TestMiner,
         burn_block: &mut TestBurnchainBlock,
         miner_key: &LeaderKeyRegisterOp,
@@ -596,7 +611,7 @@ impl TestStacksNode {
         F: FnOnce(
             StacksBlockBuilder,
             &mut TestMiner,
-            &SortitionDB,
+            &SortitionDB<Conn>,
         ) -> (StacksBlock, Vec<StacksMicroblock>),
     {
         let proof = miner
@@ -701,14 +716,18 @@ impl TestStacksNode {
 
 /// Return Some(bool) to indicate whether or not the anchored block was accepted into the queue.
 /// Return None if the block was not submitted at all.
-pub fn preprocess_stacks_block_data(
-    node: &mut TestStacksNode,
-    burn_node: &mut TestBurnchainNode,
+pub fn preprocess_stacks_block_data<Conn>
+(
+    node: &mut TestStacksNode<Conn>,
+    burn_node: &mut TestBurnchainNode<Conn>,
     fork_snapshot: &BlockSnapshot,
     stacks_block: &StacksBlock,
     stacks_microblocks: &Vec<StacksMicroblock>,
     block_commit_op: &LeaderBlockCommitOp,
-) -> Option<bool> {
+) -> Option<bool> 
+where
+    Conn: DbConnection + TrieDb
+{
     let block_hash = stacks_block.block_hash();
 
     let ic = burn_node.sortdb.index_conn();
@@ -798,11 +817,14 @@ pub fn preprocess_stacks_block_data(
 }
 
 /// Verify that the stacks block's state root matches the state root in the chain state
-pub fn check_block_state_index_root(
-    chainstate: &mut StacksChainState,
+pub fn check_block_state_index_root<Conn>(
+    chainstate: &mut StacksChainState<Conn>,
     consensus_hash: &ConsensusHash,
     stacks_header: &StacksBlockHeader,
-) -> bool {
+) -> bool 
+where
+    Conn: DbConnection + TrieDb
+{
     let index_block_hash =
         StacksBlockHeader::make_index_block_hash(consensus_hash, &stacks_header.block_hash());
     let mut state_root_index =
@@ -957,11 +979,14 @@ pub fn check_mining_reward(
     }
 }
 
-pub fn get_last_microblock_header(
-    node: &TestStacksNode,
+pub fn get_last_microblock_header<Conn>(
+    node: &TestStacksNode<Conn>,
     miner: &TestMiner,
     parent_block_opt: Option<&StacksBlock>,
-) -> Option<StacksMicroblockHeader> {
+) -> Option<StacksMicroblockHeader> 
+where
+    Conn: DbConnection + TrieDb
+{
     let last_microblocks_opt = match parent_block_opt {
         Some(ref block) => node.get_microblock_stream(&miner, &block.block_hash()),
         None => None,
@@ -982,11 +1007,14 @@ pub fn get_last_microblock_header(
     last_microblock_header_opt
 }
 
-pub fn get_all_mining_rewards(
-    chainstate: &mut StacksChainState,
+pub fn get_all_mining_rewards<Conn>(
+    chainstate: &mut StacksChainState<Conn>,
     tip: &StacksHeaderInfo,
     block_height: u64,
-) -> Vec<Vec<MinerPaymentSchedule>> {
+) -> Vec<Vec<MinerPaymentSchedule>> 
+where
+    Conn: DbConnection + TrieDb
+{
     let mut ret = vec![];
     let mut tx = chainstate.index_tx_begin().unwrap();
 
@@ -1291,7 +1319,13 @@ pub fn sign_standard_singlesig_tx(
     tx_signer.get_tx().unwrap()
 }
 
-pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAccount {
+pub fn get_stacks_account<Conn>(
+    peer: &mut TestPeer<Conn>, 
+    addr: &PrincipalData
+) -> StacksAccount 
+where
+    Conn: DbConnection + TrieDb
+{
     let account = peer
         .with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
             let (consensus_hash, block_bhh) =
@@ -1309,13 +1343,16 @@ pub fn get_stacks_account(peer: &mut TestPeer, addr: &PrincipalData) -> StacksAc
     account
 }
 
-pub fn instantiate_and_exec(
+pub fn instantiate_and_exec<Conn>(
     mainnet: bool,
     chain_id: u32,
     test_name: &str,
     balances: Vec<(StacksAddress, u64)>,
     post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
-) -> StacksChainState {
+) -> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     let path = chainstate_path(test_name);
     match fs::metadata(&path) {
         Ok(_) => {

@@ -35,6 +35,8 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlockHeader, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
@@ -121,7 +123,10 @@ impl HttpRequest for RPCPostMicroblockRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCPostMicroblockRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.microblock = None;
@@ -132,7 +137,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let microblock = self
             .microblock

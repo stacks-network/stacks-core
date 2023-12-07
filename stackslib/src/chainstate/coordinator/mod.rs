@@ -33,6 +33,8 @@ use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::RewardSet;
+use super::stacks::index::db::DbConnection;
+use super::stacks::index::trie_db::TrieDb;
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::{
@@ -211,6 +213,7 @@ impl ChainsCoordinatorConfig {
 
 pub struct ChainsCoordinator<
     'a,
+    Conn: DbConnection + TrieDb,
     T: BlockEventDispatcher,
     N: CoordinatorNotices,
     R: RewardSetProvider,
@@ -220,8 +223,8 @@ pub struct ChainsCoordinator<
 > {
     pub canonical_sortition_tip: Option<SortitionId>,
     pub burnchain_blocks_db: BurnchainDB,
-    pub chain_state_db: StacksChainState,
-    pub sortition_db: SortitionDB,
+    pub chain_state_db: StacksChainState<Conn>,
+    pub sortition_db: SortitionDB<Conn>,
     pub burnchain: Burnchain,
     pub atlas_db: Option<AtlasDB>,
     pub dispatcher: Option<&'a T>,
@@ -269,28 +272,33 @@ impl From<DBError> for Error {
 }
 
 pub trait RewardSetProvider {
-    fn get_reward_set(
+    fn get_reward_set<Conn>(
         &self,
         cycle_start_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<Conn>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
-    ) -> Result<RewardSet, Error>;
+    ) -> Result<RewardSet, Error>
+    where
+        Conn: DbConnection + TrieDb;
 }
 
 pub struct OnChainRewardSetProvider();
 
 impl RewardSetProvider for OnChainRewardSetProvider {
-    fn get_reward_set(
+    fn get_reward_set<Conn>(
         &self,
         // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
         current_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<Conn>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
-    ) -> Result<RewardSet, Error> {
+    ) -> Result<RewardSet, Error> 
+    where
+        Conn: DbConnection + TrieDb,
+    {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
             &format!("FATAL: no epoch for burn height {}", current_burn_height),
         );
@@ -318,16 +326,19 @@ impl RewardSetProvider for OnChainRewardSetProvider {
 }
 
 impl OnChainRewardSetProvider {
-    fn get_reward_set_epoch2(
+    fn get_reward_set_epoch2<Conn>(
         &self,
         // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
         current_burn_height: u64,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<Conn>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         block_id: &StacksBlockId,
         cur_epoch: StacksEpoch,
-    ) -> Result<RewardSet, Error> {
+    ) -> Result<RewardSet, Error>
+    where
+        Conn: DbConnection + TrieDb
+    {
         match cur_epoch.epoch_id {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20
@@ -411,15 +422,16 @@ impl OnChainRewardSetProvider {
 
 impl<
         'a,
+        Conn: DbConnection + TrieDb,
         T: BlockEventDispatcher,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
-    > ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE, B>
+    > ChainsCoordinator<'a, Conn, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE, B>
 {
     pub fn run(
         config: ChainsCoordinatorConfig,
-        chain_state_db: StacksChainState,
+        chain_state_db: StacksChainState<Conn>,
         burnchain: Burnchain,
         dispatcher: &'a mut T,
         comms: CoordinatorReceivers,
@@ -547,8 +559,8 @@ impl<
     }
 }
 
-impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
-    ChainsCoordinator<'a, T, (), U, (), (), B>
+impl<'a, Conn: DbConnection + TrieDb, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader>
+    ChainsCoordinator<'a, Conn, T, (), U, (), (), B>
 {
     /// Create a coordinator for testing, with some parameters defaulted to None
     #[cfg(test)]
@@ -558,7 +570,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
         path: &str,
         reward_set_provider: U,
         indexer: B,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, Conn, T, (), U, (), (), B> {
         ChainsCoordinator::test_new_full(
             burnchain,
             chain_id,
@@ -580,7 +592,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
         dispatcher: Option<&'a T>,
         burnchain_indexer: B,
         atlas_config: Option<AtlasConfig>,
-    ) -> ChainsCoordinator<'a, T, (), U, (), (), B> {
+    ) -> ChainsCoordinator<'a, Conn, T, (), U, (), (), B> {
         let burnchain = burnchain.clone();
 
         let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
@@ -631,10 +643,10 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
     }
 }
 
-pub fn get_next_recipients<U: RewardSetProvider>(
+pub fn get_next_recipients<Conn: DbConnection + TrieDb, U: RewardSetProvider>(
     sortition_tip: &BlockSnapshot,
-    chain_state: &mut StacksChainState,
-    sort_db: &mut SortitionDB,
+    chain_state: &mut StacksChainState<Conn>,
+    sort_db: &mut SortitionDB<Conn>,
     burnchain: &Burnchain,
     provider: &U,
     always_use_affirmation_maps: bool,
@@ -661,14 +673,14 @@ pub fn get_next_recipients<U: RewardSetProvider>(
 ///                     in our current sortition view:
 ///           * PoX anchor block
 ///           * Was PoX anchor block known?
-pub fn get_reward_cycle_info<U: RewardSetProvider>(
+pub fn get_reward_cycle_info<Conn: DbConnection + TrieDb, U: RewardSetProvider>(
     burn_height: u64,
     parent_bhh: &BurnchainHeaderHash,
     sortition_tip: &SortitionId,
     burnchain: &Burnchain,
     burnchain_db: &BurnchainDB,
-    chain_state: &mut StacksChainState,
-    sort_db: &mut SortitionDB,
+    chain_state: &mut StacksChainState<Conn>,
+    sort_db: &mut SortitionDB<Conn>,
     provider: &U,
     always_use_affirmation_maps: bool,
 ) -> Result<Option<RewardCycleInfo>, Error> {
@@ -910,11 +922,11 @@ fn consolidate_affirmation_maps(
 /// Get the heaviest affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
 /// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
-pub fn static_get_heaviest_affirmation_map<B: BurnchainHeaderReader>(
+pub fn static_get_heaviest_affirmation_map<Conn: DbConnection + TrieDb, B: BurnchainHeaderReader>(
     burnchain: &Burnchain,
     indexer: &B,
     burnchain_blocks_db: &BurnchainDB,
-    sortition_db: &SortitionDB,
+    sortition_db: &SortitionDB<Conn>,
     sortition_tip: &SortitionId,
 ) -> Result<AffirmationMap, Error> {
     let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()? as usize;
@@ -937,12 +949,12 @@ pub fn static_get_heaviest_affirmation_map<B: BurnchainHeaderReader>(
 /// Get the canonical affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
 /// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM.
-pub fn static_get_canonical_affirmation_map<B: BurnchainHeaderReader>(
+pub fn static_get_canonical_affirmation_map<Conn: DbConnection + TrieDb, B: BurnchainHeaderReader>(
     burnchain: &Burnchain,
     indexer: &B,
     burnchain_blocks_db: &BurnchainDB,
-    sortition_db: &SortitionDB,
-    chain_state_db: &StacksChainState,
+    sortition_db: &SortitionDB<Conn>,
+    chain_state_db: &StacksChainState<Conn>,
     sortition_tip: &SortitionId,
 ) -> Result<AffirmationMap, Error> {
     let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()? as usize;
@@ -990,13 +1002,16 @@ fn inner_static_get_stacks_tip_affirmation_map(
 /// Get the canonical Stacks tip affirmation map, when considering epochs.
 /// * In epoch 2.05 and prior, the heaviest AM was the sortition AM.
 /// * In epoch 2.1, the reward cycles prior to the 2.1 boundary remain the sortition AM
-pub fn static_get_stacks_tip_affirmation_map(
+pub fn static_get_stacks_tip_affirmation_map<Conn>(
     burnchain_blocks_db: &BurnchainDB,
-    sortition_db: &SortitionDB,
+    sortition_db: &SortitionDB<Conn>,
     sortition_tip: &SortitionId,
     canonical_ch: &ConsensusHash,
     canonical_bhh: &BlockHeaderHash,
-) -> Result<AffirmationMap, Error> {
+) -> Result<AffirmationMap, Error> 
+where
+    Conn: DbConnection + TrieDb
+{
     let last_2_05_rc = sortition_db.get_last_epoch_2_05_reward_cycle()?;
     let sort_am = sortition_db.find_sortition_tip_affirmation_map(sortition_tip)?;
     inner_static_get_stacks_tip_affirmation_map(
@@ -1011,13 +1026,14 @@ pub fn static_get_stacks_tip_affirmation_map(
 
 impl<
         'a,
+        Conn: DbConnection + TrieDb,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         U: RewardSetProvider,
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
-    > ChainsCoordinator<'a, T, N, U, CE, FE, B>
+    > ChainsCoordinator<'a, Conn, T, N, U, CE, FE, B>
 {
     /// Process new Stacks blocks.  If we get stuck for want of a missing PoX anchor block, return
     /// its hash.
@@ -1538,7 +1554,7 @@ impl<
     /// block can be re-processed in that event.
     fn undo_stacks_block_orphaning(
         burnchain_conn: &DBConn,
-        ic: &SortitionDBConn,
+        ic: &SortitionDBConn<Conn>,
         chainstate_db_tx: &mut DBTx,
         first_invalidate_start_block: u64,
         last_invalidate_start_block: u64,

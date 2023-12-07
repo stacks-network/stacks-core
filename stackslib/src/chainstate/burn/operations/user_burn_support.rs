@@ -32,6 +32,8 @@ use crate::chainstate::burn::operations::{
     LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::Error as net_error;
 use crate::util_lib::db::{DBConn, DBTx};
 
@@ -227,7 +229,11 @@ impl UserBurnSupportOp {
         Err(op_error::UserBurnSupportNotSupported)
     }
 
-    pub fn check(&self, burnchain: &Burnchain, tx: &mut SortitionHandleTx) -> Result<(), op_error> {
+    pub fn check(
+        &self, 
+        burnchain: &Burnchain, 
+        tx: &mut SortitionHandleTx
+    ) -> Result<(), op_error> {
         let leader_key_block_height = self.key_block_ptr as u64;
 
         /////////////////////////////////////////////////////////////////

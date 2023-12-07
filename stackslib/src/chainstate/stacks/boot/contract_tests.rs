@@ -37,6 +37,8 @@ use crate::chainstate::stacks::boot::{
     POX_2_TESTNET_CODE,
 };
 use crate::chainstate::stacks::db::{MinerPaymentSchedule, StacksHeaderInfo};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieMerkleProof};
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
 use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
@@ -82,8 +84,11 @@ lazy_static! {
     static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
 }
 
-pub struct ClarityTestSim {
-    marf: MarfedKV,
+pub struct ClarityTestSim<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    marf: MarfedKV<Conn>,
     pub height: u64,
     fork: u64,
     /// This vec specifies the transitions for each epoch.
@@ -109,8 +114,11 @@ pub struct TestSimBurnStateDB {
     height: u32,
 }
 
-impl ClarityTestSim {
-    pub fn new() -> ClarityTestSim {
+impl<Conn> ClarityTestSim<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    pub fn new() -> ClarityTestSim<Conn> {
         let mut marf = MarfedKV::temporary();
         {
             let mut store = marf.begin(

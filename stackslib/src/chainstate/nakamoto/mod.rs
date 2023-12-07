@@ -53,6 +53,8 @@ use super::stacks::db::{
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
 };
 use super::stacks::events::StacksTransactionReceipt;
+use super::stacks::index::db::DbConnection;
+use super::stacks::index::trie_db::TrieDb;
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
     TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
@@ -869,7 +871,10 @@ impl NakamotoBlock {
     }
 }
 
-impl StacksChainState {
+impl<Conn> StacksChainState<Conn>
+where
+    Conn: DbConnection + TrieDb 
+{
     /// Begin a transaction against the staging blocks DB.
     /// Note that this DB is (or will eventually be) in a separate database from the headers.
     pub fn staging_db_tx_begin<'a>(
@@ -1015,11 +1020,15 @@ impl NakamotoChainState {
     ///
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
     /// The caller should keep calling this until it gets Ok(None)
-    pub fn process_next_nakamoto_block<'a, T: BlockEventDispatcher>(
-        stacks_chain_state: &mut StacksChainState,
+    pub fn process_next_nakamoto_block<'a, Conn, T>(
+        stacks_chain_state: &mut StacksChainState<Conn>,
         sort_tx: &mut SortitionHandleTx,
         dispatcher_opt: Option<&'a T>,
-    ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
+    ) -> Result<Option<StacksEpochReceipt>, ChainstateError> 
+    where
+        Conn: DbConnection + TrieDb,
+        T: BlockEventDispatcher
+    {
         let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
         let Some((next_ready_block, block_size)) =
             Self::next_ready_nakamoto_block(&chainstate_tx.tx)?
@@ -1196,12 +1205,15 @@ impl NakamotoChainState {
     /// Called before inserting the block into the staging DB.
     /// Wraps `NakamotoBlock::validate_against_burnchain()`, and
     /// verifies that all transactions in the block are allowed in this epoch.
-    pub fn validate_nakamoto_block_burnchain(
-        db_handle: &SortitionHandleConn,
+    pub fn validate_nakamoto_block_burnchain<Conn>(
+        db_handle: &SortitionHandleConn<Conn>,
         block: &NakamotoBlock,
         mainnet: bool,
         chain_id: u32,
-    ) -> Result<(), ChainstateError> {
+    ) -> Result<(), ChainstateError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // find the sortition-winning block commit for this block, as well as the block snapshot
         // containing the parent block-commit
         let block_hash = block.header.block_hash();
@@ -1325,13 +1337,16 @@ impl NakamotoChainState {
     /// Does nothing if:
     /// * we already have the block
     /// Returns true if we stored the block; false if not.
-    pub fn accept_block(
+    pub fn accept_block<Conn>(
         config: &ChainstateConfig,
         block: NakamotoBlock,
-        db_handle: &SortitionHandleConn,
+        db_handle: &SortitionHandleConn<Conn>,
         staging_db_tx: &rusqlite::Transaction,
         aggregate_public_key: &Point,
-    ) -> Result<bool, ChainstateError> {
+    ) -> Result<bool, ChainstateError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // do nothing if we already have this block
         if let Some(_) = Self::get_block_header(staging_db_tx, &block.header.block_id())? {
             debug!("Already have block {}", &block.header.block_id());
@@ -1419,13 +1434,16 @@ impl NakamotoChainState {
     }
 
     /// Get the aggregate public key for the given block.
-    pub fn get_aggregate_public_key(
-        sortdb: &SortitionDB,
-        sort_handle: &SortitionHandleConn,
-        chainstate: &mut StacksChainState,
+    pub fn get_aggregate_public_key<Conn>(
+        sortdb: &SortitionDB<Conn>,
+        sort_handle: &SortitionHandleConn<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         for_block_height: u64,
         at_block_id: &StacksBlockId,
-    ) -> Result<Point, ChainstateError> {
+    ) -> Result<Point, ChainstateError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // Get the current reward cycle
         let Some(reward_cycle) = sort_handle
             .context
@@ -1639,10 +1657,13 @@ impl NakamotoChainState {
     }
 
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
-    pub fn get_canonical_block_header(
+    pub fn get_canonical_block_header<Conn>(
         chainstate_conn: &Connection,
-        sortdb: &SortitionDB,
-    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        sortdb: &SortitionDB<Conn>,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let (consensus_hash, block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         Self::get_block_header(
@@ -1901,7 +1922,7 @@ impl NakamotoChainState {
             &tenure_tx_fees.to_string(),
             &header.parent_block_id,
             &u64_to_sql(tenure_height)?,
-            if tenure_changed { &1i64 } else { &0 },
+            if tenure_changed { &1i64 } else { &0 as &dyn ToSql },
             &vrf_proof_bytes.as_ref(),
         ];
 
@@ -2139,9 +2160,9 @@ impl NakamotoChainState {
     /// microblock fees, microblock burns, list of microblock tx receipts,
     /// miner rewards tuples, the stacks epoch id, and a boolean that
     /// represents whether the epoch transition has been applied.
-    pub fn setup_block<'a, 'b>(
+    pub fn setup_block<'a, 'b, Conn>(
         chainstate_tx: &'b mut ChainstateTx,
-        clarity_instance: &'a mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance<Conn>,
         sortition_dbconn: &'b dyn SortitionDBRef,
         pox_constants: &PoxConstants,
         parent_consensus_hash: ConsensusHash,
@@ -2153,7 +2174,10 @@ impl NakamotoChainState {
         mainnet: bool,
         tenure_changed: bool,
         tenure_height: u64,
-    ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
+    ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
         let parent_sortition_id = sortition_dbconn
             .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
@@ -2358,9 +2382,9 @@ impl NakamotoChainState {
     }
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
-    pub fn append_block<'a>(
+    pub fn append_block<'a, Conn>(
         chainstate_tx: &mut ChainstateTx,
-        clarity_instance: &'a mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance<Conn>,
         burn_dbconn: &mut SortitionHandleTx,
         pox_constants: &PoxConstants,
         parent_chain_tip: &StacksHeaderInfo,
@@ -2371,7 +2395,10 @@ impl NakamotoChainState {
         block_size: u64,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
-    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), ChainstateError> {
+    ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), ChainstateError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         debug!(
             "Process block {:?} with {} transactions",
             &block.header.block_hash().to_hex(),

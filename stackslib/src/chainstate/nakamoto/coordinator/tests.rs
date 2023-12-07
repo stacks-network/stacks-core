@@ -35,6 +35,8 @@ use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{make_pox_4_aggregate_key, make_pox_4_lockup};
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
     TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionPayload,
@@ -46,7 +48,12 @@ use crate::net::relay::Relayer;
 use crate::net::test::{TestPeer, TestPeerConfig};
 
 /// Bring a TestPeer into the Nakamoto Epoch
-fn advance_to_nakamoto(peer: &mut TestPeer, aggregate_public_key: &Point) {
+fn advance_to_nakamoto<Conn>(
+    peer: &mut TestPeer<Conn>, aggregate_public_key: &Point
+) 
+where
+    Conn: DbConnection + TrieDb
+{
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
@@ -88,11 +95,14 @@ fn advance_to_nakamoto(peer: &mut TestPeer, aggregate_public_key: &Point) {
 
 /// Make a peer and transition it into the Nakamoto epoch.
 /// The node needs to be stacking; otherwise, Nakamoto won't activate.
-fn boot_nakamoto(
+fn boot_nakamoto<Conn>(
     test_name: &str,
     mut initial_balances: Vec<(PrincipalData, u64)>,
     aggregate_public_key: Point,
-) -> TestPeer {
+) -> TestPeer<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
@@ -121,7 +131,13 @@ fn boot_nakamoto(
 }
 
 /// Make a replay peer, used for replaying the blockchain
-fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>, aggregate_public_key: &Point) -> TestPeer<'a> {
+fn make_replay_peer<'a, Conn>(
+    peer: &'a mut TestPeer<'a, Conn>, 
+    aggregate_public_key: &Point
+) -> TestPeer<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     let mut replay_config = peer.config.clone();
     replay_config.test_name = format!("{}.replay", &peer.config.test_name);
     replay_config.server_port = 0;
@@ -155,15 +171,18 @@ fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>, aggregate_public_key: &Point
 }
 
 /// Make a token-transfer from a private key
-fn make_token_transfer(
-    chainstate: &mut StacksChainState,
-    sortdb: &SortitionDB,
+fn make_token_transfer<Conn>(
+    chainstate: &mut StacksChainState<Conn>,
+    sortdb: &SortitionDB<Conn>,
     private_key: &StacksPrivateKey,
     nonce: u64,
     amt: u64,
     fee: u64,
     recipient_addr: &StacksAddress,
-) -> StacksTransaction {
+) -> StacksTransaction 
+where
+    Conn: DbConnection + TrieDb
+{
     let mut stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::from_p2pkh(private_key).unwrap(),
@@ -188,11 +207,14 @@ fn make_token_transfer(
 /// Given the blocks and block-commits for a reward cycle, replay the sortitions on the given
 /// TestPeer, always processing the first block of the reward cycle before processing all
 /// subsequent blocks in random order.
-fn replay_reward_cycle(
-    peer: &mut TestPeer,
+fn replay_reward_cycle<Conn>(
+    peer: &mut TestPeer<Conn>,
     burn_ops: &[Vec<BlockstackOperationType>],
     stacks_blocks: &[NakamotoBlock],
-) {
+) 
+where
+    Conn: DbConnection + TrieDb
+{
     eprintln!("\n\n=============================================\nBegin replay\n==============================================\n");
     let reward_cycle_length = peer.config.burnchain.pox_constants.reward_cycle_length as usize;
     let reward_cycle_indices: Vec<usize> = (0..stacks_blocks.len())

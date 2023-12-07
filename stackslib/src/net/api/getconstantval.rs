@@ -35,6 +35,8 @@ use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
@@ -110,7 +112,10 @@ impl HttpRequest for RPCGetConstantValRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCGetConstantValRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCGetConstantValRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -122,7 +127,7 @@ impl RPCRequestHandler for RPCGetConstantValRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self.contract_identifier.take().ok_or(NetError::SendError(
             "`contract_identifier` not set".to_string(),

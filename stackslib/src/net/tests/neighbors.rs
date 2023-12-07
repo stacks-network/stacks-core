@@ -20,6 +20,7 @@ use rand::thread_rng;
 use stacks_common::util::hash::*;
 use stacks_common::util::sleep_ms;
 
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     PEER_VERSION_TESTNET, STACKS_EPOCH_MAX,
@@ -1926,11 +1927,14 @@ fn test_walk_ring_15_org_biased() {
     })
 }
 
-fn test_walk_ring_ex(
+fn test_walk_ring_ex<Conn>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     test_pingback: bool,
-) -> Vec<TestPeer> {
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     // arrange neighbors into a "ring" topology, where
     // neighbor N is connected to neighbor (N-1)%NUM_NEIGHBORS and (N+1)%NUM_NEIGHBORS.
     // If test_pingback is true, then neighbor N is only connected to (N+1)%NUM_NEIGHBORS
@@ -1985,14 +1989,23 @@ fn test_walk_ring_ex(
     peers
 }
 
-fn test_walk_ring(peer_configs: &mut Vec<TestPeerConfig>, neighbor_count: usize) -> Vec<TestPeer> {
+fn test_walk_ring<Conn>(
+    peer_configs: &mut Vec<TestPeerConfig>, 
+    neighbor_count: usize
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     test_walk_ring_ex(peer_configs, neighbor_count, false)
 }
 
-fn test_walk_ring_pingback(
+fn test_walk_ring_pingback<Conn>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
-) -> Vec<TestPeer> {
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     test_walk_ring_ex(peer_configs, neighbor_count, true)
 }
 
@@ -2129,28 +2142,37 @@ fn test_walk_line_15_pingback() {
     })
 }
 
-fn test_walk_line(
+fn test_walk_line<Conn>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     tests: u64,
-) -> Vec<TestPeer> {
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     test_walk_line_ex(peer_configs, neighbor_count, tests, false)
 }
 
-fn test_walk_line_pingback(
+fn test_walk_line_pingback<Conn>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     tests: u64,
-) -> Vec<TestPeer> {
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     test_walk_line_ex(peer_configs, neighbor_count, tests, true)
 }
 
-fn test_walk_line_ex(
+fn test_walk_line_ex<Conn>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     tests: u64,
     pingback_test: bool,
-) -> Vec<TestPeer> {
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     // arrange neighbors into a "line" topology.
     // If pingback_test is true, then the topology is unidirectional:
     //
@@ -2340,22 +2362,34 @@ fn test_walk_star_15_org_biased() {
     })
 }
 
-fn test_walk_star(peer_configs: &mut Vec<TestPeerConfig>, neighbor_count: usize) -> Vec<TestPeer> {
+fn test_walk_star<Conn>(
+    peer_configs: &mut Vec<TestPeerConfig>, 
+    neighbor_count: usize
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     test_walk_star_ex(peer_configs, neighbor_count, false)
 }
 
-fn test_walk_star_pingback(
+fn test_walk_star_pingback<Conn>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
-) -> Vec<TestPeer> {
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     test_walk_star_ex(peer_configs, neighbor_count, true)
 }
 
-fn test_walk_star_ex(
+fn test_walk_star_ex<Conn>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     pingback_test: bool,
-) -> Vec<TestPeer> {
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     // arrange neighbors into a "star" topology.
     // If pingback_test is true, then initial connections are unidirectional -- each neighbor (except
     // for 0) only knows about 0.  Neighbor 0 knows about no one.
@@ -2407,10 +2441,13 @@ fn test_walk_star_ex(
     peers
 }
 
-fn test_walk_inbound_line(
+fn test_walk_inbound_line<Conn>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
-) -> Vec<TestPeer> {
+) -> Vec<TestPeer<Conn>> 
+where
+    Conn: DbConnection + TrieDb
+{
     // arrange neighbors into a two-tiered "line" topology, where even-numbered neighbors are
     // "NAT'ed" but connected to both the predecessor and successor odd neighbors.  Odd
     // numbered neighbors are not connected to anyone.  The first and last even-numbered
@@ -2528,7 +2565,12 @@ fn test_walk_inbound_line_15() {
     })
 }
 
-fn dump_peers(peers: &Vec<TestPeer>) -> () {
+fn dump_peers<Conn>(
+    peers: &Vec<TestPeer<Conn>>
+) -> () 
+where
+    Conn: DbConnection + TrieDb
+{
     test_debug!("\n=== PEER DUMP ===");
     for i in 0..peers.len() {
         let mut neighbor_index = vec![];
@@ -2558,7 +2600,12 @@ fn dump_peers(peers: &Vec<TestPeer>) -> () {
     test_debug!("\n");
 }
 
-fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
+fn dump_peer_histograms<Conn>(
+    peers: &Vec<TestPeer<Conn>>
+) -> () 
+where
+    Conn: DbConnection + TrieDb
+{
     let mut outbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut inbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut all_hist: HashMap<usize, usize> = HashMap::new();
@@ -2621,19 +2668,27 @@ fn dump_peer_histograms(peers: &Vec<TestPeer>) -> () {
     test_debug!("\n");
 }
 
-fn run_topology_test(peers: &mut Vec<TestPeer>, neighbor_count: usize, test_bits: u64) -> () {
+fn run_topology_test<Conn>(
+    peers: &mut Vec<TestPeer<Conn>>, 
+    neighbor_count: usize, 
+    test_bits: u64
+) -> () 
+where
+    Conn: DbConnection + TrieDb
+{
     run_topology_test_ex(peers, neighbor_count, test_bits, |_| false, false)
 }
 
-fn run_topology_test_ex<F>(
-    peers: &mut Vec<TestPeer>,
+fn run_topology_test_ex<Conn, F>(
+    peers: &mut Vec<TestPeer<Conn>>,
     neighbor_count: usize,
     test_bits: u64,
     mut finished_check: F,
     use_finished_check: bool,
 ) -> ()
 where
-    F: FnMut(&Vec<TestPeer>) -> bool,
+    Conn: DbConnection + TrieDb,
+    F: FnMut(&Vec<TestPeer<Conn>>) -> bool,
 {
     let PEER_COUNT = peers.len();
 

@@ -250,7 +250,10 @@ impl MinerPaymentSchedule {
     }
 }
 
-impl StacksChainState {
+impl<Conn> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn get_account<T: ClarityConnection>(
         clarity_tx: &mut T,
         principal: &PrincipalData,
@@ -1155,12 +1158,15 @@ mod test {
         }
     }
 
-    fn advance_tip(
-        chainstate: &mut StacksChainState,
+    fn advance_tip<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         parent_header_info: &StacksHeaderInfo,
         block_reward: &mut MinerPaymentSchedule,
         user_burns: &mut Vec<StagingUserBurnSupport>,
-    ) -> StacksHeaderInfo {
+    ) -> StacksHeaderInfo 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut new_tip = parent_header_info.clone();
 
         let mut anchored_header = new_tip.anchored_header.as_stacks_epoch2().unwrap().clone();

@@ -38,6 +38,8 @@ use crate::chainstate::burn::{
     SortitionHash,
 };
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieHashExtension};
 use crate::core::*;
 use crate::util_lib::db::Error as db_error;

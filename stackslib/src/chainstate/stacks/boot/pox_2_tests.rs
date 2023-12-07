@@ -41,8 +41,10 @@ use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
 use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::MarfTrieId;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::tests::make_coinbase;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
@@ -57,16 +59,24 @@ const USTX_PER_HOLDER: u128 = 1_000_000;
 
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
-fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
+fn get_tip<Conn>(
+    sortdb: Option<&SortitionDB<Conn>>
+) -> BlockSnapshot 
+where
+    Conn: DbConnection + TrieDb
+{
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
 }
 
 /// Get the reward set entries if evaluated at the given StacksBlock
-pub fn get_reward_set_entries_at(
-    peer: &mut TestPeer,
+pub fn get_reward_set_entries_at<Conn>(
+    peer: &mut TestPeer<Conn>,
     tip: &StacksBlockId,
     at_burn_ht: u64,
-) -> Vec<RawRewardSetEntry> {
+) -> Vec<RawRewardSetEntry> 
+where
+    Conn: DbConnection + TrieDb
+{
     let burnchain = peer.config.burnchain.clone();
     with_sortdb(peer, |ref mut c, ref sortdb| {
         get_reward_set_entries_at_block(c, &burnchain, sortdb, tip, at_burn_ht).unwrap()
@@ -75,11 +85,14 @@ pub fn get_reward_set_entries_at(
 
 /// Get the reward set entries if evaluated at the given StacksBlock
 ///  in order of index in the reward-cycle-address-list map
-pub fn get_reward_set_entries_index_order_at(
-    peer: &mut TestPeer,
+pub fn get_reward_set_entries_index_order_at<Conn>(
+    peer: &mut TestPeer<Conn>,
     tip: &StacksBlockId,
     at_burn_ht: u64,
-) -> Vec<RawRewardSetEntry> {
+) -> Vec<RawRewardSetEntry> 
+where
+    Conn: DbConnection + TrieDb
+{
     let burnchain = peer.config.burnchain.clone();
     with_sortdb(peer, |ref mut c, ref sortdb| {
         c.get_reward_addresses(&burnchain, sortdb, at_burn_ht, tip)
@@ -88,11 +101,14 @@ pub fn get_reward_set_entries_index_order_at(
 }
 
 /// Get the canonicalized STXBalance for `account` at the given chaintip
-pub fn get_stx_account_at(
-    peer: &mut TestPeer,
+pub fn get_stx_account_at<Conn>(
+    peer: &mut TestPeer<Conn>,
     tip: &StacksBlockId,
     account: &PrincipalData,
-) -> STXBalance {
+) -> STXBalance 
+where
+    Conn: DbConnection + TrieDb
+{
     with_clarity_db_ro(peer, tip, |db| {
         db.get_stx_balance_snapshot(account)
             .canonical_balance_repr()
@@ -100,12 +116,15 @@ pub fn get_stx_account_at(
 }
 
 /// get the stacking-state entry for an account at the chaintip
-pub fn get_stacking_state_pox(
-    peer: &mut TestPeer,
+pub fn get_stacking_state_pox<Conn>(
+    peer: &mut TestPeer<Conn>,
     tip: &StacksBlockId,
     account: &PrincipalData,
     pox_contract: &str,
-) -> Option<Value> {
+) -> Option<Value> 
+where
+    Conn: DbConnection + TrieDb
+{
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
             TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
@@ -123,21 +142,27 @@ pub fn get_stacking_state_pox(
 }
 
 /// Get the pox-2 stacking-state entry for `account` at the given chaintip
-pub fn get_stacking_state_pox_2(
-    peer: &mut TestPeer,
+pub fn get_stacking_state_pox_2<Conn>(
+    peer: &mut TestPeer<Conn>,
     tip: &StacksBlockId,
     account: &PrincipalData,
-) -> Option<Value> {
+) -> Option<Value> 
+where
+    Conn: DbConnection + TrieDb
+{
     get_stacking_state_pox(peer, tip, account, boot::POX_2_NAME)
 }
 
 /// Perform `check_stacker_link_invariants` on cycles [first_cycle_number, max_cycle_number]
-pub fn check_all_stacker_link_invariants(
-    peer: &mut TestPeer,
+pub fn check_all_stacker_link_invariants<Conn>(
+    peer: &mut TestPeer<Conn>,
     tip: &StacksBlockId,
     first_cycle_number: u64,
     max_cycle_number: u64,
-) {
+) 
+where
+    Conn: DbConnection + TrieDb
+{
     // if PoX-2 hasn't published yet, just return.
     let epoch = with_clarity_db_ro(peer, tip, |db| db.get_clarity_epoch_version());
     if epoch < StacksEpochId::Epoch21 {
@@ -288,13 +313,16 @@ pub struct StackingStateCheckData {
 
 /// Check the stacking-state invariants of `stacker`
 /// Mostly that all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
-pub fn check_stacking_state_invariants(
-    peer: &mut TestPeer,
+pub fn check_stacking_state_invariants<Conn>(
+    peer: &mut TestPeer<Conn>,
     tip: &StacksBlockId,
     stacker: &PrincipalData,
     expect_indexes: bool,
     active_pox_contract: &str,
-) -> StackingStateCheckData {
+) -> StackingStateCheckData 
+where
+    Conn: DbConnection + TrieDb
+{
     let account_state = with_clarity_db_ro(peer, tip, |db| {
         db.get_stx_balance_snapshot(stacker)
             .canonical_balance_repr()
@@ -420,7 +448,14 @@ pub fn check_stacking_state_invariants(
 ///  (3) all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
 ///  (4) `reward-cycle-total-stacked` is equal to the sum of all entries
 ///  (5) `stacking-state.pox-addr` matches `reward-cycle-pox-address-list.pox-addr`
-pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) {
+pub fn check_stacker_link_invariants<Conn>(
+    peer: &mut TestPeer<Conn>, 
+    tip: &StacksBlockId, 
+    cycle_number: u64
+)
+where
+    Conn: DbConnection + TrieDb
+{
     let current_burn_height = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
         peer.chainstate().db(),
         tip,
@@ -549,7 +584,14 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
 }
 
 /// Get the `cycle_number`'s total stacked amount at the given chaintip
-pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) -> u128 {
+pub fn get_reward_cycle_total<Conn>(
+    peer: &mut TestPeer<Conn>, 
+    tip: &StacksBlockId, 
+    cycle_number: u64
+) -> u128 
+where
+    Conn: DbConnection + TrieDb
+{
     let active_pox_contract = peer.config.burnchain.pox_constants.active_pox_contract(
         peer.config
             .burnchain
@@ -587,14 +629,17 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
 }
 
 /// Get the `partial-stacked-by-cycle` entry at a given chain tip
-pub fn get_partial_stacked(
-    peer: &mut TestPeer,
+pub fn get_partial_stacked<Conn>(
+    peer: &mut TestPeer<Conn>,
     tip: &StacksBlockId,
     pox_addr: &Value,
     cycle_number: u64,
     sender: &PrincipalData,
     pox_contract: &str,
-) -> u128 {
+) -> u128 
+where
+    Conn: DbConnection + TrieDb
+{
     with_clarity_db_ro(peer, tip, |db| {
         let key = TupleData::from_data(vec![
             ("pox-addr".into(), pox_addr.clone()),
@@ -623,8 +668,13 @@ pub fn get_partial_stacked(
 }
 
 /// Allows you to do something read-only with the ClarityDB at the given chaintip
-pub fn with_clarity_db_ro<F, R>(peer: &mut TestPeer, tip: &StacksBlockId, todo: F) -> R
+pub fn with_clarity_db_ro<Conn, F, R>(
+    peer: &mut TestPeer<Conn>, 
+    tip: &StacksBlockId, 
+    todo: F
+) -> R
 where
+    Conn: DbConnection + TrieDb,
     F: FnOnce(&mut ClarityDatabase) -> R,
 {
     with_sortdb(peer, |ref mut c, ref sortdb| {

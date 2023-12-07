@@ -103,8 +103,11 @@ pub struct TestBurnchainFork {
     pub fork_id: u64,
 }
 
-pub struct TestBurnchainNode {
-    pub sortdb: SortitionDB,
+pub struct TestBurnchainNode<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    pub sortdb: SortitionDB<Conn>,
     pub dirty: bool,
     pub burnchain: Burnchain,
 }
@@ -384,9 +387,9 @@ impl TestBurnchainBlock {
         txop
     }
 
-    pub(crate) fn inner_add_block_commit(
+    pub(crate) fn inner_add_block_commit<Conn>(
         &mut self,
-        ic: &SortitionDBConn,
+        ic: &SortitionDBConn<Conn>,
         miner: &mut TestMiner,
         block_hash: &BlockHeaderHash,
         burn_fee: u64,
@@ -395,7 +398,10 @@ impl TestBurnchainBlock {
         parent_block_snapshot: Option<&BlockSnapshot>,
         new_seed: Option<VRFSeed>,
         epoch_marker: u8,
-    ) -> LeaderBlockCommitOp {
+    ) -> LeaderBlockCommitOp 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let input = (Txid([0; 32]), 0);
         let pubks = miner
             .privks
@@ -482,16 +488,19 @@ impl TestBurnchainBlock {
     }
 
     /// Add an epoch 2.x block-commit
-    pub fn add_leader_block_commit(
+    pub fn add_leader_block_commit<Conn>(
         &mut self,
-        ic: &SortitionDBConn,
+        ic: &SortitionDBConn<Conn>,
         miner: &mut TestMiner,
         block_hash: &BlockHeaderHash,
         burn_fee: u64,
         leader_key: &LeaderKeyRegisterOp,
         fork_snapshot: Option<&BlockSnapshot>,
         parent_block_snapshot: Option<&BlockSnapshot>,
-    ) -> LeaderBlockCommitOp {
+    ) -> LeaderBlockCommitOp 
+    where
+        Conn: DbConnection + TrieDb
+    {
         self.inner_add_block_commit(
             ic,
             miner,
@@ -524,7 +533,14 @@ impl TestBurnchainBlock {
         }
     }
 
-    pub fn mine(&self, db: &mut SortitionDB, burnchain: &Burnchain) -> BlockSnapshot {
+    pub fn mine<Conn>(
+        &self, 
+        db: &mut SortitionDB<Conn>, 
+        burnchain: &Burnchain
+    ) -> BlockSnapshot 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let block_hash = BurnchainHeaderHash::from_test_data(
             self.block_height,
             &self.parent_snapshot.index_root,
@@ -576,20 +592,21 @@ impl TestBurnchainBlock {
         new_snapshot.0
     }
 
-    pub fn mine_pox<
-        'a,
+    pub fn mine_pox<'a, Conn, T, N, R, CE, FE, B>(
+        &self,
+        db: &mut SortitionDB<Conn>,
+        burnchain: &Burnchain,
+        coord: &mut ChainsCoordinator<'a, Conn, T, N, R, CE, FE, B>,
+    ) -> BlockSnapshot 
+    where
+        Conn: DbConnection + TrieDb,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
         B: BurnchainHeaderReader,
-    >(
-        &self,
-        db: &mut SortitionDB,
-        burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
-    ) -> BlockSnapshot {
+    {
         let mut indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
         let parent_hdr = indexer
             .read_burnchain_header(self.block_height.saturating_sub(1))
@@ -671,7 +688,13 @@ impl TestBurnchainFork {
         self.pending_blocks.push(b);
     }
 
-    pub fn get_tip(&mut self, ic: &SortitionDBConn) -> BlockSnapshot {
+    pub fn get_tip<Conn>(
+        &mut self, 
+        ic: &SortitionDBConn<Conn>
+    ) -> BlockSnapshot 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_debug!(
             "Get tip snapshot at {} (sortition ID {})",
             &self.tip_header_hash,
@@ -682,16 +705,25 @@ impl TestBurnchainFork {
             .unwrap()
     }
 
-    pub fn next_block(&mut self, ic: &SortitionDBConn) -> TestBurnchainBlock {
+    pub fn next_block<Conn>(
+        &mut self, 
+        ic: &SortitionDBConn<Conn>
+    ) -> TestBurnchainBlock 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let fork_tip = self.get_tip(ic);
         TestBurnchainBlock::new(&fork_tip, self.fork_id)
     }
 
-    pub fn mine_pending_blocks(
+    pub fn mine_pending_blocks<Conn>(
         &mut self,
-        db: &mut SortitionDB,
+        db: &mut SortitionDB<Conn>,
         burnchain: &Burnchain,
-    ) -> BlockSnapshot {
+    ) -> BlockSnapshot 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut snapshot = {
             let ic = db.index_conn();
             self.get_tip(&ic)
@@ -715,20 +747,21 @@ impl TestBurnchainFork {
         snapshot
     }
 
-    pub fn mine_pending_blocks_pox<
-        'a,
+    pub fn mine_pending_blocks_pox<'a, Conn, T, N, R, CE, FE, B>(
+        &mut self,
+        db: &mut SortitionDB<Conn>,
+        burnchain: &Burnchain,
+        coord: &mut ChainsCoordinator<'a, Conn, T, N, R, CE, FE, B>,
+    ) -> BlockSnapshot 
+    where
+        Conn: DbConnection + TrieDb,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
         CE: CostEstimator,
         FE: FeeEstimator,
-        B: BurnchainHeaderReader,
-    >(
-        &mut self,
-        db: &mut SortitionDB,
-        burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, T, N, R, CE, FE, B>,
-    ) -> BlockSnapshot {
+        B: BurnchainHeaderReader
+    {
         let mut snapshot = {
             let ic = db.index_conn();
             self.get_tip(&ic)
@@ -753,8 +786,11 @@ impl TestBurnchainFork {
     }
 }
 
-impl TestBurnchainNode {
-    pub fn new() -> TestBurnchainNode {
+impl<Conn> TestBurnchainNode<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    pub fn new() -> TestBurnchainNode<Conn> {
         let first_block_height = 100;
         let first_block_hash = BurnchainHeaderHash([0u8; 32]);
         let db = SortitionDB::connect_test(first_block_height, &first_block_hash).unwrap();
@@ -770,8 +806,8 @@ impl TestBurnchainNode {
     }
 }
 
-fn process_next_sortition(
-    node: &mut TestBurnchainNode,
+fn process_next_sortition<Conn>(
+    node: &mut TestBurnchainNode<Conn>,
     fork: &mut TestBurnchainFork,
     miners: &mut Vec<TestMiner>,
     prev_keys: &Vec<LeaderKeyRegisterOp>,
@@ -781,7 +817,10 @@ fn process_next_sortition(
     Vec<LeaderKeyRegisterOp>,
     Vec<LeaderBlockCommitOp>,
     Vec<UserBurnSupportOp>,
-) {
+)
+where
+    Conn: DbConnection + TrieDb 
+{
     assert_eq!(miners.len(), block_hashes.len());
 
     let mut block = {
@@ -829,7 +868,13 @@ fn process_next_sortition(
     (tip_snapshot, next_prev_keys, next_commits, vec![])
 }
 
-fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyRegisterOp>) -> () {
+fn verify_keys_accepted<Conn>(
+    node: &mut TestBurnchainNode<Conn>, 
+    prev_keys: &Vec<LeaderKeyRegisterOp>
+) -> ()
+where
+    Conn: DbConnection + TrieDb
+{
     // all keys accepted
     for key in prev_keys.iter() {
         let tx_opt = SortitionDB::get_burnchain_transaction(node.sortdb.conn(), &key.txid).unwrap();
@@ -847,10 +892,13 @@ fn verify_keys_accepted(node: &mut TestBurnchainNode, prev_keys: &Vec<LeaderKeyR
     }
 }
 
-fn verify_commits_accepted(
-    node: &TestBurnchainNode,
+fn verify_commits_accepted<Conn>(
+    node: &TestBurnchainNode<Conn>,
     next_block_commits: &Vec<LeaderBlockCommitOp>,
-) -> () {
+) -> () 
+where
+    Conn: DbConnection + TrieDb
+{
     // all commits accepted
     for commit in next_block_commits.iter() {
         let tx_opt =

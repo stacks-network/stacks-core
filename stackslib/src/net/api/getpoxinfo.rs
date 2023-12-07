@@ -30,6 +30,8 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
@@ -108,12 +110,15 @@ pub struct RPCPoxInfoData {
 }
 
 impl RPCPoxInfoData {
-    pub fn from_db(
-        sortdb: &SortitionDB,
-        chainstate: &mut StacksChainState,
+    pub fn from_db<Conn>(
+        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<Conn>,
         tip: &StacksBlockId,
         burnchain: &Burnchain,
-    ) -> Result<RPCPoxInfoData, NetError> {
+    ) -> Result<RPCPoxInfoData, NetError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
         let current_burn_height =
@@ -418,7 +423,10 @@ impl HttpRequest for RPCPoxInfoRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPoxInfoRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCPoxInfoRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -427,7 +435,7 @@ impl RPCRequestHandler for RPCPoxInfoRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

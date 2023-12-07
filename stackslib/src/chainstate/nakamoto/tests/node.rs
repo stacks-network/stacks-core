@@ -53,6 +53,8 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{
@@ -150,9 +152,9 @@ impl TestSigners {
 }
 
 impl TestBurnchainBlock {
-    pub fn add_nakamoto_tenure_commit(
+    pub fn add_nakamoto_tenure_commit<Conn>(
         &mut self,
-        ic: &SortitionDBConn,
+        ic: &SortitionDBConn<Conn>,
         miner: &mut TestMiner,
         last_tenure_id: &StacksBlockId,
         burn_fee: u64,
@@ -160,7 +162,10 @@ impl TestBurnchainBlock {
         fork_snapshot: Option<&BlockSnapshot>,
         parent_block_snapshot: Option<&BlockSnapshot>,
         vrf_seed: VRFSeed,
-    ) -> LeaderBlockCommitOp {
+    ) -> LeaderBlockCommitOp 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let tenure_id_as_block_hash = BlockHeaderHash(last_tenure_id.0.clone());
         self.inner_add_block_commit(
             ic,
@@ -236,9 +241,12 @@ impl TestMiner {
     }
 }
 
-impl TestStacksNode {
+impl<Conn> TestStacksNode<Conn>
+where
+    Conn: DbConnection + TrieDb 
+{
     pub fn add_nakamoto_tenure_commit(
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         last_tenure_start: &StacksBlockId,
@@ -292,7 +300,7 @@ impl TestStacksNode {
     /// blocks, once they've been generated.
     pub fn make_nakamoto_tenure_commitment(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         last_tenure_id: &StacksBlockId,
@@ -362,7 +370,7 @@ impl TestStacksNode {
     /// to make_nakamoto_tenure_blocks()
     pub fn begin_nakamoto_tenure(
         &mut self,
-        sortdb: &SortitionDB,
+        sortdb: &SortitionDB<Conn>,
         miner: &mut TestMiner,
         burn_block: &mut TestBurnchainBlock,
         miner_key: &LeaderKeyRegisterOp,
@@ -480,14 +488,15 @@ impl TestStacksNode {
     /// The first block will contain a coinbase and a tenure-change.
     /// Process the blocks via the chains coordinator as we produce them.
     pub fn make_nakamoto_tenure_blocks<'a, F>(
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
         miner: &mut TestMiner,
         signers: &mut TestSigners,
         proof: VRFProof,
         tenure_change_payload: TenureChangePayload,
         coord: &mut ChainsCoordinator<
             'a,
+            Conn,
             TestEventObserver,
             (),
             OnChainRewardSetProvider,
@@ -500,8 +509,8 @@ impl TestStacksNode {
     where
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState,
-            &SortitionDB,
+            &mut StacksChainState<Conn>,
+            &SortitionDB<Conn>,
             usize,
         ) -> Vec<StacksTransaction>,
     {
@@ -602,14 +611,17 @@ impl TestStacksNode {
     }
 }
 
-impl<'a> TestPeer<'a> {
+impl<'a, Conn> TestPeer<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
     /// Stacks 2.x block.
     /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
     fn get_nakamoto_parent(
         miner: &TestMiner,
-        stacks_node: &TestStacksNode,
-        sortdb: &SortitionDB,
+        stacks_node: &TestStacksNode<Conn>,
+        sortdb: &SortitionDB<Conn>,
     ) -> (
         StacksBlockId,
         Option<StacksBlock>,
@@ -847,8 +859,8 @@ impl<'a> TestPeer<'a> {
     where
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState,
-            &SortitionDB,
+            &mut StacksChainState<Conn>,
+            &SortitionDB<Conn>,
             usize,
         ) -> Vec<StacksTransaction>,
     {

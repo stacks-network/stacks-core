@@ -24,6 +24,8 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::chat::ConversationP2P;
 use crate::net::connection::ReplyHandleP2P;
 use crate::net::db::PeerDB;
@@ -80,12 +82,15 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Calculate the new set of replicas to contact.
     /// This is the same as the set that was connected on the last sync, plus any
     /// config hints and discovered nodes from the DB.
-    fn find_new_replicas(
+    fn find_new_replicas<Conn>(
         &self,
         mut connected_replicas: HashSet<NeighborAddress>,
-        network: Option<&PeerNetwork>,
+        network: Option<&PeerNetwork<Conn>>,
         config: &StackerDBConfig,
-    ) -> Result<HashSet<NeighborAddress>, net_error> {
+    ) -> Result<HashSet<NeighborAddress>, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // keep all connected replicas, and replenish from config hints and the DB as needed
         let mut peers = config.hint_replicas.clone();
         if let Some(network) = network {
@@ -112,11 +117,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
 
     /// Reset this state machine, and get the StackerDBSyncResult with newly-obtained chunk data
     /// and newly-learned information about broken and dead peers.
-    pub fn reset(
+    pub fn reset<Conn>(
         &mut self,
-        network: Option<&PeerNetwork>,
+        network: Option<&PeerNetwork<Conn>>,
         config: &StackerDBConfig,
-    ) -> Result<StackerDBSyncResult, net_error> {
+    ) -> Result<StackerDBSyncResult, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut chunks = vec![];
         let downloaded_chunks = mem::replace(&mut self.downloaded_chunks, HashMap::new());
         for (_, mut data) in downloaded_chunks.into_iter() {
@@ -176,11 +184,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// * what order to fetch chunks in, in rarest-first order
     /// Returns a list of (chunk requests, list of neighbors that can service them), which is
     /// ordered from rarest chunk to most-common chunk.
-    pub fn make_chunk_request_schedule(
+    pub fn make_chunk_request_schedule<Conn>(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<Conn>,
         local_slot_versions_opt: Option<Vec<u32>>,
-    ) -> Result<Vec<(StackerDBGetChunkData, Vec<NeighborAddress>)>, net_error> {
+    ) -> Result<Vec<(StackerDBGetChunkData, Vec<NeighborAddress>)>, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let rc_consensus_hash = network.get_chain_view().rc_consensus_hash.clone();
         let local_slot_versions = if let Some(local_slot_versions) = local_slot_versions_opt {
             local_slot_versions
@@ -287,10 +298,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Given the downloaded set of chunk inventories, identify:
     /// * which chunks we need to push, because we have them and the neighbor does not
     /// * what order to push them in, in rarest-first order
-    pub fn make_chunk_push_schedule(
+    pub fn make_chunk_push_schedule<Conn>(
         &self,
-        network: &PeerNetwork,
-    ) -> Result<Vec<(StackerDBPushChunkData, Vec<NeighborAddress>)>, net_error> {
+        network: &PeerNetwork<Conn>,
+    ) -> Result<Vec<(StackerDBPushChunkData, Vec<NeighborAddress>)>, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let rc_consensus_hash = network.get_chain_view().rc_consensus_hash.clone();
         let local_slot_versions = self.stackerdbs.get_slot_versions(&self.smart_contract_id)?;
 
@@ -377,12 +391,15 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Validate a downloaded chunk
-    pub fn validate_downloaded_chunk(
+    pub fn validate_downloaded_chunk<Conn>(
         &self,
-        network: &PeerNetwork,
+        network: &PeerNetwork<Conn>,
         config: &StackerDBConfig,
         data: &StackerDBChunkData,
-    ) -> Result<bool, net_error> {
+    ) -> Result<bool, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // validate -- must be a valid chunk
         if !network.validate_received_chunk(
             &self.smart_contract_id,
@@ -426,13 +443,16 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Stores the new chunk inventory to RAM.
     /// Returns true if the inventory changed (indicating that we need to resync)
     /// Returns false otherwise
-    pub fn add_pushed_chunk(
+    pub fn add_pushed_chunk<Conn>(
         &mut self,
-        _network: &PeerNetwork,
+        _network: &PeerNetwork<Conn>,
         naddr: NeighborAddress,
         new_inv: StackerDBChunkInvData,
         slot_id: u32,
-    ) -> bool {
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // safety (should already be checked) -- don't accept if the size is wrong
         if new_inv.slot_versions.len() != self.num_slots {
             return false;
@@ -478,11 +498,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Ask inbound neighbors who replicate this DB for their chunk inventories.
     /// Don't send them a message if they're also outbound.
     /// Logs errors but does not return them.
-    fn send_getchunkinv_to_inbound_neighbors(
+    fn send_getchunkinv_to_inbound_neighbors<Conn>(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<Conn>,
         already_sent: &[NeighborAddress],
-    ) {
+    ) 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let sent_naddr_set: HashSet<_> = already_sent.iter().collect();
         let mut to_send = vec![];
         for event_id in network.iter_peer_event_ids() {
@@ -547,7 +570,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Returns Ok(true) if we can proceed to sync
     /// Returns Ok(false) if we have no known peers
     /// Returns Err(..) on DB query error
-    pub fn connect_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn connect_begin<Conn>(
+        &mut self, 
+        network: &mut PeerNetwork<Conn>
+    ) -> Result<bool, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         if self.replicas.len() == 0 {
             // find some from the peer Db
             let replicas = PeerDB::find_stacker_db_replicas(
@@ -613,7 +642,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Fills in self.connected_replicas based on receipt of a handshake accept.
     /// Returns true if we've received all pending messages
     /// Returns false otherwise
-    pub fn connect_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn connect_try_finish<Conn>(
+        &mut self, 
+        network: &mut PeerNetwork<Conn>
+    ) -> Result<bool, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let data = match message.payload {
                 StacksMessageType::StackerDBHandshakeAccept(_, db_data) => {
@@ -695,7 +730,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Clears self.connected_replicas.
     /// StackerDBGetChunksInv
     /// Always succeeds; does not block.
-    pub fn getchunksinv_begin(&mut self, network: &mut PeerNetwork) {
+    pub fn getchunksinv_begin<Conn>(
+        &mut self, 
+        network: &mut PeerNetwork<Conn>
+    ) 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let naddrs = mem::replace(&mut self.connected_replicas, HashSet::new());
         let mut already_sent = vec![];
         test_debug!(
@@ -728,10 +769,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Restores self.connected_replicas based on messages received.
     /// Return Ok(true) if we've received all pending messages
     /// Return Ok(false) if not
-    pub fn getchunksinv_try_finish(
+    pub fn getchunksinv_try_finish<Conn>(
         &mut self,
-        network: &mut PeerNetwork,
-    ) -> Result<bool, net_error> {
+        network: &mut PeerNetwork<Conn>,
+    ) -> Result<bool, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let chunk_inv = match message.payload {
                 StacksMessageType::StackerDBChunkInv(data) => {
@@ -781,7 +825,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Ask each prioritized replica for some chunks we need.
     /// Return Ok(true) if we processed all requested chunks
     /// Return Ok(false) if there are still some requests to make
-    pub fn getchunks_begin(&mut self, network: &mut PeerNetwork) -> bool {
+    pub fn getchunks_begin<Conn>(
+        &mut self, 
+        network: &mut PeerNetwork<Conn>
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         if self.chunk_fetch_priorities.len() == 0 {
             // done
             return true;
@@ -854,11 +904,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Collect chunk replies from neighbors
     /// Returns Ok(true) if all inflight messages have been received (or dealt with)
     /// Returns Ok(false) otherwise
-    pub fn getchunks_try_finish(
+    pub fn getchunks_try_finish<Conn>(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<Conn>,
         config: &StackerDBConfig,
-    ) -> Result<bool, net_error> {
+    ) -> Result<bool, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let data = match message.payload {
                 StacksMessageType::StackerDBChunk(data) => data,
@@ -904,7 +957,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Push out chunks to peers
     /// Returns true if there are no more chunks to push.
     /// Returns false if there are
-    pub fn pushchunks_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
+    pub fn pushchunks_begin<Conn>(
+        &mut self, 
+        network: &mut PeerNetwork<Conn>
+    ) -> Result<bool, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         if self.chunk_push_priorities.len() == 0 {
             let priorities = self.make_chunk_push_schedule(&network)?;
             self.chunk_push_priorities = priorities;
@@ -994,7 +1053,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// than we have, then set `self.need_resync` to true.
     /// Returns true if all inflight messages have been received (or dealt with)
     /// Returns false otherwise
-    pub fn pushchunks_try_finish(&mut self, network: &mut PeerNetwork) -> bool {
+    pub fn pushchunks_try_finish<Conn>(
+        &mut self, 
+        network: &mut PeerNetwork<Conn>
+    ) -> bool 
+    where
+        Conn: DbConnection + TrieDb
+    {
         for (naddr, message) in self.comms.collect_replies(network).into_iter() {
             let new_chunk_inv = match message.payload {
                 StacksMessageType::StackerDBChunkInv(data) => data,
@@ -1038,10 +1103,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     }
 
     /// Recalculate the download schedule based on chunkinvs received on push
-    pub fn recalculate_chunk_request_schedule(
+    pub fn recalculate_chunk_request_schedule<Conn>(
         &mut self,
-        network: &PeerNetwork,
-    ) -> Result<(), net_error> {
+        network: &PeerNetwork<Conn>,
+    ) -> Result<(), net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // figure out the new expected versions
         let mut expected_versions = vec![0u32; self.num_slots as usize];
         for (_, chunk_inv) in self.chunk_invs.iter() {
@@ -1067,11 +1135,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     /// Run the state machine.
     /// If we run to completion, then reset and return the sync result.
     /// Otherwise, if there's still more work to do, then return None
-    pub fn run(
+    pub fn run<Conn>(
         &mut self,
-        network: &mut PeerNetwork,
+        network: &mut PeerNetwork<Conn>,
         config: &StackerDBConfig,
-    ) -> Result<Option<StackerDBSyncResult>, net_error> {
+    ) -> Result<Option<StackerDBSyncResult>, net_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // throttle to write_freq
         if self.last_run_ts + config.write_freq > get_epoch_time_secs() {
             test_debug!(

@@ -45,7 +45,9 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
     POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
 use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::clarity::vm::analysis::errors::{CheckError, CheckResult};
@@ -148,8 +150,11 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
 
 pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 
-struct EvalInput {
-    marf_kv: MarfedKV,
+struct EvalInput<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    marf_kv: MarfedKV<Conn>,
     contract_identifier: QualifiedContractIdentifier,
     content: String,
 }
@@ -350,12 +355,13 @@ fn get_cli_db_path(db_path: &str) -> String {
 
 // This function is pretty weird! But it helps cut down on
 //   repeating a lot of block initialization for the simulation commands.
-fn in_block<F, R>(
+fn in_block<Conn, F, R>(
     mut headers_db: CLIHeadersDB,
-    mut marf_kv: MarfedKV,
+    mut marf_kv: MarfedKV<Conn>,
     f: F,
-) -> (CLIHeadersDB, MarfedKV, R)
+) -> (CLIHeadersDB, MarfedKV<Conn>, R)
 where
+    Conn: DbConnection + TrieDb,
     F: FnOnce(CLIHeadersDB, WritableMarfStore) -> (CLIHeadersDB, WritableMarfStore, R),
 {
     // need to load the last block
@@ -371,8 +377,13 @@ where
 
 // like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
 // chain tip itself.
-fn at_chaintip<F, R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
+fn at_chaintip<Conn, F, R>(
+    db_path: &str, 
+    mut marf_kv: MarfedKV<Conn>, 
+    f: F
+) -> R
 where
+    Conn: DbConnection + TrieDb,
     F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
@@ -387,8 +398,13 @@ where
     result
 }
 
-fn at_block<F, R>(blockhash: &str, mut marf_kv: MarfedKV, f: F) -> R
+fn at_block<Conn, F, R>(
+    blockhash: &str, 
+    mut marf_kv: MarfedKV<Conn>, 
+    f: F
+) -> R
 where
+    Conn: DbConnection + TrieDb,
     F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
@@ -731,7 +747,13 @@ impl HeadersDB for CLIHeadersDB {
     }
 }
 
-fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
+fn get_eval_input<Conn>(
+    invoked_by: &str, 
+    args: &[String]
+) -> EvalInput<Conn>
+where
+    Conn: DbConnection + TrieDb
+{
     if args.len() < 3 || args.len() > 4 {
         eprintln!(
             "Usage: {} {} [--costs] [contract-identifier] (program.clar) [vm-state.db]",

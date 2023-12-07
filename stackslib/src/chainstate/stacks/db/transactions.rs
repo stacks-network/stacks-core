@@ -373,7 +373,10 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
     }
 }
 
-impl StacksChainState {
+impl<Conn> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Get the payer account
     fn get_payer_account<T: ClarityConnection>(
         clarity_tx: &mut T,

@@ -49,6 +49,8 @@ use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::index::Error as MarfError;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::miner::TransactionEvent;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
@@ -313,13 +315,16 @@ impl MemPoolAdmitter {
         self.cur_consensus_hash = cur_consensus_hash.clone();
         self.cur_block = cur_block.clone();
     }
-    pub fn will_admit_tx(
+    pub fn will_admit_tx<Conn>(
         &mut self,
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
         tx: &StacksTransaction,
         tx_size: u64,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         chainstate.will_admit_mempool_tx(
             &sortdb.index_conn(),
             &self.cur_consensus_hash,
@@ -1166,7 +1171,8 @@ fn order_nonces(
     Ordering::Equal
 }
 
-impl MemPoolDB {
+impl MemPoolDB
+{
     fn instantiate_mempool_db(conn: &mut DBConn) -> Result<(), db_error> {
         let mut tx = tx_begin_immediate(conn)?;
 
@@ -1924,13 +1930,16 @@ impl MemPoolDB {
         query_row(conn, &sql, args)
     }
 
-    fn are_blocks_in_same_fork(
-        chainstate: &mut StacksChainState,
+    fn are_blocks_in_same_fork<Conn>(
+        chainstate: &mut StacksChainState<Conn>,
         first_consensus_hash: &ConsensusHash,
         first_stacks_block: &BlockHeaderHash,
         second_consensus_hash: &ConsensusHash,
         second_stacks_block: &BlockHeaderHash,
-    ) -> Result<bool, db_error> {
+    ) -> Result<bool, db_error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let first_block = StacksBlockId::new(first_consensus_hash, first_stacks_block);
         let second_block = StacksBlockId::new(second_consensus_hash, second_stacks_block);
         // short circuit equality
@@ -1960,9 +1969,9 @@ impl MemPoolDB {
     /// Carry out the mempool admission test before adding.
     /// Don't call directly; use submit().
     /// This is `pub` only for testing.
-    pub fn try_add_tx(
+    pub fn try_add_tx<Conn>(
         tx: &mut MemPoolTx,
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<Conn>,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
         txid: Txid,
@@ -1974,7 +1983,10 @@ impl MemPoolDB {
         sponsor_address: &StacksAddress,
         sponsor_nonce: u64,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let length = tx_bytes.len() as u64;
 
         // do we already have txs with either the same origin nonce or sponsor nonce ?
@@ -2142,17 +2154,20 @@ impl MemPoolDB {
     }
 
     /// Submit a transaction to the mempool at a particular chain tip.
-    fn tx_submit(
+    fn tx_submit<Conn>(
         mempool_tx: &mut MemPoolTx,
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
         do_admission_checks: bool,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         fee_rate_estimate: Option<f64>,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         test_debug!(
             "Mempool submit {} at {}/{}",
             tx.txid(),
@@ -2237,17 +2252,20 @@ impl MemPoolDB {
     }
 
     /// One-shot submit
-    pub fn submit(
+    pub fn submit<Conn>(
         &mut self,
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         block_limit: &ExecutionCost,
         stacks_epoch_id: &StacksEpochId,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         if self.is_tx_blacklisted(&tx.txid())? {
             // don't re-store this transaction
             test_debug!("Transaction {} is temporarily blacklisted", &tx.txid());
@@ -2291,16 +2309,19 @@ impl MemPoolDB {
     }
 
     /// Miner-driven submit (e.g. for poison microblocks), where no checks are performed
-    pub fn miner_submit(
+    pub fn miner_submit<Conn>(
         &mut self,
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
         miner_estimate: f64,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
 
         let fee_estimate = Some(miner_estimate);
@@ -2323,16 +2344,19 @@ impl MemPoolDB {
     /// Directly submit to the mempool, and don't do any admissions checks.
     /// This method is only used during testing, but because it is used by the
     ///  integration tests, it cannot be marked #[cfg(test)].
-    pub fn submit_raw(
+    pub fn submit_raw<Conn>(
         &mut self,
-        chainstate: &mut StacksChainState,
-        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<Conn>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
         block_limit: &ExecutionCost,
         stacks_epoch_id: &StacksEpochId,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
 

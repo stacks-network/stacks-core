@@ -21,6 +21,8 @@ use regex::{Captures, Regex};
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::util::hash::Hash160;
 
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::db::PeerDB;
 use crate::net::http::{
     parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents, HttpRequestPreamble,
@@ -84,7 +86,12 @@ pub struct RPCNeighborsInfo {
 
 impl RPCNeighborsInfo {
     /// Load neighbor address information from the peer network
-    pub fn from_p2p(network: &PeerNetwork) -> Result<RPCNeighborsInfo, NetError> {
+    pub fn from_p2p<Conn>(
+        network: &PeerNetwork<Conn>
+    ) -> Result<RPCNeighborsInfo, NetError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let network_epoch = network.get_current_epoch().network_epoch;
         let network_id = network.get_local_peer().network_id;
         let max_neighbor_age = network.get_connection_opts().max_neighbor_age;
@@ -197,7 +204,10 @@ impl HttpRequest for RPCNeighborsRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNeighborsRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCNeighborsRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -206,7 +216,7 @@ impl RPCRequestHandler for RPCNeighborsRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let neighbor_data =
             node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {

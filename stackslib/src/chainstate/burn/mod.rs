@@ -38,6 +38,9 @@ use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::core::SYSTEM_FORK_SET_VERSION;
 use crate::util_lib::db::Error as db_error;
 
+use super::stacks::index::db::DbConnection;
+use super::stacks::index::trie_db::TrieDb;
+
 /// This module contains the code for processing the burn chain state database
 pub mod db;
 pub mod distribution;
@@ -281,6 +284,7 @@ pub trait ConsensusHashExtensions {
         total_burn: u64,
         pox_id: &PoxId,
     ) -> Result<ConsensusHash, db_error>;
+
     /// raw consensus hash
     fn from_data(bytes: &[u8]) -> ConsensusHash;
 }

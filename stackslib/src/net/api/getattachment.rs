@@ -22,6 +22,8 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Hash160;
 use url::form_urlencoded;
 
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::atlas::{
     AttachmentPage, GetAttachmentResponse, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
@@ -90,7 +92,10 @@ impl HttpRequest for RPCGetAttachmentRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetAttachmentRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCGetAttachmentRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.attachment_hash = None;
@@ -100,7 +105,7 @@ impl RPCRequestHandler for RPCGetAttachmentRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let attachment_hash = self
             .attachment_hash

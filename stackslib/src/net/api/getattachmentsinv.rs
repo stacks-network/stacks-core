@@ -22,6 +22,8 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 use url::form_urlencoded;
 
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::atlas::{
     AttachmentPage, GetAttachmentsInvResponse, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
@@ -126,7 +128,10 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCGetAttachmentsInvRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.index_block_hash = None;
@@ -137,7 +142,7 @@ impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let index_block_hash = self
             .index_block_hash

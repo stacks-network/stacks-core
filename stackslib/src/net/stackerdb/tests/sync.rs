@@ -31,6 +31,8 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::relay::Relayer;
 use crate::net::stackerdb::db::SlotValidation;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBs};
@@ -83,7 +85,15 @@ fn add_stackerdb(config: &mut TestPeerConfig, stackerdb_config: Option<StackerDB
 
 /// Set up a stacker DB and optionally fill it with random data.
 /// `idx` refers to the `idx`th stacker DB in the node config struct.
-fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize) {
+fn setup_stackerdb<Conn>(
+    peer: &mut TestPeer<Conn>, 
+    idx: usize, 
+    fill: bool, 
+    num_slots: usize
+)
+where
+    Conn: DbConnection + TrieDb 
+{
     let contract_id = &peer.config.stacker_dbs[idx];
     let rc_consensus_hash = &peer.network.get_chain_view().rc_consensus_hash;
 
@@ -154,7 +164,13 @@ fn setup_stackerdb(peer: &mut TestPeer, idx: usize, fill: bool, num_slots: usize
 }
 
 /// Load up the entire stacker DB, including its metadata
-fn load_stackerdb(peer: &TestPeer, idx: usize) -> Vec<(SlotMetadata, Vec<u8>)> {
+fn load_stackerdb<Conn>(
+    peer: &TestPeer<Conn>, 
+    idx: usize
+) -> Vec<(SlotMetadata, Vec<u8>)> 
+where
+    Conn: DbConnection + TrieDb
+{
     let num_slots = peer.config.stacker_db_configs[idx]
         .as_ref()
         .unwrap_or(&StackerDBConfig::noop())

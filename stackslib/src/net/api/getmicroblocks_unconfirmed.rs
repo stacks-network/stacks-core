@@ -29,6 +29,8 @@ use {serde, serde_json};
 
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::http::{
     parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
     HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -71,11 +73,14 @@ pub struct StacksUnconfirmedMicroblockStream {
 }
 
 impl StacksUnconfirmedMicroblockStream {
-    pub fn new(
-        chainstate: &StacksChainState,
+    pub fn new<Conn>(
+        chainstate: &StacksChainState<Conn>,
         parent_block_id: &StacksBlockId,
         seq: u16,
-    ) -> Result<Self, ChainError> {
+    ) -> Result<Self, ChainError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let mblock_info = StacksChainState::load_next_descendant_microblock(
             &chainstate.db(),
             parent_block_id,
@@ -137,7 +142,10 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCMicroblocksUnconfirmedRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCMicroblocksUnconfirmedRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.parent_block_id = None;
@@ -149,7 +157,7 @@ impl RPCRequestHandler for RPCMicroblocksUnconfirmedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .parent_block_id

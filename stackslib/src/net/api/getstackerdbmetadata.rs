@@ -35,6 +35,8 @@ use {serde, serde_json};
 
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlock};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
     HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -95,7 +97,10 @@ impl HttpRequest for RPCGetStackerDBMetadataRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCGetStackerDBMetadataRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCGetStackerDBMetadataRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -106,7 +111,7 @@ impl RPCRequestHandler for RPCGetStackerDBMetadataRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let contract_identifier = self
             .contract_identifier

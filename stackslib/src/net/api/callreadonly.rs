@@ -41,6 +41,8 @@ use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
@@ -174,7 +176,10 @@ impl HttpRequest for RPCCallReadOnlyRequestHandler {
 }
 
 /// Handle the HTTP request
-impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCCallReadOnlyRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -189,7 +194,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

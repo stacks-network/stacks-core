@@ -23,6 +23,7 @@ use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::SystemTime;
 use std::{cmp, env, error, fmt, fs, io, os};
 
@@ -60,20 +61,27 @@ use crate::util_lib::db::{
     SQLITE_MARF_PAGE_SIZE, SQLITE_MMAP_SIZE,
 };
 
+use super::db::DbConnection;
+use super::trie_db::TrieDb;
+
 /// A trait for reading the hash of a node into a given Write impl, given the pointer to a node in
 /// a trie.
 pub trait NodeHashReader {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
 }
 
-impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
-    type TrieId = T;
+impl<Id, Conn> BlockMap for TrieFileStorage<Id, Conn>
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb 
+{
+    type TrieId = Id;
 
-    fn get_block_hash(&self, id: u32) -> Result<T, Error> {
+    fn get_block_hash(&self, id: u32) -> Result<Id, Error> {
         trie_sql::get_block_hash(&self.db, id)
     }
 
-    fn get_block_hash_caching(&mut self, id: u32) -> Result<&T, Error> {
+    fn get_block_hash_caching(&mut self, id: u32) -> Result<&Id, Error> {
         if !self.is_block_hash_cached(id) {
             let block_hash = self.get_block_hash(id)?;
             self.cache.store_block_hash(id, block_hash.clone());
@@ -85,11 +93,11 @@ impl<T: MarfTrieId> BlockMap for TrieFileStorage<T> {
         self.cache.ref_block_hash(id).is_some()
     }
 
-    fn get_block_id(&self, block_hash: &T) -> Result<u32, Error> {
+    fn get_block_id(&self, block_hash: &Id) -> Result<u32, Error> {
         trie_sql::get_block_identifier(&self.db, block_hash)
     }
 
-    fn get_block_id_caching(&mut self, block_hash: &T) -> Result<u32, Error> {
+    fn get_block_id_caching(&mut self, block_hash: &Id) -> Result<u32, Error> {
         // don't use the cache if we're unconfirmed
         if self.data.unconfirmed {
             self.get_block_id(block_hash)
@@ -1278,20 +1286,24 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
 // to extend_to_block() with a different block header hash.
-pub struct TrieFileStorage<T: MarfTrieId> {
+pub struct TrieFileStorage<Id, Conn>
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb
+{
     pub db_path: String,
 
-    db: Connection,
+    db: Rc<Conn>,
     blobs: Option<TrieFile>,
-    data: TrieStorageTransientData<T>,
-    cache: TrieCache<T>,
+    data: TrieStorageTransientData<Id>,
+    cache: TrieCache<Id>,
     bench: TrieBenchmark,
     hash_calculation_mode: TrieHashCalculationMode,
 
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
     #[cfg(test)]
-    pub test_genesis_block: Option<T>,
+    pub test_genesis_block: Option<Id>,
 }
 
 /// Helper to open a MARF
@@ -1323,8 +1335,12 @@ impl<T: MarfTrieId> TrieStorageTransientData<T> {
     }
 }
 
-impl<T: MarfTrieId> TrieFileStorage<T> {
-    pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, T> {
+impl<Id, Conn> TrieFileStorage<Id, Conn>
+where
+    Id: MarfTrieId,
+    Conn: DbConnection + TrieDb 
+{
+    pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, Id> {
         TrieStorageConnection {
             db: SqliteConnection::ConnRef(&self.db),
             db_path: &self.db_path,
@@ -1340,7 +1356,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         }
     }
 
-    pub fn transaction<'a>(&'a mut self) -> Result<TrieStorageTransaction<'a, T>, Error> {
+    pub fn transaction<'a>(&'a mut self) -> Result<TrieStorageTransaction<'a, Id>, Error> {
         if self.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -1378,7 +1394,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         readonly: bool,
         unconfirmed: bool,
         marf_opts: MARFOpenOpts,
-    ) -> Result<TrieFileStorage<T>, Error> {
+    ) -> Result<TrieFileStorage<Id, Conn>, Error> {
         let mut create_flag = false;
         let open_flags = if db_path != ":memory:" {
             match fs::metadata(db_path) {
@@ -1426,12 +1442,12 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
             None
         };
 
-        let prev_schema_version = trie_sql::migrate_tables_if_needed::<T>(&mut db)?;
+        let prev_schema_version = trie_sql::migrate_tables_if_needed::<Id>(&mut db)?;
         if prev_schema_version != trie_sql::SQL_MARF_SCHEMA_VERSION || marf_opts.force_db_migrate {
             if let Some(blobs) = blobs.as_mut() {
                 if TrieFile::exists(&db_path)? {
                     // migrate blobs out of the old DB
-                    blobs.export_trie_blobs::<T>(&db, &db_path)?;
+                    blobs.export_trie_blobs::<Id>(&db, &db_path)?;
                 }
             }
         }
@@ -1457,7 +1473,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
 
             data: TrieStorageTransientData {
                 uncommitted_writes: None,
-                cur_block: T::sentinel(),
+                cur_block: Id::sentinel(),
                 cur_block_id: None,
 
                 read_count: 0,
@@ -1485,25 +1501,25 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     }
 
     #[cfg(test)]
-    pub fn new_memory(marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<T>, Error> {
+    pub fn new_memory(marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, Conn>, Error> {
         TrieFileStorage::open(":memory:", marf_opts)
     }
 
-    pub fn open(db_path: &str, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<T>, Error> {
+    pub fn open(db_path: &str, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, Conn>, Error> {
         TrieFileStorage::open_opts(db_path, false, false, marf_opts)
     }
 
     pub fn open_readonly(
         db_path: &str,
         marf_opts: MARFOpenOpts,
-    ) -> Result<TrieFileStorage<T>, Error> {
+    ) -> Result<TrieFileStorage<Id, Conn>, Error> {
         TrieFileStorage::open_opts(db_path, true, false, marf_opts)
     }
 
     pub fn open_unconfirmed(
         db_path: &str,
         mut marf_opts: MARFOpenOpts,
-    ) -> Result<TrieFileStorage<T>, Error> {
+    ) -> Result<TrieFileStorage<Id, Conn>, Error> {
         // no caching allowed for unconfirmed tries, since they can disappear
         marf_opts.cache_strategy = "noop".to_string();
         TrieFileStorage::open_opts(db_path, false, true, marf_opts)
@@ -1524,7 +1540,7 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     /// Returns a new TrieFileStorage in read-only mode.
     ///
     /// Returns Err if the underlying SQLite database connection cannot be created.
-    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
+    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<Id, Conn>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let cache = TrieCache::default();
         let blobs = if self.blobs.is_some() {
@@ -1586,10 +1602,18 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
     }
 }
 
-impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
+impl<'a, Id> TrieStorageTransaction<'a, Id>
+where
+    Id: MarfTrieId
+{
     /// reopen this transaction as a read-only marf.
     ///  _does not_ preserve the cur_block/open tip
-    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<T>, Error> {
+    pub fn reopen_readonly<Conn>(
+        &self
+    ) -> Result<TrieFileStorage<Id, Conn>, Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let blobs = if self.blobs.is_some() {
             Some(TrieFile::from_db_path(&self.db_path, true)?)
@@ -1615,7 +1639,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
 
             data: TrieStorageTransientData {
                 uncommitted_writes: None,
-                cur_block: T::sentinel(),
+                cur_block: Id::sentinel(),
                 cur_block_id: None,
 
                 read_count: 0,
@@ -1654,7 +1678,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     /// Inner method for flushing the UncommittedState's TrieRAM to disk.
-    fn inner_flush(&mut self, flush_options: FlushOptions<'_, T>) -> Result<(), Error> {
+    fn inner_flush(&mut self, flush_options: FlushOptions<'_, Id>) -> Result<(), Error> {
         // save the currently-buffered Trie to disk, and atomically put it into place (possibly to
         // a different block than the one opened, as indicated by final_bhh).
         // Runs once -- subsequent calls are no-ops.
@@ -1745,13 +1769,13 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     /// Flush uncommitted state to disk, but under the given block hash.
-    pub fn flush_to(&mut self, bhh: &T) -> Result<(), Error> {
+    pub fn flush_to(&mut self, bhh: &Id) -> Result<(), Error> {
         self.inner_flush(FlushOptions::NewHeader(bhh))
     }
 
     /// Flush uncommitted state to disk for a mined block (i.e. not part of the chainstate, and not
     /// an ancestor of any block), and do so under a given block hash.
-    pub fn flush_mined(&mut self, bhh: &T) -> Result<(), Error> {
+    pub fn flush_mined(&mut self, bhh: &Id) -> Result<(), Error> {
         self.inner_flush(FlushOptions::MinedTable(bhh))
     }
 
@@ -1770,7 +1794,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     }
 
     /// Drop the unconfirmed state and uncommitted state.
-    pub fn drop_unconfirmed_trie(&mut self, bhh: &T) {
+    pub fn drop_unconfirmed_trie(&mut self, bhh: &Id) {
         self.clear_cached_ancestor_hashes_bytes();
         if !self.data.readonly && self.data.unconfirmed {
             trie_sql::drop_unconfirmed_trie(&self.db, bhh)
@@ -1804,7 +1828,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     /// Extend the forest of Tries to include a new confirmed block.
     /// Fails if the block already exists, or if the storage is read-only, or open
     /// only for unconfirmed state.
-    pub fn extend_to_block(&mut self, bhh: &T) -> Result<(), Error> {
+    pub fn extend_to_block(&mut self, bhh: &Id) -> Result<(), Error> {
         self.clear_cached_ancestor_hashes_bytes();
         if self.data.readonly {
             return Err(Error::ReadOnlyError);
@@ -1840,7 +1864,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
     /// Extend the forest of Tries to include a new unconfirmed block.
     /// If the unconfirmed block (bhh) already exists, then load up its trie as the uncommitted_writes
     /// trie.
-    pub fn extend_to_unconfirmed_block(&mut self, bhh: &T) -> Result<bool, Error> {
+    pub fn extend_to_unconfirmed_block(&mut self, bhh: &Id) -> Result<bool, Error> {
         self.clear_cached_ancestor_hashes_bytes();
         if !self.data.unconfirmed {
             return Err(Error::UnconfirmedError);
@@ -1901,7 +1925,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
             None => {}
         };
 
-        self.data.set_block(T::sentinel(), None);
+        self.data.set_block(Id::sentinel(), None);
 
         self.data.uncommitted_writes = None;
         self.clear_cached_ancestor_hashes_bytes();

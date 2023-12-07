@@ -458,7 +458,7 @@ mod blah {
     use super::trie_db_sqlite::*;
 
     fn db_test() -> Result<(), Error> {
-        let mut db = SQLiteDb::open("test.db", &[])?;
+        let mut db = SQLiteDbConnection::establish("test.db")?;
         let tx = db.transaction::<Error>()?;
         tx.commit()?;
 

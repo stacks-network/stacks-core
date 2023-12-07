@@ -25,6 +25,7 @@ use stacks_common::util::get_epoch_time_secs;
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::*;
 use crate::net::atlas::AtlasDB;
 use crate::net::connection::*;
@@ -37,9 +38,12 @@ use crate::net::rpc::*;
 use crate::net::{Error as net_error, *};
 
 #[derive(Debug)]
-pub struct HttpPeer {
+pub struct HttpPeer<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// ongoing http conversations (either they reached out to us, or we to them)
-    pub peers: HashMap<usize, ConversationHttp>,
+    pub peers: HashMap<usize, ConversationHttp<Conn>>,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
 
     /// outbound connections that are pending connection
@@ -63,12 +67,15 @@ pub struct HttpPeer {
     pub connection_opts: ConnectionOptions,
 }
 
-impl HttpPeer {
+impl<Conn> HttpPeer<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn new(
         conn_opts: ConnectionOptions,
         server_handle: usize,
         server_addr: SocketAddr,
-    ) -> HttpPeer {
+    ) -> HttpPeer<Conn> {
         HttpPeer {
             peers: HashMap::new(),
             sockets: HashMap::new(),
@@ -99,7 +106,7 @@ impl HttpPeer {
     }
 
     /// Get a mut ref to a conversation
-    pub fn get_conversation(&mut self, event_id: usize) -> Option<&mut ConversationHttp> {
+    pub fn get_conversation(&mut self, event_id: usize) -> Option<&mut ConversationHttp<Conn>> {
         self.peers.get_mut(&event_id)
     }
 
@@ -108,7 +115,7 @@ impl HttpPeer {
         &mut self,
         event_id: usize,
     ) -> (
-        Option<&mut ConversationHttp>,
+        Option<&mut ConversationHttp<Conn>>,
         Option<&mut mio::net::TcpStream>,
     ) {
         (
@@ -124,7 +131,7 @@ impl HttpPeer {
     pub fn connect_http(
         &mut self,
         network_state: &mut NetworkState,
-        network: &PeerNetwork,
+        network: &PeerNetwork<Conn>,
         data_url: UrlString,
         addr: SocketAddr,
         request: Option<StacksHttpRequest>,
@@ -211,7 +218,7 @@ impl HttpPeer {
     fn register_http(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState,
+        node_state: &mut StacksNodeState<Conn>,
         event_id: usize,
         mut socket: mio_net::TcpStream,
         outbound_url: Option<UrlString>,
@@ -340,7 +347,7 @@ impl HttpPeer {
     /// buffer.
     pub fn saturate_http_socket(
         client_sock: &mut mio::net::TcpStream,
-        convo: &mut ConversationHttp,
+        convo: &mut ConversationHttp<Conn>,
     ) -> Result<(), net_error> {
         // saturate the socket
         loop {
@@ -366,7 +373,7 @@ impl HttpPeer {
     fn process_new_sockets(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState,
+        node_state: &mut StacksNodeState<Conn>,
         poll_state: &mut NetworkPollState,
     ) -> Vec<usize> {
         let mut registered = vec![];
@@ -414,10 +421,10 @@ impl HttpPeer {
     /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
     /// forwarded to the peer network.
     fn process_http_conversation(
-        node_state: &mut StacksNodeState,
+        node_state: &mut StacksNodeState<Conn>,
         event_id: usize,
         client_sock: &mut mio_net::TcpStream,
-        convo: &mut ConversationHttp,
+        convo: &mut ConversationHttp<Conn>,
     ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
@@ -513,7 +520,7 @@ impl HttpPeer {
     fn process_connecting_sockets(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState,
+        node_state: &mut StacksNodeState<Conn>,
         poll_state: &mut NetworkPollState,
     ) -> () {
         for event_id in poll_state.ready.iter() {
@@ -547,7 +554,7 @@ impl HttpPeer {
     fn process_ready_sockets(
         &mut self,
         poll_state: &mut NetworkPollState,
-        node_state: &mut StacksNodeState,
+        node_state: &mut StacksNodeState<Conn>,
     ) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -629,7 +636,7 @@ impl HttpPeer {
     pub fn run(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState,
+        node_state: &mut StacksNodeState<Conn>,
         mut poll_state: NetworkPollState,
     ) -> Vec<StacksMessageType> {
         // set up new inbound conversations
@@ -693,7 +700,7 @@ mod test {
     use crate::net::test::*;
     use crate::net::*;
 
-    fn test_http_server<F, C>(
+    fn test_http_server<Conn, F, C>(
         test_name: &str,
         peer_p2p: u16,
         peer_http: u16,
@@ -704,7 +711,8 @@ mod test {
         check_result: C,
     ) -> usize
     where
-        F: FnMut(usize, &mut StacksChainState) -> Vec<u8>,
+        Conn: DbConnection + TrieDb,
+        F: FnMut(usize, &mut StacksChainState<Conn>) -> Vec<u8>,
         C: Fn(usize, Result<Vec<u8>, net_error>) -> bool,
     {
         let mut peer_config = TestPeerConfig::new(test_name, peer_p2p, peer_http);

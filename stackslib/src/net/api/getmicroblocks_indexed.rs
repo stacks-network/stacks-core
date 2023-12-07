@@ -28,6 +28,8 @@ use {serde, serde_json};
 
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::http::{
     parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
     HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -67,10 +69,13 @@ pub struct StacksIndexedMicroblockStream {
 }
 
 impl StacksIndexedMicroblockStream {
-    pub fn new(
-        chainstate: &StacksChainState,
+    pub fn new<Conn>(
+        chainstate: &StacksChainState<Conn>,
         tail_index_microblock_hash: &StacksBlockId,
-    ) -> Result<Self, ChainError> {
+    ) -> Result<Self, ChainError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         // look up parent
         let mblock_info = StacksChainState::load_staging_microblock_info_indexed(
             &chainstate.db(),
@@ -135,7 +140,10 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCMicroblocksIndexedRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCMicroblocksIndexedRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.tail_microblock_id = None;
@@ -146,7 +154,7 @@ impl RPCRequestHandler for RPCMicroblocksIndexedRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tail_microblock_id = self
             .tail_microblock_id

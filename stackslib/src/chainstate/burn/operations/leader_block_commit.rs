@@ -37,7 +37,9 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes, SortitionId};
 use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::index::db::{DbTransaction, DbConnection};
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::core::{
     StacksEpoch, StacksEpochId, STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER,

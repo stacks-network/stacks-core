@@ -69,13 +69,14 @@ fn connect_burnchain_db(burnchain: &Burnchain) -> BurnchainDB {
 
 /// Simplest end-to-end test: create 1 fork of N Stacks epochs, mined on 1 burn chain fork,
 /// all from the same miner.
-fn mine_stacks_blocks_1_fork_1_miner_1_burnchain<F, G>(
+fn mine_stacks_blocks_1_fork_1_miner_1_burnchain<Conn, F, G>(
     test_name: &String,
     rounds: usize,
     mut block_builder: F,
     mut check_oracle: G,
-) -> TestMinerTrace
+) -> TestMinerTrace<Conn>
 where
+    Conn: DbConnection + TrieDb,
     F: FnMut(
         &mut ClarityTx,
         &mut StacksBlockBuilder,
@@ -248,13 +249,14 @@ where
 }
 
 /// one miner begins a chain, and another miner joins it in the same fork at rounds/2.
-fn mine_stacks_blocks_1_fork_2_miners_1_burnchain<F>(
+fn mine_stacks_blocks_1_fork_2_miners_1_burnchain<Conn, F>(
     test_name: &String,
     rounds: usize,
     mut miner_1_block_builder: F,
     mut miner_2_block_builder: F,
-) -> TestMinerTrace
+) -> TestMinerTrace<Conn>
 where
+    Conn: DbConnection + TrieDb,
     F: FnMut(
         &mut ClarityTx,
         &mut StacksBlockBuilder,
@@ -674,13 +676,14 @@ where
 /// two miners begin working on the same stacks chain, and then the stacks chain forks
 /// (resulting in two chainstates).  The burnchain is unaffected.  One miner continues on one
 /// chainstate, and the other continues on the other chainstate.  Fork happens on rounds/2
-fn mine_stacks_blocks_2_forks_2_miners_1_burnchain<F>(
+fn mine_stacks_blocks_2_forks_2_miners_1_burnchain<Conn, F>(
     test_name: &String,
     rounds: usize,
     miner_1_block_builder: F,
     miner_2_block_builder: F,
-) -> TestMinerTrace
+) -> TestMinerTrace<Conn>
 where
+    Conn: DbConnection + TrieDb,
     F: FnMut(
         &mut ClarityTx,
         &mut StacksBlockBuilder,
@@ -701,14 +704,15 @@ where
 /// two miners begin working on the same stacks chain, and then the stacks chain forks
 /// (resulting in two chainstates).  The burnchain is unaffected.  One miner continues on one
 /// chainstate, and the other continues on the other chainstate.  Fork happens on fork_height
-fn mine_stacks_blocks_2_forks_at_height_2_miners_1_burnchain<F>(
+fn mine_stacks_blocks_2_forks_at_height_2_miners_1_burnchain<Conn, F>(
     test_name: &String,
     rounds: usize,
     fork_height: usize,
     mut miner_1_block_builder: F,
     mut miner_2_block_builder: F,
-) -> TestMinerTrace
+) -> TestMinerTrace<Conn>
 where
+    Conn: DbConnection + TrieDb,
     F: FnMut(
         &mut ClarityTx,
         &mut StacksBlockBuilder,
@@ -1320,13 +1324,14 @@ where
 
 /// two miners work on the same fork, and the burnchain splits them.
 /// the split happens at rounds/2
-fn mine_stacks_blocks_1_fork_2_miners_2_burnchains<F>(
+fn mine_stacks_blocks_1_fork_2_miners_2_burnchains<Conn, F>(
     test_name: &String,
     rounds: usize,
     mut miner_1_block_builder: F,
     mut miner_2_block_builder: F,
-) -> TestMinerTrace
+) -> TestMinerTrace<Conn>
 where
+    Conn: DbConnection + TrieDb,
     F: FnMut(
         &mut ClarityTx,
         &mut StacksBlockBuilder,
@@ -1878,13 +1883,14 @@ where
 /// two miners begin working on separate forks, and the burnchain splits out under them,
 /// putting each one on a different fork.
 /// split happens at rounds/2
-fn mine_stacks_blocks_2_forks_2_miners_2_burnchains<F>(
+fn mine_stacks_blocks_2_forks_2_miners_2_burnchains<Conn, F>(
     test_name: &String,
     rounds: usize,
     mut miner_1_block_builder: F,
     mut miner_2_block_builder: F,
-) -> TestMinerTrace
+) -> TestMinerTrace<Conn>
 where
+    Conn: DbConnection + TrieDb,
     F: FnMut(
         &mut ClarityTx,
         &mut StacksBlockBuilder,
@@ -2581,7 +2587,12 @@ fn assert_chainstate_blocks_eq(test_name_1: &str, test_name_2: &str) {
 /// process them in randomized order.
 /// This works by running mine_stacks_blocks_1_fork_1_miner_1_burnchain, extracting the blocks,
 /// and then re-processing them in a different chainstate directory.
-fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
+fn miner_trace_replay_randomized<Conn>(
+    miner_trace: &mut TestMinerTrace<Conn>
+)
+where
+    Conn: DbConnection + TrieDb 
+{
     test_debug!("\n\n");
     test_debug!("------------------------------------------------------------------------");
     test_debug!("                   Randomize and re-apply blocks");

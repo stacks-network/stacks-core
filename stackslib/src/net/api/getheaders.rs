@@ -25,6 +25,8 @@ use {serde, serde_json};
 
 use crate::chainstate::stacks::db::{ExtendedStacksHeader, StacksChainState};
 use crate::chainstate::stacks::Error as ChainError;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::http::{
     parse_json, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
     HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
@@ -69,11 +71,14 @@ pub struct StacksHeaderStream {
 }
 
 impl StacksHeaderStream {
-    pub fn new(
-        chainstate: &StacksChainState,
+    pub fn new<Conn>(
+        chainstate: &StacksChainState<Conn>,
         tip: &StacksBlockId,
         num_headers_requested: u32,
-    ) -> Result<Self, ChainError> {
+    ) -> Result<Self, ChainError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let header_info = StacksChainState::load_staging_block_info(chainstate.db(), tip)?
             .ok_or(ChainError::NoSuchBlockError)?;
 
@@ -133,7 +138,10 @@ impl HttpRequest for RPCHeadersRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCHeadersRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCHeadersRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.quantity = None;
@@ -144,7 +152,7 @@ impl RPCRequestHandler for RPCHeadersRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let quantity = self
             .quantity

@@ -46,6 +46,8 @@ use crate::chainstate::stacks::db::{
     ChainstateBNSNamespace, StacksAccount, StacksBlockHeaderTypes, StacksChainState,
     StacksHeaderInfo,
 };
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockHeader, StacksTransaction, StacksTransactionSigner,
     TenureChangeCause, TenureChangePayload, ThresholdSignature, TokenTransferMemo,
@@ -56,11 +58,14 @@ use crate::core::StacksEpochExtension;
 use crate::net::codec::test::check_codec_and_corruption;
 
 /// Get an address's account
-pub fn get_account(
-    chainstate: &mut StacksChainState,
-    sortdb: &SortitionDB,
+pub fn get_account<Conn>(
+    chainstate: &mut StacksChainState<Conn>,
+    sortdb: &SortitionDB<Conn>,
     addr: &StacksAddress,
-) -> StacksAccount {
+) -> StacksAccount 
+where
+    Conn: DbConnection + TrieDb
+{
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
         .unwrap()
         .unwrap();

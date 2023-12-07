@@ -38,7 +38,10 @@ use crate::net::Error as net_error;
 use crate::util_lib::db::{query_count, query_rows, DBConn, Error as db_error};
 use crate::util_lib::strings::StacksString;
 
-impl StacksChainState {
+impl<Conn> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub fn get_contract<T: ClarityConnection>(
         clarity_tx: &mut T,
         contract_id: &QualifiedContractIdentifier,

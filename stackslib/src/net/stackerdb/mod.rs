@@ -127,6 +127,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::neighbors::NeighborComms;
 use crate::net::p2p::PeerNetwork;
 use crate::net::{
@@ -288,7 +290,10 @@ pub trait StackerDBEventDispatcher {
     );
 }
 
-impl PeerNetwork {
+impl<Conn> PeerNetwork<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Run all stacker DB sync state-machines.
     /// Return a list of sync results on success, to be incorporated into the NetworkResult.
     /// Return an error on unrecoverable DB or network error

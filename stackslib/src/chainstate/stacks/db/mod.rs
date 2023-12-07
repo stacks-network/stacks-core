@@ -111,16 +111,19 @@ impl StacksChainStateFaults {
     }
 }
 
-pub struct StacksChainState {
+pub struct StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     pub mainnet: bool,
     pub chain_id: u32,
-    pub clarity_state: ClarityInstance,
-    pub state_index: MARF<StacksBlockId>,
+    pub clarity_state: ClarityInstance<Conn>,
+    pub state_index: MARF<StacksBlockId, Conn>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    pub unconfirmed_state: Option<UnconfirmedState>,
+    pub unconfirmed_state: Option<UnconfirmedState<Conn>>,
     pub fault_injection: StacksChainStateFaults,
     marf_opts: Option<MARFOpenOpts>,
 }
@@ -452,7 +455,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
 }
 
 pub type StacksDBTx<'a> = IndexDBTx<'a, (), StacksBlockId>;
-pub type StacksDBConn<'a> = IndexDBConn<'a, (), StacksBlockId>;
+pub type StacksDBConn<'a, Conn: DbConnection + TrieDb> = IndexDBConn<'a, Conn, (), StacksBlockId>;
 
 pub struct ClarityTx<'a, 'b> {
     block: ClarityBlockConnection<'a, 'b>,
@@ -886,6 +889,9 @@ const CHAINSTATE_INDEXES: &'static [&'static str] = &[
 
 pub use stacks_common::consts::MINER_REWARD_MATURITY;
 
+use super::index::db::DbConnection;
+use super::index::trie_db::TrieDb;
+
 // fraction (out of 100) of the coinbase a user will receive for reporting a microblock stream fork
 pub const POISON_MICROBLOCK_COMMISSION_FRACTION: u128 = 5;
 
@@ -969,13 +975,16 @@ impl ChainStateBootData {
     }
 }
 
-impl StacksChainState {
+impl<Conn> StacksChainState<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     fn instantiate_db(
         mainnet: bool,
         chain_id: u32,
         marf_path: &str,
         migrate: bool,
-    ) -> Result<MARF<StacksBlockId>, Error> {
+    ) -> Result<MARF<StacksBlockId, Conn>, Error> {
         let mut marf = StacksChainState::open_index(marf_path)?;
         let mut dbtx = StacksDBTx::new(&mut marf, ());
 
@@ -1102,7 +1111,7 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         index_path: &str,
-    ) -> Result<MARF<StacksBlockId>, Error> {
+    ) -> Result<MARF<StacksBlockId, Conn>, Error> {
         let create_flag = fs::metadata(index_path).is_err();
 
         if create_flag {
@@ -1123,7 +1132,7 @@ impl StacksChainState {
         mainnet: bool,
         chain_id: u32,
         index_path: &str,
-    ) -> Result<MARF<StacksBlockId>, Error> {
+    ) -> Result<MARF<StacksBlockId, Conn>, Error> {
         let create_flag = fs::metadata(index_path).is_err();
 
         if create_flag {
@@ -1138,7 +1147,7 @@ impl StacksChainState {
         }
     }
 
-    pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId>, db_error> {
+    pub fn open_index(marf_path: &str) -> Result<MARF<StacksBlockId, Conn>, db_error> {
         test_debug!("Open MARF index at {}", marf_path);
         let mut open_opts = MARFOpenOpts::default();
         open_opts.external_blobs = true;
@@ -1196,7 +1205,7 @@ impl StacksChainState {
 
     /// Install the boot code into the chain history.
     fn install_boot_code(
-        chainstate: &mut StacksChainState,
+        chainstate: &mut StacksChainState<Conn>,
         mainnet: bool,
         boot_data: &mut ChainStateBootData,
     ) -> Result<Vec<StacksTransactionReceipt>, Error> {
@@ -1672,13 +1681,13 @@ impl StacksChainState {
         chain_id: u32,
         path_str: &str,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
+    ) -> Result<(StacksChainState<Conn>, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open_and_exec(mainnet, chain_id, path_str, None, marf_opts)
     }
 
     /// Re-open the chainstate -- i.e. to get a new handle to it using an existing chain state's
     /// parameters
-    pub fn reopen(&self) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
+    pub fn reopen(&self) -> Result<(StacksChainState<Conn>, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::open(
             self.mainnet,
             self.chain_id,
@@ -1747,7 +1756,7 @@ impl StacksChainState {
         path_str: &str,
         boot_data: Option<&mut ChainStateBootData>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> Result<(StacksChainState, Vec<StacksTransactionReceipt>), Error> {
+    ) -> Result<(StacksChainState<Conn>, Vec<StacksTransactionReceipt>), Error> {
         StacksChainState::make_chainstate_dirs(path_str)?;
         let path = PathBuf::from(path_str);
         let blocks_path = StacksChainState::blocks_path(path.clone());
@@ -1841,7 +1850,7 @@ impl StacksChainState {
         Ok(StacksDBTx::new(&mut self.state_index, ()))
     }
 
-    pub fn index_conn<'a>(&'a self) -> Result<StacksDBConn<'a>, Error> {
+    pub fn index_conn<'a>(&'a self) -> Result<StacksDBConn<'a, Conn>, Error> {
         Ok(StacksDBConn::new(&self.state_index, ()))
     }
 
@@ -1855,7 +1864,7 @@ impl StacksChainState {
     /// Used when considering a new block to append the chain state.
     pub fn chainstate_tx_begin<'a>(
         &'a mut self,
-    ) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance), Error> {
+    ) -> Result<(ChainstateTx<'a>, &'a mut ClarityInstance<Conn>), Error> {
         let config = self.config();
         let blocks_path = self.blocks_path.clone();
         let clarity_instance = &mut self.clarity_state;
@@ -1912,7 +1921,7 @@ impl StacksChainState {
     /// Begin processing an epoch's transactions within the context of a chainstate transaction
     pub fn chainstate_block_begin<'a, 'b>(
         chainstate_tx: &'b ChainstateTx<'b>,
-        clarity_instance: &'a mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance<Conn>,
         burn_dbconn: &'b dyn BurnStateDB,
         parent_consensus_hash: &ConsensusHash,
         parent_block: &BlockHeaderHash,
@@ -2012,7 +2021,7 @@ impl StacksChainState {
 
     pub fn with_clarity_marf<F, R>(&mut self, f: F) -> R
     where
-        F: FnOnce(&mut MARF<StacksBlockId>) -> R,
+        F: FnOnce(&mut MARF<StacksBlockId, Conn>) -> R,
     {
         self.clarity_state.with_marf(f)
     }
@@ -2027,7 +2036,7 @@ impl StacksChainState {
         to_do: F,
     ) -> Option<R>
     where
-        F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
+        F: FnOnce(&mut ClarityReadOnlyConnection<Conn>) -> R,
     {
         match NakamotoChainState::get_block_header(self.db(), parent_tip) {
             Ok(Some(_)) => {}
@@ -2061,7 +2070,7 @@ impl StacksChainState {
         to_do: F,
     ) -> Result<Option<R>, Error>
     where
-        F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
+        F: FnOnce(&mut ClarityReadOnlyConnection<Conn>) -> R,
     {
         if let Some(ref unconfirmed) = self.unconfirmed_state.as_ref() {
             if !unconfirmed.is_readable() {
@@ -2097,7 +2106,7 @@ impl StacksChainState {
         to_do: F,
     ) -> Result<Option<R>, Error>
     where
-        F: FnOnce(&mut ClarityReadOnlyConnection) -> R,
+        F: FnOnce(&mut ClarityReadOnlyConnection<Conn>) -> R,
     {
         let unconfirmed = if let Some(ref unconfirmed_state) = self.unconfirmed_state {
             *parent_tip == unconfirmed_state.unconfirmed_chain_tip
@@ -2136,7 +2145,7 @@ impl StacksChainState {
     pub fn chainstate_begin_unconfirmed<'a, 'b>(
         conf: DBConfig,
         headers_db: &'b dyn HeadersDB,
-        clarity_instance: &'a mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance<Conn>,
         burn_dbconn: &'b dyn BurnStateDB,
         tip: &StacksBlockId,
     ) -> ClarityTx<'a, 'b> {
@@ -2176,7 +2185,7 @@ impl StacksChainState {
     fn inner_clarity_tx_begin<'a, 'b>(
         conf: DBConfig,
         headers_db: &'b dyn HeadersDB,
-        clarity_instance: &'a mut ClarityInstance,
+        clarity_instance: &'a mut ClarityInstance<Conn>,
         burn_dbconn: &'b dyn BurnStateDB,
         parent_consensus_hash: &ConsensusHash,
         parent_block: &BlockHeaderHash,
@@ -2612,20 +2621,26 @@ pub mod test {
     use crate::chainstate::stacks::*;
     use crate::util_lib::boot::boot_code_test_addr;
 
-    pub fn instantiate_chainstate(
+    pub fn instantiate_chainstate<Conn>(
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
-    ) -> StacksChainState {
+    ) -> StacksChainState<Conn> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         instantiate_chainstate_with_balances(mainnet, chain_id, test_name, vec![])
     }
 
-    pub fn instantiate_chainstate_with_balances(
+    pub fn instantiate_chainstate_with_balances<Conn>(
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
         balances: Vec<(StacksAddress, u64)>,
-    ) -> StacksChainState {
+    ) -> StacksChainState<Conn> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let path = chainstate_path(test_name);
         match fs::metadata(&path) {
             Ok(_) => {
@@ -2657,7 +2672,14 @@ pub mod test {
             .0
     }
 
-    pub fn open_chainstate(mainnet: bool, chain_id: u32, test_name: &str) -> StacksChainState {
+    pub fn open_chainstate<Conn>(
+        mainnet: bool, 
+        chain_id: u32, 
+        test_name: &str
+    ) -> StacksChainState<Conn> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let path = chainstate_path(test_name);
         StacksChainState::open(mainnet, chain_id, &path, None)
             .unwrap()

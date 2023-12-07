@@ -27,6 +27,8 @@ use stacks_common::util::hash::to_hex;
 use {serde, serde_json};
 
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlock};
 use crate::net::http::{
     parse_bytes, Error, HttpBadRequest, HttpChunkGenerator, HttpContentType, HttpNotFound,
@@ -65,7 +67,13 @@ pub struct StacksBlockStream {
 }
 
 impl StacksBlockStream {
-    pub fn new(chainstate: &StacksChainState, block: &StacksBlockId) -> Result<Self, ChainError> {
+    pub fn new<Conn>(
+        chainstate: &StacksChainState<Conn>, 
+        block: &StacksBlockId
+    ) -> Result<Self, ChainError> 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let _ = StacksChainState::load_staging_block_info(chainstate.db(), block)?
             .ok_or(ChainError::NoSuchBlockError)?;
 
@@ -120,7 +128,10 @@ impl HttpRequest for RPCBlocksRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCBlocksRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCBlocksRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -131,7 +142,7 @@ impl RPCRequestHandler for RPCBlocksRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let block_id = self
             .block_id

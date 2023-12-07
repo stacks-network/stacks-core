@@ -28,6 +28,8 @@ use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
 use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
@@ -100,12 +102,15 @@ pub struct RPCPeerInfoData {
 }
 
 impl RPCPeerInfoData {
-    pub fn from_network(
-        network: &PeerNetwork,
-        chainstate: &StacksChainState,
+    pub fn from_network<Conn>(
+        network: &PeerNetwork<Conn>,
+        chainstate: &StacksChainState<Conn>,
         exit_at_block_height: Option<u64>,
         genesis_chainstate_hash: &Sha256Sum,
-    ) -> RPCPeerInfoData {
+    ) -> RPCPeerInfoData 
+    where
+        Conn: DbConnection + TrieDb
+    {
         let server_version = version_string(
             "stacks-node",
             option_env!("STACKS_NODE_VERSION")
@@ -200,7 +205,10 @@ impl HttpRequest for RPCPeerInfoRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCPeerInfoRequestHandler {
+impl<Conn> RPCRequestHandler<Conn> for RPCPeerInfoRequestHandler 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Reset internal state
     fn restart(&mut self) {}
 
@@ -209,7 +217,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState,
+        node: &mut StacksNodeState<Conn>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let rpc_peer_info =
             node.with_node_state(|network, _sortdb, chainstate, _mempool, rpc_args| {

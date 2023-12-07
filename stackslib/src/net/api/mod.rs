@@ -22,6 +22,8 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::atlas::GetAttachmentResponse;
@@ -65,7 +67,10 @@ pub mod posttransaction;
 #[cfg(test)]
 mod tests;
 
-impl StacksHttp {
+impl<Conn> StacksHttp<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.
     pub fn register_rpc_methods(&mut self) {

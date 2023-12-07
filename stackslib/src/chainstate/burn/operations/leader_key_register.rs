@@ -34,6 +34,8 @@ use crate::chainstate::burn::operations::{
     UserBurnSupportOp,
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::net::Error as net_error;
 use crate::util_lib::db::{DBConn, DBTx};

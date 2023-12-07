@@ -51,7 +51,9 @@ use crate::chainstate::stacks::boot::{
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::marf::MARF;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
 use crate::chainstate::stacks::{
     Error as ChainstateError, SinglesigHashMode, SinglesigSpendingCondition,
@@ -87,8 +89,11 @@ use crate::util_lib::strings::StacksString;
 ///   `TransactionConnection` trait, which contains auto implementations for the typical transaction
 ///   types in a Clarity-based blockchain.
 ///
-pub struct ClarityInstance {
-    datastore: MarfedKV,
+pub struct ClarityInstance<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    datastore: MarfedKV<Conn>,
     mainnet: bool,
     chain_id: u32,
 }
@@ -138,8 +143,11 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     epoch: StacksEpochId,
 }
 
-pub struct ClarityReadOnlyConnection<'a> {
-    datastore: ReadOnlyMarfStore<'a>,
+pub struct ClarityReadOnlyConnection<'a, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    datastore: ReadOnlyMarfStore<'a, Conn>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
     epoch: StacksEpochId,
@@ -225,8 +233,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     }
 }
 
-impl ClarityInstance {
-    pub fn new(mainnet: bool, chain_id: u32, datastore: MarfedKV) -> ClarityInstance {
+impl<Conn> ClarityInstance<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
+    pub fn new(mainnet: bool, chain_id: u32, datastore: MarfedKV<Conn>) -> ClarityInstance<Conn> {
         ClarityInstance {
             datastore,
             mainnet,
@@ -236,7 +247,7 @@ impl ClarityInstance {
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
     where
-        F: FnOnce(&mut MARF<StacksBlockId>) -> R,
+        F: FnOnce(&mut MARF<StacksBlockId, Conn>) -> R,
     {
         f(self.datastore.get_marf())
     }
@@ -566,7 +577,7 @@ impl ClarityInstance {
         at_block: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityReadOnlyConnection<'a> {
+    ) -> ClarityReadOnlyConnection<'a, Conn> {
         self.read_only_connection_checked(at_block, header_db, burn_state_db)
             .expect(&format!("BUG: failed to open block {}", at_block))
     }
@@ -578,7 +589,7 @@ impl ClarityInstance {
         at_block: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
-    ) -> Result<ClarityReadOnlyConnection<'a>, Error> {
+    ) -> Result<ClarityReadOnlyConnection<'a, Conn>, Error> {
         let mut datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
         let epoch = {
             let mut db = datastore.as_clarity_db(header_db, burn_state_db);
@@ -627,7 +638,7 @@ impl ClarityInstance {
             .map_err(Error::from)
     }
 
-    pub fn destroy(self) -> MarfedKV {
+    pub fn destroy(self) -> MarfedKV<Conn> {
         self.datastore
     }
 }
@@ -662,7 +673,10 @@ impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
     }
 }
 
-impl ClarityConnection for ClarityReadOnlyConnection<'_> {
+impl<Conn> ClarityConnection for ClarityReadOnlyConnection<'_, Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where

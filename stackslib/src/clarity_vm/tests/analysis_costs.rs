@@ -37,18 +37,23 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
+use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
 
-fn setup_tracked_cost_test(
+fn setup_tracked_cost_test<Conn>(
     use_mainnet: bool,
     epoch: StacksEpochId,
     version: ClarityVersion,
-) -> ClarityInstance {
+) -> ClarityInstance<Conn> 
+where
+    Conn: DbConnection + TrieDb
+{
     let marf = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut clarity_instance = ClarityInstance::new(use_mainnet, chain_id, marf);
@@ -179,13 +184,16 @@ fn setup_tracked_cost_test(
     clarity_instance
 }
 
-fn test_tracked_costs(
+fn test_tracked_costs<Conn>(
     prog: &str,
     epoch: StacksEpochId,
     version: ClarityVersion,
     prog_id: usize,
-    clarity_instance: &mut ClarityInstance,
-) -> ExecutionCost {
+    clarity_instance: &mut ClarityInstance<Conn>,
+) -> ExecutionCost 
+where
+    Conn: DbConnection + TrieDb
+{
     let contract_self = format!(
         "(define-map map-foo {{ a: int }} {{ b: int }})
         (define-non-fungible-token nft-foo int)

@@ -36,6 +36,8 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_secs, log, sleep_ms};
 
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::stacks::index::db::DbConnection;
+use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
 use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
 use crate::net::codec::*;
@@ -1404,8 +1406,10 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
 pub type ConnectionP2P = NetworkConnection<StacksP2P>;
 pub type ReplyHandleP2P = NetworkReplyHandle<StacksP2P>;
 
-pub type ConnectionHttp = NetworkConnection<StacksHttp>;
-pub type ReplyHandleHttp = NetworkReplyHandle<StacksHttp>;
+pub type ConnectionHttp<Conn: DbConnection + TrieDb> = 
+    NetworkConnection<StacksHttp<Conn>>;
+pub type ReplyHandleHttp<Conn: DbConnection + TrieDb> = 
+    NetworkReplyHandle<StacksHttp<Conn>>;
 
 #[cfg(test)]
 mod test {
