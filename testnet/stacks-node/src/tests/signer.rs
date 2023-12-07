@@ -133,10 +133,11 @@ fn setup_stx_btc_node(
 
     info!("Send pox contract-publish...");
 
+    let tx_fee = 100_000;
     let tx = make_contract_publish(
         publisher_private_key,
         0,
-        10_000,
+        tx_fee,
         &pox_contract_id.name,
         pox_contract,
     );
@@ -146,7 +147,7 @@ fn setup_stx_btc_node(
     let tx = make_contract_publish(
         publisher_private_key,
         1,
-        10_000,
+        tx_fee,
         &stackerdb_contract_id.name,
         stackerdb_contract,
     );
