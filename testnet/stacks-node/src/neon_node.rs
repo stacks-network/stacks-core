@@ -206,8 +206,7 @@ use crate::burnchains::bitcoin_regtest_controller::{
     addr2str, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::make_bitcoin_indexer;
-use crate::globals::Globals;
-use crate::globals::RelayerDirective;
+use crate::globals::{Globals, RelayerDirective};
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;

@@ -18,14 +18,6 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-use super::relayer::RelayerThread;
-use super::Error as NakamotoNodeError;
-use super::{Config, EventDispatcher, Keychain};
-use crate::globals::Globals;
-use crate::mockamoto::signer::SelfSigner;
-use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
-use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
 use clarity::vm::types::PrincipalData;
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -33,12 +25,9 @@ use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureStart};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
-use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::chainstate::stacks::TenureChangeCause;
-use stacks::chainstate::stacks::TenureChangePayload;
-use stacks::chainstate::stacks::ThresholdSignature;
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksTransaction, StacksTransactionSigner, TransactionAnchorMode,
+    CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
+    TenureChangeCause, TenureChangePayload, ThresholdSignature, TransactionAnchorMode,
     TransactionPayload, TransactionVersion,
 };
 use stacks::core::mempool::MemPoolDB;
@@ -46,10 +35,17 @@ use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::cost_estimates::metrics::UnitMetric;
 use stacks::cost_estimates::UnitEstimator;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
-use stacks_common::types::PrivateKey;
-use stacks_common::types::StacksEpochId;
+use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
+
+use super::relayer::RelayerThread;
+use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
+use crate::globals::Globals;
+use crate::mockamoto::signer::SelfSigner;
+use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
+use crate::run_loop::RegisteredKey;
+use crate::ChainTip;
 
 pub enum MinerDirective {
     /// The miner won sortition so they should begin a new tenure

@@ -1,8 +1,6 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::SyncSender;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::operations::LeaderKeyRegisterOp;
@@ -12,15 +10,12 @@ use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::net::NetworkResult;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash};
 
 use crate::neon::Counters;
+use crate::neon_node::LeaderKeyRegistrationState;
 use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
-
-use crate::neon_node::LeaderKeyRegistrationState;
 
 /// Command types for the relayer thread, issued to it by other threads
 pub enum RelayerDirective {
