@@ -989,9 +989,6 @@ fn pox_auto_unlock(alice_first: bool) {
 #[test]
 fn delegate_stack_increase() {
     let EXPECTED_FIRST_V2_CYCLE = 8;
-    // the sim environment produces 25 empty sortitions before
-    //  tenures start being tracked.
-    let EMPTY_SORTITIONS = 25;
 
     let (epochs, pox_constants) = make_test_epochs_pox();
 
@@ -3382,7 +3379,7 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
 /// Test that we can lock STX for a couple cycles after pox4 starts,
 /// and that it unlocks after the desired number of cycles
 #[test]
-fn get_pox_addrs() {
+fn pox_lock_unlock() {
     // Config for this test
     // We are going to try locking for 2 reward cycles (10 blocks)
     let lock_period = 2;
