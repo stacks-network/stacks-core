@@ -178,7 +178,9 @@ use stacks::chainstate::stacks::{
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_2_4_MARKER};
+use stacks::core::{
+    FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_3_0_MARKER,
+};
 use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, UnitEstimator};
 use stacks::monitoring;
@@ -1317,7 +1319,7 @@ impl BlockMinerThread {
             apparent_sender: sender,
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_4_MARKER],
+            memo: vec![STACKS_EPOCH_3_0_MARKER],
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,
