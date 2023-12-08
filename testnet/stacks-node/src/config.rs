@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -27,6 +28,8 @@ use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
@@ -45,7 +48,7 @@ pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
-    pub events_observer: Option<Vec<EventObserverConfigFile>>,
+    pub events_observer: Option<HashSet<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
@@ -262,6 +265,45 @@ impl ConfigFile {
     }
 
     pub fn mockamoto() -> ConfigFile {
+        let epochs = vec![
+            StacksEpochConfigFile {
+                epoch_name: "1.0".into(),
+                start_height: 0,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.0".into(),
+                start_height: 0,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.05".into(),
+                start_height: 1,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.1".into(),
+                start_height: 2,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.2".into(),
+                start_height: 3,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.3".into(),
+                start_height: 4,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.4".into(),
+                start_height: 5,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "2.5".into(),
+                start_height: 6,
+            },
+            StacksEpochConfigFile {
+                epoch_name: "3.0".into(),
+                start_height: 7,
+            },
+        ];
+
         let burnchain = BurnchainConfigFile {
             mode: Some("mockamoto".into()),
             rpc_port: Some(8332),
@@ -270,6 +312,9 @@ impl ConfigFile {
             username: Some("blockstack".into()),
             password: Some("blockstacksystem".into()),
             magic_bytes: Some("M3".into()),
+            epochs: Some(epochs),
+            pox_prepare_length: Some(2),
+            pox_reward_length: Some(36),
             ..BurnchainConfigFile::default()
         };
 
@@ -285,11 +330,31 @@ impl ConfigFile {
             ..MinerConfigFile::default()
         };
 
+        let mock_private_key = Secp256k1PrivateKey::from_seed(&[0]);
+        let mock_public_key = Secp256k1PublicKey::from_private(&mock_private_key);
+        let mock_address = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![mock_public_key],
+        )
+        .unwrap();
+
+        info!(
+            "Mockamoto starting. Initial balance set to mock_private_key = {}",
+            mock_private_key.to_hex()
+        );
+
+        let ustx_balance = vec![InitialBalanceFile {
+            address: mock_address.to_string(),
+            amount: 1_000_000_000_000,
+        }];
+
         ConfigFile {
             burnchain: Some(burnchain),
             node: Some(node),
-            ustx_balance: None,
             miner: Some(miner),
+            ustx_balance: Some(ustx_balance),
             ..ConfigFile::default()
         }
     }
@@ -387,7 +452,7 @@ pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
-    pub events_observers: Vec<EventObserverConfig>,
+    pub events_observers: HashSet<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
     pub estimation: FeeEstimationConfig,
@@ -442,6 +507,16 @@ impl Config {
             return;
         }
 
+        if let Some(pox_prepare_length) = self.burnchain.pox_prepare_length {
+            debug!("Override pox_prepare_length to {pox_prepare_length}");
+            burnchain.pox_constants.prepare_length = pox_prepare_length;
+        }
+
+        if let Some(pox_reward_length) = self.burnchain.pox_reward_length {
+            debug!("Override pox_reward_length to {pox_reward_length}");
+            burnchain.pox_constants.reward_cycle_length = pox_reward_length;
+        }
+
         if let Some(v1_unlock_height) = self.burnchain.pox_2_activation {
             debug!(
                 "Override v1_unlock_height from {} to {}",
@@ -452,6 +527,19 @@ impl Config {
 
         if let Some(epochs) = &self.burnchain.epochs {
             // Iterate through the epochs vector and find the item where epoch_id == StacksEpochId::Epoch22
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch21)
+            {
+                // Override v1_unlock_height to the start_height of epoch2.1
+                debug!(
+                    "Override v2_unlock_height from {} to {}",
+                    burnchain.pox_constants.v1_unlock_height,
+                    epoch.start_height + 1
+                );
+                burnchain.pox_constants.v1_unlock_height = epoch.start_height as u32 + 1;
+            }
+
             if let Some(epoch) = epochs
                 .iter()
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch22)
@@ -475,6 +563,19 @@ impl Config {
                     burnchain.pox_constants.pox_3_activation_height, epoch.start_height
                 );
                 burnchain.pox_constants.pox_3_activation_height = epoch.start_height as u32;
+            }
+
+            if let Some(epoch) = epochs
+                .iter()
+                .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
+            {
+                // Override pox_3_activation_height to the start_height of epoch2.5
+                debug!(
+                    "Override pox_4_activation_height from {} to {}",
+                    burnchain.pox_constants.pox_4_activation_height, epoch.start_height
+                );
+                burnchain.pox_constants.pox_4_activation_height = epoch.start_height as u32;
+                burnchain.pox_constants.v3_unlock_height = epoch.start_height as u32 + 1;
             }
         }
 
@@ -583,6 +684,10 @@ impl Config {
                 Ok(StacksEpochId::Epoch23)
             } else if epoch_name == EPOCH_CONFIG_2_4_0 {
                 Ok(StacksEpochId::Epoch24)
+            } else if epoch_name == EPOCH_CONFIG_2_5_0 {
+                Ok(StacksEpochId::Epoch25)
+            } else if epoch_name == EPOCH_CONFIG_3_0_0 {
+                Ok(StacksEpochId::Epoch30)
             } else {
                 Err(format!("Unknown epoch name specified: {}", epoch_name))
             }?;
@@ -671,7 +776,25 @@ impl Config {
     }
 
     pub fn from_config_file(config_file: ConfigFile) -> Result<Config, String> {
-        let default_node_config = NodeConfig::default();
+        if config_file.burnchain.as_ref().map(|b| b.mode.clone()) == Some(Some("mockamoto".into()))
+        {
+            // in the case of mockamoto, use `ConfigFile::mockamoto()` as the default for
+            //  processing a user-supplied config
+            let default = Self::from_config_default(ConfigFile::mockamoto(), Config::default())?;
+            Self::from_config_default(config_file, default)
+        } else {
+            Self::from_config_default(config_file, Config::default())
+        }
+    }
+
+    fn from_config_default(config_file: ConfigFile, default: Config) -> Result<Config, String> {
+        let Config {
+            node: default_node_config,
+            burnchain: default_burnchain_config,
+            miner: miner_default_config,
+            estimation: default_estimator,
+            ..
+        } = default;
         let mut has_require_affirmed_anchor_blocks = false;
         let (mut node, bootstrap_node, deny_nodes) = match config_file.node {
             Some(node) => {
@@ -755,13 +878,14 @@ impl Config {
                             QualifiedContractIdentifier::parse(contract_id).ok()
                         })
                         .collect(),
+                    mockamoto_time_ms: node
+                        .mockamoto_time_ms
+                        .unwrap_or(default_node_config.mockamoto_time_ms),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
             None => (default_node_config, None, None),
         };
-
-        let default_burnchain_config = BurnchainConfig::default();
 
         let burnchain = match config_file.burnchain {
             Some(mut burnchain) => {
@@ -902,6 +1026,12 @@ impl Config {
                     wallet_name: burnchain
                         .wallet_name
                         .unwrap_or(default_burnchain_config.wallet_name.clone()),
+                    pox_reward_length: burnchain
+                        .pox_reward_length
+                        .or(default_burnchain_config.pox_reward_length),
+                    pox_prepare_length: burnchain
+                        .pox_prepare_length
+                        .or(default_burnchain_config.pox_prepare_length),
                 };
 
                 if let BitcoinNetworkType::Mainnet = result.get_bitcoin_network().1 {
@@ -928,7 +1058,6 @@ impl Config {
             None => default_burnchain_config,
         };
 
-        let miner_default_config = MinerConfig::default();
         let miner = match config_file.miner {
             Some(ref miner) => MinerConfig {
                 min_tx_fee: miner.min_tx_fee.unwrap_or(miner_default_config.min_tx_fee),
@@ -1025,7 +1154,7 @@ impl Config {
 
         let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
-                let mut observers = vec![];
+                let mut observers = HashSet::new();
                 for observer in raw_observers {
                     let events_keys: Vec<EventKeyType> = observer
                         .events_keys
@@ -1035,22 +1164,25 @@ impl Config {
 
                     let endpoint = format!("{}", observer.endpoint);
 
-                    observers.push(EventObserverConfig {
+                    observers.insert(EventObserverConfig {
                         endpoint,
                         events_keys,
                     });
                 }
                 observers
             }
-            None => vec![],
+            None => HashSet::new(),
         };
 
         // check for observer config in env vars
         match std::env::var("STACKS_EVENT_OBSERVER") {
-            Ok(val) => events_observers.push(EventObserverConfig {
-                endpoint: val,
-                events_keys: vec![EventKeyType::AnyEvent],
-            }),
+            Ok(val) => {
+                events_observers.insert(EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                });
+                ()
+            }
             _ => (),
         };
 
@@ -1206,7 +1338,7 @@ impl Config {
 
         let estimation = match config_file.fee_estimation {
             Some(f) => FeeEstimationConfig::from(f),
-            None => FeeEstimationConfig::default(),
+            None => default_estimator,
         };
 
         let mainnet = burnchain.mode == "mainnet";
@@ -1375,14 +1507,8 @@ impl Config {
 
 impl std::default::Default for Config {
     fn default() -> Config {
-        // Testnet's name
-        let node = NodeConfig {
-            ..NodeConfig::default()
-        };
-
-        let burnchain = BurnchainConfig {
-            ..BurnchainConfig::default()
-        };
+        let node = NodeConfig::default();
+        let burnchain = BurnchainConfig::default();
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let estimation = FeeEstimationConfig::default();
@@ -1393,7 +1519,7 @@ impl std::default::Default for Config {
             burnchain,
             node,
             initial_balances: vec![],
-            events_observers: vec![],
+            events_observers: HashSet::new(),
             connection_options,
             estimation,
             miner: MinerConfig::default(),
@@ -1430,6 +1556,8 @@ pub struct BurnchainConfig {
     /// regtest nodes.
     pub epochs: Option<Vec<StacksEpoch>>,
     pub pox_2_activation: Option<u32>,
+    pub pox_reward_length: Option<u32>,
+    pub pox_prepare_length: Option<u32>,
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,
     pub wallet_name: String,
@@ -1463,6 +1591,8 @@ impl BurnchainConfig {
             rbf_fee_increment: DEFAULT_RBF_FEE_RATE_INCREMENT,
             epochs: None,
             pox_2_activation: None,
+            pox_prepare_length: None,
+            pox_reward_length: None,
             sunset_start: None,
             sunset_end: None,
             wallet_name: "".to_string(),
@@ -1518,6 +1648,8 @@ pub const EPOCH_CONFIG_2_1_0: &'static str = "2.1";
 pub const EPOCH_CONFIG_2_2_0: &'static str = "2.2";
 pub const EPOCH_CONFIG_2_3_0: &'static str = "2.3";
 pub const EPOCH_CONFIG_2_4_0: &'static str = "2.4";
+pub const EPOCH_CONFIG_2_5_0: &'static str = "2.5";
+pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
@@ -1542,6 +1674,8 @@ pub struct BurnchainConfigFile {
     pub rbf_fee_increment: Option<u64>,
     pub max_rbf: Option<u64>,
     pub epochs: Option<Vec<StacksEpochConfigFile>>,
+    pub pox_prepare_length: Option<u32>,
+    pub pox_reward_length: Option<u32>,
     pub pox_2_activation: Option<u32>,
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,
@@ -1583,6 +1717,9 @@ pub struct NodeConfig {
     pub chain_liveness_poll_time_secs: u64,
     /// stacker DBs we replicate
     pub stacker_dbs: Vec<QualifiedContractIdentifier>,
+    /// if running in mockamoto mode, how long to wait between each
+    /// simulated bitcoin block
+    pub mockamoto_time_ms: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -1862,6 +1999,7 @@ impl NodeConfig {
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
             stacker_dbs: vec![],
+            mockamoto_time_ms: 3_000,
         }
     }
 
@@ -2072,6 +2210,9 @@ pub struct NodeConfigFile {
     pub chain_liveness_poll_time_secs: Option<u64>,
     /// Stacker DBs we replicate
     pub stacker_dbs: Option<Vec<String>>,
+    /// if running in mockamoto mode, how long to wait between each
+    /// simulated bitcoin block
+    pub mockamoto_time_ms: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -2128,19 +2269,19 @@ impl AtlasConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),

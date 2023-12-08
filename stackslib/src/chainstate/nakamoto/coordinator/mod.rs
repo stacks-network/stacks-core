@@ -277,7 +277,6 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 
         let reward_set =
             provider.get_reward_set(burn_height, chain_state, burnchain, sort_db, &block_id)?;
-
         debug!(
             "Stacks anchor block (ch {}) {} cycle {} is processed",
             &anchor_block_header.consensus_hash, &block_id, reward_cycle
@@ -719,6 +718,14 @@ impl<
             debug!(
                 "Process burn block {} reward cycle {} in {}",
                 header.block_height, reward_cycle, &self.burnchain.working_dir,
+            );
+
+            info!(
+                "Process burn block {} reward cycle {} in {}",
+                header.block_height, reward_cycle, &self.burnchain.working_dir;
+                "in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height),
+                "is_rc_start" => self.burnchain.is_reward_cycle_start(header.block_height),
+                "is_prior_in_prepare_phase" => self.burnchain.is_in_prepare_phase(header.block_height.saturating_sub(2)),
             );
 
             // calculate paid rewards during this burnchain block if we announce

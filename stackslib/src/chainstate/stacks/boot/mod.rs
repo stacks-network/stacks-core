@@ -39,6 +39,8 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::util::hash::{to_hex, Hash160};
+use wsts::curve::point::{Compressed, Point};
+use wsts::curve::scalar::Scalar;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Burnchain, PoxConstants};
@@ -1079,9 +1081,9 @@ impl StacksChainState {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
-
         self.get_reward_addresses_in_cycle(burnchain, sortdb, reward_cycle, block_id)
     }
+
     /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
     /// lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
@@ -1124,6 +1126,39 @@ impl StacksChainState {
             }
             x => x,
         }
+    }
+
+    /// Get the aggregate public key for a given reward cycle from pox 4
+    pub fn get_aggregate_public_key_pox_4(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<Option<Point>, Error> {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
+            debug!(
+                "PoX was voted disabled in block {} (reward cycle {})",
+                block_id, reward_cycle
+            );
+            return Ok(None);
+        }
+
+        let aggregate_public_key = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                POX_4_NAME,
+                &format!("(get-aggregate-public-key u{})", reward_cycle),
+            )?
+            .expect_optional()
+            .map(|value| {
+                // A point should have 33 bytes exactly.
+                let data = value.expect_buff(33);
+                let msg = "Pox-4 get-aggregate-public-key returned a corrupted value.";
+                let compressed_data = Compressed::try_from(data.as_slice()).expect(msg);
+                Point::try_from(&compressed_data).expect(msg)
+            });
+        Ok(aggregate_public_key)
     }
 }
 
@@ -1672,6 +1707,24 @@ pub mod test {
         )
         .unwrap();
 
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_aggregate_key(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        reward_cycle: u64,
+        aggregate_public_key: &Point,
+    ) -> StacksTransaction {
+        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "set-aggregate-public-key",
+            vec![Value::UInt(reward_cycle as u128), aggregate_public_key],
+        )
+        .unwrap();
         make_tx(key, nonce, 0, payload)
     }
 
