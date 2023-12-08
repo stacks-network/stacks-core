@@ -27,7 +27,7 @@ const callRegex =
 /**
  * Parser function for flow unit tests.
  *
- * Flow unit tests can be used for tx calls are required where
+ * Flow unit tests can be used for tx calls where
  * the tx-sender should be equal to the contract-caller.
  *
  * Takes the whole contract source and returns an object containing

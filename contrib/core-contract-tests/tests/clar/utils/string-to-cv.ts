@@ -98,7 +98,7 @@ export function stringToCV(
         return {
           type: "some",
           value: Cl.some(
-            parseArg(
+            stringToCV(
               arg,
               (type as { optional: ContractInterfaceAtomType }).optional
             ).value
@@ -121,7 +121,7 @@ function parseTuple(tupleString: string, tupleEntries: any): ClarityValue {
       if (uintMatch) {
         tupleItems[key] = Cl.uint(uintMatch[1]);
       } else {
-        tupleItems[key] = parseArg(value, tupleEntries[index].type).value;
+        tupleItems[key] = stringToCV(value, tupleEntries[index].type).value;
       }
     });
 
