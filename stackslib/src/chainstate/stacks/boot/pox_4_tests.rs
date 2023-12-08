@@ -73,8 +73,8 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     let EPOCH_2_3_HEIGHT = EPOCH_2_2_HEIGHT + 2; // 52
                                                  // epoch-2.4 will start at the first block of cycle 11!
                                                  //  this means that cycle 11 should also be treated like a "burn"
-    let EPOCH_2_4_HEIGHT = EPOCH_2_2_HEIGHT + 6; // 56
-    let EPOCH_2_5_HEIGHT = EPOCH_2_4_HEIGHT + 14; // 70
+    let EPOCH_2_4_HEIGHT = EPOCH_2_3_HEIGHT + 4; // 56
+    let EPOCH_2_5_HEIGHT = EPOCH_2_4_HEIGHT + 44; // 100
 
     let epochs = vec![
         StacksEpoch {
@@ -2194,7 +2194,7 @@ fn pox_extend_transition() {
 
     // check the stacking minimum
     let total_liquid_ustx = get_liquid_ustx(&mut peer);
-    let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let min_ustx = with_sortdb(&mut peer, |chainstate, sortdb| {
         chainstate.get_stacking_minimum(sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2204,7 +2204,7 @@ fn pox_extend_transition() {
     );
 
     // no reward addresses
-    let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
+    let reward_addrs = with_sortdb(&mut peer, |chainstate, sortdb| {
         get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
     })
     .unwrap();
@@ -2418,7 +2418,7 @@ fn pox_extend_transition() {
             reward_set_entries[0].reward_address.bytes(),
             key_to_stacks_addr(&alice).bytes.0.to_vec()
         );
-        assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP,);
+        assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP);
     }
 
     for cycle_number in (first_v3_cycle + 1)..(first_v3_cycle + 4) {
@@ -2429,12 +2429,12 @@ fn pox_extend_transition() {
             reward_set_entries[1].reward_address.bytes(),
             key_to_stacks_addr(&alice).bytes.0.to_vec()
         );
-        assert_eq!(reward_set_entries[1].amount_stacked, ALICE_LOCKUP,);
+        assert_eq!(reward_set_entries[1].amount_stacked, ALICE_LOCKUP);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
             key_to_stacks_addr(&bob).bytes.0.to_vec()
         );
-        assert_eq!(reward_set_entries[0].amount_stacked, BOB_LOCKUP,);
+        assert_eq!(reward_set_entries[0].amount_stacked, BOB_LOCKUP);
     }
 
     for cycle_number in (first_v3_cycle + 4)..(first_v3_cycle + 10) {
@@ -2445,7 +2445,7 @@ fn pox_extend_transition() {
             reward_set_entries[0].reward_address.bytes(),
             key_to_stacks_addr(&alice).bytes.0.to_vec()
         );
-        assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP,);
+        assert_eq!(reward_set_entries[0].amount_stacked, ALICE_LOCKUP);
     }
 
     // now let's check some tx receipts
@@ -3369,10 +3369,6 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
 /// and that it unlocks after the desired number of cycles
 #[test]
 fn get_pox_addrs() {
-    // Config for this test
-    // We are going to try locking for 2 reward cycles (10 blocks)
-    let lock_period = 2;
-
     let (epochs, pox_constants) = make_test_epochs_pox();
 
     let mut burnchain = Burnchain::default_unittest(
@@ -3478,7 +3474,7 @@ fn get_pox_addrs() {
                 0,
                 1024 * POX_THRESHOLD_STEPS_USTX,
                 pox_addr.clone(),
-                lock_period,
+                2,
                 tip_height,
             ));
             pox_addr
@@ -3499,37 +3495,66 @@ fn get_pox_addrs() {
         burnchain.pox_constants.reward_cycle_length - burnchain.pox_constants.prepare_length;
     let mut rewarded = HashSet::new();
 
-    // Check that STX are locked for 2 reward cycles
-    for _ in 0..lock_period {
-        for i in 0..reward_blocks {
-            latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-            // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
-            if i < 2 {
-                assert_latest_was_pox(&mut peer)
-                    .into_iter()
-                    .filter(|addr| !addr.is_burn())
-                    .for_each(|addr| {
-                        rewarded.insert(addr);
-                    });
-            } else {
-                assert_latest_was_burn(&mut peer);
-            }
-        }
-
-        assert_eq!(rewarded.len(), 4);
-        for stacker in stackers.iter() {
-            assert!(
-                rewarded.contains(stacker),
-                "Reward cycle should include {}",
-                stacker
-            );
-        }
-
-        // now we should be back in a prepare phase
-        for _i in 0..burnchain.pox_constants.prepare_length {
-            latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    // Check that STX are locked for first reward cycle
+    for i in 0..reward_blocks {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
+        if i < 2 {
+            assert_latest_was_pox(&mut peer)
+                .into_iter()
+                .filter(|addr| !addr.is_burn())
+                .for_each(|addr| {
+                    rewarded.insert(addr);
+                });
+        } else {
             assert_latest_was_burn(&mut peer);
         }
+    }
+
+    assert_eq!(rewarded.len(), 4);
+    for stacker in stackers.iter() {
+        assert!(
+            rewarded.contains(stacker),
+            "Reward cycle should include {}",
+            stacker
+        );
+    }
+
+    // now we should be back in a prepare phase
+    for _i in 0..burnchain.pox_constants.prepare_length {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        assert_latest_was_burn(&mut peer);
+    }
+
+    // Check that STX are locked for second reward cycle
+    for i in 0..reward_blocks {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
+        if i < 2 {
+            assert_latest_was_pox(&mut peer)
+                .into_iter()
+                .filter(|addr| !addr.is_burn())
+                .for_each(|addr| {
+                    rewarded.insert(addr);
+                });
+        } else {
+            assert_latest_was_burn(&mut peer);
+        }
+    }
+
+    assert_eq!(rewarded.len(), 4);
+    for stacker in stackers.iter() {
+        assert!(
+            rewarded.contains(stacker),
+            "Reward cycle should include {}",
+            stacker
+        );
+    }
+
+    // now we should be back in a prepare phase
+    for _i in 0..burnchain.pox_constants.prepare_length {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        assert_latest_was_burn(&mut peer);
     }
 
     // STX should now be unlocked after 2 cycles
