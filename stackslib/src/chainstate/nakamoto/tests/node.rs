@@ -471,7 +471,7 @@ impl TestStacksNode {
         let tenure_change_payload = TenureChangePayload {
             tenure_consensus_hash: ConsensusHash([0x00; 20]), // will be overwritten
             prev_tenure_consensus_hash: previous_tenure_consensus_hash,
-            sortition_consensus_hash: ConsensusHash([0x00; 20]), // will be overwritten
+            burn_view_consensus_hash: ConsensusHash([0x00; 20]), // will be overwritten
             previous_tenure_end,
             previous_tenure_blocks,
             cause: tenure_change_cause,

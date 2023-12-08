@@ -251,7 +251,7 @@ fn test_simple_nakamoto_coordinator_bootup() {
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.sortition_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
     let tenure_change_tx = peer
         .miner
         .make_nakamoto_tenure_change(tenure_change.clone());
@@ -306,7 +306,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.sortition_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
     let tenure_change_tx = peer
         .miner
@@ -448,7 +448,7 @@ fn test_nakamoto_chainstate_getters() {
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.sortition_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
     let tenure_change_tx = peer
         .miner
         .make_nakamoto_tenure_change(tenure_change.clone());
@@ -569,7 +569,7 @@ fn test_nakamoto_chainstate_getters() {
         assert_eq!(highest_tenure.num_blocks_confirmed, 1);
         assert_eq!(highest_tenure.tenure_index, 1);
         assert_eq!(highest_tenure.tenure_id_consensus_hash, consensus_hash);
-        assert_eq!(highest_tenure.sortition_consensus_hash, consensus_hash);
+        assert_eq!(highest_tenure.burn_view_consensus_hash, consensus_hash);
 
         // confirm that getting the burn block for this highest tenure works
         let sn = SortitionDB::get_block_snapshot_consensus(
@@ -578,15 +578,6 @@ fn test_nakamoto_chainstate_getters() {
         )
         .unwrap()
         .unwrap();
-        let (bhh, bhh_height, bhh_ts) = NakamotoChainState::get_tenure_burn_block_info(
-            sort_tx.tx(),
-            false,
-            &highest_tenure.tenure_id_consensus_hash,
-        )
-        .unwrap();
-        assert_eq!(sn.burn_header_hash, bhh);
-        assert_eq!(sn.block_height, bhh_height);
-        assert_eq!(sn.burn_header_timestamp, bhh_ts);
 
         // this tenure's TC tx is the first-ever TC
         let tenure_change_payload = blocks[0].get_tenure_change_tx_payload().unwrap().clone();
@@ -618,7 +609,7 @@ fn test_nakamoto_chainstate_getters() {
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.sortition_consensus_hash
+            &tenure_change_payload.burn_view_consensus_hash
         )
         .unwrap()
         .is_some());
@@ -678,7 +669,7 @@ fn test_nakamoto_chainstate_getters() {
     let next_vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     next_tenure_change.tenure_consensus_hash = next_consensus_hash.clone();
-    next_tenure_change.sortition_consensus_hash = next_consensus_hash.clone();
+    next_tenure_change.burn_view_consensus_hash = next_consensus_hash.clone();
 
     let next_tenure_change_tx = peer
         .miner
@@ -750,7 +741,7 @@ fn test_nakamoto_chainstate_getters() {
         assert_eq!(highest_tenure.tenure_index, 2);
         assert_eq!(highest_tenure.tenure_id_consensus_hash, next_consensus_hash);
         assert_eq!(highest_tenure.prev_tenure_id_consensus_hash, consensus_hash);
-        assert_eq!(highest_tenure.sortition_consensus_hash, next_consensus_hash);
+        assert_eq!(highest_tenure.burn_view_consensus_hash, next_consensus_hash);
 
         // this tenure's TC tx is NOT the first-ever TC
         let tenure_change_payload = new_blocks[0]
@@ -794,7 +785,7 @@ fn test_nakamoto_chainstate_getters() {
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.sortition_consensus_hash
+            &tenure_change_payload.burn_view_consensus_hash
         )
         .unwrap()
         .is_some());
@@ -812,7 +803,7 @@ fn test_nakamoto_chainstate_getters() {
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &old_tenure_change_payload.sortition_consensus_hash
+            &old_tenure_change_payload.burn_view_consensus_hash
         )
         .unwrap()
         .is_some());
@@ -892,7 +883,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
         tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.sortition_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
         let tenure_change_tx = peer
             .miner
@@ -1203,7 +1194,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.sortition_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
     let tenure_change_tx = peer
         .miner
         .make_nakamoto_tenure_change(tenure_change.clone());
@@ -1282,7 +1273,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
     assert_eq!(
-        highest_tenure.sortition_consensus_hash,
+        highest_tenure.burn_view_consensus_hash,
         sort_tip.consensus_hash
     );
     assert!(tip.consensus_hash == sort_tip.consensus_hash);
@@ -1375,7 +1366,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
     assert_eq!(
-        highest_tenure.sortition_consensus_hash,
+        highest_tenure.burn_view_consensus_hash,
         sort_tip.consensus_hash
     );
     assert!(tip.consensus_hash != sort_tip.consensus_hash);
@@ -1391,7 +1382,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
     let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
-    tenure_change.sortition_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
     let tenure_change_tx = peer
         .miner
@@ -1471,7 +1462,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
     };
     assert_eq!(highest_tenure.tenure_id_consensus_hash, tip.consensus_hash);
     assert_eq!(
-        highest_tenure.sortition_consensus_hash,
+        highest_tenure.burn_view_consensus_hash,
         sort_tip.consensus_hash
     );
     assert!(tip.consensus_hash == sort_tip.consensus_hash);
@@ -1534,7 +1525,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
         let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
 
         tenure_change.tenure_consensus_hash = consensus_hash.clone();
-        tenure_change.sortition_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
         let tenure_change_tx = peer
             .miner
@@ -1622,7 +1613,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
             last_block.header.consensus_hash
         );
         assert_eq!(
-            highest_tenure.sortition_consensus_hash,
+            highest_tenure.burn_view_consensus_hash,
             sort_tip.consensus_hash
         );
         assert!(last_block.header.consensus_hash == sort_tip.consensus_hash);

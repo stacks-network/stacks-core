@@ -133,7 +133,7 @@ pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
         -- consensus hash of the previous tenure's start-tenure block
         prev_tenure_id_consensus_hash TEXT NOT NULL,
         -- consensus hash of the last-processed sortition
-        sortition_consensus_hash TEXT NOT NULL,
+        burn_view_consensus_hash TEXT NOT NULL,
         -- whether or not this tenure was triggered by a sortition (as opposed to a tenure-extension).
         -- this is equal to the `cause` field in a TenureChange
         cause INETGER NOT NULL,
@@ -152,11 +152,11 @@ pub static NAKAMOTO_TENURES_SCHEMA: &'static str = r#"
         -- this is the ith tenure transaction in its respective Nakamoto chain history.
         tenure_index INTEGER NOT NULL,
 
-        PRIMARY KEY(sortition_consensus_hash,tenure_index)
+        PRIMARY KEY(burn_view_consensus_hash,tenure_index)
     );
     CREATE INDEX nakamoto_tenures_by_block_id ON nakamoto_tenures(block_id);
     CREATE INDEX nakamoto_tenures_by_block_and_consensus_hashes ON nakamoto_tenures(tenure_id_consensus_hash,block_hash);
-    CREATE INDEX nakamoto_tenures_by_sortition_consensus_hash ON nakamoto_tenures(sortition_consensus_hash);
+    CREATE INDEX nakamoto_tenures_by_burn_view_consensus_hash ON nakamoto_tenures(burn_view_consensus_hash);
     CREATE INDEX nakamoto_tenures_by_tenure_index ON nakamoto_tenures(tenure_index);
 "#;
 
@@ -167,7 +167,7 @@ pub struct NakamotoTenure {
     /// consensus hash of parent tenure's start-tenure block
     pub prev_tenure_id_consensus_hash: ConsensusHash,
     /// sortition tip consensus hash when this tenure was processed
-    pub sortition_consensus_hash: ConsensusHash,
+    pub burn_view_consensus_hash: ConsensusHash,
     /// the cause of this tenure -- either a new miner was chosen, or the current miner's tenure
     /// was extended
     pub cause: TenureChangeCause,
@@ -188,7 +188,7 @@ impl FromRow<NakamotoTenure> for NakamotoTenure {
     fn from_row(row: &rusqlite::Row) -> Result<NakamotoTenure, DBError> {
         let tenure_id_consensus_hash = row.get("tenure_id_consensus_hash")?;
         let prev_tenure_id_consensus_hash = row.get("prev_tenure_id_consensus_hash")?;
-        let sortition_consensus_hash = row.get("sortition_consensus_hash")?;
+        let burn_view_consensus_hash = row.get("burn_view_consensus_hash")?;
         let cause_u8: u8 = row.get("cause")?;
         let cause = TenureChangeCause::try_from(cause_u8).map_err(|_| DBError::ParseError)?;
         let block_hash = row.get("block_hash")?;
@@ -205,7 +205,7 @@ impl FromRow<NakamotoTenure> for NakamotoTenure {
         Ok(NakamotoTenure {
             tenure_id_consensus_hash,
             prev_tenure_id_consensus_hash,
-            sortition_consensus_hash,
+            burn_view_consensus_hash,
             cause,
             block_hash,
             block_id,
@@ -407,7 +407,7 @@ impl NakamotoChainState {
         let args: &[&dyn ToSql] = &[
             &tenure.tenure_consensus_hash,
             &tenure.prev_tenure_consensus_hash,
-            &tenure.sortition_consensus_hash,
+            &tenure.burn_view_consensus_hash,
             &tenure.cause.as_u8(),
             &block_header.block_hash(),
             &block_header.block_id(),
@@ -417,7 +417,7 @@ impl NakamotoChainState {
         ];
         tx.execute(
             "INSERT INTO nakamoto_tenures
-                (tenure_id_consensus_hash, prev_tenure_id_consensus_hash, sortition_consensus_hash, cause,
+                (tenure_id_consensus_hash, prev_tenure_id_consensus_hash, burn_view_consensus_hash, cause,
                 block_hash, block_id, coinbase_height, tenure_index, num_blocks_confirmed)
             VALUES
                 (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
@@ -496,15 +496,14 @@ impl NakamotoChainState {
             )
             .optional()?
         {
+            Some(0) => {
+                // this never happens, so it's None
+                Ok(None)
+            }
             Some(height_i64) => {
-                if height_i64 == 0 {
-                    // this never happens, so it's None
-                    Ok(None)
-                } else {
-                    Ok(Some(
-                        height_i64.try_into().map_err(|_| DBError::ParseError)?,
-                    ))
-                }
+                Ok(Some(
+                    height_i64.try_into().map_err(|_| DBError::ParseError)?,
+                ))
             }
             None => Ok(None),
         }
@@ -544,7 +543,7 @@ impl NakamotoChainState {
                 let mut canonical = true;
                 for ch in &[
                     &tenure.tenure_id_consensus_hash,
-                    &tenure.sortition_consensus_hash,
+                    &tenure.burn_view_consensus_hash,
                 ] {
                     let Some(sn) =
                         SortitionDB::get_block_snapshot_consensus(sort_handle.sqlite(), ch)?
@@ -626,7 +625,7 @@ impl NakamotoChainState {
         let last_epoch2_tenure = NakamotoTenure {
             tenure_id_consensus_hash: parent_header.consensus_hash.clone(),
             prev_tenure_id_consensus_hash: ConsensusHash([0x00; 20]), // ignored,
-            sortition_consensus_hash: parent_header.consensus_hash.clone(),
+            burn_view_consensus_hash: parent_header.consensus_hash.clone(),
             cause: TenureChangeCause::BlockFound,
             block_hash: epoch2_header_info.block_hash(),
             block_id: StacksBlockId::new(
@@ -700,7 +699,7 @@ impl NakamotoChainState {
         };
         let Some(sortition_sn) = Self::check_valid_consensus_hash(
             sort_handle,
-            &tenure_payload.sortition_consensus_hash,
+            &tenure_payload.burn_view_consensus_hash,
         )?
         else {
             return Ok(None);
@@ -708,7 +707,7 @@ impl NakamotoChainState {
 
         // tenure_sn must be no more recent than sortition_sn
         if tenure_sn.block_height > sortition_sn.block_height {
-            warn!("Invalid tenure-change: tenure snapshot comes sortition snapshot"; "tenure_consensus_hash" => %tenure_payload.tenure_consensus_hash, "sortition_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
+            warn!("Invalid tenure-change: tenure snapshot comes sortition snapshot"; "tenure_consensus_hash" => %tenure_payload.tenure_consensus_hash, "burn_view_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
             return Ok(None);
         }
 
@@ -741,7 +740,7 @@ impl NakamotoChainState {
 
             if prev_sn.block_height > sortition_sn.block_height {
                 // parent comes after tip
-                warn!("Invalid tenure-change: parent snapshot comes after current tip"; "sortition_consensus_hash" => %tenure_payload.sortition_consensus_hash, "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
+                warn!("Invalid tenure-change: parent snapshot comes after current tip"; "burn_view_consensus_hash" => %tenure_payload.burn_view_consensus_hash, "prev_tenure_consensus_hash" => %tenure_payload.prev_tenure_consensus_hash);
                 return Ok(None);
             }
             if !prev_sn.sortition {
@@ -783,8 +782,8 @@ impl NakamotoChainState {
                     );
                     return Ok(None);
                 }
-                if tenure_payload.sortition_consensus_hash
-                    == highest_processed_tenure.sortition_consensus_hash
+                if tenure_payload.burn_view_consensus_hash
+                    == highest_processed_tenure.burn_view_consensus_hash
                 {
                     // if we're extending tenure within the same sortition, then the tenure and
                     // prev_tenure consensus hashes must match that of the highest.
@@ -1041,34 +1040,6 @@ impl NakamotoChainState {
             burnchain_sortition_burn,
             total_coinbase,
         ))
-    }
-
-    /// Get the burnchain block info of a given tenure's consensus hash.
-    /// Used for the tx receipt.
-    pub(crate) fn get_tenure_burn_block_info(
-        burn_dbconn: &Connection,
-        first_mined: bool,
-        ch: &ConsensusHash,
-    ) -> Result<(BurnchainHeaderHash, u64, u64), ChainstateError> {
-        // get burn block stats, for the transaction receipt
-        let (burn_block_hash, burn_block_height, burn_block_timestamp) = if first_mined {
-            (BurnchainHeaderHash([0; 32]), 0, 0)
-        } else {
-            match SortitionDB::get_block_snapshot_consensus(burn_dbconn, ch)? {
-                Some(sn) => (
-                    sn.burn_header_hash,
-                    sn.block_height,
-                    sn.burn_header_timestamp,
-                ),
-                None => {
-                    // shouldn't happen
-                    warn!("CORRUPTION: {} does not correspond to a burn block", ch,);
-                    (BurnchainHeaderHash([0; 32]), 0, 0)
-                }
-            }
-        };
-
-        Ok((burn_block_hash, burn_block_height, burn_block_timestamp))
     }
 
     /// Check that a given Nakamoto block's tenure's sortition exists and was processed.

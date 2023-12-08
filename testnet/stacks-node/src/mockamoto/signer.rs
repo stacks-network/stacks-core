@@ -1,5 +1,5 @@
 use stacks::chainstate::nakamoto::NakamotoBlock;
-use stacks_common::util::secp256k1::SchnorrSignature;
+use stacks::chainstate::stacks::ThresholdSignature;
 use wsts::curve::point::Point;
 use wsts::traits::Aggregator;
 
@@ -70,7 +70,6 @@ impl SelfSigner {
         let signature = sig_aggregator
             .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
             .expect("aggregator sig failed");
-        let schnorr_signature = SchnorrSignature::from(&signature);
-        block.header.signer_signature = schnorr_signature;
+        block.header.signer_signature = ThresholdSignature(signature);
     }
 }

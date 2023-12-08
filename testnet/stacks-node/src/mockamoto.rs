@@ -65,7 +65,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
-use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature, Secp256k1PublicKey};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 use self::signer::SelfSigner;
@@ -781,8 +781,9 @@ impl MockamotoNode {
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
         //  to be gated.
         let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
-            consensus_hash: sortition_tip.consensus_hash,
-            prev_consensus_hash: chain_tip_ch.clone(),
+            tenure_consensus_hash: sortition_tip.consensus_hash.clone(),
+            prev_tenure_consensus_hash: chain_tip_ch.clone(),
+            sortition_consensus_hash: sortition_tip.consensus_hash,
             previous_tenure_end: parent_block_id,
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
@@ -862,6 +863,7 @@ impl MockamotoNode {
             })?,
             true,
             parent_chain_length + 1,
+            false,
         )?;
 
         let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx];
@@ -889,6 +891,7 @@ impl MockamotoNode {
             &mut builder,
             &mut self.mempool,
             parent_chain_length,
+            None,
             None,
             BlockBuilderSettings {
                 max_miner_time_ms: 15_000,
@@ -935,7 +938,7 @@ impl MockamotoNode {
                 burn_spent: sortition_tip.total_burn,
                 tx_merkle_root: tx_merkle_tree.root(),
                 state_index_root,
-                signer_signature: SchnorrSignature::default(),
+                signer_signature: ThresholdSignature::mock(),
                 miner_signature: MessageSignature::empty(),
                 consensus_hash: sortition_tip.consensus_hash.clone(),
                 parent_block_id: StacksBlockId::new(&chain_tip_ch, &chain_tip_bh),
@@ -957,14 +960,14 @@ impl MockamotoNode {
         let mut block = self.mine_stacks_block()?;
         let config = self.chainstate.config();
         let chain_length = block.header.chain_length;
-        let sortition_handle = self.sortdb.index_handle_at_tip();
+        let mut sortition_handle = self.sortdb.index_handle_at_tip();
         let aggregate_public_key = self.self_signer.aggregate_public_key;
         self.self_signer.sign_nakamoto_block(&mut block);
         let staging_tx = self.chainstate.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
             &config,
             block,
-            &sortition_handle,
+            &mut sortition_handle,
             &staging_tx,
             &aggregate_public_key,
         )?;

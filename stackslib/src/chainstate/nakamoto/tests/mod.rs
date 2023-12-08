@@ -159,7 +159,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let tenure_change_payload = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x04; 20]),
         prev_tenure_consensus_hash: ConsensusHash([0x03; 20]),
-        sortition_consensus_hash: ConsensusHash([0x04; 20]),
+        burn_view_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: header.parent_block_id.clone(),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -172,7 +172,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     let tenure_extend_payload = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x04; 20]),
         prev_tenure_consensus_hash: ConsensusHash([0x04; 20]),
-        sortition_consensus_hash: ConsensusHash([0x04; 20]),
+        burn_view_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: header.parent_block_id.clone(),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::Extended,
@@ -185,7 +185,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         // bad parent block ID
         tenure_consensus_hash: ConsensusHash([0x04; 20]),
         prev_tenure_consensus_hash: ConsensusHash([0x03; 20]),
-        sortition_consensus_hash: ConsensusHash([0x04; 20]),
+        burn_view_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: StacksBlockId([0x00; 32]),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -263,7 +263,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert_eq!(
@@ -276,8 +276,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -292,8 +292,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![coinbase_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -309,8 +309,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone(), invalid_coinbase_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -329,8 +329,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             coinbase_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -345,8 +345,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![coinbase_tx.clone(), tenure_change_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -365,8 +365,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             tenure_change_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -385,8 +385,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             coinbase_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -402,8 +402,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone(), coinbase_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(true));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(true));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), Some(&coinbase_tx));
     assert_eq!(
         block.get_tenure_change_tx_payload(),
@@ -422,8 +422,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), None);
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(true));
+    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(true));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(
@@ -442,8 +442,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone(), stx_transfer.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), None);
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(true));
+    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(true));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(
@@ -461,8 +461,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone(), tenure_extend_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -477,8 +477,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![stx_transfer.clone(), tenure_extend_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Some(false));
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -497,8 +497,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             coinbase_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Some(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), None);
+    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
+    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -600,7 +600,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
     let tenure_change_payload = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
         prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
-        sortition_consensus_hash: ConsensusHash([0x04; 20]),
+        burn_view_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: epoch2_parent_block_id.clone(),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -736,7 +736,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
     let nakamoto_tenure = NakamotoTenure {
         tenure_id_consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         prev_tenure_id_consensus_hash: tenure_change_payload.prev_tenure_consensus_hash.clone(),
-        sortition_consensus_hash: tenure_change_payload.sortition_consensus_hash.clone(),
+        burn_view_consensus_hash: tenure_change_payload.burn_view_consensus_hash.clone(),
         cause: tenure_change_payload.cause,
         block_hash: nakamoto_block.header.block_hash(),
         block_id: nakamoto_block.header.block_id(),
@@ -1253,7 +1253,7 @@ fn test_nakamoto_block_static_verification() {
     let tenure_change_payload = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
         prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
-        sortition_consensus_hash: ConsensusHash([0x04; 20]),
+        burn_view_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: StacksBlockId([0x03; 32]),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -1265,7 +1265,7 @@ fn test_nakamoto_block_static_verification() {
     let tenure_change_payload_bad_ch = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x05; 20]), // wrong
         prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
-        sortition_consensus_hash: ConsensusHash([0x04; 20]),
+        burn_view_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: StacksBlockId([0x03; 32]),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -1277,7 +1277,7 @@ fn test_nakamoto_block_static_verification() {
     let tenure_change_payload_bad_miner_sig = TenureChangePayload {
         tenure_consensus_hash: ConsensusHash([0x04; 20]), // same as in nakamoto header
         prev_tenure_consensus_hash: ConsensusHash([0x01; 20]),
-        sortition_consensus_hash: ConsensusHash([0x04; 20]),
+        burn_view_consensus_hash: ConsensusHash([0x04; 20]),
         previous_tenure_end: StacksBlockId([0x03; 32]),
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
@@ -1476,7 +1476,7 @@ pub fn test_get_highest_nakamoto_tenure() {
                 .as_ref()
                 .map(|tc| tc.tenure_consensus_hash.clone())
                 .unwrap_or(FIRST_BURNCHAIN_CONSENSUS_HASH.clone()),
-            sortition_consensus_hash: sn.consensus_hash.clone(),
+            burn_view_consensus_hash: sn.consensus_hash.clone(),
             previous_tenure_end: block_header.block_id(),
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
@@ -1524,8 +1524,8 @@ pub fn test_get_highest_nakamoto_tenure() {
         last_tenure_change.prev_tenure_consensus_hash
     );
     assert_eq!(
-        highest_tenure.sortition_consensus_hash,
-        last_tenure_change.sortition_consensus_hash
+        highest_tenure.burn_view_consensus_hash,
+        last_tenure_change.burn_view_consensus_hash
     );
     assert_eq!(highest_tenure.cause, last_tenure_change.cause);
     assert_eq!(highest_tenure.block_hash, last_header.block_hash());
@@ -1559,8 +1559,8 @@ pub fn test_get_highest_nakamoto_tenure() {
         last_tenure_change.prev_tenure_consensus_hash
     );
     assert_eq!(
-        highest_tenure.sortition_consensus_hash,
-        last_tenure_change.sortition_consensus_hash
+        highest_tenure.burn_view_consensus_hash,
+        last_tenure_change.burn_view_consensus_hash
     );
     assert_eq!(highest_tenure.cause, last_tenure_change.cause);
     assert_eq!(highest_tenure.block_hash, last_header.block_hash());

@@ -196,7 +196,7 @@ impl StacksMessageCodec for TenureChangePayload {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &self.tenure_consensus_hash)?;
         write_next(fd, &self.prev_tenure_consensus_hash)?;
-        write_next(fd, &self.sortition_consensus_hash)?;
+        write_next(fd, &self.burn_view_consensus_hash)?;
         write_next(fd, &self.previous_tenure_end)?;
         write_next(fd, &self.previous_tenure_blocks)?;
         write_next(fd, &self.cause)?;
@@ -209,7 +209,7 @@ impl StacksMessageCodec for TenureChangePayload {
         Ok(Self {
             tenure_consensus_hash: read_next(fd)?,
             prev_tenure_consensus_hash: read_next(fd)?,
-            sortition_consensus_hash: read_next(fd)?,
+            burn_view_consensus_hash: read_next(fd)?,
             previous_tenure_end: read_next(fd)?,
             previous_tenure_blocks: read_next(fd)?,
             cause: read_next(fd)?,
@@ -3776,7 +3776,7 @@ mod test {
             TransactionPayload::TenureChange(TenureChangePayload {
                 tenure_consensus_hash: ConsensusHash([0x01; 20]),
                 prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
-                sortition_consensus_hash: ConsensusHash([0x03; 20]),
+                burn_view_consensus_hash: ConsensusHash([0x03; 20]),
                 previous_tenure_end: StacksBlockId([0x00; 32]),
                 previous_tenure_blocks: 0,
                 cause: TenureChangeCause::BlockFound,

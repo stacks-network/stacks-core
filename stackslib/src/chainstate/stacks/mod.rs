@@ -706,7 +706,7 @@ pub struct TenureChangePayload {
     pub prev_tenure_consensus_hash: ConsensusHash,
     /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
     /// sortition.
-    pub sortition_consensus_hash: ConsensusHash,
+    pub burn_view_consensus_hash: ConsensusHash,
     /// The StacksBlockId of the last block from the previous tenure
     pub previous_tenure_end: StacksBlockId,
     /// The number of blocks produced since the last sortition-linked tenure
@@ -724,14 +724,14 @@ pub struct TenureChangePayload {
 impl TenureChangePayload {
     pub fn extend(
         &self,
-        sortition_consensus_hash: ConsensusHash,
+        burn_view_consensus_hash: ConsensusHash,
         last_tenure_block_id: StacksBlockId,
         num_blocks_so_far: u32,
     ) -> Self {
         TenureChangePayload {
             tenure_consensus_hash: self.tenure_consensus_hash.clone(),
             prev_tenure_consensus_hash: self.tenure_consensus_hash.clone(),
-            sortition_consensus_hash,
+            burn_view_consensus_hash,
             previous_tenure_end: last_tenure_block_id,
             previous_tenure_blocks: num_blocks_so_far,
             cause: TenureChangeCause::Extended,
@@ -1379,7 +1379,7 @@ pub mod test {
             TransactionPayload::TenureChange(TenureChangePayload {
                 tenure_consensus_hash: ConsensusHash([0x01; 20]),
                 prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
-                sortition_consensus_hash: ConsensusHash([0x03; 20]),
+                burn_view_consensus_hash: ConsensusHash([0x03; 20]),
                 previous_tenure_end: StacksBlockId([0x00; 32]),
                 previous_tenure_blocks: 0,
                 cause: TenureChangeCause::BlockFound,
