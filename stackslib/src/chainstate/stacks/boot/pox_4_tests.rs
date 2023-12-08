@@ -3396,68 +3396,6 @@ fn pox_lock_unlock() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
-
-    let assert_latest_was_burn = |peer: &mut TestPeer| {
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-
-        let conn = peer.sortdb().conn();
-
-        // check the *parent* burn block, because that's what we'll be
-        //  checking with get_burn_pox_addr_info
-        let mut burn_ops =
-            SortitionDB::get_block_commits_by_block(conn, &tip.parent_sortition_id).unwrap();
-        assert_eq!(burn_ops.len(), 1);
-        let commit = burn_ops.pop().unwrap();
-        assert!(commit.all_outputs_burn());
-        assert!(commit.burn_fee > 0);
-
-        let (addrs, payout) = get_burn_pox_addr_info(peer);
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-        info!("Checking burn outputs at burn_height = {}", burn_height);
-        if peer.config.burnchain.is_in_prepare_phase(burn_height) {
-            assert_eq!(addrs.len(), 1);
-            assert_eq!(payout, 1000);
-            assert!(addrs[0].is_burn());
-        } else {
-            assert_eq!(addrs.len(), 2);
-            assert_eq!(payout, 500);
-            assert!(addrs[0].is_burn());
-            assert!(addrs[1].is_burn());
-        }
-    };
-
-    let assert_latest_was_pox = |peer: &mut TestPeer| {
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-
-        let conn = peer.sortdb().conn();
-
-        // check the *parent* burn block, because that's what we'll be
-        //  checking with get_burn_pox_addr_info
-        let mut burn_ops =
-            SortitionDB::get_block_commits_by_block(conn, &tip.parent_sortition_id).unwrap();
-        assert_eq!(burn_ops.len(), 1);
-        let commit = burn_ops.pop().unwrap();
-        assert!(!commit.all_outputs_burn());
-        let commit_addrs = commit.commit_outs;
-
-        let (addrs, payout) = get_burn_pox_addr_info(peer);
-        info!(
-            "Checking pox outputs at burn_height = {}, commit_addrs = {:?}, fetch_addrs = {:?}",
-            burn_height, commit_addrs, addrs
-        );
-        assert_eq!(addrs.len(), 2);
-        assert_eq!(payout, 500);
-        assert!(commit_addrs.contains(&addrs[0]));
-        assert!(commit_addrs.contains(&addrs[1]));
-        addrs
-    };
-
     let mut latest_block;
 
     // Advance into pox4
@@ -3580,68 +3518,6 @@ fn pox_3_fails() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
-
-    let assert_latest_was_burn = |peer: &mut TestPeer| {
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-
-        let conn = peer.sortdb().conn();
-
-        // check the *parent* burn block, because that's what we'll be
-        //  checking with get_burn_pox_addr_info
-        let mut burn_ops =
-            SortitionDB::get_block_commits_by_block(conn, &tip.parent_sortition_id).unwrap();
-        assert_eq!(burn_ops.len(), 1);
-        let commit = burn_ops.pop().unwrap();
-        assert!(commit.all_outputs_burn());
-        assert!(commit.burn_fee > 0);
-
-        let (addrs, payout) = get_burn_pox_addr_info(peer);
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-        info!("Checking burn outputs at burn_height = {}", burn_height);
-        if peer.config.burnchain.is_in_prepare_phase(burn_height) {
-            assert_eq!(addrs.len(), 1);
-            assert_eq!(payout, 1000);
-            assert!(addrs[0].is_burn());
-        } else {
-            assert_eq!(addrs.len(), 2);
-            assert_eq!(payout, 500);
-            assert!(addrs[0].is_burn());
-            assert!(addrs[1].is_burn());
-        }
-    };
-
-    let assert_latest_was_pox = |peer: &mut TestPeer| {
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-
-        let conn = peer.sortdb().conn();
-
-        // check the *parent* burn block, because that's what we'll be
-        //  checking with get_burn_pox_addr_info
-        let mut burn_ops =
-            SortitionDB::get_block_commits_by_block(conn, &tip.parent_sortition_id).unwrap();
-        assert_eq!(burn_ops.len(), 1);
-        let commit = burn_ops.pop().unwrap();
-        assert!(!commit.all_outputs_burn());
-        let commit_addrs = commit.commit_outs;
-
-        let (addrs, payout) = get_burn_pox_addr_info(peer);
-        info!(
-            "Checking pox outputs at burn_height = {}, commit_addrs = {:?}, fetch_addrs = {:?}",
-            burn_height, commit_addrs, addrs
-        );
-        assert_eq!(addrs.len(), 2);
-        assert_eq!(payout, 500);
-        assert!(commit_addrs.contains(&addrs[0]));
-        assert!(commit_addrs.contains(&addrs[1]));
-        addrs
-    };
-
     let mut latest_block;
 
     // Advance into pox4
@@ -3757,67 +3633,6 @@ fn stack_with_segwit() {
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
-
-    let assert_latest_was_burn = |peer: &mut TestPeer| {
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-
-        let conn = peer.sortdb().conn();
-
-        // check the *parent* burn block, because that's what we'll be
-        //  checking with get_burn_pox_addr_info
-        let mut burn_ops =
-            SortitionDB::get_block_commits_by_block(conn, &tip.parent_sortition_id).unwrap();
-        assert_eq!(burn_ops.len(), 1);
-        let commit = burn_ops.pop().unwrap();
-        assert!(commit.all_outputs_burn());
-        assert!(commit.burn_fee > 0);
-
-        let (addrs, payout) = get_burn_pox_addr_info(peer);
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-        info!("Checking burn outputs at burn_height = {}", burn_height);
-        if peer.config.burnchain.is_in_prepare_phase(burn_height) {
-            assert_eq!(addrs.len(), 1);
-            assert_eq!(payout, 1000);
-            assert!(addrs[0].is_burn());
-        } else {
-            assert_eq!(addrs.len(), 2);
-            assert_eq!(payout, 500);
-            assert!(addrs[0].is_burn());
-            assert!(addrs[1].is_burn());
-        }
-    };
-
-    let assert_latest_was_pox = |peer: &mut TestPeer| {
-        let tip = get_tip(peer.sortdb.as_ref());
-        let tip_index_block = tip.get_canonical_stacks_block_id();
-        let burn_height = tip.block_height - 1;
-
-        let conn = peer.sortdb().conn();
-
-        // check the *parent* burn block, because that's what we'll be
-        //  checking with get_burn_pox_addr_info
-        let mut burn_ops =
-            SortitionDB::get_block_commits_by_block(conn, &tip.parent_sortition_id).unwrap();
-        assert_eq!(burn_ops.len(), 1);
-        let commit = burn_ops.pop().unwrap();
-        assert!(!commit.all_outputs_burn());
-        let commit_addrs = commit.commit_outs;
-
-        let (addrs, payout) = get_burn_pox_addr_info(peer);
-        info!(
-            "Checking pox outputs at burn_height = {}, commit_addrs = {:?}, fetch_addrs = {:?}",
-            burn_height, commit_addrs, addrs
-        );
-        assert_eq!(addrs.len(), 2);
-        assert_eq!(payout, 500);
-        assert!(commit_addrs.contains(&addrs[0]));
-        assert!(commit_addrs.contains(&addrs[1]));
-        addrs
-    };
 
     // produce blocks until epoch 2.2
     while get_tip(peer.sortdb.as_ref()).block_height <= epochs[6].start_height {
@@ -4536,4 +4351,64 @@ fn pox_3_delegate_stx_addr_validation() {
         alice_pox_addr,
         make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes.clone(),)
     );
+}
+
+fn assert_latest_was_burn(peer: &mut TestPeer) {
+    let tip = get_tip(peer.sortdb.as_ref());
+    let tip_index_block = tip.get_canonical_stacks_block_id();
+    let burn_height = tip.block_height - 1;
+
+    let conn = peer.sortdb().conn();
+
+    // check the *parent* burn block, because that's what we'll be
+    //  checking with get_burn_pox_addr_info
+    let mut burn_ops =
+        SortitionDB::get_block_commits_by_block(conn, &tip.parent_sortition_id).unwrap();
+    assert_eq!(burn_ops.len(), 1);
+    let commit = burn_ops.pop().unwrap();
+    assert!(commit.all_outputs_burn());
+    assert!(commit.burn_fee > 0);
+
+    let (addrs, payout) = get_burn_pox_addr_info(peer);
+    let tip = get_tip(peer.sortdb.as_ref());
+    let tip_index_block = tip.get_canonical_stacks_block_id();
+    let burn_height = tip.block_height - 1;
+    info!("Checking burn outputs at burn_height = {burn_height}");
+    if peer.config.burnchain.is_in_prepare_phase(burn_height) {
+        assert_eq!(addrs.len(), 1);
+        assert_eq!(payout, 1000);
+        assert!(addrs[0].is_burn());
+    } else {
+        assert_eq!(addrs.len(), 2);
+        assert_eq!(payout, 500);
+        assert!(addrs[0].is_burn());
+        assert!(addrs[1].is_burn());
+    }
+}
+
+fn assert_latest_was_pox(peer: &mut TestPeer) -> Vec<PoxAddress> {
+    let tip = get_tip(peer.sortdb.as_ref());
+    let tip_index_block = tip.get_canonical_stacks_block_id();
+    let burn_height = tip.block_height - 1;
+
+    let conn = peer.sortdb().conn();
+
+    // check the *parent* burn block, because that's what we'll be
+    //  checking with get_burn_pox_addr_info
+    let mut burn_ops =
+        SortitionDB::get_block_commits_by_block(conn, &tip.parent_sortition_id).unwrap();
+    assert_eq!(burn_ops.len(), 1);
+    let commit = burn_ops.pop().unwrap();
+    assert!(!commit.all_outputs_burn());
+    let commit_addrs = commit.commit_outs;
+
+    let (addrs, payout) = get_burn_pox_addr_info(peer);
+    info!(
+        "Checking pox outputs at burn_height = {burn_height}, commit_addrs = {commit_addrs:?}, fetch_addrs = {addrs:?}"
+    );
+    assert_eq!(addrs.len(), 2);
+    assert_eq!(payout, 500);
+    assert!(commit_addrs.contains(&addrs[0]));
+    assert!(commit_addrs.contains(&addrs[1]));
+    addrs
 }
