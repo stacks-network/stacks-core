@@ -3369,6 +3369,9 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
 /// and that it unlocks after the desired number of cycles
 #[test]
 fn get_pox_addrs() {
+    // Config for this test
+    // We are going to try locking for 2 reward cycles (10 blocks)
+    let lock_period = 2;
     let (epochs, pox_constants) = make_test_epochs_pox();
 
     let mut burnchain = Burnchain::default_unittest(
@@ -3457,6 +3460,8 @@ fn get_pox_addrs() {
         }
     }
 
+    info!("Block height: {}", get_tip(peer.sortdb.as_ref()).block_height);
+
     let mut txs = vec![];
     let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
     let stackers: Vec<_> = keys
@@ -3474,14 +3479,14 @@ fn get_pox_addrs() {
                 0,
                 1024 * POX_THRESHOLD_STEPS_USTX,
                 pox_addr.clone(),
-                2,
+                lock_period,
                 tip_height,
             ));
             pox_addr
         })
         .collect();
 
-    // Submit stacking txs
+    info!("Submitting stacking txs");
     latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
     // Advance to start of rewards cycle stackers are participating in
@@ -3490,74 +3495,49 @@ fn get_pox_addrs() {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
+    info!("Block height: {}", get_tip(peer.sortdb.as_ref()).block_height);
+
     // now we should be in the reward phase, produce the reward blocks
     let reward_blocks =
         burnchain.pox_constants.reward_cycle_length - burnchain.pox_constants.prepare_length;
     let mut rewarded = HashSet::new();
 
-    // Check that STX are locked for first reward cycle
-    for i in 0..reward_blocks {
-        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
-        if i < 2 {
-            assert_latest_was_pox(&mut peer)
-                .into_iter()
-                .filter(|addr| !addr.is_burn())
-                .for_each(|addr| {
-                    rewarded.insert(addr);
-                });
-        } else {
+    // Check that STX are locked for 2 reward cycles
+    for c in 0..lock_period {
+        info!("Checking STX locked for cycle {c}");
+        for i in 0..reward_blocks {
+            latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+            // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
+            if i < 2 {
+                assert_latest_was_pox(&mut peer)
+                    .into_iter()
+                    .filter(|addr| !addr.is_burn())
+                    .for_each(|addr| {
+                        rewarded.insert(addr);
+                    });
+            } else {
+                assert_latest_was_burn(&mut peer);
+            }
+        }
+
+        assert_eq!(rewarded.len(), 4);
+        for stacker in stackers.iter() {
+            assert!(
+                rewarded.contains(stacker),
+                "Reward cycle should include {}",
+                stacker
+            );
+        }
+
+        // now we should be back in a prepare phase
+        info!("Checking we are in prepare phase");
+        for _i in 0..burnchain.pox_constants.prepare_length {
+            latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             assert_latest_was_burn(&mut peer);
         }
     }
 
-    assert_eq!(rewarded.len(), 4);
-    for stacker in stackers.iter() {
-        assert!(
-            rewarded.contains(stacker),
-            "Reward cycle should include {}",
-            stacker
-        );
-    }
-
-    // now we should be back in a prepare phase
-    for _i in 0..burnchain.pox_constants.prepare_length {
-        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        assert_latest_was_burn(&mut peer);
-    }
-
-    // Check that STX are locked for second reward cycle
-    for i in 0..reward_blocks {
-        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
-        if i < 2 {
-            assert_latest_was_pox(&mut peer)
-                .into_iter()
-                .filter(|addr| !addr.is_burn())
-                .for_each(|addr| {
-                    rewarded.insert(addr);
-                });
-        } else {
-            assert_latest_was_burn(&mut peer);
-        }
-    }
-
-    assert_eq!(rewarded.len(), 4);
-    for stacker in stackers.iter() {
-        assert!(
-            rewarded.contains(stacker),
-            "Reward cycle should include {}",
-            stacker
-        );
-    }
-
-    // now we should be back in a prepare phase
-    for _i in 0..burnchain.pox_constants.prepare_length {
-        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        assert_latest_was_burn(&mut peer);
-    }
-
-    // STX should now be unlocked after 2 cycles
+    info!("Checking STX unlocked after {lock_period} cycles");
     for _i in 0..burnchain.pox_constants.reward_cycle_length {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         assert_latest_was_burn(&mut peer);
