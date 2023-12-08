@@ -807,10 +807,13 @@ name = "clar2wasm"
 version = "0.1.0"
 source = "git+https://github.com/stacks-network/clarity-wasm.git#120e37decb7952169e5e83b67bce1dea8a211d10"
 dependencies = [
+ "chrono",
  "clap 4.4.10",
  "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "lazy_static",
  "regex",
+ "rusqlite",
+ "sha2 0.10.8",
  "walrus",
  "wat",
 ]
