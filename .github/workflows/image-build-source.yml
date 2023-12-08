@@ -1,0 +1,65 @@
+## Github workflow to build a docker image from source
+
+name: Docker Image (Source)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+## Define which docker arch to build for
+env:
+  docker_platforms: linux/amd64
+  docker-org: blockstack
+
+concurrency:
+  group: docker-image-source-${{ github.head_ref || github.ref || github.run_id }}
+  ## Always cancel duplicate jobs
+  cancel-in-progress: true
+
+jobs:
+  ## Runs anytime `ci.yml` runs or when manually called
+  image:
+    name: Build Image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      ## Build a maximum of 2 images concurrently based on matrix.dist
+      max-parallel: 2
+      matrix:
+        dist:
+          - debian
+    steps:
+      ## Setup Docker for the builds
+      - name: Docker setup
+        uses: stacks-network/actions/docker@main
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      ## Set docker metatdata
+      - name: Docker Metadata ( ${{matrix.dist}} )
+        id: docker_metadata
+        uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 #v5.0.0
+        with:
+          images: |
+            ${{env.docker-org}}/${{ github.event.repository.name }}
+            ${{env.docker-org}}/stacks-blockchain
+          tags: |
+            type=raw,value=${{ env.BRANCH_NAME }}
+            type=ref,event=pr
+
+      ## Build docker image
+      - name: Build and Push ( ${{matrix.dist}} )
+        id: docker_build
+        uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
+        with:
+          file: ./.github/actions/dockerfiles/Dockerfile.${{matrix.dist}}-source
+          platforms: ${{ env.docker_platforms }}
+          tags: ${{ steps.docker_metadata.outputs.tags }}
+          labels: ${{ steps.docker_metadata.outputs.labels }}
+          build-args: |
+            REPO=${{ github.repository_owner }}/${{ github.event.repository.name }}
+            STACKS_NODE_VERSION=${{ env.GITHUB_SHA_SHORT }}
+            GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
+            GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
+          push: ${{ env.DOCKER_PUSH }}

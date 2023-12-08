@@ -54,7 +54,8 @@ stacks-common = { path = "../stacks-common" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
-wsts = "4.0.0"
+wsts = {workspace = true}
+rand_core = "0.6"
 p256k1 = "5.5.0"
 # clar2wasm = { package = "clar2wasm", path = "../../clar2wasm/." }
 clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git" }

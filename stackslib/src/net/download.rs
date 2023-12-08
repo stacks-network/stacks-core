@@ -351,7 +351,7 @@ impl BlockDownloader {
             match url.host() {
                 Some(url::Host::Domain(domain)) => {
                     match dns_client.queue_lookup(
-                        domain.clone(),
+                        domain,
                         port,
                         get_epoch_time_ms() + self.dns_timeout,
                     ) {
