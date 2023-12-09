@@ -17,17 +17,18 @@ use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::{
-    StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
+    CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
-use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
-use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
+use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
+use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
+use stacks::util_lib::db::Error as DBError;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
@@ -510,6 +511,26 @@ impl Config {
             Ok(self.burnchain.clone())
         }
     }
+
+    /// Connect to the MempoolDB using the configured cost estimation
+    pub fn connect_mempool_db(&self) -> Result<MemPoolDB, DBError> {
+        // create estimators, metric instances for RPC handler
+        let cost_estimator = self
+            .make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = self
+            .make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+
+        MemPoolDB::open(
+            self.is_mainnet(),
+            self.burnchain.chain_id,
+            &self.get_chainstate_path_str(),
+            cost_estimator,
+            metric,
+        )
+    }
+
     /// Apply any test settings to this burnchain config struct
     fn apply_test_settings(&self, burnchain: &mut Burnchain) {
         if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Mainnet {

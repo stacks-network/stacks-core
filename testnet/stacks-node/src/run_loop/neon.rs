@@ -31,7 +31,7 @@ use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
 use crate::burnchains::make_bitcoin_indexer;
-use crate::globals::Globals;
+use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::start_serving_monitoring_metrics;
 use crate::neon_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
 use crate::node::{

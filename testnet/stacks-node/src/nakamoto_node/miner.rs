@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -29,10 +29,7 @@ use stacks::chainstate::stacks::{
     TenureChangeCause, TenureChangePayload, ThresholdSignature, TransactionAnchorMode,
     TransactionPayload, TransactionVersion,
 };
-use stacks::core::mempool::MemPoolDB;
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::cost_estimates::metrics::UnitMetric;
-use stacks::cost_estimates::UnitEstimator;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::Hash160;
@@ -40,11 +37,11 @@ use stacks_common::util::vrf::VRFProof;
 
 use super::relayer::RelayerThread;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
-use crate::globals::Globals;
 use crate::mockamoto::signer::SelfSigner;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
+use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
+use crate::{neon_node, ChainTip};
 
 pub enum MinerDirective {
     /// The miner won sortition so they should begin a new tenure
@@ -161,7 +158,7 @@ impl BlockMinerThread {
         mut block: NakamotoBlock,
     ) -> Result<(), ChainstateError> {
         signer.sign_nakamoto_block(&mut block);
-        let mut chain_state = super::open_chainstate_with_faults(&self.config)
+        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let chainstate_config = chain_state.config();
         let sort_db = SortitionDB::open(
@@ -365,19 +362,9 @@ impl BlockMinerThread {
     /// Return None if we couldn't build a block for whatever reason.
     fn mine_block(&mut self) -> Option<NakamotoBlock> {
         debug!("block miner thread ID is {:?}", thread::current().id());
-        super::fault_injection_long_tenure();
+        neon_node::fault_injection_long_tenure();
 
         let burn_db_path = self.config.get_burn_db_file_path();
-        let stacks_chainstate_path = self.config.get_chainstate_path_str();
-
-        let cost_estimator = self
-            .config
-            .make_cost_estimator()
-            .unwrap_or_else(|| Box::new(UnitEstimator));
-        let metric = self
-            .config
-            .make_cost_metric()
-            .unwrap_or_else(|| Box::new(UnitMetric));
 
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
@@ -385,17 +372,13 @@ impl BlockMinerThread {
             SortitionDB::open(&burn_db_path, true, self.burnchain.pox_constants.clone())
                 .expect("FATAL: could not open sortition DB");
 
-        let mut chain_state = super::open_chainstate_with_faults(&self.config)
+        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
 
-        let mut mem_pool = MemPoolDB::open(
-            self.config.is_mainnet(),
-            self.config.burnchain.chain_id,
-            &stacks_chainstate_path,
-            cost_estimator,
-            metric,
-        )
-        .expect("Database failure opening mempool");
+        let mut mem_pool = self
+            .config
+            .connect_mempool_db()
+            .expect("Database failure opening mempool");
 
         let target_epoch_id =
             SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)
