@@ -2350,7 +2350,8 @@ impl BitcoinRPCRequest {
     pub fn send_raw_transaction(config: &Config, tx: String) -> RPCResult<()> {
         let payload = BitcoinRPCRequest {
             method: "sendrawtransaction".to_string(),
-            params: vec![tx.into()],
+            // set maxfee (as uncapped) and maxburncap (new in bitcoin 25)
+            params: vec![tx.into(), 0.into(), 1_000_000.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
