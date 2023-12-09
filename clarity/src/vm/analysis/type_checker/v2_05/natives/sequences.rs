@@ -25,6 +25,7 @@ use crate::vm::analysis::type_checker::v2_05::{
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::database::v2::ClarityDb;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
@@ -33,16 +34,19 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::{FunctionType, TypeSignature, Value, MAX_VALUE_SIZE};
 use crate::vm::ClarityVersion;
 
-fn get_simple_native_or_user_define(
+fn get_simple_native_or_user_define<DB>(
     function_name: &str,
-    checker: &mut TypeChecker,
-) -> CheckResult<FunctionType> {
+    checker: &mut TypeChecker<DB>,
+) -> CheckResult<FunctionType> 
+where
+    DB: ClarityDb
+{
     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
     if let Some(ref native_function) =
         NativeFunctions::lookup_by_name_at_version(function_name, &ClarityVersion::Clarity1)
     {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
-            TypedNativeFunction::type_native_function(native_function)
+            TypedNativeFunction::<DB>::type_native_function(native_function)
         {
             Ok(function_type)
         } else {
@@ -55,11 +59,14 @@ fn get_simple_native_or_user_define(
     }
 }
 
-pub fn check_special_map(
-    checker: &mut TypeChecker,
+pub fn check_special_map<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_arguments_at_least(2, args)?;
 
     let function_name = args[0]
@@ -111,11 +118,14 @@ pub fn check_special_map(
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
 
-pub fn check_special_filter(
-    checker: &mut TypeChecker,
+pub fn check_special_filter<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
 
     let function_name = args[0]
@@ -149,11 +159,14 @@ pub fn check_special_filter(
     Ok(argument_type)
 }
 
-pub fn check_special_fold(
-    checker: &mut TypeChecker,
+pub fn check_special_fold<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_argument_count(3, args)?;
 
     let function_name = args[0]
@@ -196,11 +209,14 @@ pub fn check_special_fold(
     Ok(return_type)
 }
 
-pub fn check_special_concat(
-    checker: &mut TypeChecker,
+pub fn check_special_concat<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
 
     let lhs_type = checker.type_check(&args[0], context)?;
@@ -257,11 +273,14 @@ pub fn check_special_concat(
     Ok(res)
 }
 
-pub fn check_special_append(
-    checker: &mut TypeChecker,
+pub fn check_special_append<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
@@ -289,11 +308,14 @@ pub fn check_special_append(
     }
 }
 
-pub fn check_special_as_max_len(
-    checker: &mut TypeChecker,
+pub fn check_special_as_max_len<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
 
     let expected_len = match args[1].expr {
@@ -342,11 +364,14 @@ pub fn check_special_as_max_len(
     }
 }
 
-pub fn check_special_len(
-    checker: &mut TypeChecker,
+pub fn check_special_len<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_argument_count(1, args)?;
 
     let collection_type = checker.type_check(&args[0], context)?;
@@ -360,11 +385,14 @@ pub fn check_special_len(
     Ok(TypeSignature::UIntType)
 }
 
-pub fn check_special_element_at(
-    checker: &mut TypeChecker,
+pub fn check_special_element_at<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
 
     let _index_type = checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
@@ -394,11 +422,14 @@ pub fn check_special_element_at(
     }
 }
 
-pub fn check_special_index_of(
-    checker: &mut TypeChecker,
+pub fn check_special_index_of<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;

@@ -15,6 +15,7 @@
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost};
+use crate::vm::database::v2::ClarityDb;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
 };
@@ -23,11 +24,14 @@ use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{TupleData, TypeSignature, Value};
 use crate::vm::{eval, Environment, LocalContext};
 
-pub fn tuple_cons(
+pub fn tuple_cons<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     //    (tuple (arg-name value)
     //           (arg-name value))
     use super::parse_eval_bindings;
@@ -40,11 +44,14 @@ pub fn tuple_cons(
     TupleData::from_data(bindings).map(Value::from)
 }
 
-pub fn tuple_get(
+pub fn tuple_get<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     // (get arg-name (tuple ...))
     //    if the tuple argument is an option type, then return option(field-name).
     check_argument_count(2, args)?;

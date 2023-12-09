@@ -26,6 +26,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
+use crate::vm::database::v2::ClarityDb;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
@@ -95,11 +96,14 @@ fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> Stacks
     .unwrap()
 }
 
-pub fn special_principal_of(
+pub fn special_principal_of<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     // (principal-of? (..))
     // arg0 => (buff 33)
     check_argument_count(1, args)?;
@@ -132,11 +136,14 @@ pub fn special_principal_of(
     }
 }
 
-pub fn special_secp256k1_recover(
+pub fn special_secp256k1_recover<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     // (secp256k1-recover? (..))
     // arg0 => (buff 32), arg1 => (buff 65)
     check_argument_count(2, args)?;
@@ -174,11 +181,14 @@ pub fn special_secp256k1_recover(
     }
 }
 
-pub fn special_secp256k1_verify(
+pub fn special_secp256k1_verify<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     // (secp256k1-verify (..))
     // arg0 => (buff 32), arg1 => (buff 65), arg2 => (buff 33)
     check_argument_count(3, args)?;

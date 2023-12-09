@@ -27,7 +27,7 @@ use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::{TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::type_checker::SequenceSubtype;
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::{mem_type_check as mem_run_analysis, AnalysisDatabase};
+use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;

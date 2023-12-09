@@ -18,6 +18,8 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbUstx};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::representations::SymbolicExpression;
@@ -124,18 +126,24 @@ const ASSET_NAMES: &str =
                     (err u3))
                   (err u4))))";
 
-fn execute_transaction(
-    env: &mut OwnedEnvironment,
+fn execute_transaction<DB>(
+    env: &mut OwnedEnvironment<DB>,
     issuer: PrincipalData,
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
     args: &[SymbolicExpression],
-) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbStx + ClarityDbUstx
+{
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
 #[apply(test_epochs)]
-fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
+fn test_native_stx_ops(
+    epoch: StacksEpochId, 
+    mut env_factory: TopLevelMemoryEnvironmentGenerator
+) {
     let mut owned_env = env_factory.get_env(epoch);
     let contract = r#"(define-public (burn-stx (amount uint) (p principal)) (stx-burn? amount p))
                     (define-public (xfer-stx (amount uint) (p principal) (t principal)) (stx-transfer? amount p t))

@@ -21,7 +21,7 @@ use {assert_json_diff, serde_json};
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::{
-    mem_type_check, type_check, AnalysisDatabase, CheckError, ContractAnalysis,
+    mem_type_check, type_check, CheckError, ContractAnalysis,
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;

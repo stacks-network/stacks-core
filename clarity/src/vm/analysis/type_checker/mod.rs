@@ -25,8 +25,8 @@ use super::errors::{
     CheckErrors, CheckResult,
 };
 pub use super::types::{AnalysisPass, ContractAnalysis};
-use super::AnalysisDatabase;
 use crate::vm::costs::{analysis_typecheck_cost, CostTracker, LimitedCostTracker};
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature,
 };
@@ -57,13 +57,16 @@ impl FunctionType {
         }
     }
 
-    pub fn check_args_by_allowing_trait_cast(
+    pub fn check_args_by_allowing_trait_cast<DB>(
         &self,
-        db: &mut AnalysisDatabase,
+        db: &mut DB,
         func_args: &[Value],
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> CheckResult<TypeSignature> {
+    ) -> CheckResult<TypeSignature> 
+    where
+        DB: ClarityDbAnalysis
+    {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 self.check_args_by_allowing_trait_cast_2_05(db, func_args)

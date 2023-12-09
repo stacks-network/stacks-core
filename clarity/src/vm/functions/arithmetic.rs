@@ -21,6 +21,7 @@ use integer_sqrt::IntegerSquareRoot;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
+use crate::vm::database::v2::ClarityDb;
 use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::signatures::ListTypeData;
@@ -384,11 +385,14 @@ pub fn native_bitwise_not(a: Value) -> InterpreterResult<Value> {
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-fn special_geq_v1(
+fn special_geq_v1<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -398,11 +402,14 @@ fn special_geq_v1(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-fn special_geq_v2(
+fn special_geq_v2<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -412,11 +419,14 @@ fn special_geq_v2(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-pub fn special_geq(
+pub fn special_geq<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_geq_v2(args, env, context)
     } else {
@@ -427,11 +437,14 @@ pub fn special_geq(
 // This function is 'special', because it must access the context to determine
 // the clarity version.
 // 2.05 and earlier
-fn special_leq_v1(
+fn special_leq_v1<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -441,11 +454,14 @@ fn special_leq_v1(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-fn special_leq_v2(
+fn special_leq_v2<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -455,11 +471,14 @@ fn special_leq_v2(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-pub fn special_leq(
+pub fn special_leq<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_leq_v2(args, env, context)
     } else {
@@ -469,11 +488,14 @@ pub fn special_leq(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-fn special_greater_v1(
+fn special_greater_v1<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -483,11 +505,14 @@ fn special_greater_v1(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-fn special_greater_v2(
+fn special_greater_v2<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -497,11 +522,14 @@ fn special_greater_v2(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-pub fn special_greater(
+pub fn special_greater<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_greater_v2(args, env, context)
     } else {
@@ -511,11 +539,14 @@ pub fn special_greater(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-fn special_less_v1(
+fn special_less_v1<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -525,11 +556,14 @@ fn special_less_v1(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-fn special_less_v2(
+fn special_less_v2<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -539,11 +573,14 @@ fn special_less_v2(
 
 // This function is 'special', because it must access the context to determine
 // the clarity version.
-pub fn special_less(
+pub fn special_less<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> InterpreterResult<Value> 
+where
+    DB: ClarityDb
+{
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_less_v2(args, env, context)
     } else {

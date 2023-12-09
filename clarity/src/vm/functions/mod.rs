@@ -38,13 +38,24 @@ use crate::vm::types::{
 use crate::vm::Value::CallableContract;
 use crate::vm::{eval, is_reserved, Environment, LocalContext};
 
+use super::database::v2::{ClarityDb, ClarityDbAssets, ClarityDbMaps, ClarityDbVars, ClarityDbMicroblocks, TransactionalClarityDb, ClarityDbBlocks, ClarityDbStx, ClarityDbUstx};
+
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
-        pub fn $Name(
+        pub fn $Name<DB>(
             args: &[SymbolicExpression],
-            env: &mut Environment,
+            env: &mut Environment<DB>,
             context: &LocalContext,
-        ) -> Result<Value> {
+        ) -> Result<Value> 
+        where
+            DB: crate::vm::database::v2::TransactionalClarityDb 
+                + crate::vm::database::v2::ClarityDbMicroblocks
+                + crate::vm::database::v2::ClarityDbVars
+                + crate::vm::database::v2::ClarityDbMaps
+                + crate::vm::database::v2::ClarityDbAssets
+                + crate::vm::database::v2::ClarityDbStx
+                + crate::vm::database::v2::ClarityDbUstx
+        {
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")
@@ -69,6 +80,8 @@ macro_rules! switch_on_global_epoch {
 }
 
 use crate::vm::ClarityVersion;
+
+
 
 mod arithmetic;
 mod assets;
@@ -213,7 +226,20 @@ impl NativeFunctions {
 /// Returns a callable for the given native function if it exists in the provided
 ///   ClarityVersion
 ///
-pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option<CallableType> {
+pub fn lookup_reserved_functions<DB>(
+    name: &str, 
+    version: &ClarityVersion
+) -> Option<CallableType<DB>> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbAssets 
+        + ClarityDbVars 
+        + ClarityDbMaps 
+        + ClarityDbBlocks
+        + ClarityDbStx
+        + ClarityDbUstx
+{
     use crate::vm::callables::CallableType::{NativeFunction, NativeFunction205, SpecialFunction};
     use crate::vm::functions::NativeFunctions::*;
     if let Some(native_function) = NativeFunctions::lookup_by_name_at_version(name, version) {
@@ -574,7 +600,19 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
     }
 }
 
-fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
+fn native_eq<DB>(
+    args: Vec<Value>, 
+    env: &mut Environment<DB>
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -603,11 +641,20 @@ fn native_begin(mut args: Vec<Value>) -> Result<Value> {
     }
 }
 
-fn special_print(
+fn special_print<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     let input = eval(&args[0], env, context)?;
 
     runtime_cost(ClarityCostFunction::Print, env, input.size())?;
@@ -620,11 +667,14 @@ fn special_print(
     Ok(input)
 }
 
-fn special_if(
+fn special_if<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbStx
+{
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::If, env, 0)?;
@@ -642,11 +692,14 @@ fn special_if(
     }
 }
 
-fn special_asserts(
+fn special_asserts<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbStx
+{
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::Asserts, env, 0)?;
@@ -689,11 +742,14 @@ where
     Ok(())
 }
 
-pub fn parse_eval_bindings(
+pub fn parse_eval_bindings<DB>(
     bindings: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Vec<(ClarityName, Value)>> {
+) -> Result<Vec<(ClarityName, Value)>> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbStx
+{
     let mut result = Vec::new();
     handle_binding_list(bindings, |var_name, var_sexp| {
         eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
@@ -702,11 +758,20 @@ pub fn parse_eval_bindings(
     Ok(result)
 }
 
-fn special_let(
+fn special_let<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbAssets
+        + ClarityDbUstx
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1..n => body
@@ -724,7 +789,7 @@ fn special_let(
 
     finally_drop_memory!( env, memory_use; {
         handle_binding_list::<_, Error>(bindings, |binding_name, var_sexp| {
-            if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
+            if is_reserved::<DB>(binding_name, env.contract_context.get_clarity_version()) ||
                 env.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {
                     return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
@@ -755,11 +820,20 @@ fn special_let(
     })
 }
 
-fn special_as_contract(
+fn special_as_contract<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     // (as-contract (..))
     // arg0 => body
     check_argument_count(1, args)?;
@@ -782,11 +856,14 @@ fn special_as_contract(
     result
 }
 
-fn special_contract_of(
+fn special_contract_of<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     // (contract-of (..))
     // arg0 => trait
     check_argument_count(1, args)?;

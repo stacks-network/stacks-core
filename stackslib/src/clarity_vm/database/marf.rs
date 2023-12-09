@@ -62,7 +62,7 @@ where
         let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         marf_opts.external_blobs = true;
 
-        let mut marf: MARF<StacksBlockId> = if unconfirmed {
+        let mut marf: MARF<StacksBlockId, Conn> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path, marf_opts)
                 .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
         } else {

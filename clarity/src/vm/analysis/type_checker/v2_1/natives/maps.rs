@@ -22,15 +22,19 @@ use crate::vm::analysis::type_checker::v2_1::{
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::functions::tuples;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{PrincipalData, TypeSignature, Value};
 
-pub fn check_special_fetch_entry(
-    checker: &mut TypeChecker,
+pub fn check_special_fetch_entry<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
@@ -66,11 +70,14 @@ pub fn check_special_fetch_entry(
     }
 }
 
-pub fn check_special_delete_entry(
-    checker: &mut TypeChecker,
+pub fn check_special_delete_entry<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
@@ -99,11 +106,14 @@ pub fn check_special_delete_entry(
     }
 }
 
-fn check_set_or_insert_entry(
-    checker: &mut TypeChecker,
+fn check_set_or_insert_entry<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(3, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
@@ -145,18 +155,24 @@ fn check_set_or_insert_entry(
     }
 }
 
-pub fn check_special_set_entry(
-    checker: &mut TypeChecker,
+pub fn check_special_set_entry<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_set_or_insert_entry(checker, args, context)
 }
 
-pub fn check_special_insert_entry(
-    checker: &mut TypeChecker,
+pub fn check_special_insert_entry<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_set_or_insert_entry(checker, args, context)
 }

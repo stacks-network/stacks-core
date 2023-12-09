@@ -22,6 +22,7 @@ use std::iter::FromIterator;
 use stacks_common::types::StacksEpochId;
 
 use super::costs::CostOverflowingMath;
+use super::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbBlocks, ClarityDbUstx, ClarityDbAssets, ClarityDbVars, ClarityDbMaps};
 use super::types::signatures::CallableSubtype;
 use super::ClarityVersion;
 use crate::vm::analysis::errors::CheckErrors;
@@ -38,22 +39,25 @@ use crate::vm::types::{
 };
 use crate::vm::{eval, Environment, LocalContext, Value};
 
-type SpecialFunctionType =
-    dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>;
+type SpecialFunctionType<DB: ClarityDb> =
+    dyn Fn(&[SymbolicExpression], &mut Environment<DB>, &LocalContext) -> Result<Value>;
 
-pub enum CallableType {
+pub enum CallableType<DB> 
+where
+    DB: ClarityDb + 'static
+{
     UserFunction(DefinedFunction),
-    NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
+    NativeFunction(&'static str, NativeHandle<DB>, ClarityCostFunction),
     /// These native functions have a new method for calculating input size in 2.05
     /// If the global context's epoch is >= 2.05, the fn field is applied to obtain
     /// the input to the cost function.
     NativeFunction205(
         &'static str,
-        NativeHandle,
+        NativeHandle<DB>,
         ClarityCostFunction,
         &'static dyn Fn(&[Value]) -> Result<u64>,
     ),
-    SpecialFunction(&'static str, &'static SpecialFunctionType),
+    SpecialFunction(&'static str, &'static SpecialFunctionType<DB>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -76,15 +80,21 @@ pub struct DefinedFunction {
 /// This enum handles the actual invocation of the method
 /// implementing a native function. Each variant handles
 /// different expected number of arguments.
-pub enum NativeHandle {
+pub enum NativeHandle<DB> 
+where
+    DB: ClarityDb + 'static
+{
     SingleArg(&'static dyn Fn(Value) -> Result<Value>),
     DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
     MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>),
-    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> Result<Value>),
+    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment<DB>) -> Result<Value>),
 }
 
-impl NativeHandle {
-    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> Result<Value> {
+impl<DB> NativeHandle<DB> 
+where
+    DB: ClarityDb
+{
+    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment<DB>) -> Result<Value> {
         match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
@@ -141,7 +151,20 @@ impl DefinedFunction {
         }
     }
 
-    pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    pub fn execute_apply<DB>(
+        &self, 
+        args: &[Value], 
+        env: &mut Environment<DB>
+    ) -> Result<Value> 
+    where
+        DB: TransactionalClarityDb 
+            + ClarityDbMicroblocks 
+            + ClarityDbStx
+            + ClarityDbUstx
+            + ClarityDbAssets
+            + ClarityDbVars
+            + ClarityDbMaps
+    {
         runtime_cost(
             ClarityCostFunction::UserFunctionApplication,
             env,
@@ -332,7 +355,20 @@ impl DefinedFunction {
         self.define_type == DefineType::ReadOnly
     }
 
-    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    pub fn apply<DB>(
+        &self, 
+        args: &[Value], 
+        env: &mut Environment<DB>
+    ) -> Result<Value> 
+    where
+        DB: TransactionalClarityDb 
+            + ClarityDbMicroblocks 
+            + ClarityDbStx
+            + ClarityDbUstx
+            + ClarityDbAssets
+            + ClarityDbVars
+            + ClarityDbMaps
+    {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),
             DefineType::Public => env.execute_function_as_transaction(self, args, None),
@@ -372,7 +408,10 @@ impl DefinedFunction {
     }
 }
 
-impl CallableType {
+impl<DB> CallableType<DB> 
+where
+    DB: ClarityDb
+{
     pub fn get_identifier(&self) -> FunctionIdentifier {
         match self {
             CallableType::UserFunction(f) => f.get_identifier(),

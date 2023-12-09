@@ -20,17 +20,21 @@ use super::{no_type, FunctionType, TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost};
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, SequenceSubtype, TupleTypeSignature, TypeSignature,
     MAX_VALUE_SIZE,
 };
 
-pub fn check_special_get_owner(
-    checker: &mut TypeChecker,
+pub fn check_special_get_owner<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -54,11 +58,14 @@ pub fn check_special_get_owner(
     )))
 }
 
-pub fn check_special_get_balance(
-    checker: &mut TypeChecker,
+pub fn check_special_get_balance<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -75,11 +82,14 @@ pub fn check_special_get_balance(
     Ok(TypeSignature::UIntType)
 }
 
-pub fn check_special_mint_asset(
-    checker: &mut TypeChecker,
+pub fn check_special_mint_asset<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -106,11 +116,14 @@ pub fn check_special_mint_asset(
     ))))
 }
 
-pub fn check_special_mint_token(
-    checker: &mut TypeChecker,
+pub fn check_special_mint_token<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -133,11 +146,14 @@ pub fn check_special_mint_token(
     ))))
 }
 
-pub fn check_special_transfer_asset(
-    checker: &mut TypeChecker,
+pub fn check_special_transfer_asset<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(4, args)?;
 
     let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -165,11 +181,14 @@ pub fn check_special_transfer_asset(
     ))))
 }
 
-pub fn check_special_transfer_token(
-    checker: &mut TypeChecker,
+pub fn check_special_transfer_token<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(4, args)?;
 
     let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -193,11 +212,14 @@ pub fn check_special_transfer_token(
     ))))
 }
 
-pub fn check_special_stx_transfer(
-    checker: &mut TypeChecker,
+pub fn check_special_stx_transfer<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(3, args)?;
 
     let amount_type: TypeSignature = TypeSignature::UIntType;
@@ -216,11 +238,14 @@ pub fn check_special_stx_transfer(
     ))))
 }
 
-pub fn check_special_stx_transfer_memo(
-    checker: &mut TypeChecker,
+pub fn check_special_stx_transfer_memo<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(4, args)?;
 
     let amount_type: TypeSignature = TypeSignature::UIntType;
@@ -243,11 +268,14 @@ pub fn check_special_stx_transfer_memo(
     ))))
 }
 
-pub fn check_special_get_token_supply(
-    checker: &mut TypeChecker,
+pub fn check_special_get_token_supply<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -261,11 +289,14 @@ pub fn check_special_get_token_supply(
     Ok(TypeSignature::UIntType)
 }
 
-pub fn check_special_burn_asset(
-    checker: &mut TypeChecker,
+pub fn check_special_burn_asset<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -292,11 +323,14 @@ pub fn check_special_burn_asset(
     ))))
 }
 
-pub fn check_special_burn_token(
-    checker: &mut TypeChecker,
+pub fn check_special_burn_token<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;

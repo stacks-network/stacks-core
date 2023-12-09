@@ -9,6 +9,7 @@ use stacks_common::util::hash::hex_bytes;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
+use crate::vm::database::v2::ClarityDb;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors, Error,
     InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -44,7 +45,13 @@ fn version_matches_testnet(version: u8) -> bool {
 
 /// Returns true if `version` indicates an address type that matches the network we are "currently
 /// operating in", as indicated by the GlobalContext.
-fn version_matches_current_network(version: u8, global_context: &GlobalContext) -> bool {
+fn version_matches_current_network<DB>(
+    version: u8, 
+    global_context: &GlobalContext<DB>
+) -> bool 
+where
+    DB: ClarityDb
+{
     let context_is_mainnet = global_context.mainnet;
     let context_is_testnet = !global_context.mainnet;
 
@@ -53,11 +60,14 @@ fn version_matches_current_network(version: u8, global_context: &GlobalContext) 
         || (version_matches_testnet(version) && context_is_testnet)
 }
 
-pub fn special_is_standard(
+pub fn special_is_standard<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;
     let owner = eval(&args[0], env, context)?;
@@ -148,11 +158,14 @@ fn create_principal_value_error_response(
     .expect("FAIL: Failed to initialize (err ..) response")
 }
 
-pub fn special_principal_destruct(
+pub fn special_principal_destruct<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::PrincipalDestruct, env, 0)?;
 
@@ -181,11 +194,14 @@ pub fn special_principal_destruct(
     }))
 }
 
-pub fn special_principal_construct(
+pub fn special_principal_construct<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;
     runtime_cost(ClarityCostFunction::PrincipalConstruct, env, 0)?;

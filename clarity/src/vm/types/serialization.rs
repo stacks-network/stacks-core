@@ -1354,6 +1354,7 @@ pub mod tests {
 
     use super::super::*;
     use super::SerializationError;
+    use crate::vm::database::clarity_store::NullBackingStore;
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
     use crate::vm::errors::Error;
     use crate::vm::tests::test_clarity_versions;
@@ -2033,7 +2034,7 @@ pub mod tests {
             let serialized = input_val.serialize_to_hex();
 
             let result =
-                RollbackWrapper::deserialize_value(&serialized, good_type, &epoch).map(|x| x.value);
+                RollbackWrapper::<NullBackingStore>::deserialize_value(&serialized, good_type, &epoch).map(|x| x.value);
             if epoch < StacksEpochId::Epoch24 {
                 let error = result.unwrap_err();
                 assert!(matches!(error, SerializationError::DeserializeExpected(_)));
@@ -2044,7 +2045,7 @@ pub mod tests {
 
             for bad_type in bad_types.iter() {
                 eprintln!("Testing bad type: {}", bad_type);
-                let result = RollbackWrapper::deserialize_value(&serialized, bad_type, &epoch);
+                let result = RollbackWrapper::<NullBackingStore>::deserialize_value(&serialized, bad_type, &epoch);
                 let error = result.unwrap_err();
                 assert!(matches!(error, SerializationError::DeserializeExpected(_)));
             }

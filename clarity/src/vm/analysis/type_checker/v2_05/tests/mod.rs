@@ -21,7 +21,7 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_05::{TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::{mem_type_check, type_check, AnalysisDatabase};
+use crate::vm::analysis::{mem_type_check, type_check};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;

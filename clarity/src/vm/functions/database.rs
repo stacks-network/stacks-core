@@ -25,6 +25,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbVars, ClarityDbMaps, ClarityDbBlocks};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
     InterpreterResult as Result, RuntimeErrorType,
@@ -62,11 +63,14 @@ switch_on_global_epoch!(special_delete_entry(
     special_delete_entry_v205
 ));
 
-pub fn special_contract_call(
+pub fn special_contract_call<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_arguments_at_least(2, args)?;
 
     // the second part of the contract_call cost (i.e., the load contract cost)
@@ -222,11 +226,14 @@ pub fn special_contract_call(
     Ok(result)
 }
 
-pub fn special_fetch_variable_v200(
+pub fn special_fetch_variable_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     _context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbVars
+{
     check_argument_count(1, args)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
@@ -253,11 +260,14 @@ pub fn special_fetch_variable_v200(
 
 /// The Stacks v205 version of fetch_variable uses the actual stored size of the
 ///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_fetch_variable_v205(
+pub fn special_fetch_variable_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     _context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbVars
+{
     check_argument_count(1, args)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
@@ -286,11 +296,14 @@ pub fn special_fetch_variable_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_set_variable_v200(
+pub fn special_set_variable_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbVars
+{
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
@@ -326,11 +339,14 @@ pub fn special_set_variable_v200(
 
 /// The Stacks v205 version of set_variable uses the actual stored size of the
 ///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_set_variable_v205(
+pub fn special_set_variable_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbVars
+{
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
@@ -367,11 +383,14 @@ pub fn special_set_variable_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_fetch_entry_v200(
+pub fn special_fetch_entry_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+{
     check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
@@ -400,11 +419,14 @@ pub fn special_fetch_entry_v200(
 
 /// The Stacks v205 version of fetch_entry uses the actual stored size of the
 ///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_fetch_entry_v205(
+pub fn special_fetch_entry_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+{
     check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
@@ -435,11 +457,14 @@ pub fn special_fetch_entry_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_at_block(
+pub fn special_at_block<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
@@ -462,11 +487,14 @@ pub fn special_at_block(
     result
 }
 
-pub fn special_set_entry_v200(
+pub fn special_set_entry_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+{
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
@@ -505,11 +533,14 @@ pub fn special_set_entry_v200(
 
 /// The Stacks v205 version of set_entry uses the actual stored size of the
 ///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_set_entry_v205(
+pub fn special_set_entry_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+{
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
@@ -548,11 +579,14 @@ pub fn special_set_entry_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_insert_entry_v200(
+pub fn special_insert_entry_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+{
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
@@ -592,11 +626,14 @@ pub fn special_insert_entry_v200(
 
 /// The Stacks v205 version of insert_entry uses the actual stored size of the
 ///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_insert_entry_v205(
+pub fn special_insert_entry_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+{
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
@@ -635,11 +672,14 @@ pub fn special_insert_entry_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_delete_entry_v200(
+pub fn special_delete_entry_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+{
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
@@ -675,11 +715,14 @@ pub fn special_delete_entry_v200(
 
 /// The Stacks v205 version of delete_entry uses the actual stored size of the
 ///  value as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_delete_entry_v205(
+pub fn special_delete_entry_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+{
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
     }
@@ -716,11 +759,14 @@ pub fn special_delete_entry_v205(
     result.map(|data| data.value)
 }
 
-pub fn special_get_block_info(
+pub fn special_get_block_info<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb + ClarityDbBlocks
+{
     // (get-block-info? property-name block-height-int)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
@@ -749,18 +795,27 @@ pub fn special_get_block_info(
         _ => return Ok(Value::none()),
     };
 
-    let current_block_height = env.global_context.database.get_current_block_height();
+    let current_block_height = env
+        .global_context
+        .database
+        .get_current_block_height()?;
+
     if height_value >= current_block_height {
         return Ok(Value::none());
     }
 
     let result = match block_info_prop {
         BlockInfoProperty::Time => {
-            let block_time = env.global_context.database.get_block_time(height_value);
+            let block_time = env
+                .global_context
+                .database
+                .get_block_time(height_value)?;
+
             Value::UInt(block_time as u128)
         }
         BlockInfoProperty::VrfSeed => {
-            let vrf_seed = env.global_context.database.get_block_vrf_seed(height_value);
+            let vrf_seed = env.global_context.database.get_block_vrf_seed(height_value)?;
+
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vrf_seed.as_bytes().to_vec(),
             }))
@@ -769,7 +824,8 @@ pub fn special_get_block_info(
             let header_hash = env
                 .global_context
                 .database
-                .get_block_header_hash(height_value);
+                .get_block_header_hash(height_value)?;
+
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: header_hash.as_bytes().to_vec(),
             }))
@@ -778,7 +834,8 @@ pub fn special_get_block_info(
             let burnchain_header_hash = env
                 .global_context
                 .database
-                .get_burnchain_block_header_hash(height_value);
+                .get_burnchain_block_header_hash(height_value)?;
+
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: burnchain_header_hash.as_bytes().to_vec(),
             }))
@@ -787,32 +844,43 @@ pub fn special_get_block_info(
             let id_header_hash = env
                 .global_context
                 .database
-                .get_index_block_header_hash(height_value);
+                .get_index_block_header_hash(height_value)?;
+
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: id_header_hash.as_bytes().to_vec(),
             }))
         }
         BlockInfoProperty::MinerAddress => {
-            let miner_address = env.global_context.database.get_miner_address(height_value);
+            let miner_address = env
+                .global_context
+                .database
+                .get_miner_address(height_value)?;
+
             Value::from(miner_address)
         }
         BlockInfoProperty::MinerSpendWinner => {
             let winner_spend = env
                 .global_context
                 .database
-                .get_miner_spend_winner(height_value);
+                .get_miner_spend_winner(height_value)?;
+
             Value::UInt(winner_spend)
         }
         BlockInfoProperty::MinerSpendTotal => {
             let total_spend = env
                 .global_context
                 .database
-                .get_miner_spend_total(height_value);
+                .get_miner_spend_total(height_value)?;
+
             Value::UInt(total_spend)
         }
         BlockInfoProperty::BlockReward => {
             // this is already an optional
-            let block_reward_opt = env.global_context.database.get_block_reward(height_value);
+            let block_reward_opt = env
+                .global_context
+                .database
+                .get_block_reward(height_value)?;
+
             return Ok(match block_reward_opt {
                 Some(x) => Value::some(Value::UInt(x))?,
                 None => Value::none(),
@@ -833,11 +901,14 @@ pub fn special_get_block_info(
 /// - CheckErrors::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
 /// - CheckErrors::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
 /// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
-pub fn special_get_burn_block_info(
+pub fn special_get_burn_block_info<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbBlocks + ClarityDbMicroblocks
+{
     runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
 
     check_argument_count(2, args)?;
@@ -871,7 +942,7 @@ pub fn special_get_burn_block_info(
             let burnchain_header_hash_opt = env
                 .global_context
                 .database
-                .get_burnchain_block_header_hash_for_burnchain_height(height_value);
+                .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
 
             match burnchain_header_hash_opt {
                 Some(burnchain_header_hash) => {
@@ -886,7 +957,7 @@ pub fn special_get_burn_block_info(
             let pox_addrs_and_payout = env
                 .global_context
                 .database
-                .get_pox_payout_addrs_for_burnchain_height(height_value);
+                .get_pox_payout_addrs_for_burnchain_height(height_value)?;
 
             match pox_addrs_and_payout {
                 Some((addrs, payout)) => Ok(Value::some(Value::Tuple(

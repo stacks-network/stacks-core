@@ -21,6 +21,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType,
@@ -31,11 +32,14 @@ use crate::vm::types::TypeSignature::BoolType;
 use crate::vm::types::{CharType, ListData, SequenceData, TypeSignature, Value};
 use crate::vm::{apply, eval, lookup_function, CallableType, Environment, LocalContext};
 
-pub fn list_cons(
+pub fn list_cons<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     let eval_tried: Result<Vec<Value>> = args.iter().map(|x| eval(x, env, context)).collect();
     let args = eval_tried?;
 
@@ -49,11 +53,14 @@ pub fn list_cons(
     Value::cons_list(args, env.epoch())
 }
 
-pub fn special_filter(
+pub fn special_filter<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::Filter, env, 0)?;
@@ -80,11 +87,14 @@ pub fn special_filter(
     Ok(sequence)
 }
 
-pub fn special_fold(
+pub fn special_fold<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::Fold, env, 0)?;
@@ -113,11 +123,14 @@ pub fn special_fold(
     }
 }
 
-pub fn special_map(
+pub fn special_map<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_arguments_at_least(2, args)?;
 
     runtime_cost(ClarityCostFunction::Map, env, args.len())?;
@@ -171,11 +184,14 @@ pub fn special_map(
     Value::cons_list(mapped_results, env.epoch())
 }
 
-pub fn special_append(
+pub fn special_append<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_argument_count(2, args)?;
 
     let sequence = eval(&args[0], env, context)?;
@@ -219,11 +235,14 @@ pub fn special_append(
 
 switch_on_global_epoch!(special_concat(special_concat_v200, special_concat_v205));
 
-pub fn special_concat_v200(
+pub fn special_concat_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
@@ -245,11 +264,14 @@ pub fn special_concat_v200(
     Ok(wrapped_seq)
 }
 
-pub fn special_concat_v205(
+pub fn special_concat_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
@@ -274,11 +296,14 @@ pub fn special_concat_v205(
     Ok(wrapped_seq)
 }
 
-pub fn special_as_max_len(
+pub fn special_as_max_len<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_argument_count(2, args)?;
 
     let mut sequence = eval(&args[0], env, context)?;
@@ -352,11 +377,14 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
 }
 
 /// Executes the Clarity2 function `slice?`.
-pub fn special_slice(
+pub fn special_slice<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_argument_count(3, args)?;
 
     let seq = eval(&args[0], env, context)?;
@@ -402,11 +430,14 @@ pub fn special_slice(
     }
 }
 
-pub fn special_replace_at(
+pub fn special_replace_at<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_argument_count(3, args)?;
 
     let seq = eval(&args[0], env, context)?;

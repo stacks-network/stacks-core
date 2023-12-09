@@ -27,6 +27,10 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
 use super::EvalHook;
+use super::database::v2::{ClarityDb, ClarityDbAssets};
+use super::database::v2::microblocks::ClarityDbMicroblocks;
+use super::database::v2::stx::ClarityDbStx;
+use super::database::v2::ustx::ClarityDbUstx;
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
@@ -36,7 +40,7 @@ use crate::vm::costs::{
     ExecutionCost, LimitedCostTracker,
 };
 use crate::vm::database::{
-    ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
+    DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
@@ -51,6 +55,7 @@ use crate::vm::types::{
 };
 use crate::vm::version::ClarityVersion;
 use crate::vm::{ast, eval, is_reserved, stx_transfer_consolidated};
+use super::database::v2::{vars::ClarityDbVars, maps::ClarityDbMaps, transactional::TransactionalClarityDb};
 
 pub const MAX_CONTEXT_DEPTH: u16 = 256;
 
@@ -65,8 +70,11 @@ pub const MAX_CONTEXT_DEPTH: u16 = 256;
 ///   these different contexts can be mixed and matched (i.e., in a contract-call, you change
 ///   contract context), a single "invocation" will end up creating multiple environment
 ///   objects as context changes occur.
-pub struct Environment<'a, 'b, 'hooks> {
-    pub global_context: &'a mut GlobalContext<'b, 'hooks>,
+pub struct Environment<'a, 'b, DB> 
+where
+    DB: ClarityDb
+{
+    pub global_context: &'a mut GlobalContext<'b, DB>,
     pub contract_context: &'a ContractContext,
     pub call_stack: &'a mut CallStack,
     pub sender: Option<PrincipalData>,
@@ -74,8 +82,11 @@ pub struct Environment<'a, 'b, 'hooks> {
     pub sponsor: Option<PrincipalData>,
 }
 
-pub struct OwnedEnvironment<'a, 'hooks> {
-    context: GlobalContext<'a, 'hooks>,
+pub struct OwnedEnvironment<'a, DB> 
+where
+    DB: ClarityDb
+{
+    context: GlobalContext<'a, DB>,
     call_stack: CallStack,
 }
 
@@ -192,10 +203,13 @@ pub struct EventBatch {
      and is responsible for committing/rolling-back transactions as they error or
      abort.
 */
-pub struct GlobalContext<'a, 'hooks> {
+pub struct GlobalContext<'a, DB> 
+where
+    DB: ClarityDb
+{
     asset_maps: Vec<AssetMap>,
     pub event_batches: Vec<EventBatch>,
-    pub database: ClarityDatabase<'a>,
+    pub database: DB,
     read_only: Vec<bool>,
     pub cost_track: LimitedCostTracker,
     pub mainnet: bool,
@@ -203,7 +217,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub epoch_id: StacksEpochId,
     /// This is the chain ID of the transaction
     pub chain_id: u32,
-    pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
+    pub eval_hooks: Option<Vec<&'a mut dyn EvalHook>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -538,9 +552,18 @@ impl EventBatch {
     }
 }
 
-impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
+impl<'a, DB> OwnedEnvironment<'a, DB> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     #[cfg(any(test, feature = "testing"))]
-    pub fn new(database: ClarityDatabase<'a>, epoch: StacksEpochId) -> OwnedEnvironment<'a, '_> {
+    pub fn new(database: DB, epoch: StacksEpochId) -> OwnedEnvironment<'a, DB> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 false,
@@ -554,17 +577,17 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, '_> {
+    pub fn new_toplevel(mut database: DB) -> Result<OwnedEnvironment<'a, DB>> {
         database.begin();
-        let epoch = database.get_clarity_epoch_version();
+        let epoch = database.get_clarity_epoch_version()?;
         let version = ClarityVersion::default_for_epoch(epoch);
-        database.roll_back();
+        database.rollback();
 
         debug!(
             "Begin OwnedEnvironment(epoch = {}, version = {})",
             &epoch, &version
         );
-        OwnedEnvironment {
+        Ok(OwnedEnvironment {
             context: GlobalContext::new(
                 false,
                 CHAIN_ID_TESTNET,
@@ -573,16 +596,20 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 epoch,
             ),
             call_stack: CallStack::new(),
-        }
+        })
     }
 
     #[cfg(any(test, feature = "testing"))]
     pub fn new_max_limit(
-        mut database: ClarityDatabase<'a>,
+        mut database: DB,
         epoch: StacksEpochId,
         use_mainnet: bool,
-    ) -> OwnedEnvironment<'a, '_> {
+    ) -> OwnedEnvironment<'a, DB> 
+    where
+        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps
+    {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
+
         let cost_track = LimitedCostTracker::new_max_limit(&mut database, epoch, use_mainnet)
             .expect("FAIL: problem instantiating cost tracking");
         let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
@@ -596,9 +623,9 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn new_free(
         mainnet: bool,
         chain_id: u32,
-        database: ClarityDatabase<'a>,
+        database: DB,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, '_> {
+    ) -> OwnedEnvironment<'a, DB> {
         OwnedEnvironment {
             context: GlobalContext::new(
                 mainnet,
@@ -614,10 +641,10 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn new_cost_limited(
         mainnet: bool,
         chain_id: u32,
-        database: ClarityDatabase<'a>,
+        database: DB,
         cost_tracker: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> OwnedEnvironment<'a, '_> {
+    ) -> OwnedEnvironment<'a, DB> {
         OwnedEnvironment {
             context: GlobalContext::new(mainnet, chain_id, database, cost_tracker, epoch_id),
             call_stack: CallStack::new(),
@@ -629,7 +656,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
         context: &'b mut ContractContext,
-    ) -> Environment<'b, 'a, 'hooks> {
+    ) -> Environment<'b, 'a, DB> {
         Environment::new(
             &mut self.context,
             context,
@@ -649,7 +676,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
         E: From<crate::vm::errors::Error>,
-        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
+        F: FnOnce(&mut Environment<DB>) -> std::result::Result<A, E>,
     {
         assert!(self.context.is_top_level());
         self.begin();
@@ -778,7 +805,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 let mut snapshot = env
                     .global_context
                     .database
-                    .get_stx_balance_snapshot(recipient);
+                    .get_stx_balance_snapshot(recipient)?;
 
                 snapshot.credit(amount);
                 snapshot.save();
@@ -850,11 +877,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     /// Destroys this environment, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
-    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
+    pub fn destruct(self) -> Option<(DB, LimitedCostTracker)> {
         self.context.destruct()
     }
 
-    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
+    pub fn add_eval_hook(&mut self, hook: &mut dyn EvalHook) {
         if let Some(mut hooks) = self.context.eval_hooks.take() {
             hooks.push(hook);
             self.context.eval_hooks = Some(hooks);
@@ -864,7 +891,10 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 }
 
-impl CostTracker for Environment<'_, '_, '_> {
+impl<DB> CostTracker for Environment<'_, '_, DB> 
+where
+    DB: ClarityDb
+{
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -898,7 +928,10 @@ impl CostTracker for Environment<'_, '_, '_> {
     }
 }
 
-impl CostTracker for GlobalContext<'_, '_> {
+impl<DB> CostTracker for GlobalContext<'_, DB> 
+where
+    DB: ClarityDb
+{
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -930,20 +963,32 @@ impl CostTracker for GlobalContext<'_, '_> {
     }
 }
 
-impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
+impl<'a, 'b, DB> Environment<'a, 'b, DB> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbAssets
+        + ClarityDbUstx
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     /// Returns an Environment value & checks the types of the contract sender, caller, and sponsor
     ///
     /// # Panics
     /// Panics if the Value types for sender (Principal), caller (Principal), or sponsor
     /// (Optional Principal) are incorrect.
     pub fn new(
-        global_context: &'a mut GlobalContext<'b, 'hooks>,
-        contract_context: &'a ContractContext,
-        call_stack: &'a mut CallStack,
+        global_context: &mut GlobalContext<DB>,
+        contract_context: &ContractContext,
+        call_stack: &mut CallStack,
         sender: Option<PrincipalData>,
         caller: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-    ) -> Environment<'a, 'b, 'hooks> {
+    ) -> Environment<'a, 'b, DB>
+    where
+        DB: ClarityDb
+    {
         Environment {
             global_context,
             contract_context,
@@ -958,7 +1003,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     pub fn nest_as_principal<'c>(
         &'c mut self,
         sender: PrincipalData,
-    ) -> Environment<'c, 'b, 'hooks> {
+    ) -> Environment<'c, 'b, DB> {
         Environment::new(
             self.global_context,
             self.contract_context,
@@ -972,7 +1017,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     pub fn nest_with_caller<'c>(
         &'c mut self,
         caller: PrincipalData,
-    ) -> Environment<'c, 'b, 'hooks> {
+    ) -> Environment<'c, 'b, DB> {
         Environment::new(
             self.global_context,
             self.contract_context,
@@ -1075,7 +1120,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     ///  has been evaluated and assessed, the contract-call! itself is executed "for free".
     pub fn run_free<F, A>(&mut self, to_run: F) -> A
     where
-        F: FnOnce(&mut Environment) -> A,
+        F: FnOnce(&mut Environment<DB>) -> A,
     {
         let original_tracker = replace(
             &mut self.global_context.cost_track,
@@ -1184,7 +1229,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
             match res {
                 Ok(value) => {
-                    if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
+                    if let Some(handler) = self.global_context.database.get_cc_special_cases_handler()? {
                         handler(
                             self.global_context,
                             self.sender.as_ref(),
@@ -1312,7 +1357,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             if self
                 .global_context
                 .database
-                .has_contract(&contract_identifier)
+                .has_contract(&contract_identifier)?
             {
                 return Err(
                     CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into(),
@@ -1571,15 +1616,24 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     }
 }
 
-impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
+impl<'a, DB> GlobalContext<'a, DB> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     // Instantiate a new Global Context
     pub fn new(
         mainnet: bool,
         chain_id: u32,
-        database: ClarityDatabase<'a>,
+        database: DB,
         cost_track: LimitedCostTracker,
         epoch_id: StacksEpochId,
-    ) -> GlobalContext {
+    ) -> GlobalContext<'a, DB> {
         GlobalContext {
             database,
             cost_track,
@@ -1666,7 +1720,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     ) -> std::result::Result<A, E>
     where
         E: From<crate::vm::errors::Error>,
-        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
+        F: FnOnce(&mut Environment<DB>) -> std::result::Result<A, E>,
     {
         self.begin();
 
@@ -1727,7 +1781,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         let out_map = match self.asset_maps.last_mut() {
             Some(tail_back) => {
                 if let Err(e) = tail_back.commit_other(asset_map) {
-                    self.database.roll_back();
+                    self.database.rollback();
                     return Err(e);
                 }
                 None
@@ -1755,7 +1809,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         let popped = self.event_batches.pop();
         assert!(popped.is_some());
 
-        self.database.roll_back();
+        self.database.rollback();
     }
 
     pub fn handle_tx_result(&mut self, result: Result<Value>) -> Result<Value> {
@@ -1782,7 +1836,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     /// Destroys this context, returning ownership of its database reference.
     ///  If the context wasn't top-level (i.e., it had uncommitted data), return None,
     ///   because the database is not guaranteed to be in a sane state.
-    pub fn destruct(self) -> Option<(ClarityDatabase<'a>, LimitedCostTracker)> {
+    pub fn destruct(self) -> Option<(DB, LimitedCostTracker)> {
         if self.is_top_level() {
             Some((self.database, self.cost_track))
         } else {
@@ -1831,8 +1885,17 @@ impl ContractContext {
         self.implemented_traits.contains(trait_identifier)
     }
 
-    pub fn is_name_used(&self, name: &str) -> bool {
-        is_reserved(name, self.get_clarity_version())
+    pub fn is_name_used<DB>(&self, name: &str) -> bool 
+    where
+        DB: TransactionalClarityDb 
+            + ClarityDbMicroblocks 
+            + ClarityDbStx
+            + ClarityDbUstx
+            + ClarityDbAssets
+            + ClarityDbVars
+            + ClarityDbMaps
+    {
+        is_reserved::<DB>(name, self.get_clarity_version())
             || self.variables.contains_key(name)
             || self.functions.contains_key(name)
             || self.persisted_names.contains(name)

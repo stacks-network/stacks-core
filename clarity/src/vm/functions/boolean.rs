@@ -17,6 +17,7 @@
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost};
+use crate::vm::database::v2::ClarityDb;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
 };
@@ -31,11 +32,14 @@ fn type_force_bool(value: &Value) -> Result<bool> {
     }
 }
 
-pub fn special_or(
+pub fn special_or<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_arguments_at_least(1, args)?;
 
     runtime_cost(ClarityCostFunction::Or, env, args.len())?;
@@ -51,11 +55,14 @@ pub fn special_or(
     Ok(Value::Bool(false))
 }
 
-pub fn special_and(
+pub fn special_and<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_arguments_at_least(1, args)?;
 
     runtime_cost(ClarityCostFunction::And, env, args.len())?;

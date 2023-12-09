@@ -64,6 +64,8 @@ pub enum InterpreterError {
     InsufficientBalance,
     CostContractLoadFailure,
     DBError(String),
+    FailedToLoadClarityKey(String),
+    FailedToStoreClarityKey(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected

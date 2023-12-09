@@ -27,6 +27,8 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::version::ClarityVersion;
 use crate::vm::{apply, eval_all, Value};
 
+use super::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbAssets, ClarityDbStx, ClarityDbUstx, ClarityDbVars, ClarityDbMaps};
+
 #[derive(Serialize, Deserialize)]
 pub struct Contract {
     pub contract_context: ContractContext,
@@ -35,13 +37,22 @@ pub struct Contract {
 // AARON: this is an increasingly useless wrapper around a ContractContext struct.
 //          will probably be removed soon.
 impl Contract {
-    pub fn initialize_from_ast(
+    pub fn initialize_from_ast<DB>(
         contract_identifier: QualifiedContractIdentifier,
         contract: &ContractAST,
         sponsor: Option<PrincipalData>,
-        global_context: &mut GlobalContext,
+        global_context: &mut GlobalContext<DB>,
         version: ClarityVersion,
-    ) -> Result<Contract> {
+    ) -> Result<Contract> 
+    where
+        DB: TransactionalClarityDb 
+            + ClarityDbMicroblocks
+            + ClarityDbAssets
+            + ClarityDbStx
+            + ClarityDbUstx
+            + ClarityDbVars
+            + ClarityDbMaps
+    {
         let mut contract_context = ContractContext::new(contract_identifier, version);
 
         eval_all(

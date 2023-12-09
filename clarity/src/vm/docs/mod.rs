@@ -2644,7 +2644,7 @@ mod test {
     use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
     use crate::vm::database::{
-        BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
+        BurnStateDB, HeadersDB, MemoryBackingStore, STXBalance,
     };
     use crate::vm::docs::get_output_type_string;
     use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};

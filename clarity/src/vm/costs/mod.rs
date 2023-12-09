@@ -28,7 +28,6 @@ use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::database::clarity_store::NullBackingStore;
-use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{Error, InterpreterResult};
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::{FunctionSignature, TupleTypeSignature};
@@ -38,6 +37,11 @@ use crate::vm::types::{
     TypeSignature, NONE,
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
+
+use super::database::v2::{ClarityDb, transactional::TransactionalClarityDb};
+use super::database::v2::blocks::ClarityDbBlocks;
+use super::database::v2::maps::ClarityDbMaps;
+use super::database::v2::vars::ClarityDbVars;
 
 pub mod constants;
 pub mod cost_functions;
@@ -324,10 +328,16 @@ pub enum CostErrors {
     CostContractLoadFailure,
 }
 
-fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
+fn load_state_summary<DB>(
+    mainnet: bool, 
+    clarity_db: &mut DB
+) -> Result<CostStateSummary> 
+where
+    DB: ClarityDb
+{
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
 
-    let clarity_epoch = clarity_db.get_clarity_epoch_version();
+    let clarity_epoch = clarity_db.get_clarity_epoch_version()?;
     let last_processed_at = match clarity_db.get_value(
         "vm-costs::last-processed-at-height",
         &TypeSignature::UIntType,
@@ -352,14 +362,17 @@ fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result
     Ok(CostStateSummary::from(serialized))
 }
 
-fn store_state_summary(
+fn store_state_summary<DB>(
     mainnet: bool,
-    clarity_db: &mut ClarityDatabase,
+    clarity_db: &mut DB,
     to_store: &CostStateSummary,
-) -> Result<()> {
-    let block_height = clarity_db.get_current_block_height();
+) -> Result<()> 
+where
+    DB: ClarityDb + ClarityDbBlocks
+{
+    let block_height = clarity_db.get_current_block_height()?;
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
-    let epoch = clarity_db.get_clarity_epoch_version();
+    let epoch = clarity_db.get_clarity_epoch_version()?;
     clarity_db
         .put_value(
             "vm-costs::last-processed-at-height",
@@ -374,7 +387,7 @@ fn store_state_summary(
         &cost_voting_contract,
         "::state_summary",
         &serialized_summary,
-    );
+    )?;
 
     Ok(())
 }
@@ -389,12 +402,16 @@ fn store_state_summary(
 ///   which would need to be applied. if `false`, just load the last computed cost state in this
 ///   fork.
 ///
-fn load_cost_functions(
+fn load_cost_functions<DB>(
     mainnet: bool,
-    clarity_db: &mut ClarityDatabase,
+    clarity_db: &mut DB,
     apply_updates: bool,
-) -> Result<CostStateSummary> {
-    let clarity_epoch = clarity_db.get_clarity_epoch_version();
+) -> Result<CostStateSummary> 
+where
+    DB: ClarityDb + ClarityDbVars + ClarityDbMaps + ClarityDbBlocks
+{
+    let clarity_epoch = clarity_db.get_clarity_epoch_version()?;
+
     let last_processed_count = clarity_db
         .get_value(
             "vm-costs::last_processed_count",
@@ -405,7 +422,9 @@ fn load_cost_functions(
         .map(|result| result.value)
         .unwrap_or(Value::UInt(0))
         .expect_u128();
+
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
+
     let confirmed_proposals_count = clarity_db
         .lookup_variable_unknown_descriptor(
             &cost_voting_contract,
@@ -414,6 +433,7 @@ fn load_cost_functions(
         )
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
         .expect_u128();
+
     debug!("Check cost voting contract";
            "confirmed_proposal_count" => confirmed_proposals_count,
            "last_processed_count" => last_processed_count);
@@ -421,6 +441,7 @@ fn load_cost_functions(
     // we need to process any confirmed proposals in the range [fetch-start, fetch-end)
     let (fetch_start, fetch_end) = (last_processed_count, confirmed_proposals_count);
     let mut state_summary = load_state_summary(mainnet, clarity_db)?;
+
     if !apply_updates {
         return Ok(state_summary);
     }
@@ -507,7 +528,7 @@ fn load_cost_functions(
         // make sure the contract is "cost contract eligible" via the
         //  arithmetic-checking analysis pass
         let (cost_func_ref, cost_func_type) = match clarity_db
-            .load_contract_analysis(&cost_contract)
+            .load_contract_analysis(&cost_contract)?
         {
             Some(c) => {
                 if !c.is_cost_contract_eligible {
@@ -589,7 +610,7 @@ fn load_cost_functions(
                 .insert(target, cost_func_ref);
         } else {
             // referring to a user-defined function
-            match clarity_db.load_contract_analysis(&target_contract) {
+            match clarity_db.load_contract_analysis(&target_contract)? {
                 Some(c) => {
                     if let Some(Fixed(tf)) = c.read_only_function_types.get(&target_function) {
                         if cost_func_type.args.len() != tf.args.len() {
@@ -645,13 +666,16 @@ fn load_cost_functions(
 }
 
 impl LimitedCostTracker {
-    pub fn new(
+    pub fn new<DB>(
         mainnet: bool,
         chain_id: u32,
         limit: ExecutionCost,
-        clarity_db: &mut ClarityDatabase,
+        clarity_db: &mut DB,
         epoch: StacksEpochId,
-    ) -> Result<LimitedCostTracker> {
+    ) -> Result<LimitedCostTracker> 
+    where
+        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps
+    {
         let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
@@ -669,13 +693,16 @@ impl LimitedCostTracker {
         Ok(Self::Limited(cost_tracker))
     }
 
-    pub fn new_mid_block(
+    pub fn new_mid_block<DB>(
         mainnet: bool,
         chain_id: u32,
         limit: ExecutionCost,
-        clarity_db: &mut ClarityDatabase,
+        clarity_db: &mut DB,
         epoch: StacksEpochId,
-    ) -> Result<LimitedCostTracker> {
+    ) -> Result<LimitedCostTracker> 
+    where
+        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps
+    {
         let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
@@ -693,11 +720,14 @@ impl LimitedCostTracker {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_max_limit(
-        clarity_db: &mut ClarityDatabase,
+    pub fn new_max_limit<DB>(
+        clarity_db: &mut DB,
         epoch: StacksEpochId,
         use_mainnet: bool,
-    ) -> Result<LimitedCostTracker> {
+    ) -> Result<LimitedCostTracker> 
+    where
+        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps
+    {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
         let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
         assert!(clarity_db.is_stack_empty());
@@ -735,9 +765,16 @@ impl TrackerData {
     /// `apply_updates` - tells this function to look for any changes in the cost voting contract
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
-    fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
+    fn load_costs<DB>(
+        &mut self, 
+        clarity_db: &mut DB, 
+        apply_updates: bool
+    ) -> Result<()> 
+    where
+        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps + ClarityDbBlocks
+    {
         clarity_db.begin();
-        let epoch_id = clarity_db.get_clarity_epoch_version();
+        let epoch_id = clarity_db.get_clarity_epoch_version()?;
         let boot_costs_id = boot_code_id(
             &LimitedCostTracker::default_cost_contract_for_epoch(epoch_id),
             self.mainnet,
@@ -747,7 +784,7 @@ impl TrackerData {
             contract_call_circuits,
             mut cost_function_references,
         } = load_cost_functions(self.mainnet, clarity_db, apply_updates).map_err(|e| {
-            clarity_db.roll_back();
+            clarity_db.rollback();
             e
         })?;
 
@@ -767,7 +804,7 @@ impl TrackerData {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
                                "error" => ?e);
-                        clarity_db.roll_back();
+                        clarity_db.rollback();
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
@@ -785,7 +822,7 @@ impl TrackerData {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %boot_costs_id.to_string(),
                                "error" => %format!("{:?}", e));
-                        clarity_db.roll_back();
+                        clarity_db.rollback();
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
@@ -799,7 +836,7 @@ impl TrackerData {
         if apply_updates {
             clarity_db.commit();
         } else {
-            clarity_db.roll_back();
+            clarity_db.rollback();
         }
 
         Ok(())
@@ -895,11 +932,11 @@ fn compute_cost(
     let mainnet = cost_tracker.mainnet;
     let chain_id = cost_tracker.chain_id;
     let mut null_store = NullBackingStore::new();
-    let conn = null_store.as_clarity_db();
+    //let conn = null_store.as_clarity_db();
     let mut global_context = GlobalContext::new(
         mainnet,
         chain_id,
-        conn,
+        null_store,
         LimitedCostTracker::new_free(),
         eval_in_epoch,
     );

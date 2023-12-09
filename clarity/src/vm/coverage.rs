@@ -4,6 +4,7 @@ use std::io::Write;
 
 use serde_json::Value as JsonValue;
 
+use super::database::v2::ClarityDb;
 use super::functions::define::DefineFunctionsParsed;
 use super::EvalHook;
 use crate::vm::types::QualifiedContractIdentifier;
@@ -229,22 +230,28 @@ impl CoverageReporter {
 }
 
 impl EvalHook for CoverageReporter {
-    fn will_begin_eval(
+    fn will_begin_eval<DB>(
         &mut self,
-        env: &mut crate::vm::contexts::Environment,
+        env: &mut crate::vm::contexts::Environment<DB>,
         _context: &crate::vm::contexts::LocalContext,
         expr: &SymbolicExpression,
-    ) {
+    ) 
+    where
+        DB: ClarityDb
+    {
         self.report_eval(expr, &env.contract_context.contract_identifier);
     }
 
-    fn did_finish_eval(
+    fn did_finish_eval<DB>(
         &mut self,
-        _env: &mut crate::vm::Environment,
+        _env: &mut crate::vm::Environment<DB>,
         _context: &crate::vm::LocalContext,
         _expr: &SymbolicExpression,
         _res: &core::result::Result<crate::vm::Value, crate::vm::errors::Error>,
-    ) {
+    ) 
+    where
+        DB: ClarityDb
+    {
     }
 
     fn did_complete(

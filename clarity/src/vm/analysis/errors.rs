@@ -186,6 +186,8 @@ pub enum CheckErrors {
 
     WriteAttemptedInReadOnly,
     AtBlockClosureMustBeReadOnly,
+
+    InvalidEpochVersion(String),
 }
 
 #[derive(Debug, PartialEq)]

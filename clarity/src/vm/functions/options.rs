@@ -17,6 +17,7 @@
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, MemoryConsumer};
+use crate::vm::database::v2::ClarityDb;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType, ShortReturnType,
@@ -103,13 +104,16 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
     }
 }
 
-fn eval_with_new_binding(
+fn eval_with_new_binding<DB>(
     body: &SymbolicExpression,
     bind_name: ClarityName,
     bind_value: Value,
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     let mut inner_context = context.extend()?;
     if vm::is_reserved(&bind_name, env.contract_context.get_clarity_version())
         || env.contract_context.lookup_function(&bind_name).is_some()
@@ -140,12 +144,15 @@ fn eval_with_new_binding(
     result
 }
 
-fn special_match_opt(
+fn special_match_opt<DB>(
     input: OptionalData,
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     if args.len() != 3 {
         Err(CheckErrors::BadMatchOptionSyntax(Box::new(
             CheckErrors::IncorrectArgumentCount(4, args.len() + 1),
@@ -165,12 +172,15 @@ fn special_match_opt(
     }
 }
 
-fn special_match_resp(
+fn special_match_resp<DB>(
     input: ResponseData,
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     if args.len() != 4 {
         Err(CheckErrors::BadMatchResponseSyntax(Box::new(
             CheckErrors::IncorrectArgumentCount(5, args.len() + 1),
@@ -195,11 +205,14 @@ fn special_match_resp(
     }
 }
 
-pub fn special_match(
+pub fn special_match<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb
+{
     check_arguments_at_least(1, args)?;
 
     let input = vm::eval(&args[0], env, context)?;

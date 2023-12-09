@@ -22,6 +22,8 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::Environment;
+use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::v2::{ClarityDb, ClarityDbMicroblocks, TransactionalClarityDb, ClarityDbStx, ClarityDbUstx, ClarityDbAssets, ClarityDbVars, ClarityDbMaps};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::tests::{
     env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
@@ -244,7 +246,19 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
     }
 }
 
-fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalData>) {
+fn tx_sponsor_contract_asserts<DB>(
+    env: &mut Environment<DB>, 
+    sponsor: Option<PrincipalData>
+) 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     let sponsor = match sponsor {
         None => Value::none(),
         Some(p) => Value::some(Value::Principal(p)).unwrap(),

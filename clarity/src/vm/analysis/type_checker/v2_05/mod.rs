@@ -30,13 +30,14 @@ use super::{AnalysisPass, ContractAnalysis};
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
 };
+use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::analysis::ClarityDbAnalysis;
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
@@ -70,15 +71,21 @@ Is illegally typed in our language.
 
 */
 
-pub struct TypeChecker<'a, 'b> {
+pub struct TypeChecker<'a, DB> 
+where
+    DB: ClarityDb
+{
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a mut AnalysisDatabase<'b>,
+    db: &'a mut DB,
     pub cost_track: LimitedCostTracker,
 }
 
-impl CostTracker for TypeChecker<'_, '_> {
+impl<DB> CostTracker for TypeChecker<'_, DB> 
+where
+    DB: ClarityDb
+{
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -110,11 +117,14 @@ impl CostTracker for TypeChecker<'_, '_> {
     }
 }
 
-impl AnalysisPass for TypeChecker<'_, '_> {
+impl<DB> AnalysisPass for TypeChecker<'_, DB> 
+where
+    DB: ClarityDbAnalysis
+{
     fn run_pass(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
-        analysis_db: &mut AnalysisDatabase,
+        analysis_db: &mut DB,
     ) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(analysis_db, cost_track);
@@ -240,11 +250,14 @@ impl FunctionType {
         }
     }
 
-    pub fn check_args_by_allowing_trait_cast_2_05(
+    pub fn check_args_by_allowing_trait_cast_2_05<DB>(
         &self,
-        db: &mut AnalysisDatabase,
+        db: &mut DB,
         func_args: &[Value],
-    ) -> CheckResult<TypeSignature> {
+    ) -> CheckResult<TypeSignature> 
+    where
+        DB: ClarityDbAnalysis
+    {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
             _ => panic!("Unexpected function type"),
@@ -331,11 +344,14 @@ pub fn no_type() -> TypeSignature {
     TypeSignature::NoType
 }
 
-impl<'a, 'b> TypeChecker<'a, 'b> {
+impl<'a, DB> TypeChecker<'a, DB> 
+where
+    DB: ClarityDbAnalysis
+{
     fn new(
-        db: &'a mut AnalysisDatabase<'b>,
+        db: &'a mut DB,
         cost_track: LimitedCostTracker,
-    ) -> TypeChecker<'a, 'b> {
+    ) -> TypeChecker<'a, DB> {
         Self {
             db,
             cost_track,

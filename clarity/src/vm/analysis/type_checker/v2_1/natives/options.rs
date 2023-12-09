@@ -23,16 +23,20 @@ use super::{
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::TypeSignature;
 use crate::vm::ClarityVersion;
 
-pub fn check_special_okay(
-    checker: &mut TypeChecker,
+pub fn check_special_okay<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
@@ -42,11 +46,14 @@ pub fn check_special_okay(
     Ok(resp_type)
 }
 
-pub fn check_special_some(
-    checker: &mut TypeChecker,
+pub fn check_special_some<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
@@ -56,11 +63,14 @@ pub fn check_special_some(
     Ok(resp_type)
 }
 
-pub fn check_special_error(
-    checker: &mut TypeChecker,
+pub fn check_special_error<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
@@ -70,11 +80,14 @@ pub fn check_special_error(
     Ok(resp_type)
 }
 
-pub fn check_special_is_response(
-    checker: &mut TypeChecker,
+pub fn check_special_is_response<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -88,11 +101,14 @@ pub fn check_special_is_response(
     }
 }
 
-pub fn check_special_is_optional(
-    checker: &mut TypeChecker,
+pub fn check_special_is_optional<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -106,11 +122,14 @@ pub fn check_special_is_optional(
     }
 }
 
-pub fn check_special_default_to(
-    checker: &mut TypeChecker,
+pub fn check_special_default_to<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     let default = checker.type_check(&args[0], context)?;
@@ -127,11 +146,14 @@ pub fn check_special_default_to(
     }
 }
 
-pub fn check_special_asserts(
-    checker: &mut TypeChecker,
+pub fn check_special_asserts<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
@@ -142,7 +164,13 @@ pub fn check_special_asserts(
     Ok(TypeSignature::BoolType)
 }
 
-fn inner_unwrap(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
+fn inner_unwrap<DB>(
+    input: TypeSignature, 
+    checker: &mut TypeChecker<DB>
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     match input {
@@ -165,7 +193,13 @@ fn inner_unwrap(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
     }
 }
 
-fn inner_unwrap_err(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
+fn inner_unwrap_err<DB>(
+    input: TypeSignature, 
+    checker: &mut TypeChecker<DB>
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::ResponseType(response_type) = input {
@@ -180,11 +214,14 @@ fn inner_unwrap_err(input: TypeSignature, checker: &mut TypeChecker) -> TypeResu
     }
 }
 
-pub fn check_special_unwrap_or_ret(
-    checker: &mut TypeChecker,
+pub fn check_special_unwrap_or_ret<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -195,11 +232,14 @@ pub fn check_special_unwrap_or_ret(
     inner_unwrap(input, checker)
 }
 
-pub fn check_special_unwrap_err_or_ret(
-    checker: &mut TypeChecker,
+pub fn check_special_unwrap_err_or_ret<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -210,11 +250,14 @@ pub fn check_special_unwrap_err_or_ret(
     inner_unwrap_err(input, checker)
 }
 
-pub fn check_special_try_ret(
-    checker: &mut TypeChecker,
+pub fn check_special_try_ret<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -248,11 +291,14 @@ pub fn check_special_try_ret(
     }
 }
 
-pub fn check_special_unwrap(
-    checker: &mut TypeChecker,
+pub fn check_special_unwrap<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -260,11 +306,14 @@ pub fn check_special_unwrap(
     inner_unwrap(input, checker)
 }
 
-pub fn check_special_unwrap_err(
-    checker: &mut TypeChecker,
+pub fn check_special_unwrap_err<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -272,13 +321,16 @@ pub fn check_special_unwrap_err(
     inner_unwrap_err(input, checker)
 }
 
-fn eval_with_new_binding(
+fn eval_with_new_binding<DB>(
     body: &SymbolicExpression,
     bind_name: ClarityName,
     bind_type: TypeSignature,
-    checker: &mut TypeChecker,
+    checker: &mut TypeChecker<DB>,
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     let mut inner_context = context.extend()?;
 
     runtime_cost(
@@ -298,12 +350,15 @@ fn eval_with_new_binding(
     checker.type_check(body, &inner_context)
 }
 
-fn check_special_match_opt(
+fn check_special_match_opt<DB>(
     option_type: TypeSignature,
-    checker: &mut TypeChecker,
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     if args.len() != 3 {
         Err(CheckErrors::BadMatchOptionSyntax(Box::new(
             CheckErrors::IncorrectArgumentCount(4, args.len() + 1),
@@ -335,12 +390,15 @@ fn check_special_match_opt(
     .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
 }
 
-fn check_special_match_resp(
+fn check_special_match_resp<DB>(
     resp_type: (TypeSignature, TypeSignature),
-    checker: &mut TypeChecker,
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     if args.len() != 4 {
         Err(CheckErrors::BadMatchResponseSyntax(Box::new(
             CheckErrors::IncorrectArgumentCount(5, args.len() + 1),
@@ -374,11 +432,14 @@ fn check_special_match_resp(
         .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())
 }
 
-pub fn check_special_match(
-    checker: &mut TypeChecker,
+pub fn check_special_match<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;

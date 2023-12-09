@@ -20,7 +20,8 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
-use crate::vm::database::{ClarityDatabase, ClaritySerializable, STXBalance};
+use crate::vm::database::v2::{ClarityDb, ClarityDbStx, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbUstx, ClarityDbAssets};
+use crate::vm::database::{ClaritySerializable, STXBalance};
 use crate::vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
@@ -91,11 +92,14 @@ switch_on_global_epoch!(special_burn_asset(
     special_burn_asset_v205
 ));
 
-pub fn special_stx_balance(
+pub fn special_stx_balance<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb + ClarityDbStx
+{
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::StxBalance, env, 0)?;
@@ -107,8 +111,8 @@ pub fn special_stx_balance(
             let mut snapshot = env
                 .global_context
                 .database
-                .get_stx_balance_snapshot(principal);
-            snapshot.get_available_balance()
+                .get_stx_balance_snapshot(principal)?;
+            snapshot.get_available_balance()?
         };
         Ok(Value::UInt(balance))
     } else {
@@ -119,13 +123,16 @@ pub fn special_stx_balance(
 /// Do a "consolidated" STX transfer.
 /// If the 'from' principal has locked STX, and they have unlocked, then process the STX unlock
 /// and update its balance in addition to spending tokens out of it.
-pub fn stx_transfer_consolidated(
-    env: &mut Environment,
+pub fn stx_transfer_consolidated<DB>(
+    env: &mut Environment<DB>,
     from: &PrincipalData,
     to: &PrincipalData,
     amount: u128,
     memo: &BuffData,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbStx + ClarityDbMicroblocks
+{
     if amount == 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
     }
@@ -147,8 +154,10 @@ pub fn stx_transfer_consolidated(
     env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
     env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
-    let mut sender_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
-    if !sender_snapshot.can_transfer(amount) {
+    let mut sender_snapshot = env
+        .global_context.database.get_stx_balance_snapshot(from)?;
+
+    if !sender_snapshot.can_transfer(amount)? {
         return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
     }
 
@@ -159,11 +168,14 @@ pub fn stx_transfer_consolidated(
     Ok(Value::okay_true())
 }
 
-pub fn special_stx_transfer(
+pub fn special_stx_transfer<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbStx + ClarityDbMicroblocks
+{
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
@@ -186,11 +198,14 @@ pub fn special_stx_transfer(
     }
 }
 
-pub fn special_stx_transfer_memo(
+pub fn special_stx_transfer_memo<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbStx + ClarityDbMicroblocks
+{
     check_argument_count(4, args)?;
     runtime_cost(ClarityCostFunction::StxTransferMemo, env, 0)?;
 
@@ -212,11 +227,14 @@ pub fn special_stx_transfer_memo(
     }
 }
 
-pub fn special_stx_account(
+pub fn special_stx_account<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb + ClarityDbStx
+{
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::StxGetAccount, env, 0)?;
@@ -231,11 +249,11 @@ pub fn special_stx_account(
     let stx_balance = env
         .global_context
         .database
-        .get_stx_balance_snapshot(&principal)
-        .canonical_balance_repr();
-    let v1_unlock_ht = env.global_context.database.get_v1_unlock_height();
-    let v2_unlock_ht = env.global_context.database.get_v2_unlock_height();
-    let v3_unlock_ht = env.global_context.database.get_v3_unlock_height();
+        .get_stx_balance_snapshot(&principal)?
+        .canonical_balance_repr()?;
+    let v1_unlock_ht = env.global_context.database.get_v1_unlock_height()?;
+    let v2_unlock_ht = env.global_context.database.get_v2_unlock_height()?;
+    let v3_unlock_ht = env.global_context.database.get_v3_unlock_height()?;
 
     TupleData::from_data(vec![
         (
@@ -258,11 +276,14 @@ pub fn special_stx_account(
     .map(Value::Tuple)
 }
 
-pub fn special_stx_burn(
+pub fn special_stx_burn<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbStx + ClarityDbUstx + ClarityDbMicroblocks
+{
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::StxTransfer, env, 0)?;
@@ -282,8 +303,8 @@ pub fn special_stx_burn(
         env.add_memory(TypeSignature::PrincipalType.size() as u64)?;
         env.add_memory(STXBalance::unlocked_and_v1_size as u64)?;
 
-        let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(from);
-        if !burner_snapshot.can_transfer(amount) {
+        let mut burner_snapshot = env.global_context.database.get_stx_balance_snapshot(from)?;
+        if !burner_snapshot.can_transfer(amount)? {
             return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
         }
 
@@ -303,11 +324,14 @@ pub fn special_stx_burn(
     }
 }
 
-pub fn special_mint_token(
+pub fn special_mint_token<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+{
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::FtMint, env, 0)?;
@@ -366,11 +390,14 @@ pub fn special_mint_token(
     }
 }
 
-pub fn special_mint_asset_v200(
+pub fn special_mint_asset_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbAssets
+{
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -434,11 +461,14 @@ pub fn special_mint_asset_v200(
 
 /// The Stacks v205 version of mint_asset uses the actual stored size of the
 ///  asset as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_mint_asset_v205(
+pub fn special_mint_asset_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+{
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -497,11 +527,14 @@ pub fn special_mint_asset_v205(
     }
 }
 
-pub fn special_transfer_asset_v200(
+pub fn special_transfer_asset_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbAssets
+{
     check_argument_count(4, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -588,11 +621,14 @@ pub fn special_transfer_asset_v200(
 
 /// The Stacks v205 version of transfer_asset uses the actual stored size of the
 ///  asset as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_transfer_asset_v205(
+pub fn special_transfer_asset_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+{
     check_argument_count(4, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -674,11 +710,14 @@ pub fn special_transfer_asset_v205(
     }
 }
 
-pub fn special_transfer_token(
+pub fn special_transfer_token<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+{
     check_argument_count(4, args)?;
 
     runtime_cost(ClarityCostFunction::FtTransfer, env, 0)?;
@@ -775,11 +814,14 @@ pub fn special_transfer_token(
     }
 }
 
-pub fn special_get_balance(
+pub fn special_get_balance<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb + ClarityDbAssets
+{
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::FtBalance, env, 0)?;
@@ -807,11 +849,14 @@ pub fn special_get_balance(
     }
 }
 
-pub fn special_get_owner_v200(
+pub fn special_get_owner_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+{
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -852,11 +897,14 @@ pub fn special_get_owner_v200(
 
 /// The Stacks v205 version of get_owner uses the actual stored size of the
 ///  asset as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_get_owner_v205(
+pub fn special_get_owner_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+{
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -892,11 +940,14 @@ pub fn special_get_owner_v205(
     }
 }
 
-pub fn special_get_token_supply(
+pub fn special_get_token_supply<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     _context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: ClarityDb + ClarityDbAssets
+{
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::FtSupply, env, 0)?;
@@ -910,11 +961,14 @@ pub fn special_get_token_supply(
     Ok(Value::UInt(supply))
 }
 
-pub fn special_burn_token(
+pub fn special_burn_token<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+{
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::FtBurn, env, 0)?;
@@ -977,11 +1031,14 @@ pub fn special_burn_token(
     }
 }
 
-pub fn special_burn_asset_v200(
+pub fn special_burn_asset_v200<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbAssets
+{
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
@@ -1059,11 +1116,14 @@ pub fn special_burn_asset_v200(
 
 /// The Stacks v205 version of burn_asset uses the actual stored size of the
 ///  asset as input to the cost tabulation. Otherwise identical to v200.
-pub fn special_burn_asset_v205(
+pub fn special_burn_asset_v205<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbAssets
+{
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;

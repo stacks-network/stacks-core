@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType,
@@ -119,11 +120,14 @@ fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<
     }
 }
 
-fn handle_define_variable(
+fn handle_define_variable<DB>(
     variable: &ClarityName,
     expression: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    env: &mut Environment<DB>,
+) -> Result<DefineResult> 
+where
+    DB: ClarityDb
+{
     // is the variable name legal?
     check_legal_define(variable, env.contract_context)?;
     let context = LocalContext::new();
@@ -131,12 +135,15 @@ fn handle_define_variable(
     Ok(DefineResult::Variable(variable.clone(), value))
 }
 
-fn handle_define_function(
+fn handle_define_function<DB>(
     signature: &[SymbolicExpression],
     expression: &SymbolicExpression,
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     define_type: DefineType,
-) -> Result<DefineResult> {
+) -> Result<DefineResult> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     let (function_symbol, arg_symbols) = signature
         .split_first()
         .ok_or(CheckErrors::DefineFunctionBadSignature)?;
@@ -164,12 +171,15 @@ fn handle_define_function(
     Ok(DefineResult::Function(function_name.clone(), function))
 }
 
-fn handle_define_persisted_variable(
+fn handle_define_persisted_variable<DB>(
     variable_str: &ClarityName,
     value_type: &SymbolicExpression,
     value: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    env: &mut Environment<DB>,
+) -> Result<DefineResult> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_legal_define(variable_str, env.contract_context)?;
 
     let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
@@ -184,11 +194,14 @@ fn handle_define_persisted_variable(
     ))
 }
 
-fn handle_define_nonfungible_asset(
+fn handle_define_nonfungible_asset<DB>(
     asset_name: &ClarityName,
     key_type: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    env: &mut Environment<DB>,
+) -> Result<DefineResult> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_legal_define(asset_name, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
@@ -199,11 +212,14 @@ fn handle_define_nonfungible_asset(
     ))
 }
 
-fn handle_define_fungible_token(
+fn handle_define_fungible_token<DB>(
     asset_name: &ClarityName,
     total_supply: Option<&SymbolicExpression>,
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    env: &mut Environment<DB>,
+) -> Result<DefineResult> 
+where
+    DB: ClarityDb
+{
     check_legal_define(asset_name, env.contract_context)?;
 
     if let Some(total_supply_expr) = total_supply {
@@ -222,12 +238,15 @@ fn handle_define_fungible_token(
     }
 }
 
-fn handle_define_map(
+fn handle_define_map<DB>(
     map_str: &ClarityName,
     key_type: &SymbolicExpression,
     value_type: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    env: &mut Environment<DB>,
+) -> Result<DefineResult> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_legal_define(map_str, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
@@ -240,11 +259,14 @@ fn handle_define_map(
     ))
 }
 
-fn handle_define_trait(
+fn handle_define_trait<DB>(
     name: &ClarityName,
     functions: &[SymbolicExpression],
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    env: &mut Environment<DB>,
+) -> Result<DefineResult> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_legal_define(name, env.contract_context)?;
 
     let trait_signature = TypeSignature::parse_trait_type_repr(
@@ -405,10 +427,13 @@ impl<'a> DefineFunctionsParsed<'a> {
     }
 }
 
-pub fn evaluate_define(
+pub fn evaluate_define<DB>(
     expression: &SymbolicExpression,
-    env: &mut Environment,
-) -> Result<DefineResult> {
+    env: &mut Environment<DB>,
+) -> Result<DefineResult> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
         match define_type {
             DefineFunctionsParsed::Constant { name, value } => {

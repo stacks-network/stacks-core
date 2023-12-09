@@ -24,6 +24,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::SpecialCaseHandler;
+use super::v2::ClarityDb;
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::vm::database::clarity_store::make_contract_hash_key;
 use crate::vm::errors::InterpreterResult;
@@ -117,9 +118,12 @@ pub struct RollbackContext {
     metadata_edits: Vec<((QualifiedContractIdentifier, String), RollbackValueCheck)>,
 }
 
-pub struct RollbackWrapper<'a> {
+pub struct RollbackWrapper<'a, DB> 
+where
+    DB: ClarityDb
+{
     // the underlying key-value storage.
-    store: &'a mut dyn ClarityBackingStore,
+    store: &'a mut DB,
     // lookup_map is a history of edits for a given key.
     //   in order of least-recent to most-recent at the tail.
     //   this allows ~ O(1) lookups, and ~ O(1) commits, roll-backs (amortized by # of PUTs).
@@ -146,8 +150,11 @@ pub struct RollbackWrapperPersistedLog {
     stack: Vec<RollbackContext>,
 }
 
-impl From<RollbackWrapper<'_>> for RollbackWrapperPersistedLog {
-    fn from(o: RollbackWrapper<'_>) -> RollbackWrapperPersistedLog {
+impl<DB> From<RollbackWrapper<'_, DB>> for RollbackWrapperPersistedLog 
+where
+    DB: ClarityDb
+{
+    fn from(o: RollbackWrapper<DB>) -> RollbackWrapperPersistedLog {
         RollbackWrapperPersistedLog {
             lookup_map: o.lookup_map,
             metadata_lookup_map: o.metadata_lookup_map,
@@ -202,8 +209,11 @@ where
     popped_value
 }
 
-impl<'a> RollbackWrapper<'a> {
-    pub fn new(store: &'a mut dyn ClarityBackingStore) -> RollbackWrapper {
+impl<'a, DB> RollbackWrapper<'a, DB> 
+where
+    DB: ClarityDb
+{
+    pub fn new(store: &impl ClarityBackingStore<DB>) -> RollbackWrapper<DB> {
         RollbackWrapper {
             store,
             lookup_map: HashMap::new(),
@@ -214,9 +224,9 @@ impl<'a> RollbackWrapper<'a> {
     }
 
     pub fn from_persisted_log(
-        store: &'a mut dyn ClarityBackingStore,
+        store: &impl ClarityBackingStore<DB>,
         log: RollbackWrapperPersistedLog,
-    ) -> RollbackWrapper {
+    ) -> RollbackWrapper<DB> {
         RollbackWrapper {
             store,
             lookup_map: log.lookup_map,
@@ -226,7 +236,7 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
-    pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
+    pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler<DB>> {
         self.store.get_cc_special_cases_handler()
     }
 
@@ -311,7 +321,10 @@ fn inner_put<T>(
     key_edit_deque.push(value);
 }
 
-impl<'a> RollbackWrapper<'a> {
+impl<'a, DB> RollbackWrapper<'a, DB> 
+where
+    DB: ClarityDb
+{
     pub fn put(&mut self, key: &str, value: &str) {
         let current = self
             .stack
@@ -335,15 +348,16 @@ impl<'a> RollbackWrapper<'a> {
         &mut self,
         bhh: StacksBlockId,
         query_pending_data: bool,
-    ) -> InterpreterResult<StacksBlockId> {
-        self.store.set_block_hash(bhh).map(|x| {
-            // use and_then so that query_pending_data is only set once set_block_hash succeeds
-            //  this doesn't matter in practice, because a set_block_hash failure always aborts
-            //  the transaction with a runtime error (destroying its environment), but it's much
-            //  better practice to do this, especially if the abort behavior changes in the future.
-            self.query_pending_data = query_pending_data;
-            x
-        })
+    ) -> InterpreterResult<InterpreterResult<StacksBlockId>> {
+        self.store.set_block_hash(bhh, query_pending_data)?
+            .map(|x| {
+                // use and_then so that query_pending_data is only set once set_block_hash succeeds
+                //  this doesn't matter in practice, because a set_block_hash failure always aborts
+                //  the transaction with a runtime error (destroying its environment), but it's much
+                //  better practice to do this, especially if the abort behavior changes in the future.
+                self.query_pending_data = query_pending_data;
+                x
+            })
     }
 
     /// this function will only return commitment proofs for values _already_ materialized

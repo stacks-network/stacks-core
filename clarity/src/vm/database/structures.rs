@@ -22,13 +22,16 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::contracts::Contract;
-use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::types::{
     OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
+
+use super::v2::ClarityDb;
+use super::v2::blocks::ClarityDbBlocks;
+use super::v2::utils::make_key_for_account_balance;
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
@@ -155,11 +158,14 @@ pub enum STXBalance {
 
 /// Lifetime-limited handle to an uncommitted balance structure.
 /// All balance mutations (debits, credits, locks, unlocks) must go through this structure.
-pub struct STXBalanceSnapshot<'db, 'conn> {
+pub struct STXBalanceSnapshot<'conn, DB> 
+where
+    DB: ClarityDb + ClarityDbBlocks
+{
     principal: PrincipalData,
     balance: STXBalance,
     burn_block_height: u64,
-    db_ref: &'conn mut ClarityDatabase<'db>,
+    db_ref: &'conn mut DB,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -339,13 +345,16 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
     }
 }
 
-impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
+impl<'conn, DB> STXBalanceSnapshot<'conn, DB> 
+where
+    DB: ClarityDb + ClarityDbBlocks
+{
     pub fn new(
         principal: &PrincipalData,
         balance: STXBalance,
         burn_height: u64,
-        db_ref: &'conn mut ClarityDatabase<'db>,
-    ) -> STXBalanceSnapshot<'db, 'conn> {
+        db_ref: &'conn mut DB,
+    ) -> STXBalanceSnapshot<'conn, DB> {
         STXBalanceSnapshot {
             principal: principal.clone(),
             balance,
@@ -358,20 +367,20 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         &self.balance
     }
 
-    pub fn save(self) {
-        let key = ClarityDatabase::make_key_for_account_balance(&self.principal);
+    pub fn save(self) -> Result<()> {
+        let key = make_key_for_account_balance(&self.principal);
         self.db_ref.put(&key, &self.balance)
     }
 
     pub fn transfer_to(mut self, recipient: &PrincipalData, amount: u128) -> Result<()> {
-        if !self.can_transfer(amount) {
+        if !self.can_transfer(amount)? {
             return Err(InterpreterError::InsufficientBalance.into());
         }
 
-        let recipient_key = ClarityDatabase::make_key_for_account_balance(recipient);
+        let recipient_key = make_key_for_account_balance(recipient);
         let mut recipient_balance = self
             .db_ref
-            .get(&recipient_key)
+            .get(&recipient_key)?
             .unwrap_or(STXBalance::zero());
 
         recipient_balance
@@ -384,71 +393,87 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         Ok(())
     }
 
-    pub fn get_available_balance(&mut self) -> u128 {
-        let v1_unlock_height = self.db_ref.get_v1_unlock_height();
-        let v2_unlock_height = self.db_ref.get_v2_unlock_height();
-        let v3_unlock_height = self.db_ref.get_v3_unlock_height();
-        self.balance.get_available_balance_at_burn_block(
+    pub fn get_available_balance(&mut self) -> Result<u128> {
+        let v1_unlock_height = self.db_ref.get_v1_unlock_height()?;
+        let v2_unlock_height = self.db_ref.get_v2_unlock_height()?;
+        let v3_unlock_height = self.db_ref.get_v3_unlock_height()?;
+
+        let balance = self.balance.get_available_balance_at_burn_block(
             self.burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
-        )
+        );
+
+        Ok(balance)
     }
 
-    pub fn canonical_balance_repr(&mut self) -> STXBalance {
-        let v1_unlock_height = self.db_ref.get_v1_unlock_height();
-        let v2_unlock_height = self.db_ref.get_v2_unlock_height();
-        let v3_unlock_height = self.db_ref.get_v3_unlock_height();
-        self.balance
+    pub fn canonical_balance_repr(&mut self) -> Result<STXBalance> {
+        let v1_unlock_height = self.db_ref.get_v1_unlock_height()?;
+        let v2_unlock_height = self.db_ref.get_v2_unlock_height()?;
+        let v3_unlock_height = self.db_ref.get_v3_unlock_height()?;
+
+        let balance = self.balance
             .canonical_repr_at_block(
                 self.burn_block_height,
                 v1_unlock_height,
                 v2_unlock_height,
                 v3_unlock_height,
             )
-            .0
+            .0;
+
+        Ok(balance)
     }
 
-    pub fn has_locked_tokens(&mut self) -> bool {
-        let v1_unlock_height = self.db_ref.get_v1_unlock_height();
-        let v2_unlock_height = self.db_ref.get_v2_unlock_height();
-        let v3_unlock_height = self.db_ref.get_v3_unlock_height();
-        self.balance.has_locked_tokens_at_burn_block(
+    pub fn has_locked_tokens(&mut self) -> Result<bool> {
+        let v1_unlock_height = self.db_ref.get_v1_unlock_height()?;
+        let v2_unlock_height = self.db_ref.get_v2_unlock_height()?;
+        let v3_unlock_height = self.db_ref.get_v3_unlock_height()?;
+
+        let result = self.balance.has_locked_tokens_at_burn_block(
             self.burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
-        )
+        );
+
+        Ok(result)
     }
 
-    pub fn has_unlockable_tokens(&mut self) -> bool {
-        let v1_unlock_height = self.db_ref.get_v1_unlock_height();
-        let v2_unlock_height = self.db_ref.get_v2_unlock_height();
-        let v3_unlock_height = self.db_ref.get_v3_unlock_height();
-        self.balance.has_unlockable_tokens_at_burn_block(
+    pub fn has_unlockable_tokens(&mut self) -> Result<bool> {
+        let v1_unlock_height = self.db_ref.get_v1_unlock_height()?;
+        let v2_unlock_height = self.db_ref.get_v2_unlock_height()?;
+        let v3_unlock_height = self.db_ref.get_v3_unlock_height()?;
+
+        let result = self.balance.has_unlockable_tokens_at_burn_block(
             self.burn_block_height,
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
+        );
+
+        Ok(result)
+    }
+
+    pub fn can_transfer(&mut self, amount: u128) -> Result<bool> {
+        Ok(
+            self.get_available_balance()? >= amount
         )
     }
 
-    pub fn can_transfer(&mut self, amount: u128) -> bool {
-        self.get_available_balance() >= amount
-    }
-
-    pub fn debit(&mut self, amount: u128) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn debit(&mut self, amount: u128) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after account-debit");
         }
 
-        self.balance.debit_unlocked_amount(amount)
+        self.balance.debit_unlocked_amount(amount);
+
+        Ok(())
     }
 
-    pub fn credit(&mut self, amount: u128) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn credit(&mut self, amount: u128) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after account-credit");
         }
@@ -456,14 +481,20 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         self.balance
             .checked_add_unlocked_amount(amount)
             .expect("STX balance overflow");
+
+        Ok(())
     }
 
     pub fn set_balance(&mut self, balance: STXBalance) {
         self.balance = balance;
     }
 
-    pub fn lock_tokens_v1(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn lock_tokens_v1(
+        &mut self, 
+        amount_to_lock: u128, 
+        unlock_burn_height: u64
+    ) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after account-token-lock");
         }
@@ -476,7 +507,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             panic!("FATAL: cannot set a lock with expired unlock burn height");
         }
 
-        if self.has_locked_tokens() {
+        if self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account already has locked tokens");
         }
@@ -495,33 +526,35 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: amount_to_lock,
             unlock_height: unlock_burn_height,
         };
+
+        Ok(())
     }
 
     ////////////// Pox-2 /////////////////
 
     /// Return true iff `self` represents a snapshot that has a lock
     ///  created by PoX v2.
-    pub fn is_v2_locked(&mut self) -> bool {
-        matches!(
-            self.canonical_balance_repr(),
+    pub fn is_v2_locked(&mut self) -> Result<bool> {
+        Ok(matches!(
+            self.canonical_balance_repr()?,
             STXBalance::LockedPoxTwo { .. }
-        )
+        ))
     }
 
     /// Increase the account's current lock to `new_total_locked`.
     /// Panics if `self` was not locked by V2 PoX.
-    pub fn increase_lock_v2(&mut self, new_total_locked: u128) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn increase_lock_v2(&mut self, new_total_locked: u128) -> Result<()>{
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after extend-token-lock");
         }
 
-        if !self.has_locked_tokens() {
+        if !self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account does not have locked tokens");
         }
 
-        if !self.is_v2_locked() {
+        if !self.is_v2_locked()? {
             // caller needs to have checked this
             panic!("FATAL: account must be locked by pox-2");
         }
@@ -545,18 +578,20 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: new_total_locked,
             unlock_height: self.balance.unlock_height(),
         };
+
+        Ok(())
     }
 
     /// Extend this account's current lock to `unlock_burn_height`.
     /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
     ///  because this method is only invoked as a result of PoX2 interactions
-    pub fn extend_lock_v2(&mut self, unlock_burn_height: u64) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn extend_lock_v2(&mut self, unlock_burn_height: u64) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after extend-token-lock");
         }
 
-        if !self.has_locked_tokens() {
+        if !self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account does not have locked tokens");
         }
@@ -571,13 +606,19 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: self.balance.amount_locked(),
             unlock_height: unlock_burn_height,
         };
+
+        Ok(())
     }
 
     /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
     /// After calling, this method will set the balance to a "LockedPoxTwo" balance,
     ///  because this method is only invoked as a result of PoX2 interactions
-    pub fn lock_tokens_v2(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn lock_tokens_v2(
+        &mut self, 
+        amount_to_lock: u128, 
+        unlock_burn_height: u64
+    ) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after account-token-lock");
         }
@@ -590,7 +631,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             panic!("FATAL: cannot set a lock with expired unlock burn height");
         }
 
-        if self.has_locked_tokens() {
+        if self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account already has locked tokens");
         }
@@ -609,6 +650,8 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: amount_to_lock,
             unlock_height: unlock_burn_height,
         };
+
+        Ok(())
     }
 
     //////////////// Pox-3 //////////////////
@@ -616,8 +659,12 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
     /// After calling, this method will set the balance to a "LockedPoxThree" balance,
     ///  because this method is only invoked as a result of PoX3 interactions
-    pub fn lock_tokens_v3(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn lock_tokens_v3(
+        &mut self, 
+        amount_to_lock: u128, 
+        unlock_burn_height: u64
+    ) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after account-token-lock");
         }
@@ -630,7 +677,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             panic!("FATAL: cannot set a lock with expired unlock burn height");
         }
 
-        if self.has_locked_tokens() {
+        if self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account already has locked tokens");
         }
@@ -649,18 +696,20 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: amount_to_lock,
             unlock_height: unlock_burn_height,
         };
+
+        Ok(())
     }
 
     /// Extend this account's current lock to `unlock_burn_height`.
     /// After calling, this method will set the balance to a "LockedPoxThree" balance,
     ///  because this method is only invoked as a result of PoX3 interactions
-    pub fn extend_lock_v3(&mut self, unlock_burn_height: u64) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn extend_lock_v3(&mut self, unlock_burn_height: u64) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after extend-token-lock");
         }
 
-        if !self.has_locked_tokens() {
+        if !self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account does not have locked tokens");
         }
@@ -675,22 +724,24 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: self.balance.amount_locked(),
             unlock_height: unlock_burn_height,
         };
+
+        Ok(())
     }
 
     /// Increase the account's current lock to `new_total_locked`.
     /// Panics if `self` was not locked by V3 PoX.
-    pub fn increase_lock_v3(&mut self, new_total_locked: u128) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn increase_lock_v3(&mut self, new_total_locked: u128) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after extend-token-lock");
         }
 
-        if !self.has_locked_tokens() {
+        if !self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account does not have locked tokens");
         }
 
-        if !self.is_v3_locked() {
+        if !self.is_v3_locked()? {
             // caller needs to have checked this
             panic!("FATAL: account must be locked by pox-3");
         }
@@ -714,15 +765,17 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: new_total_locked,
             unlock_height: self.balance.unlock_height(),
         };
+
+        Ok(())
     }
 
     /// Return true iff `self` represents a snapshot that has a lock
     ///  created by PoX v3.
-    pub fn is_v3_locked(&mut self) -> bool {
-        matches!(
-            self.canonical_balance_repr(),
+    pub fn is_v3_locked(&mut self) -> Result<bool> {
+        Ok(matches!(
+            self.canonical_balance_repr()?,
             STXBalance::LockedPoxThree { .. }
-        )
+        ))
     }
 
     //////////////// Pox-4 //////////////////
@@ -730,8 +783,12 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
     /// Lock `amount_to_lock` tokens on this account until `unlock_burn_height`.
     /// After calling, this method will set the balance to a "LockedPoxFour" balance,
     ///  because this method is only invoked as a result of PoX4 interactions
-    pub fn lock_tokens_v4(&mut self, amount_to_lock: u128, unlock_burn_height: u64) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn lock_tokens_v4(
+        &mut self, 
+        amount_to_lock: u128, 
+        unlock_burn_height: u64
+    ) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after account-token-lock");
         }
@@ -744,7 +801,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             panic!("FATAL: cannot set a lock with expired unlock burn height");
         }
 
-        if self.has_locked_tokens() {
+        if self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account already has locked tokens");
         }
@@ -763,18 +820,20 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: amount_to_lock,
             unlock_height: unlock_burn_height,
         };
+
+        Ok(())
     }
 
     /// Extend this account's current lock to `unlock_burn_height`.
     /// After calling, this method will set the balance to a "LockedPoxFour" balance,
     ///  because this method is only invoked as a result of PoX3 interactions
-    pub fn extend_lock_v4(&mut self, unlock_burn_height: u64) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn extend_lock_v4(&mut self, unlock_burn_height: u64) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after extend-token-lock");
         }
 
-        if !self.has_locked_tokens() {
+        if !self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account does not have locked tokens");
         }
@@ -789,22 +848,24 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: self.balance.amount_locked(),
             unlock_height: unlock_burn_height,
         };
+
+        Ok(())
     }
 
     /// Increase the account's current lock to `new_total_locked`.
     /// Panics if `self` was not locked by V3 PoX.
-    pub fn increase_lock_v4(&mut self, new_total_locked: u128) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn increase_lock_v4(&mut self, new_total_locked: u128) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after extend-token-lock");
         }
 
-        if !self.has_locked_tokens() {
+        if !self.has_locked_tokens()? {
             // caller needs to have checked this
             panic!("FATAL: account does not have locked tokens");
         }
 
-        if !self.is_v4_locked() {
+        if !self.is_v4_locked()? {
             // caller needs to have checked this
             panic!("FATAL: account must be locked by pox-3");
         }
@@ -828,23 +889,25 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             amount_locked: new_total_locked,
             unlock_height: self.balance.unlock_height(),
         };
+
+        Ok(())
     }
 
     /// Return true iff `self` represents a snapshot that has a lock
     ///  created by PoX v3.
-    pub fn is_v4_locked(&mut self) -> bool {
-        matches!(
-            self.canonical_balance_repr(),
+    pub fn is_v4_locked(&mut self) -> Result<bool> {
+        Ok(matches!(
+            self.canonical_balance_repr()?,
             STXBalance::LockedPoxFour { .. }
-        )
+        ))
     }
 
     /////////////// GENERAL //////////////////////
 
     /// If this snapshot is locked, then alter the lock height to be
     /// the next burn block (i.e., `self.burn_block_height + 1`)
-    pub fn accelerate_unlock(&mut self) {
-        let unlocked = self.unlock_available_tokens_if_any();
+    pub fn accelerate_unlock(&mut self) -> Result<()> {
+        let unlocked = self.unlock_available_tokens_if_any()?;
         if unlocked > 0 {
             debug!("Consolidated after account-token-lock");
         }
@@ -883,19 +946,21 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
                 unlock_height: new_unlock_height,
             },
         };
+
+        Ok(())
     }
 
     /// Unlock any tokens that are unlockable at the current
     ///  burn block height, and return the amount newly unlocked
-    fn unlock_available_tokens_if_any(&mut self) -> u128 {
+    fn unlock_available_tokens_if_any(&mut self) -> Result<u128> {
         let (new_balance, unlocked) = self.balance.canonical_repr_at_block(
             self.burn_block_height,
-            self.db_ref.get_v1_unlock_height(),
-            self.db_ref.get_v2_unlock_height(),
-            self.db_ref.get_v3_unlock_height(),
+            self.db_ref.get_v1_unlock_height()?,
+            self.db_ref.get_v2_unlock_height()?,
+            self.db_ref.get_v3_unlock_height()?,
         );
         self.balance = new_balance;
-        unlocked
+        Ok(unlocked)
     }
 }
 

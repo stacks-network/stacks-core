@@ -2,16 +2,18 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
+use crate::vm::analysis::{CheckError, CheckErrors, ContractAnalysis};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
-use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::Error as InterpreterError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
+
+use super::database::v2::{ClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbUstx, ClarityDbAssets, TransactionalClarityDb, ClarityDbVars, ClarityDbMaps};
+use super::database::v2::analysis::ClarityDbAnalysis;
 
 #[derive(Debug)]
 pub enum Error {
@@ -95,20 +97,30 @@ impl From<ParseError> for Error {
     }
 }
 
-pub trait ClarityConnection {
+pub trait ClarityConnection<DB> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     /// Do something to the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase);
+        F: FnOnce(DB) -> (R, DB);
+
     fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase) -> R;
+        F: FnOnce(&mut DB) -> R;
 
     fn get_epoch(&self) -> StacksEpochId;
 
     fn with_clarity_db_readonly<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut ClarityDatabase) -> R,
+        F: FnOnce(&mut DB) -> R,
     {
         self.with_clarity_db_readonly_owned(|mut db| (to_do(&mut db), db))
     }
@@ -125,7 +137,7 @@ pub trait ClarityConnection {
         to_do: F,
     ) -> Result<R, InterpreterError>
     where
-        F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
+        F: FnOnce(&mut Environment<DB>) -> Result<R, InterpreterError>,
     {
         let epoch_id = self.get_epoch();
         self.with_clarity_db_readonly_owned(|clarity_db| {
@@ -145,7 +157,16 @@ pub trait ClarityConnection {
     }
 }
 
-pub trait TransactionConnection: ClarityConnection {
+pub trait TransactionConnection<DB>: ClarityConnection<DB> 
+where
+    DB: ClarityDbAnalysis 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     /// Do something with this connection's Clarity environment that can be aborted
     ///  with `abort_call_back`.
     /// This returns the return value of `to_do`:
@@ -160,8 +181,8 @@ pub trait TransactionConnection: ClarityConnection {
         abort_call_back: A,
     ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>;
+        A: FnOnce(&AssetMap, &mut DB) -> bool,
+        F: FnOnce(&mut OwnedEnvironment<DB>) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>;
 
     /// Do something with the analysis database and cost tracker
     ///  instance of this transaction connection. This is a low-level
@@ -170,7 +191,8 @@ pub trait TransactionConnection: ClarityConnection {
     ///  implemented methods of the `TransactionConnection` trait
     fn with_analysis_db<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
+        DB: ClarityDbAnalysis,
+        F: FnOnce(&mut DB, LimitedCostTracker) -> (LimitedCostTracker, R);
 
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     fn analyze_smart_contract(
@@ -227,14 +249,14 @@ pub trait TransactionConnection: ClarityConnection {
     ) -> Result<(), CheckError> {
         self.with_analysis_db(|db, cost_tracker| {
             db.begin();
-            let result = db.insert_contract(identifier, contract_analysis);
+            let result = db.insert_contract_analysis(identifier, contract_analysis);
             match result {
                 Ok(_) => {
                     db.commit();
                     (cost_tracker, Ok(()))
                 }
                 Err(e) => {
-                    db.roll_back();
+                    db.rollback();
                     (cost_tracker, Err(e))
                 }
             }
@@ -276,7 +298,7 @@ pub trait TransactionConnection: ClarityConnection {
         abort_call_back: F,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        F: FnOnce(&AssetMap, &mut DB) -> bool,
     {
         let expr_args: Vec<_> = args
             .iter()
@@ -321,7 +343,7 @@ pub trait TransactionConnection: ClarityConnection {
         abort_call_back: F,
     ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
     where
-        F: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
+        F: FnOnce(&AssetMap, &mut DB) -> bool,
     {
         let (_, asset_map, events, aborted) = self.with_abort_callback(
             |vm_env| {

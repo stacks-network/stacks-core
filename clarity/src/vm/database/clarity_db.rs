@@ -35,7 +35,7 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
-use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
@@ -80,11 +80,11 @@ pub enum StoreType {
     PoxUnlockHeight = 0x15,
 }
 
-pub struct ClarityDatabase<'a> {
+/*pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
-}
+}*/
 
 pub trait HeadersDB {
     fn get_stacks_block_header_hash_for_block(
@@ -419,7 +419,7 @@ impl BurnStateDB for NullBurnStateDB {
     }
 }
 
-impl<'a> ClarityDatabase<'a> {
+/*impl<'a> ClarityDatabase<'a> {
     pub fn new(
         store: &'a mut dyn ClarityBackingStore,
         headers_db: &'a dyn HeadersDB,
@@ -1141,7 +1141,7 @@ impl<'a> ClarityDatabase<'a> {
             }
         })
     }
-}
+}*/
 
 // this is used so that things like load_map, load_var, load_nft, etc.
 //   will throw NoSuchFoo errors instead of NoSuchContract errors.
@@ -1153,7 +1153,7 @@ fn map_no_contract_as_none<T>(res: Result<Option<T>>) -> Result<Option<T>> {
 }
 
 // Variable Functions...
-impl<'a> ClarityDatabase<'a> {
+/*impl<'a> ClarityDatabase<'a> {
     pub fn create_variable(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1283,10 +1283,10 @@ impl<'a> ClarityDatabase<'a> {
             Some(data) => Ok(data),
         }
     }
-}
+}*/
 
 // Data Map Functions
-impl<'a> ClarityDatabase<'a> {
+/*impl<'a> ClarityDatabase<'a> {
     pub fn create_map(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1622,11 +1622,11 @@ impl<'a> ClarityDatabase<'a> {
                 .expect("Overflowed Clarity key/value size"),
         })
     }
-}
+}*/
 
 // Asset Functions
 
-impl<'a> ClarityDatabase<'a> {
+/*impl<'a> ClarityDatabase<'a> {
     pub fn create_fungible_token(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -1896,10 +1896,10 @@ impl<'a> ClarityDatabase<'a> {
         self.put_value(&key, Value::none(), epoch)?;
         Ok(())
     }
-}
+}*/
 
 // load/store STX token state and account nonces
-impl<'a> ClarityDatabase<'a> {
+/*impl<'a> ClarityDatabase<'a> {
     fn make_key_for_account(principal: &PrincipalData, data: StoreType) -> String {
         format!("vm-account::{}::{}", principal, data as u8)
     }
@@ -1920,7 +1920,7 @@ impl<'a> ClarityDatabase<'a> {
         ClarityDatabase::make_key_for_account(principal, StoreType::PoxUnlockHeight)
     }
 
-    pub fn get_stx_balance_snapshot<'conn>(
+    /*pub fn get_stx_balance_snapshot<'conn>(
         &'conn mut self,
         principal: &PrincipalData,
     ) -> STXBalanceSnapshot<'a, 'conn> {
@@ -1956,7 +1956,7 @@ impl<'a> ClarityDatabase<'a> {
             stx_balance.has_unlockable_tokens_at_burn_block(cur_burn_height, self.get_v1_unlock_height(), self.get_v2_unlock_height(), self.get_v3_unlock_height()));
 
         STXBalanceSnapshot::new(principal, stx_balance, cur_burn_height, self)
-    }
+    }*/
 
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> STXBalance {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
@@ -1977,10 +1977,10 @@ impl<'a> ClarityDatabase<'a> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
         self.put(&key, &nonce);
     }
-}
+}*/
 
 // access burnchain state
-impl<'a> ClarityDatabase<'a> {
+/*impl<'a> ClarityDatabase<'a> {
     pub fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Option<u32> {
         self.burn_state_db.get_burn_block_height(sortition_id)
     }
@@ -1990,4 +1990,4 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
     }
-}
+}*/

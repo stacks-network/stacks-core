@@ -30,13 +30,13 @@ pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
     CheckErrors, CheckResult,
 };
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
 };
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
@@ -74,16 +74,22 @@ Is illegally typed in our language.
 
 */
 
-pub struct TypeChecker<'a, 'b> {
+pub struct TypeChecker<'a, DB> 
+where
+    DB: ClarityDbAnalysis
+{
     pub type_map: TypeMap,
     contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a mut AnalysisDatabase<'b>,
+    db: &'a mut DB,
     pub cost_track: LimitedCostTracker,
     clarity_version: ClarityVersion,
 }
 
-impl CostTracker for TypeChecker<'_, '_> {
+impl<DB> CostTracker for TypeChecker<'_, DB> 
+where
+    DB: ClarityDbAnalysis
+{
     fn compute_cost(
         &mut self,
         cost_function: ClarityCostFunction,
@@ -115,11 +121,14 @@ impl CostTracker for TypeChecker<'_, '_> {
     }
 }
 
-impl AnalysisPass for TypeChecker<'_, '_> {
+impl<DB> AnalysisPass for TypeChecker<'_, DB> 
+where
+    DB: ClarityDbAnalysis
+{
     fn run_pass(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
-        analysis_db: &mut AnalysisDatabase,
+        analysis_db: &mut DB,
     ) -> CheckResult<()> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(
@@ -407,12 +416,15 @@ impl FunctionType {
     /// cost of evaluating these type checks are not tracked.
     /// WARNING: This is not consensus-critical code, and should never be
     ///          called from consensus-critical code.
-    pub fn check_args_by_allowing_trait_cast_2_1(
+    pub fn check_args_by_allowing_trait_cast_2_1<DB>(
         &self,
-        db: &mut AnalysisDatabase,
+        db: &mut DB,
         clarity_version: ClarityVersion,
         func_args: &[Value],
-    ) -> CheckResult<TypeSignature> {
+    ) -> CheckResult<TypeSignature> 
+    where
+        DB: ClarityDbAnalysis
+    {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
             _ => panic!("Unexpected function type"),
@@ -516,13 +528,17 @@ fn check_function_arg_signature<T: CostTracker>(
 
 /// Used to check if a function signature is compatible with the function
 /// signature required for a trait.
-fn clarity2_check_functions_compatible<T: CostTracker>(
-    db: &mut AnalysisDatabase,
+fn clarity2_check_functions_compatible<DB, T>(
+    db: &mut DB,
     contract_context: Option<&ContractContext>,
     expected_sig: &FunctionSignature,
     actual_sig: &FunctionSignature,
     tracker: &mut T,
-) -> bool {
+) -> bool 
+where
+    T: CostTracker,
+    DB: ClarityDbAnalysis
+{
     if expected_sig.args.len() != actual_sig.args.len() {
         return false;
     }
@@ -560,15 +576,19 @@ fn clarity2_check_functions_compatible<T: CostTracker>(
 /// This means that actual_trait implements all functions from expected_trait
 /// with compatible functions, and may optionally include other functions not
 /// included in expected_trait.
-pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
-    db: &mut AnalysisDatabase,
+pub fn clarity2_trait_check_trait_compliance<DB, T>(
+    db: &mut DB,
     contract_context: Option<&ContractContext>,
     actual_trait_identifier: &TraitIdentifier,
     actual_trait: &BTreeMap<ClarityName, FunctionSignature>,
     expected_trait_identifier: &TraitIdentifier,
     expected_trait: &BTreeMap<ClarityName, FunctionSignature>,
     tracker: &mut T,
-) -> CheckResult<()> {
+) -> CheckResult<()> 
+where
+    T: CostTracker,
+    DB: ClarityDbAnalysis
+{
     // Shortcut for the simple case when the two traits are the same.
     if actual_trait_identifier == expected_trait_identifier {
         return Ok(());
@@ -602,14 +622,18 @@ pub fn clarity2_trait_check_trait_compliance<T: CostTracker>(
 
 /// Check if `expected_type` admits `actual_type`, handling traits and callable types
 /// through invoking trait compliance checks.
-fn clarity2_inner_type_check_type<T: CostTracker>(
-    db: &mut AnalysisDatabase,
+fn clarity2_inner_type_check_type<DB, T>(
+    db: &mut DB,
     contract_context: Option<&ContractContext>,
     actual_type: &TypeSignature,
     expected_type: &TypeSignature,
     depth: u8,
     tracker: &mut T,
-) -> TypeResult {
+) -> TypeResult 
+where
+    T: CostTracker,
+    DB: ClarityDbAnalysis
+{
     if depth > MAX_TYPE_DEPTH {
         return Err(CheckErrors::TypeSignatureTooDeep.into());
     }
@@ -777,12 +801,16 @@ fn clarity2_inner_type_check_type<T: CostTracker>(
     Ok(expected_type.clone())
 }
 
-fn clarity2_lookup_trait<T: CostTracker>(
-    db: &mut AnalysisDatabase,
+fn clarity2_lookup_trait<DB, T>(
+    db: &mut DB,
     contract_context: Option<&ContractContext>,
     trait_id: &TraitIdentifier,
     tracker: &mut T,
-) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
+) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> 
+where
+    T: CostTracker,
+    DB: ClarityDbAnalysis
+{
     if let Some(contract_context) = contract_context {
         // If the trait is from this contract, then it must be in the context or it doesn't exist.
         if contract_context.is_contract(&trait_id.contract_identifier) {
@@ -869,13 +897,16 @@ pub fn no_type() -> TypeSignature {
     TypeSignature::NoType
 }
 
-impl<'a, 'b> TypeChecker<'a, 'b> {
+impl<'a, DB> TypeChecker<'a, DB> 
+where
+    DB: ClarityDbAnalysis
+{
     fn new(
-        db: &'a mut AnalysisDatabase<'b>,
+        db: &'a mut DB,
         cost_track: LimitedCostTracker,
         contract_identifier: &QualifiedContractIdentifier,
         clarity_version: &ClarityVersion,
-    ) -> TypeChecker<'a, 'b> {
+    ) -> TypeChecker<'a, DB> {
         Self {
             db,
             cost_track,

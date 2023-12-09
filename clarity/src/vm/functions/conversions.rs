@@ -21,6 +21,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks};
 use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::SequenceSubtype::{BufferType, StringType};
@@ -235,11 +236,14 @@ pub fn to_consensus_buff(value: Value) -> Result<Value> {
 /// Deserialize a Clarity value from a consensus serialized buffer.
 /// If the supplied buffer either fails to deserialize or deserializes
 /// to an unexpected type, returns `none`. Otherwise, it will be `(some value)`
-pub fn from_consensus_buff(
+pub fn from_consensus_buff<DB>(
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb + ClarityDbMicroblocks
+{
     check_argument_count(2, args)?;
 
     let type_arg = TypeSignature::parse_type_repr(*env.epoch(), &args[0], env)?;

@@ -78,7 +78,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
     if let Ok(parsed_program) = parse(&contract_id, program, version, epoch) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
-        let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
+        let mut env = OwnedEnvironment::new(marf, epoch);
 
         assert_eq!(
             Ok(Value::Int(7)),
@@ -687,7 +687,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
         let mut global_context = GlobalContext::new(
             false,
             CHAIN_ID_TESTNET,
-            marf.as_clarity_db(),
+            marf,
             LimitedCostTracker::new_free(),
             StacksEpochId::Epoch20,
         );

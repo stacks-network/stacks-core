@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod analysis_db;
+//pub mod analysis_db;
 pub mod arithmetic_checker;
 pub mod contract_interface_builder;
 #[allow(clippy::result_large_err)]
@@ -26,7 +26,6 @@ pub mod types;
 
 use stacks_common::types::StacksEpochId;
 
-pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 pub use self::errors::{CheckError, CheckErrors, CheckResult};
@@ -41,6 +40,7 @@ use crate::vm::database::{MemoryBackingStore, STORE_CONTRACT_SRC_INTERFACE};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
+use super::database::v2::{ClarityDb, analysis::ClarityDbAnalysis};
 
 /// Used by CLI tools like the docs generator. Not used in production
 pub fn mem_type_check(
@@ -61,12 +61,12 @@ pub fn mem_type_check(
     .expressions;
 
     let mut marf = MemoryBackingStore::new();
-    let mut analysis_db = marf.as_analysis_db();
+    //let mut analysis_db = marf.as_analysis_db();
     let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &mut contract,
-        &mut analysis_db,
+        &mut marf,
         false,
         cost_tracker,
         epoch,
@@ -89,14 +89,18 @@ pub fn mem_type_check(
 // Legacy function
 // The analysis is not just checking type.
 #[cfg(test)]
-pub fn type_check(
+pub fn type_check<DB>(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    analysis_db: &mut DB,
     insert_contract: bool,
     epoch: &StacksEpochId,
     version: &ClarityVersion,
-) -> CheckResult<ContractAnalysis> {
+) -> CheckResult<ContractAnalysis> 
+where
+    DB: ClarityDbAnalysis
+{
+
     run_analysis(
         contract_identifier,
         expressions,
@@ -111,15 +115,18 @@ pub fn type_check(
     .map_err(|(e, _cost_tracker)| e)
 }
 
-pub fn run_analysis(
+pub fn run_analysis<DB>(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    analysis_db: &mut DB,
     save_contract: bool,
     cost_tracker: LimitedCostTracker,
     epoch: StacksEpochId,
     version: ClarityVersion,
-) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> 
+where
+    DB: ClarityDbAnalysis
+{
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
@@ -128,10 +135,10 @@ pub fn run_analysis(
         version,
     );
     let result = analysis_db.execute(|db| {
-        ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db)?;
+        ReadOnlyChecker::<DB>::run_pass(&epoch, &mut contract_analysis, db)?;
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
-                TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db)
+                TypeChecker2_05::<DB>::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
@@ -139,7 +146,7 @@ pub fn run_analysis(
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30 => {
-                TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db)
+                TypeChecker2_1::<DB>::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch10 => unreachable!("Epoch 1.0 is not a valid epoch for analysis"),
         }?;
@@ -151,7 +158,7 @@ pub fn run_analysis(
             contract_analysis.contract_interface = Some(interface);
         }
         if save_contract {
-            db.insert_contract(contract_identifier, &contract_analysis)?;
+            db.insert_contract_analysis(contract_identifier, &contract_analysis)?;
         }
         Ok(())
     });

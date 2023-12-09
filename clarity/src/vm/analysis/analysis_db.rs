@@ -20,6 +20,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::analysis::type_checker::ContractAnalysis;
+use crate::vm::database::v2::{ClarityDb, transactional::TransactionalClarityDb};
 use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
 };
@@ -28,21 +29,27 @@ use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 
-pub struct AnalysisDatabase<'a> {
-    store: RollbackWrapper<'a>,
+pub struct AnalysisDatabase<'a, DB> 
+where
+    DB: ClarityDb
+{
+    store: RollbackWrapper<'a, DB>,
 }
 
-impl<'a> AnalysisDatabase<'a> {
-    pub fn new(store: &'a mut dyn ClarityBackingStore) -> AnalysisDatabase<'a> {
+impl<'a, DB> AnalysisDatabase<'a, DB> 
+where
+    DB: ClarityDb
+{
+     fn new(store: &impl ClarityBackingStore<DB>) -> AnalysisDatabase<'a, DB> {
         AnalysisDatabase {
             store: RollbackWrapper::new(store),
         }
     }
-    pub fn new_with_rollback_wrapper(store: RollbackWrapper<'a>) -> AnalysisDatabase<'a> {
+     fn new_with_rollback_wrapper(store: RollbackWrapper<'a, DB>) -> AnalysisDatabase<'a, DB> {
         AnalysisDatabase { store }
     }
 
-    pub fn execute<F, T, E>(&mut self, f: F) -> Result<T, E>
+     fn execute<F, T, E>(&mut self, f: F) -> Result<T, E>
     where
         F: FnOnce(&mut Self) -> Result<T, E>,
     {
@@ -55,19 +62,19 @@ impl<'a> AnalysisDatabase<'a> {
         Ok(result)
     }
 
-    pub fn begin(&mut self) {
+     fn begin(&mut self) {
         self.store.nest();
     }
 
-    pub fn commit(&mut self) {
+     fn commit(&mut self) {
         self.store.commit();
     }
 
-    pub fn roll_back(&mut self) {
+     fn roll_back(&mut self) {
         self.store.rollback();
     }
 
-    pub fn storage_key() -> &'static str {
+     fn storage_key() -> &'static str {
         "analysis"
     }
 
@@ -75,37 +82,37 @@ impl<'a> AnalysisDatabase<'a> {
     //   the contract -> contract hash key exists in the marf
     //    even if the contract isn't published.
     #[cfg(test)]
-    pub fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
+     fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
         use stacks_common::util::hash::Sha512Trunc256Sum;
         self.store
             .prepare_for_contract_metadata(contract_identifier, Sha512Trunc256Sum([0; 32]));
     }
 
-    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
+     fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
         self.store
-            .has_metadata_entry(contract_identifier, AnalysisDatabase::storage_key())
+            .has_metadata_entry(contract_identifier, AnalysisDatabase::<DB>::storage_key())
     }
 
     /// Load a contract from the database, without canonicalizing its types.
-    pub fn load_contract_non_canonical(
+     fn load_contract_non_canonical(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Option<ContractAnalysis> {
         self.store
-            .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
+            .get_metadata(contract_identifier, AnalysisDatabase::<DB>::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
             //    the analysis will propagate that as a CheckError anyways.
             .ok()?
             .map(|x| ContractAnalysis::deserialize(&x))
     }
 
-    pub fn load_contract(
+     fn load_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         epoch: &StacksEpochId,
     ) -> Option<ContractAnalysis> {
         self.store
-            .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
+            .get_metadata(contract_identifier, AnalysisDatabase::<DB>::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
             //    the analysis will propagate that as a CheckError anyways.
             .ok()?
@@ -116,12 +123,12 @@ impl<'a> AnalysisDatabase<'a> {
             })
     }
 
-    pub fn insert_contract(
+     fn insert_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         contract: &ContractAnalysis,
     ) -> CheckResult<()> {
-        let key = AnalysisDatabase::storage_key();
+        let key = AnalysisDatabase::<DB>::storage_key();
         if self.store.has_metadata_entry(contract_identifier, key) {
             return Err(CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into());
         }
@@ -131,7 +138,7 @@ impl<'a> AnalysisDatabase<'a> {
         Ok(())
     }
 
-    pub fn get_clarity_version(
+     fn get_clarity_version(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> CheckResult<ClarityVersion> {
@@ -145,7 +152,7 @@ impl<'a> AnalysisDatabase<'a> {
         Ok(contract.clarity_version)
     }
 
-    pub fn get_public_function_type(
+     fn get_public_function_type(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
@@ -163,7 +170,7 @@ impl<'a> AnalysisDatabase<'a> {
             .map(|x| x.canonicalize(epoch)))
     }
 
-    pub fn get_read_only_function_type(
+     fn get_read_only_function_type(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
@@ -181,7 +188,7 @@ impl<'a> AnalysisDatabase<'a> {
             .map(|x| x.canonicalize(epoch)))
     }
 
-    pub fn get_defined_trait(
+     fn get_defined_trait(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         trait_name: &str,
@@ -202,7 +209,7 @@ impl<'a> AnalysisDatabase<'a> {
         }))
     }
 
-    pub fn get_implemented_traits(
+     fn get_implemented_traits(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> CheckResult<BTreeSet<TraitIdentifier>> {
@@ -212,7 +219,7 @@ impl<'a> AnalysisDatabase<'a> {
         Ok(contract.implemented_traits)
     }
 
-    pub fn destroy(self) -> RollbackWrapper<'a> {
+     fn destroy(self) -> RollbackWrapper<'a, DB> {
         self.store
     }
 }

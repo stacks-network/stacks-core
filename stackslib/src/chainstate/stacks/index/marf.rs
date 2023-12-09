@@ -122,7 +122,10 @@ impl MARFOpenOpts {
 /// This trait defines functions that are defined for both
 ///  MARF structs and MarfTransactions
 ///
-pub trait MarfConnection<T: MarfTrieId> {
+pub trait MarfConnection<T> 
+where
+    T: MarfTrieId
+{
     fn with_conn<F, R>(&mut self, exec: F) -> R
     where
         F: FnOnce(&mut TrieStorageConnection<T>) -> R;

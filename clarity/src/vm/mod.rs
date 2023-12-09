@@ -59,6 +59,7 @@ use stacks_common::types::StacksEpochId;
 use self::analysis::ContractAnalysis;
 use self::ast::{ASTRules, ContractAST};
 use self::costs::ExecutionCost;
+use self::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbMaps, ClarityDbVars, ClarityDbAssets, ClarityDbUstx};
 use self::diagnostic::Diagnostic;
 use crate::vm::callables::CallableType;
 use crate::vm::contexts::GlobalContext;
@@ -144,27 +145,49 @@ impl CostSynthesis {
 /// EvalHook defines an interface for hooks to execute during evaluation.
 pub trait EvalHook {
     // Called before the expression is evaluated
-    fn will_begin_eval(
+    fn will_begin_eval<DB>(
         &mut self,
-        _env: &mut Environment,
+        _env: &mut Environment<DB>,
         _context: &LocalContext,
         _expr: &SymbolicExpression,
-    );
+    )
+    where
+        Self: Sized,
+        DB: ClarityDb;
 
     // Called after the expression is evaluated
-    fn did_finish_eval(
+    fn did_finish_eval<DB>(
         &mut self,
-        _env: &mut Environment,
+        _env: &mut Environment<DB>,
         _context: &LocalContext,
         _expr: &SymbolicExpression,
         _res: &core::result::Result<Value, crate::vm::errors::Error>,
-    );
+    )
+    where
+        Self: Sized,
+        DB: ClarityDb;
 
     // Called upon completion of the execution
-    fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
+    fn did_complete(
+        &mut self, 
+        _result: core::result::Result<&mut ExecutionResult, String>
+    );
 }
 
-fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
+fn lookup_variable<DB>(
+    name: &str, 
+    context: &LocalContext, 
+    env: &mut Environment<DB>
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(InterpreterError::BadSymbolicRepresentation(format!(
             "Unexpected variable name: {}",
@@ -200,7 +223,19 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
     }
 }
 
-pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
+pub fn lookup_function<DB>(
+    name: &str, 
+    env: &mut Environment<DB>
+) -> Result<CallableType<DB>> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbMaps
+        + ClarityDbVars
+        + ClarityDbAssets
+        + ClarityDbUstx
+{
     runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
 
     if let Some(result) =
@@ -216,7 +251,13 @@ pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType
     }
 }
 
-fn add_stack_trace(result: &mut Result<Value>, env: &Environment) {
+fn add_stack_trace<DB>(
+    result: &mut Result<Value>, 
+    env: &Environment<DB>
+) 
+where
+    DB: ClarityDb
+{
     if let Err(Error::Runtime(_, ref mut stack_trace)) = result {
         if stack_trace.is_none() {
             stack_trace.replace(env.call_stack.make_stack_trace());
@@ -224,12 +265,21 @@ fn add_stack_trace(result: &mut Result<Value>, env: &Environment) {
     }
 }
 
-pub fn apply(
-    function: &CallableType,
+pub fn apply<DB>(
+    function: &CallableType<DB>,
     args: &[SymbolicExpression],
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     let identifier = function.get_identifier();
     // Aaron: in non-debug executions, we shouldn't track a full call-stack.
     //        only enough to do recursion detection.
@@ -305,11 +355,20 @@ pub fn apply(
     }
 }
 
-pub fn eval(
+pub fn eval<DB>(
     exp: &SymbolicExpression,
-    env: &mut Environment,
+    env: &mut Environment<DB>,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
+{
     use crate::vm::representations::SymbolicExpressionType::{
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
@@ -348,8 +407,20 @@ pub fn eval(
     res
 }
 
-pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
-    if let Some(_result) = functions::lookup_reserved_functions(name, version) {
+pub fn is_reserved<DB>(
+    name: &str, 
+    version: &ClarityVersion
+) -> bool 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbMaps
+        + ClarityDbVars
+        + ClarityDbAssets
+        + ClarityDbUstx
+{
+    if let Some(_result) = functions::lookup_reserved_functions::<DB>(name, version) {
         true
     } else {
         variables::is_reserved_name(name, version)
@@ -359,12 +430,21 @@ pub fn is_reserved(name: &str, version: &ClarityVersion) -> bool {
 /// This function evaluates a list of expressions, sharing a global context.
 /// It returns the final evaluated result.
 /// Used for the initialization of a new contract.
-pub fn eval_all(
+pub fn eval_all<DB>(
     expressions: &[SymbolicExpression],
     contract_context: &mut ContractContext,
-    global_context: &mut GlobalContext,
+    global_context: &mut GlobalContext<DB>,
     sponsor: Option<PrincipalData>,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>> 
+where
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx 
+        + ClarityDbUstx
+        + ClarityDbVars 
+        + ClarityDbMaps
+        + ClarityDbAssets
+{
     let mut last_executed = None;
     let context = LocalContext::new();
     let mut total_memory_use = 0;
@@ -402,7 +482,7 @@ pub fn eval_all(
 
                     global_context.add_memory(value.size() as u64)?;
 
-                    let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type);
+                    let data_type = global_context.database.create_variable(&contract_context.contract_identifier, &name, value_type)?;
                     global_context.database.set_variable(&contract_context.contract_identifier, &name, value, &data_type, &global_context.epoch_id)?;
 
                     contract_context.meta_data_var.insert(name, data_type);
@@ -418,7 +498,7 @@ pub fn eval_all(
                     global_context.add_memory(value_type.type_size()
                                               .expect("type size should be realizable") as u64)?;
 
-                    let data_type = global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type);
+                    let data_type = global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type)?;
 
                     contract_context.meta_data_map.insert(name, data_type);
                 },
@@ -429,7 +509,7 @@ pub fn eval_all(
                     global_context.add_memory(TypeSignature::UIntType.type_size()
                                               .expect("type size should be realizable") as u64)?;
 
-                    let data_type = global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply);
+                    let data_type = global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply)?;
 
                     contract_context.meta_ft.insert(name, data_type);
                 },
@@ -440,7 +520,7 @@ pub fn eval_all(
                     global_context.add_memory(asset_type.type_size()
                                               .expect("type size should be realizable") as u64)?;
 
-                    let data_type = global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type);
+                    let data_type = global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type)?;
 
                     contract_context.meta_nft.insert(name, data_type);
                 },
@@ -515,12 +595,11 @@ pub fn execute_with_parameters(
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
-    let conn = marf.as_clarity_db();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut global_context = GlobalContext::new(
         use_mainnet,
         chain_id,
-        conn,
+        marf,
         LimitedCostTracker::new_free(),
         epoch,
     );
@@ -630,7 +709,7 @@ mod test {
         let mut global_context = GlobalContext::new(
             false,
             CHAIN_ID_TESTNET,
-            marf.as_clarity_db(),
+            marf,
             LimitedCostTracker::new_free(),
             StacksEpochId::Epoch2_05,
         );

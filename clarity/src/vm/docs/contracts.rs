@@ -70,11 +70,10 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
     let mut marf = MemoryBackingStore::new();
-    let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
         false,
         CHAIN_ID_TESTNET,
-        conn,
+        marf,
         LimitedCostTracker::new_free(),
         DOCS_GENERATION_EPOCH,
     );

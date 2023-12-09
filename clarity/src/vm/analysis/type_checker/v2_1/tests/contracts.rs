@@ -25,12 +25,13 @@ use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
-    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError, CheckResult,
+    mem_type_check as mem_run_analysis, run_analysis, CheckError, CheckResult,
     ContractAnalysis,
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::errors::Error;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::CallableSubtype;
@@ -50,12 +51,15 @@ fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, Contr
 fn test_epoch21_clarity_versions(#[case] version: ClarityVersion) {}
 
 /// backwards-compatibility shim
-pub fn type_check(
+pub fn type_check<DB>(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    analysis_db: &mut DB,
     save_contract: bool,
-) -> Result<ContractAnalysis, CheckError> {
+) -> Result<ContractAnalysis, CheckError> 
+where
+    DB: ClarityDbAnalysis
+{
     type_check_version(
         contract_identifier,
         expressions,
@@ -66,14 +70,17 @@ pub fn type_check(
     )
 }
 
-pub fn type_check_version(
+pub fn type_check_version<DB>(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    analysis_db: &mut DB,
     save_contract: bool,
     epoch: StacksEpochId,
     version: ClarityVersion,
-) -> Result<ContractAnalysis, CheckError> {
+) -> Result<ContractAnalysis, CheckError> 
+where
+    DB: ClarityDbAnalysis
+{
     run_analysis(
         contract_identifier,
         expressions,
@@ -1714,12 +1721,15 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
 
 // Tests below are derived from https://github.com/sskeirik/clarity-trait-experiments.
 
-fn load_versioned(
-    db: &mut AnalysisDatabase,
+fn load_versioned<DB>(
+    db: &mut DB,
     name: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<ContractAnalysis, String> {
+) -> Result<ContractAnalysis, String> 
+where
+    DB: ClarityDbAnalysis,
+{
     let source = read_to_string(format!(
         "{}/src/vm/analysis/type_checker/v2_1/tests/contracts/{}.clar",
         env!("CARGO_MANIFEST_DIR"),
@@ -1733,14 +1743,17 @@ fn load_versioned(
         .map_err(|e| e.to_string())
 }
 
-fn call_versioned(
-    db: &mut AnalysisDatabase,
+fn call_versioned<DB>(
+    db: &mut DB,
     contract: &str,
     function: &str,
     args: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<ContractAnalysis, String> {
+) -> Result<ContractAnalysis, String> 
+where
+    DB: ClarityDbAnalysis
+{
     let source = format!("(contract-call? .{} {} {})", contract, function, args);
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract =

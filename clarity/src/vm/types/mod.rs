@@ -24,7 +24,7 @@ use std::convert::{TryFrom, TryInto};
 use std::{char, cmp, fmt, str};
 
 use regex::Regex;
-use stacks_common::address::c32;
+use stacks_common::address::{c32, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;

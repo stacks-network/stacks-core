@@ -27,6 +27,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
 };
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
@@ -47,21 +48,27 @@ mod maps;
 mod options;
 mod sequences;
 
-pub enum TypedNativeFunction {
-    Special(SpecialNativeFunction),
+pub enum TypedNativeFunction<DB> 
+where
+    DB: ClarityDbAnalysis + 'static
+{
+    Special(SpecialNativeFunction<DB>),
     Simple(SimpleNativeFunction),
 }
 
-pub struct SpecialNativeFunction(
-    &'static dyn Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult,
+pub struct SpecialNativeFunction<DB: ClarityDbAnalysis + 'static>(
+    &'static dyn Fn(&mut TypeChecker<DB>, &[SymbolicExpression], &TypingContext) -> TypeResult,
 );
 pub struct SimpleNativeFunction(pub FunctionType);
 
-fn check_special_list_cons(
-    checker: &mut TypeChecker,
+fn check_special_list_cons<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     let typed_args = checker.type_check_all(args, context)?;
     for type_arg in typed_args.iter() {
         runtime_cost(
@@ -75,49 +82,64 @@ fn check_special_list_cons(
         .map(TypeSignature::from)
 }
 
-fn check_special_print(
-    checker: &mut TypeChecker,
+fn check_special_print<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
 }
 
-fn check_special_as_contract(
-    checker: &mut TypeChecker,
+fn check_special_as_contract<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
 }
 
-fn check_special_at_block(
-    checker: &mut TypeChecker,
+fn check_special_at_block<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
     checker.type_check(&args[1], context)
 }
 
-fn check_special_begin(
-    checker: &mut TypeChecker,
+fn check_special_begin<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(1, args)?;
 
     checker.type_check_consecutive_statements(args, context)
 }
 
-fn inner_handle_tuple_get(
+fn inner_handle_tuple_get<DB>(
     tuple_type_sig: &TupleTypeSignature,
     field_to_get: &str,
-    checker: &mut TypeChecker,
-) -> TypeResult {
+    checker: &mut TypeChecker<DB>,
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleGet,
         checker,
@@ -134,11 +156,14 @@ fn inner_handle_tuple_get(
     Ok(return_type)
 }
 
-fn check_special_get(
-    checker: &mut TypeChecker,
+fn check_special_get<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     let field_to_get = args[0].match_atom().ok_or(CheckErrors::BadTupleFieldName)?;
@@ -160,11 +185,14 @@ fn check_special_get(
     }
 }
 
-fn check_special_merge(
-    checker: &mut TypeChecker,
+fn check_special_merge<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     let res = checker.type_check(&args[0], context)?;
@@ -188,11 +216,14 @@ fn check_special_merge(
     Ok(TypeSignature::TupleType(base))
 }
 
-pub fn check_special_tuple_cons(
-    checker: &mut TypeChecker,
+pub fn check_special_tuple_cons<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(1, args)?;
 
     let mut tuple_type_data = Vec::new();
@@ -221,11 +252,14 @@ pub fn check_special_tuple_cons(
     Ok(TypeSignature::TupleType(tuple_signature))
 }
 
-fn check_special_let(
-    checker: &mut TypeChecker,
+fn check_special_let<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(2, args)?;
 
     let binding_list = args[0]
@@ -258,11 +292,14 @@ fn check_special_let(
     checker.type_check_consecutive_statements(&args[1..args.len()], &out_context)
 }
 
-fn check_special_fetch_var(
-    checker: &mut TypeChecker,
+fn check_special_fetch_var<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     let var_name = args[0]
@@ -285,11 +322,14 @@ fn check_special_fetch_var(
     Ok(value_type.clone())
 }
 
-fn check_special_set_var(
-    checker: &mut TypeChecker,
+fn check_special_set_var<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(2, args)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
@@ -318,11 +358,14 @@ fn check_special_set_var(
     }
 }
 
-fn check_special_equals(
-    checker: &mut TypeChecker,
+fn check_special_equals<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(1, args)?;
 
     let mut arg_types = checker.type_check_all(args, context)?;
@@ -337,11 +380,14 @@ fn check_special_equals(
     Ok(TypeSignature::BoolType)
 }
 
-fn check_special_if(
-    checker: &mut TypeChecker,
+fn check_special_if<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(3, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
@@ -358,11 +404,14 @@ fn check_special_if(
         .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
 }
 
-fn check_contract_call(
-    checker: &mut TypeChecker,
+fn check_contract_call<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(2, args)?;
 
     let func_name = args[1]
@@ -532,11 +581,14 @@ fn check_contract_call(
     Ok(expected_sig.returns)
 }
 
-fn check_contract_of(
-    checker: &mut TypeChecker,
+fn check_contract_of<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
 
     let trait_instance = match &args[0].expr {
@@ -559,11 +611,14 @@ fn check_contract_of(
     Ok(TypeSignature::PrincipalType)
 }
 
-fn check_principal_of(
-    checker: &mut TypeChecker,
+fn check_principal_of<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(1, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_33)?;
     Ok(TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType).unwrap())
@@ -575,11 +630,14 @@ fn check_principal_of(
 ///
 /// (define-public (principal-construct (buff 1) (buff 20) (string-ascii CONTRACT_MAX_NAME_LENGTH))
 ///     (response principal { error_code: uint, principal: (option principal) }))
-fn check_principal_construct(
-    checker: &mut TypeChecker,
+fn check_principal_construct<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_1)?;
@@ -607,22 +665,28 @@ fn check_principal_construct(
     )
 }
 
-fn check_secp256k1_recover(
-    checker: &mut TypeChecker,
+fn check_secp256k1_recover<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
     checker.type_check_expects(&args[1], context, &BUFF_65)?;
     Ok(TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType).unwrap())
 }
 
-fn check_secp256k1_verify(
-    checker: &mut TypeChecker,
+fn check_secp256k1_verify<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(3, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
     checker.type_check_expects(&args[1], context, &BUFF_65)?;
@@ -630,11 +694,14 @@ fn check_secp256k1_verify(
     Ok(TypeSignature::BoolType)
 }
 
-fn check_get_block_info(
-    checker: &mut TypeChecker,
+fn check_get_block_info<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_arguments_at_least(2, args)?;
 
     let block_info_prop_str = args[0]
@@ -655,11 +722,14 @@ fn check_get_block_info(
 // # Errors
 // - `CheckErrors::GetBurnBlockInfoExpectPropertyName` when `args[0]` is not a valid `ClarityName`.
 // - `CheckErrors::NoSuchBlockInfoProperty` when `args[0]` does not name a `BurnBlockInfoProperty`.
-fn check_get_burn_block_info(
-    checker: &mut TypeChecker,
+fn check_get_burn_block_info<DB>(
+    checker: &mut TypeChecker<DB>,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> TypeResult 
+where
+    DB: ClarityDbAnalysis
+{
     check_argument_count(2, args)?;
 
     let block_info_prop_str = args[0].match_atom().ok_or(CheckError::new(
@@ -676,10 +746,13 @@ fn check_get_burn_block_info(
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
-impl TypedNativeFunction {
+impl<DB> TypedNativeFunction<DB> 
+where
+    DB: ClarityDbAnalysis
+{
     pub fn type_check_application(
         &self,
-        checker: &mut TypeChecker,
+        checker: &mut TypeChecker<DB>,
         args: &[SymbolicExpression],
         context: &TypingContext,
     ) -> TypeResult {
@@ -696,7 +769,7 @@ impl TypedNativeFunction {
         }
     }
 
-    pub fn type_native_function(function: &NativeFunctions) -> TypedNativeFunction {
+    pub fn type_native_function(function: &NativeFunctions) -> TypedNativeFunction<DB> {
         use self::TypedNativeFunction::{Simple, Special};
         use crate::vm::functions::NativeFunctions::*;
         match function {

@@ -22,6 +22,8 @@ use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
 use crate::vm::types::{BuffData, Value};
 use crate::vm::ClarityVersion;
 
+use super::database::v2::{ClarityDb, ClarityDbBlocks, ClarityDbUstx};
+
 define_versioned_named_enum!(NativeVariables(ClarityVersion) {
     ContractCaller("contract-caller", ClarityVersion::Clarity1),
     TxSender("tx-sender", ClarityVersion::Clarity1),
@@ -56,11 +58,14 @@ pub fn is_reserved_name(name: &str, version: &ClarityVersion) -> bool {
     NativeVariables::lookup_by_name_at_version(name, version).is_some()
 }
 
-pub fn lookup_reserved_variable(
+pub fn lookup_reserved_variable<DB>(
     name: &str,
     _context: &LocalContext,
-    env: &mut Environment,
-) -> Result<Option<Value>> {
+    env: &mut Environment<DB>,
+) -> Result<Option<Value>> 
+where
+    DB: ClarityDb + ClarityDbBlocks + ClarityDbUstx
+{
     if let Some(variable) =
         NativeVariables::lookup_by_name_at_version(name, env.contract_context.get_clarity_version())
     {
@@ -89,7 +94,7 @@ pub fn lookup_reserved_variable(
             }
             NativeVariables::BlockHeight => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let block_height = env.global_context.database.get_current_block_height();
+                let block_height = env.global_context.database.get_current_block_height()?;
                 Ok(Some(Value::UInt(block_height as u128)))
             }
             NativeVariables::BurnBlockHeight => {
@@ -97,7 +102,7 @@ pub fn lookup_reserved_variable(
                 let burn_block_height = env
                     .global_context
                     .database
-                    .get_current_burnchain_block_height();
+                    .get_current_burnchain_block_height()?;
                 Ok(Some(Value::UInt(burn_block_height as u128)))
             }
             NativeVariables::NativeNone => Ok(Some(Value::none())),
@@ -105,7 +110,7 @@ pub fn lookup_reserved_variable(
             NativeVariables::NativeFalse => Ok(Some(Value::Bool(false))),
             NativeVariables::TotalLiquidMicroSTX => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let liq = env.global_context.database.get_total_liquid_ustx();
+                let liq = env.global_context.database.get_total_liquid_ustx()?;
                 Ok(Some(Value::UInt(liq)))
             }
             NativeVariables::Regtest => {

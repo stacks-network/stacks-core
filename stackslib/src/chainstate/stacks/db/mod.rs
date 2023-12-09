@@ -92,6 +92,7 @@ pub mod contracts;
 pub mod headers;
 pub mod transactions;
 pub mod unconfirmed;
+pub mod v2;
 
 lazy_static! {
     pub static ref TRANSACTION_LOG: bool =
