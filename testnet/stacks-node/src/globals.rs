@@ -17,6 +17,8 @@ use crate::neon_node::LeaderKeyRegistrationState;
 use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
 
+pub type NeonGlobals = Globals<RelayerDirective>;
+
 /// Command types for the relayer thread, issued to it by other threads
 pub enum RelayerDirective {
     /// Handle some new data that arrived on the network (such as blocks, transactions, and
@@ -34,8 +36,7 @@ pub enum RelayerDirective {
 }
 
 /// Inter-thread communication structure, shared between threads
-#[derive(Clone)]
-pub struct Globals {
+pub struct Globals<T> {
     /// Last sortition processed
     last_sortition: Arc<Mutex<Option<BlockSnapshot>>>,
     /// Status of the miner
@@ -45,7 +46,7 @@ pub struct Globals {
     /// Unconfirmed transactions (shared between the relayer and p2p threads)
     unconfirmed_txs: Arc<Mutex<UnconfirmedTxMap>>,
     /// Writer endpoint to the relayer thread
-    pub relay_send: SyncSender<RelayerDirective>,
+    pub relay_send: SyncSender<T>,
     /// Cointer state in the main thread
     pub counters: Counters,
     /// Connection to the PoX sync watchdog
@@ -56,15 +57,34 @@ pub struct Globals {
     leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
 }
 
-impl Globals {
+// Need to manually implement Clone, because [derive(Clone)] requires
+//  all trait bounds to implement Clone, even though T doesn't need Clone
+//  because it's behind SyncSender.
+impl<T> Clone for Globals<T> {
+    fn clone(&self) -> Self {
+        Self {
+            last_sortition: self.last_sortition.clone(),
+            miner_status: self.miner_status.clone(),
+            coord_comms: self.coord_comms.clone(),
+            unconfirmed_txs: self.unconfirmed_txs.clone(),
+            relay_send: self.relay_send.clone(),
+            counters: self.counters.clone(),
+            sync_comms: self.sync_comms.clone(),
+            should_keep_running: self.should_keep_running.clone(),
+            leader_key_registration_state: self.leader_key_registration_state.clone(),
+        }
+    }
+}
+
+impl<T> Globals<T> {
     pub fn new(
         coord_comms: CoordinatorChannels,
         miner_status: Arc<Mutex<MinerStatus>>,
-        relay_send: SyncSender<RelayerDirective>,
+        relay_send: SyncSender<T>,
         counters: Counters,
         sync_comms: PoxSyncWatchdogComms,
         should_keep_running: Arc<AtomicBool>,
-    ) -> Globals {
+    ) -> Globals<T> {
         Globals {
             last_sortition: Arc::new(Mutex::new(None)),
             miner_status,

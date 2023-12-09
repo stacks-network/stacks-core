@@ -206,7 +206,7 @@ use crate::burnchains::bitcoin_regtest_controller::{
     addr2str, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::make_bitcoin_indexer;
-use crate::globals::{Globals, RelayerDirective};
+use crate::globals::{NeonGlobals as Globals, RelayerDirective};
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
@@ -304,71 +304,59 @@ pub struct StacksNode {
 /// Fault injection logic to artificially increase the length of a tenure.
 /// Only used in testing
 #[cfg(test)]
-fn fault_injection_long_tenure() {
+pub(crate) fn fault_injection_long_tenure() {
     // simulated slow block
-    match std::env::var("STX_TEST_SLOW_TENURE") {
-        Ok(tenure_str) => match tenure_str.parse::<u64>() {
-            Ok(tenure_time) => {
-                info!(
-                    "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
-                    tenure_time
-                );
-                stacks_common::util::sleep_ms(tenure_time);
-            }
-            Err(_) => {
-                error!("Parse error for STX_TEST_SLOW_TENURE");
-                panic!();
-            }
-        },
-        _ => {}
-    }
+    let Ok(tenure_str) = std::env::var("STX_TEST_SLOW_TENURE") else {
+        return;
+    };
+    let Ok(tenure_time) = tenure_str.parse::<u64>() else {
+        error!("Parse error for STX_TEST_SLOW_TENURE");
+        panic!();
+    };
+    info!(
+        "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
+        tenure_time
+    );
+    stacks_common::util::sleep_ms(tenure_time);
 }
 
 #[cfg(not(test))]
-fn fault_injection_long_tenure() {}
+pub(crate) fn fault_injection_long_tenure() {}
 
 /// Fault injection to skip mining in this bitcoin block height
 /// Only used in testing
 #[cfg(test)]
-fn fault_injection_skip_mining(rpc_bind: &str, target_burn_height: u64) -> bool {
-    match std::env::var("STACKS_DISABLE_MINER") {
-        Ok(disable_heights) => {
-            let disable_schedule: serde_json::Value =
-                serde_json::from_str(&disable_heights).unwrap();
-            let disable_schedule = disable_schedule.as_array().unwrap();
-            for disabled in disable_schedule {
-                let target_miner_rpc_bind = disabled
-                    .get("rpc_bind")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string();
-                if target_miner_rpc_bind != rpc_bind {
-                    continue;
-                }
-                let target_block_heights = disabled.get("blocks").unwrap().as_array().unwrap();
-                for target_block_value in target_block_heights {
-                    let target_block = target_block_value.as_i64().unwrap() as u64;
-                    if target_block == target_burn_height {
-                        return true;
-                    }
-                }
-            }
-            return false;
+pub(crate) fn fault_injection_skip_mining(rpc_bind: &str, target_burn_height: u64) -> bool {
+    let Ok(disable_heights) = std::env::var("STACKS_DISABLE_MINER") else {
+        return false;
+    };
+    let disable_schedule: serde_json::Value = serde_json::from_str(&disable_heights).unwrap();
+    let disable_schedule = disable_schedule.as_array().unwrap();
+    for disabled in disable_schedule {
+        let target_miner_rpc_bind = disabled.get("rpc_bind").unwrap().as_str().unwrap();
+        if target_miner_rpc_bind != rpc_bind {
+            continue;
         }
-        Err(_) => {
-            return false;
+        let target_block_heights = disabled.get("blocks").unwrap().as_array().unwrap();
+        for target_block_value in target_block_heights {
+            let target_block = u64::try_from(target_block_value.as_i64().unwrap()).unwrap();
+            if target_block == target_burn_height {
+                return true;
+            }
         }
     }
+    false
 }
 
 #[cfg(not(test))]
-fn fault_injection_skip_mining(_rpc_bind: &str, _target_burn_height: u64) -> bool {
+pub(crate) fn fault_injection_skip_mining(_rpc_bind: &str, _target_burn_height: u64) -> bool {
     false
 }
 
 /// Open the chainstate, and inject faults from the config file
-fn open_chainstate_with_faults(config: &Config) -> Result<StacksChainState, ChainstateError> {
+pub(crate) fn open_chainstate_with_faults(
+    config: &Config,
+) -> Result<StacksChainState, ChainstateError> {
     let stacks_chainstate_path = config.get_chainstate_path_str();
     let (mut chainstate, _) = StacksChainState::open(
         config.is_mainnet(),
@@ -3635,7 +3623,7 @@ impl StacksNode {
     }
 
     /// Set up the AST size-precheck height, if configured
-    fn setup_ast_size_precheck(config: &Config, sortdb: &mut SortitionDB) {
+    pub(crate) fn setup_ast_size_precheck(config: &Config, sortdb: &mut SortitionDB) {
         if let Some(ast_precheck_size_height) = config.burnchain.ast_precheck_size_height {
             info!(
                 "Override burnchain height of {:?} to {}",
@@ -3788,7 +3776,7 @@ impl StacksNode {
     }
 
     /// Set up the PeerNetwork, but do not bind it.
-    pub fn setup_peer_network(
+    pub(crate) fn setup_peer_network(
         config: &Config,
         atlas_config: &AtlasConfig,
         burnchain: Burnchain,

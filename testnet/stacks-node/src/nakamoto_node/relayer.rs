@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -53,16 +53,34 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 
 use super::{
-    fault_injection_skip_mining, open_chainstate_with_faults, BlockCommits, Config,
-    Error as NakamotoNodeError, EventDispatcher, Keychain, BLOCK_PROCESSOR_STACK_SIZE,
+    BlockCommits, Config, Error as NakamotoNodeError, EventDispatcher, Keychain,
+    BLOCK_PROCESSOR_STACK_SIZE,
 };
 use crate::burnchains::BurnchainController;
-use crate::globals::{Globals, RelayerDirective};
 use crate::nakamoto_node::miner::{BlockMinerThread, MinerDirective};
-use crate::neon_node::LeaderKeyRegistrationState;
-use crate::run_loop::nakamoto::RunLoop;
+use crate::neon_node::{
+    fault_injection_skip_mining, open_chainstate_with_faults, LeaderKeyRegistrationState,
+};
+use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::BitcoinRegtestController;
+
+/// Command types for the Nakamoto relayer thread, issued to it by other threads
+pub enum RelayerDirective {
+    /// Handle some new data that arrived on the network (such as blocks, transactions, and
+    HandleNetResult(NetworkResult),
+    /// A new burn block has been processed by the SortitionDB, check if this miner won sortition,
+    ///  and if so, start the miner thread
+    ProcessedBurnBlock(ConsensusHash, BurnchainHeaderHash, BlockHeaderHash),
+    /// Either a new burn block has been processed (without a miner active yet) or a
+    ///  nakamoto tenure's first block has been processed, so the relayer should issue
+    ///  a block commit
+    IssueBlockCommit(ConsensusHash, BlockHeaderHash),
+    /// Try to register a VRF public key
+    RegisterKey(BlockSnapshot),
+    /// Stop the relayer thread
+    Exit,
+}
 
 /// Relayer thread
 /// * accepts network results and stores blocks and microblocks
@@ -72,12 +90,12 @@ use crate::BitcoinRegtestController;
 pub struct RelayerThread {
     /// Node config
     pub(crate) config: Config,
-    /// Handle to the sortition DB (optional so we can take/replace it)
-    sortdb: Option<SortitionDB>,
-    /// Handle to the chainstate DB (optional so we can take/replace it)
-    chainstate: Option<StacksChainState>,
-    /// Handle to the mempool DB (optional so we can take/replace it)
-    mempool: Option<MemPoolDB>,
+    /// Handle to the sortition DB
+    sortdb: SortitionDB,
+    /// Handle to the chainstate DB
+    chainstate: StacksChainState,
+    /// Handle to the mempool DB
+    mempool: MemPoolDB,
     /// Handle to global state and inter-thread communication channels
     pub(crate) globals: Globals,
     /// Authoritative copy of the keychain state
@@ -167,9 +185,9 @@ impl RelayerThread {
 
         RelayerThread {
             config: config.clone(),
-            sortdb: Some(sortdb),
-            chainstate: Some(chainstate),
-            mempool: Some(mempool),
+            sortdb,
+            chainstate,
+            mempool,
             globals,
             keychain,
             burnchain: runloop.get_burnchain(),
@@ -193,46 +211,6 @@ impl RelayerThread {
             next_initiative: Instant::now() + Duration::from_secs(10),
             last_committed: None,
         }
-    }
-
-    /// Get an immutible ref to the sortdb
-    pub fn sortdb_ref(&self) -> &SortitionDB {
-        self.sortdb
-            .as_ref()
-            .expect("FATAL: tried to access sortdb while taken")
-    }
-
-    /// Get an immutible ref to the chainstate
-    pub fn chainstate_ref(&self) -> &StacksChainState {
-        self.chainstate
-            .as_ref()
-            .expect("FATAL: tried to access chainstate while it was taken")
-    }
-
-    /// Fool the borrow checker into letting us do something with the chainstate databases.
-    /// DOES NOT COMPOSE -- do NOT call this, or self.sortdb_ref(), or self.chainstate_ref(), within
-    /// `func`.  You will get a runtime panic.
-    pub fn with_chainstate<F, R>(&mut self, func: F) -> R
-    where
-        F: FnOnce(&mut RelayerThread, &mut SortitionDB, &mut StacksChainState, &mut MemPoolDB) -> R,
-    {
-        let mut sortdb = self
-            .sortdb
-            .take()
-            .expect("FATAL: tried to take sortdb while taken");
-        let mut chainstate = self
-            .chainstate
-            .take()
-            .expect("FATAL: tried to take chainstate while taken");
-        let mut mempool = self
-            .mempool
-            .take()
-            .expect("FATAL: tried to take mempool while taken");
-        let res = func(self, &mut sortdb, &mut chainstate, &mut mempool);
-        self.sortdb = Some(sortdb);
-        self.chainstate = Some(chainstate);
-        self.mempool = Some(mempool);
-        res
     }
 
     /// have we waited for the right conditions under which to start mining a block off of our
@@ -286,21 +264,19 @@ impl RelayerThread {
             signal_mining_blocked(self.globals.get_miner_status());
         }
 
-        let net_receipts = self.with_chainstate(|relayer_thread, sortdb, chainstate, mempool| {
-            relayer_thread
-                .relayer
-                .process_network_result(
-                    &relayer_thread.local_peer,
-                    &mut net_result,
-                    sortdb,
-                    chainstate,
-                    mempool,
-                    relayer_thread.globals.sync_comms.get_ibd(),
-                    Some(&relayer_thread.globals.coord_comms),
-                    Some(&relayer_thread.event_dispatcher),
-                )
-                .expect("BUG: failure processing network results")
-        });
+        let net_receipts = self
+            .relayer
+            .process_network_result(
+                &self.local_peer,
+                &mut net_result,
+                &mut self.sortdb,
+                &mut self.chainstate,
+                &mut self.mempool,
+                self.globals.sync_comms.get_ibd(),
+                Some(&self.globals.coord_comms),
+                Some(&self.event_dispatcher),
+            )
+            .expect("BUG: failure processing network results");
 
         if net_receipts.num_new_blocks > 0 || net_receipts.num_new_confirmed_microblocks > 0 {
             // if we received any new block data that could invalidate our view of the chain tip,
@@ -318,7 +294,7 @@ impl RelayerThread {
         let num_unconfirmed_microblock_tx_receipts =
             net_receipts.processed_unconfirmed_state.receipts.len();
         if num_unconfirmed_microblock_tx_receipts > 0 {
-            if let Some(unconfirmed_state) = self.chainstate_ref().unconfirmed_state.as_ref() {
+            if let Some(unconfirmed_state) = self.chainstate.unconfirmed_state.as_ref() {
                 let canonical_tip = unconfirmed_state.confirmed_chain_tip.clone();
                 self.event_dispatcher.process_new_microblocks(
                     canonical_tip,
@@ -336,16 +312,14 @@ impl RelayerThread {
         }
 
         // synchronize unconfirmed tx index to p2p thread
-        self.with_chainstate(|relayer_thread, _sortdb, chainstate, _mempool| {
-            relayer_thread.globals.send_unconfirmed_txs(chainstate);
-        });
+        self.globals.send_unconfirmed_txs(&self.chainstate);
 
         // resume mining if we blocked it, and if we've done the requisite download
         // passes
         self.last_network_download_passes = net_result.num_download_passes;
         self.last_network_inv_passes = net_result.num_inv_sync_passes;
         if self.has_waited_for_latest_blocks() {
-            debug!("Relayer: did a download pass, so unblocking mining");
+            info!("Relayer: did a download pass, so unblocking mining");
             signal_mining_ready(self.globals.get_miner_status());
         }
     }
@@ -359,10 +333,9 @@ impl RelayerThread {
         burn_hash: BurnchainHeaderHash,
         committed_index_hash: StacksBlockId,
     ) -> MinerDirective {
-        let sn =
-            SortitionDB::get_block_snapshot_consensus(self.sortdb_ref().conn(), &consensus_hash)
-                .expect("FATAL: failed to query sortition DB")
-                .expect("FATAL: unknown consensus hash");
+        let sn = SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &consensus_hash)
+            .expect("FATAL: failed to query sortition DB")
+            .expect("FATAL: unknown consensus hash");
 
         self.globals.set_last_sortition(sn.clone());
 
@@ -423,11 +396,10 @@ impl RelayerThread {
             // already in-flight
             return;
         }
-        let cur_epoch =
-            SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), burn_block.block_height)
-                .expect("FATAL: failed to query sortition DB")
-                .expect("FATAL: no epoch defined")
-                .epoch_id;
+        let cur_epoch = SortitionDB::get_stacks_epoch(self.sortdb.conn(), burn_block.block_height)
+            .expect("FATAL: failed to query sortition DB")
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
         let (vrf_pk, _) = self.keychain.make_vrf_keypair(burn_block.block_height);
         let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
         let miner_pkh = self.keychain.get_nakamoto_pkh();
@@ -464,24 +436,19 @@ impl RelayerThread {
         target_ch: &ConsensusHash,
         target_bh: &BlockHeaderHash,
     ) -> Result<(BlockSnapshot, StacksEpochId, LeaderBlockCommitOp), NakamotoNodeError> {
-        let chain_state = self
-            .chainstate
-            .as_mut()
-            .expect("FATAL: Failed to load chain state");
-        let sort_db = self.sortdb.as_mut().expect("FATAL: Failed to load sortdb");
-        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+        let sort_tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?;
 
         let parent_vrf_proof =
-            NakamotoChainState::get_block_vrf_proof(chain_state.db(), &target_ch)
+            NakamotoChainState::get_block_vrf_proof(self.chainstate.db(), &target_ch)
                 .map_err(|_e| NakamotoNodeError::ParentNotFound)?
                 .unwrap_or_else(|| VRFProof::empty());
 
         // let's figure out the recipient set!
         let recipients = get_next_recipients(
             &sort_tip,
-            chain_state,
-            sort_db,
+            &mut self.chainstate,
+            &mut self.sortdb,
             &self.burnchain,
             &OnChainRewardSetProvider(),
             self.config.node.always_use_affirmation_maps,
@@ -492,7 +459,7 @@ impl RelayerThread {
         })?;
 
         let block_header =
-            NakamotoChainState::get_block_header_by_consensus_hash(chain_state.db(), target_ch)
+            NakamotoChainState::get_block_header_by_consensus_hash(self.chainstate.db(), target_ch)
                 .map_err(|e| {
                     error!("Relayer: Failed to get block header for parent tenure: {e:?}");
                     NakamotoNodeError::ParentNotFound
@@ -511,14 +478,14 @@ impl RelayerThread {
         }
 
         let Ok(Some(parent_sortition)) =
-            SortitionDB::get_block_snapshot_consensus(sort_db.conn(), target_ch)
+            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), target_ch)
         else {
             error!("Relayer: Failed to lookup the block snapshot of parent tenure ID"; "tenure_consensus_hash" => %target_ch);
             return Err(NakamotoNodeError::ParentNotFound);
         };
 
         let Ok(Some(target_epoch)) =
-            SortitionDB::get_stacks_epoch(sort_db.conn(), sort_tip.block_height + 1)
+            SortitionDB::get_stacks_epoch(self.sortdb.conn(), sort_tip.block_height + 1)
         else {
             error!("Relayer: Failed to lookup its epoch"; "target_height" => sort_tip.block_height + 1);
             return Err(NakamotoNodeError::SnapshotNotFoundForChainTip);
@@ -526,7 +493,7 @@ impl RelayerThread {
 
         let parent_block_burn_height = parent_sortition.block_height;
         let Ok(Some(parent_winning_tx)) = SortitionDB::get_block_commit(
-            sort_db.conn(),
+            self.sortdb.conn(),
             &parent_sortition.winning_block_txid,
             &parent_sortition.sortition_id,
         ) else {
@@ -621,7 +588,7 @@ impl RelayerThread {
         }
 
         let burn_header_hash = last_burn_block.burn_header_hash.clone();
-        let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
+        let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
         let burn_chain_tip = burn_chain_sn.burn_header_hash.clone();
@@ -779,8 +746,7 @@ impl RelayerThread {
             self.globals.get_leader_key_registration_state(),
             LeaderKeyRegistrationState::Inactive
         ) {
-            let Ok(sort_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
-            else {
+            let Ok(sort_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()) else {
                 warn!("Failed to fetch sortition tip while needing to register VRF key");
                 return None;
             };
@@ -796,8 +762,7 @@ impl RelayerThread {
         }
 
         // has there been a new sortition
-        let Ok(sort_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
-        else {
+        let Ok(sort_tip) = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn()) else {
             return None;
         };
 
@@ -813,12 +778,11 @@ impl RelayerThread {
             true
         };
 
-        let Ok(Some(chain_tip_header)) = NakamotoChainState::get_canonical_block_header(
-            self.chainstate_ref().db(),
-            self.sortdb_ref(),
-        ) else {
+        let Ok(Some(chain_tip_header)) =
+            NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)
+        else {
             info!("No known canonical tip, will issue a genesis block commit");
-            return Some(RelayerDirective::NakamotoTenureStartProcessed(
+            return Some(RelayerDirective::IssueBlockCommit(
                 FIRST_BURNCHAIN_CONSENSUS_HASH,
                 FIRST_STACKS_BLOCK_HASH,
             ));
@@ -827,7 +791,7 @@ impl RelayerThread {
         // get the starting block of the chain tip's tenure
         let Ok(Some(chain_tip_tenure_start)) =
             NakamotoChainState::get_block_header_by_consensus_hash(
-                self.chainstate_ref().db(),
+                self.chainstate.db(),
                 &chain_tip_header.consensus_hash,
             )
         else {
@@ -849,7 +813,7 @@ impl RelayerThread {
             };
 
         if should_commit {
-            Some(RelayerDirective::NakamotoTenureStartProcessed(
+            Some(RelayerDirective::IssueBlockCommit(
                 chain_tip_header.consensus_hash,
                 chain_tip_header.anchored_header.block_hash(),
             ))
@@ -924,10 +888,10 @@ impl RelayerThread {
                 debug!("Relayer: directive Registered VRF key");
                 true
             }
-            // ProcessTenure directives correspond to a new sortition occurring.
+            // ProcessedBurnBlock directives correspond to a new sortition perhaps occurring.
             //  relayer should invoke `handle_sortition` to determine if they won the sortition,
             //  and to start their miner, or stop their miner if an active tenure is now ending
-            RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
+            RelayerDirective::ProcessedBurnBlock(consensus_hash, burn_hash, block_header_hash) => {
                 if !self.is_miner {
                     return true;
                 }
@@ -940,9 +904,8 @@ impl RelayerThread {
                 info!("Relayer: directive Processed tenures");
                 res
             }
-            // NakamotoTenureStartProcessed directives mean that a new tenure start has been processed
-            // These are triggered by the relayer waking up, seeing a new consensus hash *and* a new first tenure block
-            RelayerDirective::NakamotoTenureStartProcessed(consensus_hash, block_hash) => {
+            // These are triggered by the relayer waking up, seeing a new consensus hash *or* a new first tenure block
+            RelayerDirective::IssueBlockCommit(consensus_hash, block_hash) => {
                 if !self.is_miner {
                     return true;
                 }
@@ -951,11 +914,6 @@ impl RelayerThread {
                     warn!("Relayer failed to issue block commit"; "err" => ?e);
                 }
                 debug!("Relayer: Nakamoto Tenure Start");
-                true
-            }
-            RelayerDirective::RunTenure(..) => {
-                // No Op: the nakamoto node does not use the RunTenure directive to control its
-                //   miner thread.
                 true
             }
             RelayerDirective::Exit => false,

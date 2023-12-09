@@ -1,3 +1,18 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex};
@@ -25,10 +40,9 @@ use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
 use crate::burnchains::make_bitcoin_indexer;
-use crate::globals::Globals;
+use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::start_serving_monitoring_metrics;
-use crate::nakamoto_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
-use crate::neon::RunLoopCounter;
+use crate::nakamoto_node::{self, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
@@ -41,6 +55,7 @@ use crate::{
 };
 
 pub const STDERR: i32 = 2;
+pub type Globals = GenericGlobals<nakamoto_node::relayer::RelayerDirective>;
 
 #[cfg(test)]
 const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 30;
@@ -114,22 +129,6 @@ impl RunLoop {
 
     pub fn get_coordinator_channel(&self) -> Option<CoordinatorChannels> {
         self.coordinator_channels.as_ref().map(|x| x.1.clone())
-    }
-
-    pub fn get_blocks_processed_arc(&self) -> RunLoopCounter {
-        self.counters.blocks_processed.clone()
-    }
-
-    pub fn submitted_commits(&self) -> RunLoopCounter {
-        self.counters.naka_submitted_commits.clone()
-    }
-
-    pub fn submitted_vrfs(&self) -> RunLoopCounter {
-        self.counters.naka_submitted_vrfs.clone()
-    }
-
-    pub fn mined_blocks(&self) -> RunLoopCounter {
-        self.counters.naka_mined_blocks.clone()
     }
 
     pub fn get_counters(&self) -> Counters {

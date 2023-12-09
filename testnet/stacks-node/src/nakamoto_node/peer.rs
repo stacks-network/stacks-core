@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -33,10 +33,10 @@ use stacks::net::p2p::PeerNetwork;
 use stacks::net::RPCHandlerArgs;
 use stacks_common::util::hash::Sha256Sum;
 
-use super::open_chainstate_with_faults;
 use crate::burnchains::make_bitcoin_indexer;
-use crate::globals::{Globals, RelayerDirective};
-use crate::run_loop::nakamoto::RunLoop;
+use crate::nakamoto_node::relayer::RelayerDirective;
+use crate::neon_node::open_chainstate_with_faults;
+use crate::run_loop::nakamoto::{Globals, RunLoop};
 use crate::{Config, EventDispatcher};
 
 /// Thread that runs the network state machine, handling both p2p and http requests.
@@ -44,17 +44,17 @@ pub struct PeerThread {
     /// Node config
     config: Config,
     /// instance of the peer network. Made optional in order to trick the borrow checker.
-    net: Option<PeerNetwork>,
+    net: PeerNetwork,
     /// handle to global inter-thread comms
     globals: Globals,
     /// how long to wait for network messages on each poll, in millis
     poll_timeout: u64,
-    /// handle to the sortition DB (optional so we can take/replace it)
-    sortdb: Option<SortitionDB>,
-    /// handle to the chainstate DB (optional so we can take/replace it)
-    chainstate: Option<StacksChainState>,
-    /// handle to the mempool DB (optional so we can take/replace it)
-    mempool: Option<MemPoolDB>,
+    /// handle to the sortition DB
+    sortdb: SortitionDB,
+    /// handle to the chainstate DB
+    chainstate: StacksChainState,
+    /// handle to the mempool DB
+    mempool: MemPoolDB,
     /// buffer of relayer commands with block data that couldn't be sent to the relayer just yet
     /// (i.e. due to backpressure).  We track this separately, instead of just using a bigger
     /// channel, because we need to know when backpressure occurs in order to throttle the p2p
@@ -141,28 +141,6 @@ impl PeerThread {
         info!("P2P thread exit!");
     }
 
-    /// set up the mempool DB connection
-    pub fn connect_mempool_db(config: &Config) -> MemPoolDB {
-        // create estimators, metric instances for RPC handler
-        let cost_estimator = config
-            .make_cost_estimator()
-            .unwrap_or_else(|| Box::new(UnitEstimator));
-        let metric = config
-            .make_cost_metric()
-            .unwrap_or_else(|| Box::new(UnitMetric));
-
-        let mempool = MemPoolDB::open(
-            config.is_mainnet(),
-            config.burnchain.chain_id,
-            &config.get_chainstate_path_str(),
-            cost_estimator,
-            metric,
-        )
-        .expect("Database failure opening mempool");
-
-        mempool
-    }
-
     /// Instantiate the p2p thread.
     /// Binds the addresses in the config (which may panic if the port is blocked).
     /// This is so the node will crash "early" before any new threads start if there's going to be
@@ -183,7 +161,9 @@ impl PeerThread {
         mut net: PeerNetwork,
     ) -> Self {
         let config = config.clone();
-        let mempool = Self::connect_mempool_db(&config);
+        let mempool = config
+            .connect_mempool_db()
+            .expect("FATAL: database failure opening mempool");
         let burn_db_path = config.get_burn_db_file_path();
 
         let sortdb = SortitionDB::open(&burn_db_path, false, pox_constants)
@@ -208,62 +188,18 @@ impl PeerThread {
 
         PeerThread {
             config,
-            net: Some(net),
+            net,
             globals,
             poll_timeout,
-            sortdb: Some(sortdb),
-            chainstate: Some(chainstate),
-            mempool: Some(mempool),
+            sortdb,
+            chainstate,
+            mempool,
             results_with_data: VecDeque::new(),
             num_p2p_state_machine_passes: 0,
             num_inv_sync_passes: 0,
             num_download_passes: 0,
             last_burn_block_height: 0,
         }
-    }
-
-    /// Do something with mutable references to the mempool, sortdb, and chainstate
-    /// Fools the borrow checker.
-    /// NOT COMPOSIBLE
-    fn with_chainstate<F, R>(&mut self, func: F) -> R
-    where
-        F: FnOnce(&mut PeerThread, &mut SortitionDB, &mut StacksChainState, &mut MemPoolDB) -> R,
-    {
-        let mut sortdb = self.sortdb.take().expect("BUG: sortdb already taken");
-        let mut chainstate = self
-            .chainstate
-            .take()
-            .expect("BUG: chainstate already taken");
-        let mut mempool = self.mempool.take().expect("BUG: mempool already taken");
-
-        let res = func(self, &mut sortdb, &mut chainstate, &mut mempool);
-
-        self.sortdb = Some(sortdb);
-        self.chainstate = Some(chainstate);
-        self.mempool = Some(mempool);
-
-        res
-    }
-
-    /// Get an immutable ref to the inner network.
-    /// DO NOT USE WITHIN with_network()
-    fn get_network(&self) -> &PeerNetwork {
-        self.net.as_ref().expect("BUG: did not replace net")
-    }
-
-    /// Do something with mutable references to the network.
-    /// Fools the borrow checker.
-    /// NOT COMPOSIBLE. DO NOT CALL THIS OR get_network() IN func
-    fn with_network<F, R>(&mut self, func: F) -> R
-    where
-        F: FnOnce(&mut PeerThread, &mut PeerNetwork) -> R,
-    {
-        let mut net = self.net.take().expect("BUG: net already taken");
-
-        let res = func(self, &mut net);
-
-        self.net = Some(net);
-        res
     }
 
     /// Run one pass of the p2p/http state machine
@@ -280,12 +216,12 @@ impl PeerThread {
         // initial block download?
         let ibd = self.globals.sync_comms.get_ibd();
         let download_backpressure = self.results_with_data.len() > 0;
-        let poll_ms = if !download_backpressure && self.get_network().has_more_downloads() {
+        let poll_ms = if !download_backpressure && self.net.has_more_downloads() {
             // keep getting those blocks -- drive the downloader state-machine
             debug!(
                 "P2P: backpressure: {}, more downloads: {}",
                 download_backpressure,
-                self.get_network().has_more_downloads()
+                self.net.has_more_downloads()
             );
             1
         } else {
@@ -293,15 +229,11 @@ impl PeerThread {
         };
 
         // do one pass
-        let p2p_res = self.with_chainstate(|p2p_thread, sortdb, chainstate, mempool| {
+        let p2p_res = {
             // NOTE: handler_args must be created such that it outlives the inner net.run() call and
             // doesn't ref anything within p2p_thread.
             let handler_args = RPCHandlerArgs {
-                exit_at_block_height: p2p_thread
-                    .config
-                    .burnchain
-                    .process_exit_at_block_height
-                    .clone(),
+                exit_at_block_height: self.config.burnchain.process_exit_at_block_height.clone(),
                 genesis_chainstate_hash: Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH)
                     .unwrap(),
                 event_observer: Some(event_dispatcher),
@@ -310,21 +242,18 @@ impl PeerThread {
                 fee_estimator: fee_estimator.map(|boxed_estimator| boxed_estimator.as_ref()),
                 ..RPCHandlerArgs::default()
             };
-            p2p_thread.with_network(|_, net| {
-                net.run(
-                    indexer,
-                    sortdb,
-                    chainstate,
-                    mempool,
-                    dns_client_opt,
-                    download_backpressure,
-                    ibd,
-                    poll_ms,
-                    &handler_args,
-                )
-            })
-        });
-
+            self.net.run(
+                indexer,
+                &self.sortdb,
+                &mut self.chainstate,
+                &mut self.mempool,
+                dns_client_opt,
+                download_backpressure,
+                ibd,
+                poll_ms,
+                &handler_args,
+            )
+        };
         match p2p_res {
             Ok(network_result) => {
                 let mut have_update = false;
@@ -376,17 +305,13 @@ impl PeerThread {
             if let Err(e) = self.globals.relay_send.try_send(next_result) {
                 debug!(
                     "P2P: {:?}: download backpressure detected (bufferred {})",
-                    &self.get_network().local_peer,
+                    &self.net.local_peer,
                     self.results_with_data.len()
                 );
                 match e {
                     TrySendError::Full(directive) => {
-                        if let RelayerDirective::RunTenure(..) = directive {
-                            // can drop this
-                        } else {
-                            // don't lose this data -- just try it again
-                            self.results_with_data.push_front(directive);
-                        }
+                        // don't lose this data -- just try it again
+                        self.results_with_data.push_front(directive);
                         break;
                     }
                     TrySendError::Disconnected(_) => {
