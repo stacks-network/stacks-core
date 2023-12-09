@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
@@ -27,14 +27,13 @@ use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::mockamoto::signer::SelfSigner;
-use crate::run_loop::nakamoto;
+use crate::neon::{Counters, RunLoopCounter};
+use crate::run_loop::boot_nakamoto;
 use crate::tests::make_stacks_transfer;
 use crate::tests::neon_integrations::{
     next_block_and_wait, run_until_burnchain_height, submit_tx, test_observer, wait_for_runloop,
 };
-use crate::{
-    neon, tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain,
-};
+use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
@@ -197,11 +196,14 @@ where
 fn next_block_and_mine_commit(
     btc_controller: &mut BitcoinRegtestController,
     timeout_secs: u64,
-    coord_channels: &CoordinatorChannels,
+    coord_channels: &Arc<Mutex<CoordinatorChannels>>,
     commits_submitted: &Arc<AtomicU64>,
 ) -> Result<(), String> {
     let commits_submitted = commits_submitted.clone();
-    let blocks_processed_before = coord_channels.get_stacks_blocks_processed();
+    let blocks_processed_before = coord_channels
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let mut block_processed_time: Option<Instant> = None;
     next_block_and(btc_controller, timeout_secs, || {
@@ -217,7 +219,10 @@ fn next_block_and_mine_commit(
             }
             Ok(false)
         } else {
-            let blocks_processed = coord_channels.get_stacks_blocks_processed();
+            let blocks_processed = coord_channels
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
             if blocks_processed > blocks_processed_before {
                 block_processed_time.replace(Instant::now());
             }
@@ -241,27 +246,18 @@ fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
 ///   for pox-4 to activate
 fn boot_to_epoch_3(
     naka_conf: &Config,
+    blocks_processed: &RunLoopCounter,
     stacker_sk: Secp256k1PrivateKey,
     btc_regtest_controller: &mut BitcoinRegtestController,
 ) {
-    let epoch_2_conf = naka_conf.clone();
-    btc_regtest_controller.bootstrap_chain(201);
-
-    let epochs = epoch_2_conf.burnchain.epochs.clone().unwrap();
-
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
     info!(
         "Chain bootstrapped to bitcoin block 201, starting Epoch 2x miner";
         "Epoch 3.0 Boundary" => (epoch_3.start_height - 1),
     );
-    let http_origin = format!("http://{}", &epoch_2_conf.node.rpc_bind);
-    let mut run_loop = neon::RunLoop::new(epoch_2_conf.clone());
-
-    let epoch_2_stopper = run_loop.get_termination_switch();
-    let blocks_processed = run_loop.get_blocks_processed_arc();
-    let epoch_2_thread = thread::spawn(move || run_loop.start(None, 0));
-    wait_for_runloop(&blocks_processed);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
     // first mined stacks block
@@ -295,19 +291,18 @@ fn boot_to_epoch_3(
         btc_regtest_controller,
         &blocks_processed,
         epoch_3.start_height - 1,
-        &epoch_2_conf,
+        &naka_conf,
     );
 
-    info!("Bootstrapped to Epoch-3.0 boundary, stopping Epoch2x miner");
-    epoch_2_stopper.store(false, Ordering::SeqCst);
-    epoch_2_thread.join().unwrap();
+    info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
 }
 
 #[test]
 #[ignore]
 /// This test spins up a nakamoto-neon node.
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
-///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx).
+///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
+///  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes three assertions:
 ///  * 30 blocks are mined after 3.0 starts. This is enough to mine across 2 reward cycles
 ///  * A transaction submitted to the mempool in 3.0 will be mined in 3.0
@@ -330,13 +325,39 @@ fn simple_neon_integration() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
 
-    boot_to_epoch_3(&naka_conf, stacker_sk, &mut btc_regtest_controller);
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        stacker_sk,
+        &mut btc_regtest_controller,
+    );
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
@@ -356,23 +377,6 @@ fn simple_neon_integration() {
             .unwrap()
             .stacks_block_height;
 
-    test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
-    naka_conf.events_observers.insert(EventObserverConfig {
-        endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
-    });
-
-    let mut run_loop = nakamoto::RunLoop::new(naka_conf.clone());
-    let epoch_3_stopper = run_loop.get_termination_switch();
-    let blocks_processed = run_loop.get_blocks_processed_arc();
-    let vrfs_submitted = run_loop.submitted_vrfs();
-    let commits_submitted = run_loop.submitted_commits();
-    let coord_channel = run_loop.get_coordinator_channel().unwrap();
-
-    let epoch_3_thread = thread::spawn(move || run_loop.start(None, 0));
-
-    wait_for_runloop(&blocks_processed);
     info!("Nakamoto miner started...");
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -470,8 +474,11 @@ fn simple_neon_integration() {
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
 
-    coord_channel.stop_chains_coordinator();
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
 
-    epoch_3_stopper.store(false, Ordering::SeqCst);
-    epoch_3_thread.join().unwrap();
+    run_loop_thread.join().unwrap();
 }

@@ -68,9 +68,14 @@ pub struct RunLoop {
 
 impl RunLoop {
     /// Sets up a runloop and node, given a config.
-    pub fn new(config: Config) -> Self {
+    pub fn new(
+        config: Config,
+        should_keep_running: Option<Arc<AtomicBool>>,
+        counters: Option<Counters>,
+    ) -> Self {
         let channels = CoordinatorCommunication::instantiate();
-        let should_keep_running = Arc::new(AtomicBool::new(true));
+        let should_keep_running =
+            should_keep_running.unwrap_or_else(|| Arc::new(AtomicBool::new(true)));
         let pox_watchdog_comms = PoxSyncWatchdogComms::new(should_keep_running.clone());
         let miner_status = Arc::new(Mutex::new(MinerStatus::make_ready(
             config.burnchain.burn_fee_cap,
@@ -86,7 +91,7 @@ impl RunLoop {
             globals: None,
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
-            counters: Counters::new(),
+            counters: counters.unwrap_or_else(|| Counters::new()),
             should_keep_running,
             event_dispatcher,
             pox_watchdog: None,

@@ -46,7 +46,8 @@ use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, Error as burnchain_error, MagicBytes, BLOCKSTACK_MAGIC_MAINNET,
 };
 use crate::core::{
-    StacksEpoch, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
+    StacksEpoch, StacksEpochExtension, STACKS_EPOCHS_MAINNET, STACKS_EPOCHS_REGTEST,
+    STACKS_EPOCHS_TESTNET,
 };
 use crate::util_lib::db::Error as DBError;
 
@@ -91,7 +92,7 @@ impl TryFrom<u32> for BitcoinNetworkType {
 /// Get the default epochs definitions for the given BitcoinNetworkType.
 /// Should *not* be used except by the BitcoinIndexer when no epochs vector
 /// was specified.
-fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
+pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> Vec<StacksEpoch> {
     match network_id {
         BitcoinNetworkType::Mainnet => STACKS_EPOCHS_MAINNET.to_vec(),
         BitcoinNetworkType::Testnet => STACKS_EPOCHS_TESTNET.to_vec(),
@@ -1030,13 +1031,7 @@ impl BurnchainIndexer for BitcoinIndexer {
     ///
     /// It is an error (panic) to set custom epochs if running on `Mainnet`.
     fn get_stacks_epochs(&self) -> Vec<StacksEpoch> {
-        match self.config.epochs {
-            Some(ref epochs) => {
-                assert!(self.runtime.network_id != BitcoinNetworkType::Mainnet);
-                epochs.clone()
-            }
-            None => get_bitcoin_stacks_epochs(self.runtime.network_id),
-        }
+        StacksEpoch::get_epochs(self.runtime.network_id, self.config.epochs.as_ref())
     }
 
     /// Read downloaded headers within a range
