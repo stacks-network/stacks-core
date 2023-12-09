@@ -16,7 +16,6 @@
 use std::convert::TryFrom;
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::Instant;
 
 use clarity::vm::types::PrincipalData;
 use stacks::burnchains::{Burnchain, BurnchainParameters};
@@ -397,8 +396,6 @@ impl BlockMinerThread {
             metric,
         )
         .expect("Database failure opening mempool");
-
-        let assembly_start = Instant::now();
 
         let target_epoch_id =
             SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)
