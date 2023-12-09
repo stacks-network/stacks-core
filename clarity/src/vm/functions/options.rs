@@ -17,7 +17,7 @@
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, MemoryConsumer};
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, ClarityDB};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType, ShortReturnType,
@@ -112,10 +112,10 @@ fn eval_with_new_binding<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     let mut inner_context = context.extend()?;
-    if vm::is_reserved(&bind_name, env.contract_context.get_clarity_version())
+    if vm::is_reserved::<DB>(&bind_name, env.contract_context.get_clarity_version())
         || env.contract_context.lookup_function(&bind_name).is_some()
         || inner_context.lookup_variable(&bind_name).is_some()
     {
@@ -151,7 +151,7 @@ fn special_match_opt<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     if args.len() != 3 {
         Err(CheckErrors::BadMatchOptionSyntax(Box::new(
@@ -179,7 +179,7 @@ fn special_match_resp<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     if args.len() != 4 {
         Err(CheckErrors::BadMatchResponseSyntax(Box::new(
@@ -211,7 +211,7 @@ pub fn special_match<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_arguments_at_least(1, args)?;
 

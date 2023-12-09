@@ -15,7 +15,7 @@
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost};
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDB};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
 };
@@ -30,7 +30,7 @@ pub fn tuple_cons<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     //    (tuple (arg-name value)
     //           (arg-name value))
@@ -50,7 +50,7 @@ pub fn tuple_get<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     // (get arg-name (tuple ...))
     //    if the tuple argument is an option type, then return option(field-name).

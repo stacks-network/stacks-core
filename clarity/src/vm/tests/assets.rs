@@ -18,8 +18,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::{AssetMap, AssetMapEntry, OwnedEnvironment};
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbUstx};
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbUstx, ClarityDbAssets, ClarityDbVars, ClarityDbMaps};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::representations::SymbolicExpression;
@@ -134,7 +133,13 @@ fn execute_transaction<DB>(
     args: &[SymbolicExpression],
 ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbStx + ClarityDbUstx
+    DB: TransactionalClarityDb 
+        + ClarityDbMicroblocks 
+        + ClarityDbStx
+        + ClarityDbUstx
+        + ClarityDbAssets
+        + ClarityDbVars
+        + ClarityDbMaps
 {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }

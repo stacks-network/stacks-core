@@ -9,7 +9,7 @@ use stacks_common::util::hash::hex_bytes;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, ClarityDB};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors, Error,
     InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -66,7 +66,7 @@ pub fn special_is_standard<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;
@@ -164,7 +164,7 @@ pub fn special_principal_destruct<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::PrincipalDestruct, env, 0)?;
@@ -200,7 +200,7 @@ pub fn special_principal_construct<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;

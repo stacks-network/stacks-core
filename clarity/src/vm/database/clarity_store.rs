@@ -36,7 +36,172 @@ use crate::vm::Value;
 
 use super::v2::{ClarityDb, ClarityDbAnalysis, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbUstx, ClarityDbBlocks, ClarityDbVars, ClarityDbMaps, ClarityDbAssets};
 
-pub struct NullBackingStore {}
+pub type SpecialCaseHandler<DB: ClarityDb> = &'static dyn Fn(
+    // the current Clarity global context
+    &mut GlobalContext<DB>,
+    // the current sender
+    Option<&PrincipalData>,
+    // the current sponsor
+    Option<&PrincipalData>,
+    // the invoked contract
+    &QualifiedContractIdentifier,
+    // the invoked function name
+    &str,
+    // the function parameters
+    &[Value],
+    // the result of the function call
+    &Value,
+) -> Result<()>;
+
+// These functions generally _do not_ return errors, rather, any errors in the underlying storage
+//    will _panic_. The rationale for this is that under no condition should the interpreter
+//    attempt to continue processing in the event of an unexpected storage error.
+pub trait ClarityBackingStore<DB> 
+where
+    DB: ClarityDb,
+{
+    /// put K-V data into the committed datastore
+    fn put_all(&mut self, items: Vec<(String, String)>);
+    /// fetch K-V out of the committed datastore
+    fn get(&mut self, key: &str) -> Option<String>;
+    /// fetch K-V out of the committed datastore, along with the byte representation
+    ///  of the Merkle proof for that key-value pair
+    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)>;
+    fn has_entry(&mut self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// change the current MARF context to service reads from a different chain_tip
+    ///   used to implement time-shifted evaluation.
+    /// returns the previous block header hash on success
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
+
+    /// Is None if `block_height` >= the "currently" under construction Stacks block height.
+    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
+
+    /// this function returns the current block height, as viewed by this marfed-kv structure,
+    ///  i.e., it changes on time-shifted evaluation. the open_chain_tip functions always
+    ///   return data about the chain tip that is currently open for writing.
+    fn get_current_block_height(&mut self) -> u32;
+
+    fn get_open_chain_tip_height(&mut self) -> u32;
+    fn get_open_chain_tip(&mut self) -> StacksBlockId;
+    fn get_side_store(&mut self) -> &Connection;
+
+    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler<DB>> {
+        None
+    }
+
+    /// The contract commitment is the hash of the contract, plus the block height in
+    ///   which the contract was initialized.
+    fn make_contract_commitment(&mut self, contract_hash: Sha512Trunc256Sum) -> String {
+        let block_height = self.get_open_chain_tip_height();
+        let cc = ContractCommitment {
+            hash: contract_hash,
+            block_height,
+        };
+        cc.serialize()
+    }
+
+    /// This function is used to obtain a committed contract hash, and the block header hash of the block
+    ///   in which the contract was initialized. This data is used to store contract metadata in the side
+    ///   store.
+    fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+        let key = make_contract_hash_key(contract);
+        let contract_commitment = self
+            .get(&key)
+            .map(|x| ContractCommitment::deserialize(&x))
+            .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
+        let ContractCommitment {
+            block_height,
+            hash: contract_hash,
+        } = contract_commitment;
+        let bhh = self.get_block_at_height(block_height)
+            .expect("Should always be able to map from height to block hash when looking up contract information.");
+        Ok((bhh, contract_hash))
+    }
+
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+        let bhh = self.get_open_chain_tip();
+        SqliteConnection::insert_metadata(
+            self.get_side_store(),
+            &bhh,
+            &contract.to_string(),
+            key,
+            value,
+        )
+    }
+
+    fn get_metadata(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>> {
+        let (bhh, _) = self.get_contract_hash(contract)?;
+        Ok(SqliteConnection::get_metadata(
+            self.get_side_store(),
+            &bhh,
+            &contract.to_string(),
+            key,
+        ))
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        at_height: u32,
+        contract: &QualifiedContractIdentifier,
+        key: &str,
+    ) -> Result<Option<String>> {
+        let bhh = self.get_block_at_height(at_height)
+            .ok_or_else(|| {
+                warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
+                RuntimeErrorType::BadBlockHeight(at_height.to_string())
+            })?;
+        Ok(SqliteConnection::get_metadata(
+            self.get_side_store(),
+            &bhh,
+            &contract.to_string(),
+            key,
+        ))
+    }
+
+    fn put_all_metadata(&mut self, items: Vec<((QualifiedContractIdentifier, String), String)>) {
+        for ((contract, key), value) in items.into_iter() {
+            self.insert_metadata(&contract, &key, &value);
+        }
+    }
+}
+
+// TODO: Figure out where this belongs
+pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
+    format!("clarity-contract::{}", contract)
+}
+
+pub struct ContractCommitment {
+    pub hash: Sha512Trunc256Sum,
+    pub block_height: u32,
+}
+
+impl ClaritySerializable for ContractCommitment {
+    fn serialize(&self) -> String {
+        format!("{}{}", self.hash, to_hex(&self.block_height.to_be_bytes()))
+    }
+}
+
+impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
+    fn deserialize(input: &str) -> ContractCommitment {
+        assert_eq!(input.len(), 72);
+        let hash = Sha512Trunc256Sum::from_hex(&input[0..64]).expect("Hex decode fail.");
+        let height_bytes = hex_bytes(&input[64..72]).expect("Hex decode fail.");
+        let block_height = u32::from_be_bytes(height_bytes.as_slice().try_into().unwrap());
+        ContractCommitment { hash, block_height }
+    }
+}
+
+/*pub struct NullBackingStore {}
 
 impl ClarityDb for NullBackingStore {
     fn set_block_hash(
@@ -229,171 +394,6 @@ impl ClarityDbMicroblocks for NullBackingStore {
     }
 }
 
-pub type SpecialCaseHandler<DB: ClarityDb> = &'static dyn Fn(
-    // the current Clarity global context
-    &mut GlobalContext<DB>,
-    // the current sender
-    Option<&PrincipalData>,
-    // the current sponsor
-    Option<&PrincipalData>,
-    // the invoked contract
-    &QualifiedContractIdentifier,
-    // the invoked function name
-    &str,
-    // the function parameters
-    &[Value],
-    // the result of the function call
-    &Value,
-) -> Result<()>;
-
-// These functions generally _do not_ return errors, rather, any errors in the underlying storage
-//    will _panic_. The rationale for this is that under no condition should the interpreter
-//    attempt to continue processing in the event of an unexpected storage error.
-pub trait ClarityBackingStore<DB> 
-where
-    DB: ClarityDb,
-{
-    /// put K-V data into the committed datastore
-    fn put_all(&mut self, items: Vec<(String, String)>);
-    /// fetch K-V out of the committed datastore
-    fn get(&mut self, key: &str) -> Option<String>;
-    /// fetch K-V out of the committed datastore, along with the byte representation
-    ///  of the Merkle proof for that key-value pair
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)>;
-    fn has_entry(&mut self, key: &str) -> bool {
-        self.get(key).is_some()
-    }
-
-    /// change the current MARF context to service reads from a different chain_tip
-    ///   used to implement time-shifted evaluation.
-    /// returns the previous block header hash on success
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
-
-    /// Is None if `block_height` >= the "currently" under construction Stacks block height.
-    fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
-
-    /// this function returns the current block height, as viewed by this marfed-kv structure,
-    ///  i.e., it changes on time-shifted evaluation. the open_chain_tip functions always
-    ///   return data about the chain tip that is currently open for writing.
-    fn get_current_block_height(&mut self) -> u32;
-
-    fn get_open_chain_tip_height(&mut self) -> u32;
-    fn get_open_chain_tip(&mut self) -> StacksBlockId;
-    fn get_side_store(&mut self) -> &Connection;
-
-    fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler<DB>> {
-        None
-    }
-
-    /// The contract commitment is the hash of the contract, plus the block height in
-    ///   which the contract was initialized.
-    fn make_contract_commitment(&mut self, contract_hash: Sha512Trunc256Sum) -> String {
-        let block_height = self.get_open_chain_tip_height();
-        let cc = ContractCommitment {
-            hash: contract_hash,
-            block_height,
-        };
-        cc.serialize()
-    }
-
-    /// This function is used to obtain a committed contract hash, and the block header hash of the block
-    ///   in which the contract was initialized. This data is used to store contract metadata in the side
-    ///   store.
-    fn get_contract_hash(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
-        let key = make_contract_hash_key(contract);
-        let contract_commitment = self
-            .get(&key)
-            .map(|x| ContractCommitment::deserialize(&x))
-            .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
-        let ContractCommitment {
-            block_height,
-            hash: contract_hash,
-        } = contract_commitment;
-        let bhh = self.get_block_at_height(block_height)
-            .expect("Should always be able to map from height to block hash when looking up contract information.");
-        Ok((bhh, contract_hash))
-    }
-
-    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
-        let bhh = self.get_open_chain_tip();
-        SqliteConnection::insert_metadata(
-            self.get_side_store(),
-            &bhh,
-            &contract.to_string(),
-            key,
-            value,
-        )
-    }
-
-    fn get_metadata(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        key: &str,
-    ) -> Result<Option<String>> {
-        let (bhh, _) = self.get_contract_hash(contract)?;
-        Ok(SqliteConnection::get_metadata(
-            self.get_side_store(),
-            &bhh,
-            &contract.to_string(),
-            key,
-        ))
-    }
-
-    fn get_metadata_manual(
-        &mut self,
-        at_height: u32,
-        contract: &QualifiedContractIdentifier,
-        key: &str,
-    ) -> Result<Option<String>> {
-        let bhh = self.get_block_at_height(at_height)
-            .ok_or_else(|| {
-                warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
-                RuntimeErrorType::BadBlockHeight(at_height.to_string())
-            })?;
-        Ok(SqliteConnection::get_metadata(
-            self.get_side_store(),
-            &bhh,
-            &contract.to_string(),
-            key,
-        ))
-    }
-
-    fn put_all_metadata(&mut self, items: Vec<((QualifiedContractIdentifier, String), String)>) {
-        for ((contract, key), value) in items.into_iter() {
-            self.insert_metadata(&contract, &key, &value);
-        }
-    }
-}
-
-// TODO: Figure out where this belongs
-pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
-    format!("clarity-contract::{}", contract)
-}
-
-pub struct ContractCommitment {
-    pub hash: Sha512Trunc256Sum,
-    pub block_height: u32,
-}
-
-impl ClaritySerializable for ContractCommitment {
-    fn serialize(&self) -> String {
-        format!("{}{}", self.hash, to_hex(&self.block_height.to_be_bytes()))
-    }
-}
-
-impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
-    fn deserialize(input: &str) -> ContractCommitment {
-        assert_eq!(input.len(), 72);
-        let hash = Sha512Trunc256Sum::from_hex(&input[0..64]).expect("Hex decode fail.");
-        let height_bytes = hex_bytes(&input[64..72]).expect("Hex decode fail.");
-        let block_height = u32::from_be_bytes(height_bytes.as_slice().try_into().unwrap());
-        ContractCommitment { hash, block_height }
-    }
-}
-
 impl Default for NullBackingStore {
     fn default() -> Self {
         NullBackingStore::new()
@@ -458,9 +458,9 @@ where
     fn put_all(&mut self, mut _items: Vec<(String, String)>) {
         panic!("NullBackingStore cannot put")
     }
-}
+}*/
 
-pub struct MemoryBackingStore {
+/*pub struct MemoryBackingStore {
     side_store: Connection,
 }
 
@@ -940,3 +940,4 @@ where
         }
     }
 }
+*/

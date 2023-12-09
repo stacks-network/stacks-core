@@ -17,7 +17,7 @@
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost};
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, ClarityDB};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
 };
@@ -38,7 +38,7 @@ pub fn special_or<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_arguments_at_least(1, args)?;
 
@@ -61,7 +61,7 @@ pub fn special_and<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_arguments_at_least(1, args)?;
 

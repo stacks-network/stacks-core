@@ -22,7 +22,6 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::ASTRules;
 use crate::vm::contexts::Environment;
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::v2::{ClarityDb, ClarityDbMicroblocks, TransactionalClarityDb, ClarityDbStx, ClarityDbUstx, ClarityDbAssets, ClarityDbVars, ClarityDbMaps};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::tests::{

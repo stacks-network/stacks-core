@@ -21,7 +21,6 @@ pub use super::test_util::*;
 use super::ClarityVersion;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::Error;
 use crate::vm::types::Value;
 

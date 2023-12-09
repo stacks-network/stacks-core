@@ -21,7 +21,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks};
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDB};
 use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::SequenceSubtype::{BufferType, StringType};
@@ -242,7 +242,7 @@ pub fn from_consensus_buff<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 

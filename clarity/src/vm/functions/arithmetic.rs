@@ -21,7 +21,7 @@ use integer_sqrt::IntegerSquareRoot;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, ClarityDB};
 use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::signatures::ListTypeData;
@@ -391,7 +391,7 @@ fn special_geq_v1<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
@@ -408,7 +408,7 @@ fn special_geq_v2<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
@@ -425,7 +425,7 @@ pub fn special_geq<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_geq_v2(args, env, context)
@@ -443,7 +443,7 @@ fn special_leq_v1<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
@@ -460,7 +460,7 @@ fn special_leq_v2<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
@@ -477,7 +477,7 @@ pub fn special_leq<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_leq_v2(args, env, context)
@@ -494,7 +494,7 @@ fn special_greater_v1<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
@@ -511,7 +511,7 @@ fn special_greater_v2<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
@@ -528,7 +528,7 @@ pub fn special_greater<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_greater_v2(args, env, context)
@@ -545,7 +545,7 @@ fn special_less_v1<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
@@ -562,7 +562,7 @@ fn special_less_v2<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
@@ -579,7 +579,7 @@ pub fn special_less<DB>(
     context: &LocalContext,
 ) -> InterpreterResult<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_less_v2(args, env, context)

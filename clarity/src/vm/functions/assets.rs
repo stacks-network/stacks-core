@@ -20,7 +20,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
-use crate::vm::database::v2::{ClarityDb, ClarityDbStx, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbUstx, ClarityDbAssets};
+use crate::vm::database::v2::{ClarityDb, ClarityDbStx, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbUstx, ClarityDbAssets, ClarityDB};
 use crate::vm::database::{ClaritySerializable, STXBalance};
 use crate::vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
@@ -98,7 +98,7 @@ pub fn special_stx_balance<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb + ClarityDbStx
+    DB: ClarityDB
 {
     check_argument_count(1, args)?;
 
@@ -131,7 +131,7 @@ pub fn stx_transfer_consolidated<DB>(
     memo: &BuffData,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbStx + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     if amount == 0 {
         return clarity_ecode!(StxErrorCodes::NON_POSITIVE_AMOUNT);
@@ -174,7 +174,7 @@ pub fn special_stx_transfer<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbStx + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(3, args)?;
 
@@ -204,7 +204,7 @@ pub fn special_stx_transfer_memo<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbStx + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(4, args)?;
     runtime_cost(ClarityCostFunction::StxTransferMemo, env, 0)?;
@@ -233,7 +233,7 @@ pub fn special_stx_account<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb + ClarityDbStx
+    DB: ClarityDB
 {
     check_argument_count(1, args)?;
 
@@ -282,7 +282,7 @@ pub fn special_stx_burn<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbStx + ClarityDbUstx + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 
@@ -330,7 +330,7 @@ pub fn special_mint_token<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(3, args)?;
 
@@ -396,7 +396,7 @@ pub fn special_mint_asset_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbAssets
+    DB: ClarityDB
 {
     check_argument_count(3, args)?;
 
@@ -467,7 +467,7 @@ pub fn special_mint_asset_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(3, args)?;
 
@@ -533,7 +533,7 @@ pub fn special_transfer_asset_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbAssets
+    DB: ClarityDB
 {
     check_argument_count(4, args)?;
 
@@ -627,7 +627,7 @@ pub fn special_transfer_asset_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(4, args)?;
 
@@ -716,7 +716,7 @@ pub fn special_transfer_token<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(4, args)?;
 
@@ -820,7 +820,7 @@ pub fn special_get_balance<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb + ClarityDbAssets
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 
@@ -855,7 +855,7 @@ pub fn special_get_owner_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 
@@ -903,7 +903,7 @@ pub fn special_get_owner_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 
@@ -967,7 +967,7 @@ pub fn special_burn_token<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbAssets + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(3, args)?;
 
@@ -1037,7 +1037,7 @@ pub fn special_burn_asset_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbAssets
+    DB: ClarityDB
 {
     check_argument_count(3, args)?;
 
@@ -1122,7 +1122,7 @@ pub fn special_burn_asset_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbAssets
+    DB: ClarityDB
 {
     check_argument_count(3, args)?;
 

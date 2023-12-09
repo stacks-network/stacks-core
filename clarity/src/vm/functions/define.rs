@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
-use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks};
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDB};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
     RuntimeErrorType,
@@ -112,8 +112,14 @@ pub enum DefineResult {
     NoDefine,
 }
 
-fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
-    if contract_context.is_name_used(name) {
+fn check_legal_define<DB>(
+    name: &str, 
+    contract_context: &ContractContext
+) -> Result<()> 
+where
+    DB: ClarityDB
+{
+    if contract_context.is_name_used::<DB>(name) {
         Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
     } else {
         Ok(())
@@ -126,10 +132,10 @@ fn handle_define_variable<DB>(
     env: &mut Environment<DB>,
 ) -> Result<DefineResult> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     // is the variable name legal?
-    check_legal_define(variable, env.contract_context)?;
+    check_legal_define::<DB>(variable, env.contract_context)?;
     let context = LocalContext::new();
     let value = eval(expression, env, &context)?;
     Ok(DefineResult::Variable(variable.clone(), value))
@@ -142,7 +148,7 @@ fn handle_define_function<DB>(
     define_type: DefineType,
 ) -> Result<DefineResult> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     let (function_symbol, arg_symbols) = signature
         .split_first()
@@ -152,12 +158,12 @@ where
         .match_atom()
         .ok_or(CheckErrors::ExpectedName)?;
 
-    check_legal_define(function_name, env.contract_context)?;
+    check_legal_define::<DB>(function_name, env.contract_context)?;
 
     let arguments = parse_name_type_pairs(*env.epoch(), arg_symbols, env)?;
 
     for (argument, _) in arguments.iter() {
-        check_legal_define(argument, env.contract_context)?;
+        check_legal_define::<DB>(argument, env.contract_context)?;
     }
 
     let function = DefinedFunction::new(
@@ -178,9 +184,9 @@ fn handle_define_persisted_variable<DB>(
     env: &mut Environment<DB>,
 ) -> Result<DefineResult> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
-    check_legal_define(variable_str, env.contract_context)?;
+    check_legal_define::<DB>(variable_str, env.contract_context)?;
 
     let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
 
@@ -200,9 +206,9 @@ fn handle_define_nonfungible_asset<DB>(
     env: &mut Environment<DB>,
 ) -> Result<DefineResult> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
-    check_legal_define(asset_name, env.contract_context)?;
+    check_legal_define::<DB>(asset_name, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
 
@@ -218,9 +224,9 @@ fn handle_define_fungible_token<DB>(
     env: &mut Environment<DB>,
 ) -> Result<DefineResult> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
-    check_legal_define(asset_name, env.contract_context)?;
+    check_legal_define::<DB>(asset_name, env.contract_context)?;
 
     if let Some(total_supply_expr) = total_supply {
         let context = LocalContext::new();
@@ -245,9 +251,9 @@ fn handle_define_map<DB>(
     env: &mut Environment<DB>,
 ) -> Result<DefineResult> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
-    check_legal_define(map_str, env.contract_context)?;
+    check_legal_define::<DB>(map_str, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
     let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
@@ -265,9 +271,9 @@ fn handle_define_trait<DB>(
     env: &mut Environment<DB>,
 ) -> Result<DefineResult> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
-    check_legal_define(name, env.contract_context)?;
+    check_legal_define::<DB>(name, env.contract_context)?;
 
     let trait_signature = TypeSignature::parse_trait_type_repr(
         functions,
@@ -432,7 +438,7 @@ pub fn evaluate_define<DB>(
     env: &mut Environment<DB>,
 ) -> Result<DefineResult> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
         match define_type {

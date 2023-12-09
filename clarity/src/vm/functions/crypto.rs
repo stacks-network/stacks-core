@@ -26,7 +26,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, ClarityDB};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
@@ -102,7 +102,7 @@ pub fn special_principal_of<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     // (principal-of? (..))
     // arg0 => (buff 33)
@@ -142,7 +142,7 @@ pub fn special_secp256k1_recover<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     // (secp256k1-recover? (..))
     // arg0 => (buff 32), arg1 => (buff 65)
@@ -187,7 +187,7 @@ pub fn special_secp256k1_verify<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb
+    DB: ClarityDB
 {
     // (secp256k1-verify (..))
     // arg0 => (buff 32), arg1 => (buff 65), arg2 => (buff 33)

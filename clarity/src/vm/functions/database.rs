@@ -25,7 +25,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
-use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbVars, ClarityDbMaps, ClarityDbBlocks};
+use crate::vm::database::v2::{ClarityDb, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbVars, ClarityDbMaps, ClarityDbBlocks, ClarityDB};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
     InterpreterResult as Result, RuntimeErrorType,
@@ -69,7 +69,7 @@ pub fn special_contract_call<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_arguments_at_least(2, args)?;
 
@@ -232,7 +232,7 @@ pub fn special_fetch_variable_v200<DB>(
     _context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbVars
+    DB: ClarityDB
 {
     check_argument_count(1, args)?;
 
@@ -266,7 +266,7 @@ pub fn special_fetch_variable_v205<DB>(
     _context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbVars
+    DB: ClarityDB
 {
     check_argument_count(1, args)?;
 
@@ -302,7 +302,7 @@ pub fn special_set_variable_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbVars
+    DB: ClarityDB
 {
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
@@ -345,7 +345,7 @@ pub fn special_set_variable_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbVars
+    DB: ClarityDB
 {
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
@@ -389,7 +389,7 @@ pub fn special_fetch_entry_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 
@@ -425,7 +425,7 @@ pub fn special_fetch_entry_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 
@@ -463,7 +463,7 @@ pub fn special_at_block<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 
@@ -493,7 +493,7 @@ pub fn special_set_entry_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+    DB: ClarityDB
 {
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
@@ -539,7 +539,7 @@ pub fn special_set_entry_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+    DB: ClarityDB
 {
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
@@ -585,7 +585,7 @@ pub fn special_insert_entry_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+    DB: ClarityDB
 {
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
@@ -632,7 +632,7 @@ pub fn special_insert_entry_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+    DB: ClarityDB
 {
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
@@ -678,7 +678,7 @@ pub fn special_delete_entry_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+    DB: ClarityDB
 {
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
@@ -721,7 +721,7 @@ pub fn special_delete_entry_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbMaps
+    DB: ClarityDB
 {
     if env.global_context.is_read_only() {
         return Err(CheckErrors::WriteAttemptedInReadOnly.into());
@@ -765,7 +765,7 @@ pub fn special_get_block_info<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDb + ClarityDbBlocks
+    DB: ClarityDB
 {
     // (get-block-info? property-name block-height-int)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
@@ -907,7 +907,7 @@ pub fn special_get_burn_block_info<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbBlocks + ClarityDbMicroblocks
+    DB: ClarityDB
 {
     runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
 

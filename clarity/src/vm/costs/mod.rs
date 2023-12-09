@@ -27,7 +27,6 @@ use crate::boot_util::boot_code_id;
 use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::errors::{Error, InterpreterResult};
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::{FunctionSignature, TupleTypeSignature};
@@ -38,6 +37,7 @@ use crate::vm::types::{
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
 
+use super::database::stores::null::NullClarityStore;
 use super::database::v2::{ClarityDb, transactional::TransactionalClarityDb};
 use super::database::v2::blocks::ClarityDbBlocks;
 use super::database::v2::maps::ClarityDbMaps;
@@ -701,7 +701,7 @@ impl LimitedCostTracker {
         epoch: StacksEpochId,
     ) -> Result<LimitedCostTracker> 
     where
-        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps
+        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps + ClarityDbBlocks
     {
         let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
@@ -931,7 +931,7 @@ fn compute_cost(
 ) -> Result<ExecutionCost> {
     let mainnet = cost_tracker.mainnet;
     let chain_id = cost_tracker.chain_id;
-    let mut null_store = NullBackingStore::new();
+    let mut null_store = NullClarityStore::new();
     //let conn = null_store.as_clarity_db();
     let mut global_context = GlobalContext::new(
         mainnet,

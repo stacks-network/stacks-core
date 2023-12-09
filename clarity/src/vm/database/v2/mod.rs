@@ -33,6 +33,28 @@ pub use analysis::*;
 pub use kv_store::*;
 pub use transactional::*;
 
+pub trait ClarityDB
+where
+    Self: TransactionalClarityDb 
+    + ClarityDbMicroblocks 
+    + ClarityDbStx
+    + ClarityDbUstx
+    + ClarityDbAssets
+    + ClarityDbVars
+    + ClarityDbMaps
+{}
+
+impl<T> ClarityDB for T 
+where
+    T: TransactionalClarityDb 
+    + ClarityDbMicroblocks 
+    + ClarityDbStx
+    + ClarityDbUstx
+    + ClarityDbAssets
+    + ClarityDbVars
+    + ClarityDbMaps
+{}
+
 pub trait ClarityDb {
     fn set_block_hash(
         &mut self,

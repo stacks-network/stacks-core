@@ -36,10 +36,11 @@ use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 pub use self::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::{MemoryBackingStore, STORE_CONTRACT_SRC_INTERFACE};
+use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
+use super::database::stores::memory::MemoryClarityStore;
 use super::database::v2::{ClarityDb, analysis::ClarityDbAnalysis};
 
 /// Used by CLI tools like the docs generator. Not used in production
@@ -60,7 +61,7 @@ pub fn mem_type_check(
     .unwrap()
     .expressions;
 
-    let mut marf = MemoryBackingStore::new();
+    let mut marf = MemoryClarityStore::new();
     //let mut analysis_db = marf.as_analysis_db();
     let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(

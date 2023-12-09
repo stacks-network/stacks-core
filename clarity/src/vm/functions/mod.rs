@@ -38,7 +38,7 @@ use crate::vm::types::{
 use crate::vm::Value::CallableContract;
 use crate::vm::{eval, is_reserved, Environment, LocalContext};
 
-use super::database::v2::{ClarityDb, ClarityDbAssets, ClarityDbMaps, ClarityDbVars, ClarityDbMicroblocks, TransactionalClarityDb, ClarityDbBlocks, ClarityDbStx, ClarityDbUstx};
+use super::database::v2::{ClarityDb, ClarityDbAssets, ClarityDbMaps, ClarityDbVars, ClarityDbMicroblocks, TransactionalClarityDb, ClarityDbBlocks, ClarityDbStx, ClarityDbUstx, ClarityDB};
 
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
@@ -673,7 +673,7 @@ fn special_if<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbStx
+    DB: ClarityDB
 {
     check_argument_count(3, args)?;
 
@@ -698,7 +698,7 @@ fn special_asserts<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbStx
+    DB: ClarityDB
 {
     check_argument_count(2, args)?;
 
@@ -748,7 +748,7 @@ pub fn parse_eval_bindings<DB>(
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>> 
 where
-    DB: TransactionalClarityDb + ClarityDbMicroblocks + ClarityDbStx
+    DB: ClarityDB
 {
     let mut result = Vec::new();
     handle_binding_list(bindings, |var_name, var_sexp| {
@@ -764,13 +764,7 @@ fn special_let<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb 
-        + ClarityDbMicroblocks 
-        + ClarityDbStx
-        + ClarityDbAssets
-        + ClarityDbUstx
-        + ClarityDbVars
-        + ClarityDbMaps
+    DB: ClarityDB
 {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
@@ -826,13 +820,7 @@ fn special_as_contract<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb 
-        + ClarityDbMicroblocks
-        + ClarityDbStx
-        + ClarityDbUstx
-        + ClarityDbAssets
-        + ClarityDbVars
-        + ClarityDbMaps
+    DB: ClarityDB
 {
     // (as-contract (..))
     // arg0 => body

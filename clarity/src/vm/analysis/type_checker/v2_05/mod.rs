@@ -117,11 +117,11 @@ where
     }
 }
 
-impl<DB> AnalysisPass for TypeChecker<'_, DB> 
+impl<AnalysisDB> AnalysisPass for TypeChecker<'_, AnalysisDB> 
 where
-    DB: ClarityDbAnalysis
+    AnalysisDB: ClarityDbAnalysis
 {
-    fn run_pass(
+    fn run_pass<DB: ClarityDbAnalysis>(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut DB,
