@@ -174,9 +174,7 @@ use stacks::chainstate::stacks::{
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_2_5_MARKER,
-};
+use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_2_5_MARKER};
 use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, UnitEstimator};
 use stacks::monitoring;

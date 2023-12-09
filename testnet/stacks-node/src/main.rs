@@ -46,7 +46,7 @@ pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
 use crate::mockamoto::MockamotoNode;
-use crate::run_loop::nakamoto;
+use crate::run_loop::boot_nakamoto;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
@@ -213,7 +213,7 @@ fn main() {
         let mut mockamoto = MockamotoNode::new(&conf).unwrap();
         mockamoto.run();
     } else if conf.burnchain.mode == "nakamoto-neon" {
-        let mut run_loop = nakamoto::RunLoop::new(conf);
+        let mut run_loop = boot_nakamoto::BootRunLoop::new(conf).unwrap();
         run_loop.start(None, 0);
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
