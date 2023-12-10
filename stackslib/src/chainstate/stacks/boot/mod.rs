@@ -1168,6 +1168,8 @@ pub mod contract_tests;
 pub mod pox_2_tests;
 #[cfg(test)]
 pub mod pox_3_tests;
+#[cfg(test)]
+pub mod pox_4_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -1441,7 +1443,7 @@ pub mod test {
             .unwrap(),
         ];
 
-        let addrs: Vec<StacksAddress> = keys.iter().map(|ref pk| key_to_stacks_addr(pk)).collect();
+        let addrs: Vec<StacksAddress> = keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
 
         let balances: Vec<(PrincipalData, u64)> = addrs
             .clone()
@@ -1772,6 +1774,24 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_3_NAME,
+            "stack-extend",
+            vec![Value::UInt(lock_period), addr_tuple],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        addr: PoxAddress,
+        lock_period: u128,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
             "stack-extend",
             vec![Value::UInt(lock_period), addr_tuple],
         )
