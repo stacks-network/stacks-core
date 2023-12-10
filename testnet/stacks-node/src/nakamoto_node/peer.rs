@@ -154,7 +154,7 @@ impl PeerThread {
         )
     }
 
-    pub fn new_all(
+    fn new_all(
         globals: Globals,
         config: &Config,
         pox_constants: PoxConstants,
@@ -204,7 +204,7 @@ impl PeerThread {
 
     /// Run one pass of the p2p/http state machine
     /// Return true if we should continue running passes; false if not
-    pub fn run_one_pass<B: BurnchainHeaderReader>(
+    pub(crate) fn run_one_pass<B: BurnchainHeaderReader>(
         &mut self,
         indexer: &B,
         dns_client_opt: Option<&mut DNSClient>,

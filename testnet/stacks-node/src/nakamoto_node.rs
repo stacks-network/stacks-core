@@ -65,15 +65,18 @@ pub struct StacksNode {
     pub relayer_thread_handle: JoinHandle<()>,
 }
 
-/// Types of errors that can arise during mining
+/// Types of errors that can arise during Nakamoto StacksNode operation
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     /// Can't find the block sortition snapshot for the chain tip
     SnapshotNotFoundForChainTip,
     /// The burnchain tip changed while this operation was in progress
     BurnchainTipChanged,
+    /// Error while spawning a subordinate thread
     SpawnError(std::io::Error),
+    /// Injected testing errors
     FaultInjection,
+    /// This miner was elected, but another sortition occurred before mining started
     MissedMiningOpportunity,
     /// Attempted to mine while there was no active VRF key
     NoVRFKeyActive,
@@ -83,7 +86,10 @@ enum Error {
     UnexpectedChainState,
     /// A burnchain operation failed when submitting it to the burnchain
     BurnchainSubmissionFailed,
+    /// A new parent has been discovered since mining started
     NewParentDiscovered,
+    // The thread that we tried to send to has closed
+    ChannelClosed,
 }
 
 impl StacksNode {
@@ -201,19 +207,14 @@ impl StacksNode {
     ///  telling it to process the block and begin mining if this miner won.
     /// returns _false_ if the relayer hung up the channel.
     /// Called from the main thread.
-    pub fn relayer_burnchain_notify(&self) -> bool {
+    fn relayer_burnchain_notify(&self, snapshot: BlockSnapshot) -> Result<(), Error> {
         if !self.is_miner {
-            // node is a follower, don't try to process my own tenure.
-            return true;
+            // node is a follower, don't need to notify the relayer of these events.
+            return Ok(());
         }
 
-        let Some(snapshot) = self.globals.get_last_sortition() else {
-            debug!("Tenure: Notify sortition! No last burn block");
-            return true;
-        };
-
-        debug!(
-            "Tenure: Notify sortition!";
+        info!(
+            "Tenure: Notify burn block!";
             "consensus_hash" => %snapshot.consensus_hash,
             "burn_block_hash" => %snapshot.burn_header_hash,
             "winning_stacks_block_hash" => %snapshot.winning_stacks_block_hash,
@@ -224,15 +225,14 @@ impl StacksNode {
         // unlike in neon_node, the nakamoto node should *always* notify the relayer of
         //  a new burnchain block
 
-        return self
-            .globals
+        self.globals
             .relay_send
             .send(RelayerDirective::ProcessedBurnBlock(
-                snapshot.consensus_hash.clone(),
-                snapshot.parent_burn_header_hash.clone(),
-                snapshot.winning_stacks_block_hash.clone(),
+                snapshot.consensus_hash,
+                snapshot.parent_burn_header_hash,
+                snapshot.winning_stacks_block_hash,
             ))
-            .is_ok();
+            .map_err(|_| Error::ChannelClosed)
     }
 
     /// Process a state coming from the burnchain, by extracting the validated KeyRegisterOp
@@ -244,9 +244,7 @@ impl StacksNode {
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
         ibd: bool,
-    ) -> Option<BlockSnapshot> {
-        let mut last_sortitioned_block = None;
-
+    ) -> Result<(), Error> {
         let ic = sortdb.index_conn();
 
         let block_snapshot = SortitionDB::get_block_snapshot(&ic, sort_id)
@@ -268,14 +266,11 @@ impl StacksNode {
                     "Received burnchain block #{} including block_commit_op (winning) - {} ({})",
                     block_height, op.apparent_sender, &op.block_header_hash
                 );
-                last_sortitioned_block = Some((block_snapshot.clone(), op.vtxindex));
-            } else {
-                if self.is_miner {
-                    info!(
-                        "Received burnchain block #{} including block_commit_op - {} ({})",
-                        block_height, op.apparent_sender, &op.block_header_hash
-                    );
-                }
+            } else if self.is_miner {
+                info!(
+                    "Received burnchain block #{} including block_commit_op - {} ({})",
+                    block_height, op.apparent_sender, &op.block_header_hash
+                );
             }
         }
 
@@ -296,8 +291,10 @@ impl StacksNode {
             "in_initial_block_download?" => ibd,
         );
 
-        self.globals.set_last_sortition(block_snapshot);
-        last_sortitioned_block.map(|x| x.0)
+        self.globals.set_last_sortition(block_snapshot.clone());
+
+        // notify the relayer thread of the new sortition state
+        self.relayer_burnchain_notify(block_snapshot)
     }
 
     /// Join all inner threads
