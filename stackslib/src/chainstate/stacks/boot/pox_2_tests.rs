@@ -6,6 +6,7 @@ use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::{CostOverflowingMath, LimitedCostTracker};
 use clarity::vm::database::*;
+use clarity::vm::database::v2::ClarityDB;
 use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
@@ -668,14 +669,15 @@ where
 }
 
 /// Allows you to do something read-only with the ClarityDB at the given chaintip
-pub fn with_clarity_db_ro<Conn, F, R>(
+pub fn with_clarity_db_ro<Conn, DB, F, R>(
     peer: &mut TestPeer<Conn>, 
     tip: &StacksBlockId, 
     todo: F
 ) -> R
 where
     Conn: DbConnection + TrieDb,
-    F: FnOnce(&mut ClarityDatabase) -> R,
+    DB: ClarityDB,
+    F: FnOnce(&mut DB) -> R,
 {
     with_sortdb(peer, |ref mut c, ref sortdb| {
         let headers_db = HeadersDBConn(c.state_index.sqlite_conn());

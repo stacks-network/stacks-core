@@ -44,7 +44,7 @@ use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_C
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::clarity::{ClarityInstance, Error as ClarityError};
 use crate::clarity_vm::database::marf::MarfedKV;
-use crate::clarity_vm::database::MemoryBackingStore;
+use crate::clarity_vm::database::ClarityMemoryStore;
 use crate::util_lib::boot::boot_code_id;
 
 fn test_block_headers(n: u8) -> StacksBlockId {
@@ -410,7 +410,7 @@ pub fn with_versioned_memory_environment<F>(f: F, version: ClarityVersion, top_l
 where
     F: FnOnce(&mut OwnedEnvironment, ClarityVersion) -> (),
 {
-    let mut marf_kv = MemoryBackingStore::new();
+    let mut marf_kv = ClarityMemoryStore::new();
 
     let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), StacksEpochId::latest());
     // start an initial transaction.

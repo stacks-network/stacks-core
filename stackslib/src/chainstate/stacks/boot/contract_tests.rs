@@ -9,6 +9,7 @@ use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
 use clarity::vm::database::*;
+use clarity::vm::database::v2::ClarityDB;
 use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
@@ -181,9 +182,10 @@ where
         r
     }
 
-    pub fn execute_next_block<F, R>(&mut self, f: F) -> R
+    pub fn execute_next_block<DB, F, R>(&mut self, f: F) -> R
     where
-        F: FnOnce(&mut OwnedEnvironment) -> R,
+        DB: ClarityDB,
+        F: FnOnce(&mut OwnedEnvironment<DB>) -> R,
     {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(self.height, self.fork)),
@@ -236,9 +238,10 @@ where
         sortition_epoch
     }
 
-    pub fn execute_block_as_fork<F, R>(&mut self, parent_height: u64, f: F) -> R
+    pub fn execute_block_as_fork<DB, F, R>(&mut self, parent_height: u64, f: F) -> R
     where
-        F: FnOnce(&mut OwnedEnvironment) -> R,
+        DB: ClarityDB,
+        F: FnOnce(&mut OwnedEnvironment<DB>) -> R,
     {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),

@@ -697,15 +697,15 @@ where
     }
 }
 
-pub struct MemoryBackingStore {
+pub struct ClarityMemoryStore {
     side_store: Connection,
 }
 
-impl MemoryBackingStore {
-    pub fn new() -> MemoryBackingStore {
+impl ClarityMemoryStore {
+    pub fn new() -> ClarityMemoryStore {
         let side_store = SqliteConnection::memory().unwrap();
 
-        let mut memory_marf = MemoryBackingStore { side_store };
+        let mut memory_marf = ClarityMemoryStore { side_store };
 
         memory_marf.as_clarity_db().initialize();
 
@@ -731,7 +731,7 @@ impl MemoryBackingStore {
     }
 }
 
-impl ClarityBackingStore for MemoryBackingStore {
+impl ClarityBackingStore for ClarityMemoryStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }

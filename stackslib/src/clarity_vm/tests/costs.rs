@@ -24,7 +24,7 @@ use clarity::vm::contexts::{
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{ClarityDatabase, MemoryBackingStore};
+use clarity::vm::database::{ClarityDatabase, ClarityMemoryStore};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;

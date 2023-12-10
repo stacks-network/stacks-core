@@ -65,7 +65,7 @@ use crate::clarity::vm::{
     SymbolicExpressionType, Value,
 };
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
-use crate::clarity_vm::database::MemoryBackingStore;
+use crate::clarity_vm::database::ClarityMemoryStore;
 use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::{sqlite_open, FromColumn};
@@ -199,7 +199,7 @@ impl ClarityStorage for WritableMarfStore<'_> {
     }
 }
 
-impl ClarityStorage for MemoryBackingStore {
+impl ClarityStorage for ClarityMemoryStore {
     fn get_clarity_db<'a>(
         &'a mut self,
         _headers_db: &'a dyn HeadersDB,
@@ -470,7 +470,7 @@ where
 pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Option<Value>, Error> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
-    let mut marf = MemoryBackingStore::new();
+    let mut marf = ClarityMemoryStore::new();
     let conn = marf.as_clarity_db();
     let mut global_context = GlobalContext::new(
         false,
@@ -1183,7 +1183,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     result
                 } else {
                     let header_db = CLIHeadersDB::new_memory(mainnet);
-                    let mut analysis_marf = MemoryBackingStore::new();
+                    let mut analysis_marf = ClarityMemoryStore::new();
 
                     install_boot_code(&header_db, &mut analysis_marf);
                     run_analysis(
@@ -1233,7 +1233,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             } else {
                 true
             };
-            let mut marf = MemoryBackingStore::new();
+            let mut marf = ClarityMemoryStore::new();
             let mut vm_env = OwnedEnvironment::new_free(
                 mainnet,
                 default_chain_id(mainnet),
@@ -1245,7 +1245,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 ClarityVersion::Clarity2,
             );
             let mut exec_env = vm_env.get_exec_environment(None, None, &mut placeholder_context);
-            let mut analysis_marf = MemoryBackingStore::new();
+            let mut analysis_marf = ClarityMemoryStore::new();
 
             let contract_id = QualifiedContractIdentifier::transient();
 
@@ -1307,8 +1307,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 buffer
             };
 
-            let mut analysis_marf = MemoryBackingStore::new();
-            let mut marf = MemoryBackingStore::new();
+            let mut analysis_marf = ClarityMemoryStore::new();
+            let mut marf = ClarityMemoryStore::new();
             let mut vm_env = OwnedEnvironment::new_free(
                 true,
                 default_chain_id(true),

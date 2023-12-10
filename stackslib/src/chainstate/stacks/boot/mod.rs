@@ -24,7 +24,8 @@ use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, CostStateSummary, LimitedCostTracker};
-use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::database::v2::ClarityDB;
 use clarity::vm::errors::{Error as VmError, InterpreterError};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::{ClarityName, ContractName};
@@ -209,7 +210,14 @@ where
 
     /// Returns whether or not the `cycle_number` PoX cycle has been handled by the
     ///  Stacks fork in the opened `clarity_db`.
-    pub fn handled_pox_cycle_start(clarity_db: &mut ClarityDatabase, cycle_number: u64) -> bool {
+    pub fn handled_pox_cycle_start<DB>(
+        clarity_db: 
+        &mut DB, 
+        cycle_number: u64
+    ) -> bool 
+    where
+        DB: ClarityDB
+    {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
         match clarity_db.get::<String>(&db_key) {
             Some(x) => x == POX_CYCLE_START_HANDLED_VALUE,
@@ -217,7 +225,13 @@ where
         }
     }
 
-    fn mark_pox_cycle_handled(db: &mut ClarityDatabase, cycle_number: u64) {
+    fn mark_pox_cycle_handled<DB>(
+        db: &mut DB, 
+        cycle_number: u64
+    ) 
+    where
+        DB: ClarityDB
+    {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
         db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string());
     }
