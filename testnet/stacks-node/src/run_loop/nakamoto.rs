@@ -38,7 +38,6 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
-use super::RunLoopCallbacks;
 use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals as GenericGlobals;
 use crate::monitoring::start_serving_monitoring_metrics;
@@ -63,18 +62,18 @@ const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 30;
 #[cfg(not(test))]
 const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 300;
 
-/// Coordinating a node running in neon mode.
+/// Coordinating a node running in nakamoto mode. This runloop operates very similarly to the neon runloop.
 pub struct RunLoop {
     config: Config,
-    pub callbacks: RunLoopCallbacks,
     globals: Option<Globals>,
     counters: Counters,
     coordinator_channels: Option<(CoordinatorReceivers, CoordinatorChannels)>,
     should_keep_running: Arc<AtomicBool>,
     event_dispatcher: EventDispatcher,
+    #[allow(dead_code)]
     pox_watchdog: Option<PoxSyncWatchdog>, // can't be instantiated until .start() is called
-    is_miner: Option<bool>,                // not known until .start() is called
-    burnchain: Option<Burnchain>,          // not known until .start() is called
+    is_miner: Option<bool>,       // not known until .start() is called
+    burnchain: Option<Burnchain>, // not known until .start() is called
     pox_watchdog_comms: PoxSyncWatchdogComms,
     /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
     /// instantiated (namely, so the test framework can access it).
@@ -105,7 +104,6 @@ impl RunLoop {
             config,
             globals: None,
             coordinator_channels: Some(channels),
-            callbacks: RunLoopCallbacks::new(),
             counters: counters.unwrap_or_else(|| Counters::new()),
             should_keep_running,
             event_dispatcher,
@@ -117,7 +115,7 @@ impl RunLoop {
         }
     }
 
-    pub fn get_globals(&self) -> Globals {
+    pub(crate) fn get_globals(&self) -> Globals {
         self.globals
             .clone()
             .expect("FATAL: globals not instantiated")
@@ -127,47 +125,37 @@ impl RunLoop {
         self.globals = Some(globals);
     }
 
-    pub fn get_coordinator_channel(&self) -> Option<CoordinatorChannels> {
+    pub(crate) fn get_coordinator_channel(&self) -> Option<CoordinatorChannels> {
         self.coordinator_channels.as_ref().map(|x| x.1.clone())
     }
 
-    pub fn get_counters(&self) -> Counters {
+    pub(crate) fn get_counters(&self) -> Counters {
         self.counters.clone()
     }
 
-    pub fn config(&self) -> &Config {
+    pub(crate) fn config(&self) -> &Config {
         &self.config
     }
 
-    pub fn get_event_dispatcher(&self) -> EventDispatcher {
+    pub(crate) fn get_event_dispatcher(&self) -> EventDispatcher {
         self.event_dispatcher.clone()
     }
 
-    pub fn is_miner(&self) -> bool {
+    pub(crate) fn is_miner(&self) -> bool {
         self.is_miner.unwrap_or(false)
     }
 
-    pub fn get_pox_sync_comms(&self) -> PoxSyncWatchdogComms {
-        self.pox_watchdog_comms.clone()
-    }
-
-    pub fn get_termination_switch(&self) -> Arc<AtomicBool> {
+    pub(crate) fn get_termination_switch(&self) -> Arc<AtomicBool> {
         self.should_keep_running.clone()
     }
 
-    pub fn get_burnchain(&self) -> Burnchain {
+    pub(crate) fn get_burnchain(&self) -> Burnchain {
         self.burnchain
             .clone()
             .expect("FATAL: tried to get runloop burnchain before calling .start()")
     }
 
-    pub fn get_pox_watchdog(&mut self) -> &mut PoxSyncWatchdog {
-        self.pox_watchdog
-            .as_mut()
-            .expect("FATAL: tried to get PoX watchdog before calling .start()")
-    }
-
-    pub fn get_miner_status(&self) -> Arc<Mutex<MinerStatus>> {
+    pub(crate) fn get_miner_status(&self) -> Arc<Mutex<MinerStatus>> {
         self.miner_status.clone()
     }
 
@@ -228,7 +216,7 @@ impl RunLoop {
     /// Boot up the stacks chainstate.
     /// Instantiate the chainstate and push out the boot receipts to observers
     /// This is only public so we can test it.
-    pub fn boot_chainstate(&mut self, burnchain_config: &Burnchain) -> StacksChainState {
+    fn boot_chainstate(&mut self, burnchain_config: &Burnchain) -> StacksChainState {
         let use_test_genesis_data = use_test_genesis_chainstate(&self.config);
 
         // load up genesis balances
@@ -862,7 +850,14 @@ impl RunLoop {
             // wait for the p2p state-machine to do at least one pass
             debug!("Runloop: Wait until Stacks block downloads reach a quiescent state before processing more burnchain blocks"; "remote_chain_height" => remote_chain_height, "local_chain_height" => burnchain_height);
 
+            // TODO: for now, we just set initial block download false.
+            //   I think that the sync watchdog probably needs to change a fair bit
+            //   for nakamoto. There may be some opportunity to refactor this runloop
+            //   as well (e.g., the `mine_start` should be integrated with the
+            //   watchdog so that there's just one source of truth about ibd),
+            //   but I think all of this can be saved for post-neon work.
             let ibd = false;
+            self.pox_watchdog_comms.set_ibd(ibd);
 
             // calculate burnchain sync percentage
             let percent: f64 = if remote_chain_height > 0 {
@@ -947,16 +942,11 @@ impl RunLoop {
                         let sortition_id = &block.sortition_id;
 
                         // Have the node process the new block, that can include, or not, a sortition.
-                        node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd);
-
-                        // Now, tell the relayer to check if it won a sortition during this block,
-                        // and, if so, to process and advertize the block.  This is basically a
-                        // no-op during boot-up.
-                        //
-                        // _this will block if the relayer's buffer is full_
-                        if !node.relayer_burnchain_notify() {
-                            // relayer hung up, exit.
-                            error!("Runloop: Block relayer and miner hung up, exiting.");
+                        if let Err(e) =
+                            node.process_burnchain_state(burnchain.sortdb_mut(), sortition_id, ibd)
+                        {
+                            // relayer errored, exit.
+                            error!("Runloop: Block relayer and miner errored, exiting."; "err" => ?e);
                             return;
                         }
                     }
