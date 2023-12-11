@@ -282,7 +282,7 @@ fn test_simple_nakamoto_coordinator_bootup() {
 /// Mine a single Nakamoto tenure with 10 Nakamoto blocks
 #[test]
 fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -388,7 +388,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
 /// Mine a 10 Nakamoto tenures with 10 Nakamoto blocks
 #[test]
 fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
-    let private_key = StacksPrivateKey::new();
+    let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
