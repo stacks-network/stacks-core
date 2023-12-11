@@ -1479,29 +1479,6 @@ impl NakamotoChainState {
                     ChainstateError::NoSuchBlockError
                 })?;
         Ok(burn_view_sn.total_burn)
-        /*
-        let target_ch = if let Some(tenure_payload) = block.get_tenure_tx_payload() {
-            tenure_payload.burn_view_consensus_hash
-        } else if let Some(highest_tenure) =
-            Self::get_highest_nakamoto_tenure(chainstate_conn, sort_handle)?
-        {
-            highest_tenure.burn_view_consensus_hash
-        } else {
-            // no nakamoto tenures yet, so this is the consensus hash of the canonical stacks tip
-            let (consensus_hash, _) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(sort_handle.sqlite())?;
-            consensus_hash
-        };
-
-        let Some(sn) = SortitionDB::get_block_snapshot_consensus(sort_handle.sqlite(), &target_ch)?
-        else {
-            warn!("Unacceptable Nakamoto block -- no sortition for tenure";
-                  "burn_view_consensus_hash" => %target_ch
-            );
-            return Ok(None);
-        };
-        Ok(Some(sn.total_burn))
-        */
     }
 
     /// Validate that a Nakamoto block attaches to the burn chain state.
@@ -2615,7 +2592,7 @@ impl NakamotoChainState {
                 // this block is mined in the ongoing tenure.
                 if !Self::check_tenure_continuity(
                     chainstate_tx,
-                    burn_dbconn,
+                    burn_dbconn.sqlite(),
                     &parent_ch,
                     &block.header,
                 )? {
@@ -2909,6 +2886,7 @@ impl NakamotoChainState {
                     sn.burn_header_timestamp,
                 )
             };
+
         let epoch_receipt = StacksEpochReceipt {
             header: new_tip,
             tx_receipts,
