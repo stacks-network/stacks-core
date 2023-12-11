@@ -20,8 +20,7 @@ use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::{Address, Burnchain, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PreStxOp,
-    TransferStxOp,
+    BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;

@@ -58,7 +58,8 @@ use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT,
 };
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash, ConsensusHashExtensions, Opcodes, OpsHash, SortitionHash,

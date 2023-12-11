@@ -10,8 +10,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PreStxOp,
-    StackStxOp, TransferStxOp,
+    BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
 };
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 
