@@ -899,8 +899,14 @@ fn pox_3_defunct() {
     );
     burnchain.pox_constants = pox_constants.clone();
 
-    let (mut peer, keys) =
-        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
+    let observer = TestEventObserver::new();
+
+    let (mut peer, keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        function_name!(),
+        Some(epochs.clone()),
+        Some(&observer),
+    );
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
@@ -949,6 +955,28 @@ fn pox_3_defunct() {
     info!("Submitting stacking txs with pox3");
     latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
+    info!("Checking that stackers have no STX locked");
+    let balances = balances_from_keys(&mut peer, &latest_block, &keys);
+    assert_eq!(balances[0].amount_locked(), 0);
+    assert_eq!(balances[1].amount_locked(), 0);
+
+    info!("Checking tx receipts, all `pox3` calls should have returned `(err ...)`");
+    let last_observer_block = observer
+        .get_blocks()
+        .last()
+        .unwrap()
+        .clone();
+
+    let receipts = last_observer_block.receipts
+        .iter()
+        .filter(|receipt| match &receipt.result {
+            Value::Response(r) => !r.committed,
+            _ => false,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(receipts.len(), 4);
+
     // Advance to start of rewards cycle stackers are participating in
     let target_height = burnchain.pox_constants.pox_4_activation_height + 5;
     while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
@@ -985,8 +1013,7 @@ fn pox_3_defunct() {
     }
 }
 
-/// Test that we can lock STX for a couple cycles after pox4 starts,
-/// and that it unlocks after the desired number of cycles
+// Test that STX locked in pox3 automatically unlocks at `v3_unlock_height`
 #[test]
 fn pox_3_unlocks() {
     // Config for this test

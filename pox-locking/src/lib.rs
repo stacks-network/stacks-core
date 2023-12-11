@@ -107,6 +107,20 @@ pub fn handle_contract_call_special_cases(
             result,
         );
     } else if *contract_id == boot_code_id(POX_3_NAME, global_context.mainnet) {
+        if !pox_3::is_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch25
+        {
+            warn!("PoX-3 function call attempted on an account after Epoch 2.5";
+                  "v3_unlock_ht" => global_context.database.get_v3_unlock_height(),
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "function_name" => function_name,
+                  "contract_id" => %contract_id
+            );
+            return Err(ClarityError::Runtime(
+                RuntimeErrorType::DefunctPoxContract,
+                None,
+            ));
+        }
+
         return pox_3::handle_contract_call(
             global_context,
             sender,
