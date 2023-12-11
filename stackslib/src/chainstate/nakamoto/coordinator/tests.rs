@@ -430,7 +430,7 @@ fn test_nakamoto_chainstate_getters() {
 
         // no tenures yet
         assert!(
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &mut sort_tx)
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_tx.sqlite())
                 .unwrap()
                 .is_none()
         );
@@ -563,7 +563,7 @@ fn test_nakamoto_chainstate_getters() {
 
         // we now have a tenure, and it confirms the last epoch2 block
         let highest_tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &mut sort_tx)
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_tx.sqlite())
                 .unwrap()
                 .unwrap();
         assert_eq!(highest_tenure.coinbase_height, 12);
@@ -591,7 +591,7 @@ fn test_nakamoto_chainstate_getters() {
         .is_some());
         assert!(NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
-            &mut sort_tx,
+            sort_tx.sqlite(),
             &blocks[0].header.consensus_hash,
             &blocks[1].header
         )
@@ -755,7 +755,7 @@ fn test_nakamoto_chainstate_getters() {
 
         // we now have a new highest tenure
         let highest_tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &mut sort_tx)
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_tx.sqlite())
                 .unwrap()
                 .unwrap();
         assert_eq!(highest_tenure.coinbase_height, 13);
@@ -780,14 +780,14 @@ fn test_nakamoto_chainstate_getters() {
         .is_none());
         assert!(NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
-            &mut sort_tx,
+            sort_tx.sqlite(),
             &new_blocks[0].header.consensus_hash,
             &new_blocks[1].header
         )
         .unwrap());
         assert!(!NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
-            &mut sort_tx,
+            sort_tx.sqlite(),
             &blocks[0].header.consensus_hash,
             &new_blocks[1].header
         )
@@ -1306,9 +1306,8 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let mut sort_handle = sort_db.index_handle(&tip.sortition_id);
         let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &mut sort_handle)
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
                 .unwrap()
                 .unwrap();
         (tenure, tip)
@@ -1399,9 +1398,8 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let mut sort_handle = sort_db.index_handle(&tip.sortition_id);
         let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &mut sort_handle)
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
                 .unwrap()
                 .unwrap();
         (tenure, tip)
@@ -1495,9 +1493,8 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
         let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
         let sort_db = peer.sortdb.as_mut().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-        let mut sort_handle = sort_db.index_handle(&tip.sortition_id);
         let tenure =
-            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &mut sort_handle)
+            NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
                 .unwrap()
                 .unwrap();
         (tenure, tip)
@@ -1641,9 +1638,8 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
             let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
             let sort_db = peer.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-            let mut sort_handle = sort_db.index_handle(&tip.sortition_id);
             let tenure =
-                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), &mut sort_handle)
+                NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
                     .unwrap()
                     .unwrap();
             (tenure, tip)
