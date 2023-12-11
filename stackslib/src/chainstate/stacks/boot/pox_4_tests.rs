@@ -41,6 +41,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::Address;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
 use super::test::*;
 use super::RawRewardSetEntry;
@@ -834,7 +835,13 @@ fn pox_lock_unlock() {
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
-        info!("Checking no stackers for cycle {cycle}");
+
+        info!("Checking that stackers have STX locked for cycle {cycle}");
+        let balances = balances_from_keys(&mut peer, &latest_block, &keys);
+        assert!(balances[0].amount_locked() > 0);
+        assert!(balances[1].amount_locked() > 0);
+
+        info!("Checking we have 2 stackers for cycle {cycle}");
         for i in 0..reward_blocks {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
@@ -871,11 +878,16 @@ fn pox_lock_unlock() {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         assert_latest_was_burn(&mut peer);
     }
+
+    info!("Checking that stackers have no STX locked");
+    let balances = balances_from_keys(&mut peer, &latest_block, &keys);
+    assert_eq!(balances[0].amount_locked(), 0);
+    assert_eq!(balances[1].amount_locked(), 0);
 }
 
 /// Test that pox3 methods fail once pox4 is activated
 #[test]
-fn pox_3_fails() {
+fn pox_3_defunct() {
     // Config for this test
     // We are going to try locking for 2 reward cycles (10 blocks)
     let lock_period = 2;
@@ -958,6 +970,12 @@ fn pox_3_fails() {
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
+
+        info!("Checking that stackers have no STX locked for cycle {cycle}");
+        let balances = balances_from_keys(&mut peer, &latest_block, &keys);
+        assert_eq!(balances[0].amount_locked(), 0);
+        assert_eq!(balances[1].amount_locked(), 0);
+
         info!("Checking no stackers for cycle {cycle}");
         for _ in 0..burnchain.pox_constants.reward_cycle_length {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -1048,6 +1066,12 @@ fn pox_3_unlocks() {
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
+
+        info!("Checking that stackers have STX locked for cycle {cycle}");
+        let balances = balances_from_keys(&mut peer, &latest_block, &keys);
+        assert!(balances[0].amount_locked() > 0);
+        assert!(balances[1].amount_locked() > 0);
+
         info!("Checking STX locked for cycle {cycle}");
         for i in 0..reward_blocks {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -1097,11 +1121,17 @@ fn pox_3_unlocks() {
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
+
         info!("Checking no stackers for cycle {cycle}");
         for _ in 0..burnchain.pox_constants.reward_cycle_length {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             assert_latest_was_burn(&mut peer);
         }
+
+        info!("Checking that stackers have no STX locked after cycle {cycle}");
+        let balances = balances_from_keys(&mut peer, &latest_block, &keys);
+        assert_eq!(balances[0].amount_locked(), 0);
+        assert_eq!(balances[1].amount_locked(), 0);
     }
 }
 
@@ -1163,4 +1193,16 @@ fn assert_latest_was_pox(peer: &mut TestPeer) -> Vec<PoxAddress> {
     assert!(commit_addrs.contains(&addrs[0]));
     assert!(commit_addrs.contains(&addrs[1]));
     addrs
+}
+
+fn balances_from_keys(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    keys: &[Secp256k1PrivateKey],
+) -> Vec<STXBalance> {
+    keys.iter()
+        .map(|key| key_to_stacks_addr(key))
+        .map(|addr| PrincipalData::from(addr))
+        .map(|principal| get_stx_account_at(peer, tip, &principal))
+        .collect()
 }
