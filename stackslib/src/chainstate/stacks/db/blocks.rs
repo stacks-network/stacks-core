@@ -6329,83 +6329,24 @@ impl StacksChainState {
         let is_mainnet = self.clarity_state.is_mainnet();
         StacksChainState::can_admit_mempool_semantic(tx, is_mainnet)?;
 
+        if matches!(tx.payload, TransactionPayload::PoisonMicroblock(..)) {
+            return Err(MemPoolRejection::Other(
+                "PoisonMicroblock transactions not accepted via mempool".into(),
+            ));
+        }
+
         let conf = self.config();
-        let staging_height =
-            match self.get_stacks_block_height(current_consensus_hash, current_block) {
-                Ok(Some(height)) => height,
-                Ok(None) => {
-                    if *current_consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
-                        0
-                    } else {
-                        return Err(MemPoolRejection::NoSuchChainTip(
-                            current_consensus_hash.clone(),
-                            current_block.clone(),
-                        ));
-                    }
-                }
-                Err(_e) => {
-                    panic!("DB CORRUPTION: failed to query block height");
-                }
-            };
-
-        let has_microblock_pubk = match tx.payload {
-            TransactionPayload::PoisonMicroblock(ref microblock_header_1, _) => {
-                let microblock_pkh_1 = microblock_header_1
-                    .check_recover_pubkey()
-                    .map_err(|_e| MemPoolRejection::InvalidMicroblocks)?;
-
-                StacksChainState::has_blocks_with_microblock_pubkh(
-                    &self.db(),
-                    &microblock_pkh_1,
-                    staging_height as i64,
-                )
-            }
-            _ => false, // unused
-        };
 
         let current_tip =
             StacksChainState::get_parent_index_block(current_consensus_hash, current_block);
-        let res = match self.with_read_only_clarity_tx(burn_state_db, &current_tip, |conn| {
-            StacksChainState::can_include_tx(conn, &conf, has_microblock_pubk, tx, tx_size)
+        match self.with_read_only_clarity_tx(burn_state_db, &current_tip, |conn| {
+            StacksChainState::can_include_tx(conn, &conf, false, tx, tx_size)
         }) {
             Some(r) => r,
             None => Err(MemPoolRejection::NoSuchChainTip(
                 current_consensus_hash.clone(),
                 current_block.clone(),
             )),
-        };
-
-        match res {
-            Ok(x) => Ok(x),
-            Err(MemPoolRejection::BadNonces(mismatch_error)) => {
-                // try again, but against the _unconfirmed_ chain tip, if we
-                // (a) have one, and (b) the expected nonce is less than the given one.
-                if self.unconfirmed_state.is_some()
-                    && mismatch_error.expected < mismatch_error.actual
-                {
-                    debug!("Transaction {} is unminable in the confirmed chain tip due to nonce {} != {}; trying the unconfirmed chain tip",
-                           &tx.txid(), mismatch_error.expected, mismatch_error.actual);
-                    self.with_read_only_unconfirmed_clarity_tx(burn_state_db, |conn| {
-                        StacksChainState::can_include_tx(
-                            conn,
-                            &conf,
-                            has_microblock_pubk,
-                            tx,
-                            tx_size,
-                        )
-                    })
-                    .map_err(|_| {
-                        MemPoolRejection::NoSuchChainTip(
-                            current_consensus_hash.clone(),
-                            current_block.clone(),
-                        )
-                    })?
-                    .expect("BUG: do not have unconfirmed state, despite being Some(..)")
-                } else {
-                    Err(MemPoolRejection::BadNonces(mismatch_error))
-                }
-            }
-            Err(e) => Err(e),
         }
     }
 
