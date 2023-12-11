@@ -32,7 +32,7 @@ const BACKOFF_MAX_INTERVAL: u64 = 16384;
 /// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
 /// Is equal to the number of message types
-pub const SLOTS_PER_USER: u32 = 10;
+pub const SLOTS_PER_USER: u32 = 2;
 
 #[derive(thiserror::Error, Debug)]
 /// Client error type
@@ -442,18 +442,9 @@ where
 }
 
 /// Helper function to determine the slot ID for the provided stacker-db writer id and the message type
-fn slot_id(id: u32, message: &Message) -> u32 {
-    let slot_id = match message {
-        Message::DkgBegin(_) => 0,
-        Message::DkgPrivateBegin(_) => 1,
-        Message::DkgEnd(_) => 2,
-        Message::DkgPublicShares(_) => 4,
-        Message::DkgPrivateShares(_) => 5,
-        Message::NonceRequest(_) => 6,
-        Message::NonceResponse(_) => 7,
-        Message::SignatureShareRequest(_) => 8,
-        Message::SignatureShareResponse(_) => 9,
-    };
+fn slot_id(id: u32, _message: &Message) -> u32 {
+    //TODO: update this to check the message type as either block message or signer message
+    let slot_id = 0;
     SLOTS_PER_USER * id + slot_id
 }
 
