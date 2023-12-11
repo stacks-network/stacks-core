@@ -19,6 +19,7 @@ use clarity::vm::types::PrincipalData;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
@@ -26,7 +27,7 @@ use stacks_common::types::{Address, StacksEpoch};
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
 
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::coordinator::tests::p2pkh_from;
 use crate::chainstate::nakamoto::tests::get_account;
@@ -624,13 +625,26 @@ fn test_nakamoto_chainstate_getters() {
         .unwrap()
         .is_none());
 
+        let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
+        let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sort_tx.sqlite()).unwrap();
+        sort_tx
+            .test_update_canonical_stacks_tip(
+                &cur_burn_tip.sortition_id,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+                0,
+            )
+            .unwrap();
+
+        // drop the highest tenure, so this check can pass
         NakamotoChainState::delete_nakamoto_tenure(
             chainstate.db(),
             &blocks[0].header.consensus_hash,
         )
         .unwrap();
 
-        // drop the highest tenure, so this check can pass
+        // check works (this would be the first tenure)
         assert!(NakamotoChainState::check_nakamoto_tenure(
             chainstate.db(),
             &mut sort_tx,
@@ -641,6 +655,14 @@ fn test_nakamoto_chainstate_getters() {
         .is_some());
 
         // restore
+        sort_tx
+            .test_update_canonical_stacks_tip(
+                &cur_burn_tip.sortition_id,
+                &cur_stacks_ch,
+                &cur_stacks_bhh,
+                cur_stacks_height,
+            )
+            .unwrap();
         NakamotoChainState::insert_nakamoto_tenure(
             chainstate.db(),
             &blocks[0].header,
@@ -808,6 +830,18 @@ fn test_nakamoto_chainstate_getters() {
         .unwrap()
         .is_some());
 
+        let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
+        let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sort_tx.sqlite()).unwrap();
+        sort_tx
+            .test_update_canonical_stacks_tip(
+                &cur_burn_tip.sortition_id,
+                &blocks[9].header.consensus_hash,
+                &blocks[9].header.block_hash(),
+                blocks[9].header.chain_length,
+            )
+            .unwrap();
+
         NakamotoChainState::delete_nakamoto_tenure(
             chainstate.db(),
             &new_blocks[0].header.consensus_hash,
@@ -834,6 +868,14 @@ fn test_nakamoto_chainstate_getters() {
         .is_none());
 
         // restore
+        sort_tx
+            .test_update_canonical_stacks_tip(
+                &cur_burn_tip.sortition_id,
+                &cur_stacks_ch,
+                &cur_stacks_bhh,
+                cur_stacks_height,
+            )
+            .unwrap();
         NakamotoChainState::insert_nakamoto_tenure(
             chainstate.db(),
             &new_blocks[0].header,
