@@ -27,6 +27,7 @@ use stacks_common::types::chainstate::{
     StacksPublicKey, StacksWorkScore, TrieHash,
 };
 use stacks_common::types::{Address, PrivateKey, StacksEpoch, StacksEpochId};
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
@@ -35,7 +36,7 @@ use stx_genesis::GenesisData;
 
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::tests::make_fork_run;
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::tests::{
     get_burnchain, get_burnchain_db, get_chainstate, get_rw_sortdb, get_sortition_db, p2pkh_from,
@@ -1438,6 +1439,72 @@ fn test_nakamoto_block_static_verification() {
         .is_err());
 }
 
+/// Mock block arrivals
+fn make_fork_run_with_arrivals(
+    sort_db: &mut SortitionDB,
+    start_snapshot: &BlockSnapshot,
+    length: u64,
+    bit_pattern: u8,
+) -> Vec<BlockSnapshot> {
+    let mut last_snapshot = start_snapshot.clone();
+    let mut new_snapshots = vec![];
+    for i in last_snapshot.block_height..(last_snapshot.block_height + length) {
+        let snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
+            pox_valid: true,
+            block_height: last_snapshot.block_height + 1,
+            burn_header_timestamp: get_epoch_time_secs(),
+            burn_header_hash: BurnchainHeaderHash([(i as u8) | bit_pattern; 32]),
+            sortition_id: SortitionId([(i as u8) | bit_pattern; 32]),
+            parent_sortition_id: last_snapshot.sortition_id.clone(),
+            parent_burn_header_hash: last_snapshot.burn_header_hash.clone(),
+            consensus_hash: ConsensusHash([((i + 1) as u8) | bit_pattern; 20]),
+            ops_hash: OpsHash([(i as u8) | bit_pattern; 32]),
+            total_burn: 0,
+            sortition: true,
+            sortition_hash: SortitionHash([(i as u8) | bit_pattern; 32]),
+            winning_block_txid: Txid([(i as u8) | bit_pattern; 32]),
+            winning_stacks_block_hash: BlockHeaderHash([(i as u8) | bit_pattern; 32]),
+            index_root: TrieHash([0u8; 32]),
+            num_sortitions: last_snapshot.num_sortitions + 1,
+            stacks_block_accepted: false,
+            stacks_block_height: 0,
+            arrival_index: 0,
+            canonical_stacks_tip_height: last_snapshot.canonical_stacks_tip_height + 10,
+            canonical_stacks_tip_hash: BlockHeaderHash([((i + 1) as u8) | bit_pattern; 32]),
+            canonical_stacks_tip_consensus_hash: ConsensusHash([((i + 1) as u8) | bit_pattern; 20]),
+            miner_pk_hash: None,
+        };
+        new_snapshots.push(snapshot.clone());
+        {
+            let mut tx = SortitionHandleTx::begin(sort_db, &last_snapshot.sortition_id).unwrap();
+            let _index_root = tx
+                .append_chain_tip_snapshot(
+                    &last_snapshot,
+                    &snapshot,
+                    &vec![],
+                    &vec![],
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+            tx.test_update_canonical_stacks_tip(
+                &snapshot.sortition_id,
+                &snapshot.canonical_stacks_tip_consensus_hash,
+                &snapshot.canonical_stacks_tip_hash,
+                snapshot.canonical_stacks_tip_height,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+        last_snapshot = SortitionDB::get_block_snapshot(sort_db.conn(), &snapshot.sortition_id)
+            .unwrap()
+            .unwrap();
+    }
+    new_snapshots
+}
+
 /// Tests that getting the highest nakamoto tenure works in the presence of forks
 #[test]
 pub fn test_get_highest_nakamoto_tenure() {
@@ -1450,7 +1517,10 @@ pub fn test_get_highest_nakamoto_tenure() {
 
     // seed a single fork of tenures
     let last_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
-    let snapshots = make_fork_run(sort_db, &last_snapshot, 5, 0);
+
+    // mock block arrivals
+    let snapshots = make_fork_run_with_arrivals(sort_db, &last_snapshot, 5, 0);
+
     let mut last_header: Option<NakamotoBlockHeader> = None;
     let mut last_tenure_change: Option<TenureChangePayload> = None;
     let mut all_headers = vec![];
@@ -1458,7 +1528,7 @@ pub fn test_get_highest_nakamoto_tenure() {
     for (i, sn) in snapshots.iter().enumerate() {
         let block_header = NakamotoBlockHeader {
             version: 0,
-            chain_length: i as u64,
+            chain_length: sn.canonical_stacks_tip_height,
             burn_spent: i as u64,
             consensus_hash: sn.consensus_hash.clone(),
             parent_block_id: last_header
@@ -1475,10 +1545,10 @@ pub fn test_get_highest_nakamoto_tenure() {
             prev_tenure_consensus_hash: last_tenure_change
                 .as_ref()
                 .map(|tc| tc.tenure_consensus_hash.clone())
-                .unwrap_or(FIRST_BURNCHAIN_CONSENSUS_HASH.clone()),
+                .unwrap_or(last_snapshot.consensus_hash.clone()),
             burn_view_consensus_hash: sn.consensus_hash.clone(),
             previous_tenure_end: block_header.block_id(),
-            previous_tenure_blocks: 1,
+            previous_tenure_blocks: 10,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0x00; 20]),
             signature: ThresholdSignature::mock(),
@@ -1505,13 +1575,17 @@ pub fn test_get_highest_nakamoto_tenure() {
 
     // highest tenure should be the last one we inserted
     let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    let (stacks_ch, stacks_bhh, stacks_height) =
+        SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sort_db.conn()).unwrap();
     debug!("tip = {:?}", &tip);
-    let highest_tenure = NakamotoChainState::get_highest_nakamoto_tenure(
-        chainstate.db(),
-        &mut sort_db.index_handle(&tip.sortition_id),
-    )
-    .unwrap()
-    .unwrap();
+    debug!(
+        "stacks tip = {},{},{}",
+        &stacks_ch, &stacks_bhh, stacks_height
+    );
+    let highest_tenure =
+        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+            .unwrap()
+            .unwrap();
 
     let last_tenure_change = last_tenure_change.unwrap();
     let last_header = last_header.unwrap();
@@ -1532,7 +1606,7 @@ pub fn test_get_highest_nakamoto_tenure() {
     assert_eq!(highest_tenure.block_id, last_header.block_id());
     assert_eq!(highest_tenure.coinbase_height, 5);
     assert_eq!(highest_tenure.tenure_index, 5);
-    assert_eq!(highest_tenure.num_blocks_confirmed, 1);
+    assert_eq!(highest_tenure.num_blocks_confirmed, 10);
 
     // uh oh, a bitcoin fork!
     let last_snapshot = snapshots[2].clone();
@@ -1540,14 +1614,16 @@ pub fn test_get_highest_nakamoto_tenure() {
 
     let new_tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     debug!("tip = {:?}", &new_tip);
+    debug!(
+        "stacks tip = {},{},{}",
+        &stacks_ch, &stacks_bhh, stacks_height
+    );
 
     // new tip doesn't include the last two tenures
-    let highest_tenure = NakamotoChainState::get_highest_nakamoto_tenure(
-        chainstate.db(),
-        &mut sort_db.index_handle(&new_tip.sortition_id),
-    )
-    .unwrap()
-    .unwrap();
+    let highest_tenure =
+        NakamotoChainState::get_highest_nakamoto_tenure(chainstate.db(), sort_db.conn())
+            .unwrap()
+            .unwrap();
     let last_tenure_change = &all_tenure_changes[2];
     let last_header = &all_headers[2];
     assert_eq!(
@@ -1567,5 +1643,5 @@ pub fn test_get_highest_nakamoto_tenure() {
     assert_eq!(highest_tenure.block_id, last_header.block_id());
     assert_eq!(highest_tenure.coinbase_height, 3);
     assert_eq!(highest_tenure.tenure_index, 3);
-    assert_eq!(highest_tenure.num_blocks_confirmed, 1);
+    assert_eq!(highest_tenure.num_blocks_confirmed, 10);
 }
