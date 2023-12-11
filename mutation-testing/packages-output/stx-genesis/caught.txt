@@ -1,1 +1,0 @@
-stx-genesis/src/lib.rs:100: replace <impl Iterator for LinePairReader>::next -> Option<Self::Item> with Some(Default::default())

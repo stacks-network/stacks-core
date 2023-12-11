@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'The tag to create (optional)'
+        description: "The tag to create (optional)"
         required: false
 
 concurrency:
@@ -74,31 +74,6 @@ jobs:
           path: ./
           base: ${{ env.BRANCH_NAME }}
           head: HEAD
-
-  ## Mutants testing: Execute on PR on packages that have tested functions modified
-  incremental-mutants:
-    name: Incremental Mutants Testing
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Relative diff
-        run: |
-          git branch -av
-          git diff origin/${{ github.base_ref }}.. | tee git.diff
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo install cargo-mutants
-      - name: Mutants
-        run: |
-          cargo mutants --no-shuffle -j 2 -vV --in-diff git.diff || true
-      - name: Archive mutants.out
-        uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: mutants-incremental.out
-          path: mutants.out
 
   ###############################################
   ## Build Tagged Release

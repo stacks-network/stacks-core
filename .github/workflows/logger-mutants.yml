@@ -1,0 +1,30 @@
+name: Logging Mutants
+
+# only run on push in order to update the cache output
+# flow:
+# restore cache
+# install cargo-mutants crate in order to run the 'cargo mutants' command
+# create a file with the current commit hash if a previous one doesn't exist, then print it
+# run the script that handles the 'cargo mutants' command on the differences between the latest updates and the last commit where it was ran
+# overwrite the previous commit hash with the current one for the following run
+# delete the old cache
+# save the new cache with the updated mutants
+# upload artifact to easily check it for the given commit
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+      - next
+
+jobs:
+  save_cache:
+    runs-on: ubuntu-latest
+
+    # test
+    steps:
+      - name: Run logging mutants from actions
+        uses: ASuciuX/actions/mutation-testing/logger@feat/mutation-testing
+        with:
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
