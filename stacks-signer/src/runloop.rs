@@ -191,11 +191,12 @@ impl<C: Coordinator> RunLoop<C> {
                     // Received a block proposal from the miner.
                     // If the signer is the coordinator, then trigger a Signing round for the block
                     if coordinator_id == self.signing_round.signer_id {
-                        // Don't bother triggering a signing round for the block if it is invalid
-                        if !self.stacks_client.is_valid_nakamoto_block(&block).unwrap_or_else(|e| {
+                        let is_valid_block =  self.stacks_client.is_valid_nakamoto_block(&block).unwrap_or_else(|e| {
                             warn!("Failed to validate block: {:?}", e);
                             false
-                        }) {
+                        });
+                        // Don't bother triggering a signing round for the block if it is invalid
+                        if !is_valid_block {
                             warn!("Received an invalid block proposal from the miner. Ignoring block proposal: {:?}", block);
                             return;
                         }
