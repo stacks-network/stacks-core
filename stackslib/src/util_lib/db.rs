@@ -580,21 +580,21 @@ pub fn db_mkdirs(path_str: &str) -> Result<String, Error> {
 }
 
 /// Read-only connection to a MARF-indexed DB
-pub struct IndexDBConn<'a, Conn, Ctx, Id>
+pub struct IndexDBConn<'a, DB, Ctx, Id>
 where
     Id: MarfTrieId,
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
-    pub index: &'a MARF<Id, Conn>,
+    pub index: &'a MARF<Id, DB>,
     pub context: Ctx,
 }
 
-impl<'a, Conn, Ctx, Id> IndexDBConn<'a, Conn, Ctx, Id>
+impl<'a, DB, Ctx, Id> IndexDBConn<'a, DB, Ctx, Id>
 where
     Id: MarfTrieId,
-    Conn: DbConnection + TrieDb 
+    DB: TrieDb
 {
-    pub fn new(index: &'a MARF<Id, Conn>, context: Ctx) -> IndexDBConn<'a, Conn, Ctx, Id> {
+    pub fn new(index: &'a MARF<Id, DB>, context: Ctx) -> IndexDBConn<'a, DB, Ctx, Id> {
         IndexDBConn { index, context }
     }
 
@@ -619,7 +619,7 @@ where
     /// Get a value from the fork index
     pub fn get_indexed(&self, header_hash: &Id, key: &str) -> Result<Option<String>, Error> {
         let mut ro_index = self.index.reopen_readonly()?;
-        get_indexed(&mut ro_index, header_hash, key)
+        get_indexed::<Id, DB, MARF<Id, DB>>(&mut ro_index, header_hash, key)
     }
 
     pub fn conn(&self) -> &DBConn {
@@ -920,8 +920,15 @@ where
     }
 
     /// Get a value from the fork index
-    pub fn get_indexed(&mut self, header_hash: &Id, key: &str) -> Result<Option<String>, Error> {
-        get_indexed(self.index_mut(), header_hash, key)
+    pub fn get_indexed<Conn>(
+        &mut self, 
+        header_hash: &Id, 
+        key: &str
+    ) -> Result<Option<String>, Error> 
+    where
+        Conn: DbConnection + TrieDb
+    {
+        get_indexed::<Id, Conn, MarfTransaction<Id>>(self.index_mut(), header_hash, key)
     }
 
     /// Put all keys and values in a single MARF transaction, and seal it.

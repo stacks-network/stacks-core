@@ -20,7 +20,7 @@ use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::v2::ClarityDb;
 use clarity::vm::errors::{CheckErrors, Error as InterpreterError, Error, RuntimeErrorType};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::*;
@@ -406,13 +406,18 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
     }
 }
 
-pub fn with_versioned_memory_environment<F>(f: F, version: ClarityVersion, top_level: bool)
+pub fn with_versioned_memory_environment<DB, F>(
+    f: F, 
+    version: ClarityVersion, 
+    top_level: bool
+)
 where
-    F: FnOnce(&mut OwnedEnvironment, ClarityVersion) -> (),
+    DB: ClarityDb,
+    F: FnOnce(&mut OwnedEnvironment<DB>, ClarityVersion) -> (),
 {
     let mut marf_kv = ClarityMemoryStore::new();
 
-    let mut owned_env = OwnedEnvironment::new(marf_kv.as_clarity_db(), StacksEpochId::latest());
+    let mut owned_env = OwnedEnvironment::new(marf_kv, StacksEpochId::latest());
     // start an initial transaction.
     if !top_level {
         owned_env.begin();
@@ -426,7 +431,13 @@ fn test_simple_naming_system(#[case] version: ClarityVersion, #[case] epoch: Sta
     with_versioned_memory_environment(inner_test_simple_naming_system, version, false);
 }
 
-fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: ClarityVersion) {
+fn inner_test_simple_naming_system<DB>(
+    owned_env: &mut DB, 
+    version: ClarityVersion
+) 
+where
+    DB: ClarityDb
+{
     let tokens_contract = SIMPLE_TOKENS;
 
     let names_contract = "(define-constant burn-address 'SP000000000000000000002Q6VF78)

@@ -21,7 +21,7 @@ use clarity::vm::contexts::{
 };
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
+use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;

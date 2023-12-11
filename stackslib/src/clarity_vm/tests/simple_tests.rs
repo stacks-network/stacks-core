@@ -1,4 +1,5 @@
 use clarity::vm::contexts::OwnedEnvironment;
+use clarity::vm::database::v2::ClarityDb;
 use clarity::vm::errors::{Error, RuntimeErrorType};
 use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -9,9 +10,13 @@ use stacks_common::types::StacksEpochId;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity_vm::database::marf::MarfedKV;
 
-pub fn with_marfed_environment<F>(f: F, top_level: bool)
+pub fn with_marfed_environment<DB, F>(
+    f: F, 
+    top_level: bool
+)
 where
-    F: FnOnce(&mut OwnedEnvironment) -> (),
+    DB: ClarityDb,
+    F: FnOnce(&mut OwnedEnvironment<DB>) -> (),
 {
     let mut marf_kv = MarfedKV::temporary();
 
@@ -48,7 +53,12 @@ where
 
 #[test]
 fn test_at_unknown_block() {
-    fn test(owned_env: &mut OwnedEnvironment) {
+    fn test<DB>(
+        owned_env: &mut OwnedEnvironment<DB>
+    ) 
+    where
+        DB: ClarityDb
+    {
         let contract = "(define-data-var foo int 3)
                         (at-block 0x0202020202020202020202020202020202020202020202020202020202020202
                           (+ 1 2))";

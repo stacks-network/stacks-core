@@ -28,7 +28,6 @@ use crate::vm::ast::{parse, ASTRules};
 use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
@@ -36,6 +35,7 @@ use crate::vm::types::{
     ASCIIData, BuffData, CharType, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions, TypeSignature,
 };
+use crate::vm::database::stores::memory::ClarityMemoryStore;
 use crate::vm::{
     eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters, CallStack,
     ClarityVersion, ContractContext, Environment, GlobalContext, LocalContext, Value,
@@ -77,7 +77,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
     if let Ok(parsed_program) = parse(&contract_id, program, version, epoch) {
         let context = LocalContext::new();
-        let mut marf = MemoryBackingStore::new();
+        let marf = ClarityMemoryStore::new();
         let mut env = OwnedEnvironment::new(marf, epoch);
 
         assert_eq!(
@@ -683,7 +683,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             QualifiedContractIdentifier::transient(),
             ClarityVersion::Clarity1,
         );
-        let mut marf = MemoryBackingStore::new();
+        let marf = ClarityMemoryStore::new();
         let mut global_context = GlobalContext::new(
             false,
             CHAIN_ID_TESTNET,

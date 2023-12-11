@@ -39,7 +39,7 @@ use crate::vm::types::{
 };
 use crate::vm::{eval, Environment, LocalContext, Value};
 
-type SpecialFunctionType<DB: ClarityDb> =
+type SpecialFunctionType<DB> =
     dyn Fn(&[SymbolicExpression], &mut Environment<DB>, &LocalContext) -> Result<Value>;
 
 pub enum CallableType<DB> 
@@ -164,6 +164,7 @@ impl DefinedFunction {
             + ClarityDbAssets
             + ClarityDbVars
             + ClarityDbMaps
+            + 'static
     {
         runtime_cost(
             ClarityCostFunction::UserFunctionApplication,
@@ -368,6 +369,7 @@ impl DefinedFunction {
             + ClarityDbAssets
             + ClarityDbVars
             + ClarityDbMaps
+            + 'static
     {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),

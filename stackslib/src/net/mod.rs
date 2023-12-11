@@ -64,6 +64,7 @@ use self::dns::*;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::{PegInOp, PegOutFulfillOp, PegOutRequestOp};
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
@@ -630,29 +631,29 @@ impl<'a> RPCHandlerArgs<'a> {
 }
 
 /// Wrapper around Stacks chainstate data that an HTTP request handler might need
-pub struct StacksNodeState<'a, Conn> 
+pub struct StacksNodeState<'a, DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb + SortitionDb
 {
-    inner_network: Option<&'a mut PeerNetwork<Conn>>,
-    inner_sortdb: Option<&'a SortitionDB<Conn>>,
-    inner_chainstate: Option<&'a mut StacksChainState<Conn>>,
+    inner_network: Option<&'a mut PeerNetwork<DB>>,
+    inner_sortdb: Option<&'a SortitionDB<DB>>,
+    inner_chainstate: Option<&'a mut StacksChainState<DB>>,
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
 }
 
-impl<'a, Conn> StacksNodeState<'a, Conn> 
+impl<'a, DB> StacksNodeState<'a, DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb + SortitionDb
 {
     pub fn new(
-        inner_network: &'a mut PeerNetwork<Conn>,
-        inner_sortdb: &'a SortitionDB<Conn>,
-        inner_chainstate: &'a mut StacksChainState<Conn>,
+        inner_network: &'a mut PeerNetwork<DB>,
+        inner_sortdb: &'a SortitionDB<DB>,
+        inner_chainstate: &'a mut StacksChainState<DB>,
         inner_mempool: &'a mut MemPoolDB,
         inner_rpc_args: &'a RPCHandlerArgs<'a>,
-    ) -> StacksNodeState<'a, Conn> {
+    ) -> StacksNodeState<'a, DB> {
         StacksNodeState {
             inner_network: Some(inner_network),
             inner_sortdb: Some(inner_sortdb),
@@ -667,9 +668,9 @@ where
     pub fn with_node_state<F, R>(&mut self, func: F) -> R
     where
         F: FnOnce(
-            &mut PeerNetwork<Conn>,
-            &SortitionDB<Conn>,
-            &mut StacksChainState<Conn>,
+            &mut PeerNetwork<DB>,
+            &SortitionDB<DB>,
+            &mut StacksChainState<DB>,
             &mut MemPoolDB,
             &RPCHandlerArgs<'a>,
         ) -> R,
@@ -2101,22 +2102,22 @@ pub mod test {
         thread_handle.join().unwrap();
     }
 
-    pub struct TestPeer<'a, Conn>
+    pub struct TestPeer<'a, DB>
     where
-        Conn: DbConnection + TrieDb 
+        DB: TrieDb + SortitionDb 
     {
         pub config: TestPeerConfig,
-        pub network: PeerNetwork<Conn>,
-        pub sortdb: Option<SortitionDB<Conn>>,
+        pub network: PeerNetwork<DB>,
+        pub sortdb: Option<SortitionDB<DB>>,
         pub miner: TestMiner,
-        pub stacks_node: Option<TestStacksNode<Conn>>,
+        pub stacks_node: Option<TestStacksNode<DB>>,
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
         pub indexer: Option<BitcoinIndexer>,
         pub coord: ChainsCoordinator<
             'a,
-            Conn,
+            DB,
             TestEventObserver,
             (),
             OnChainRewardSetProvider,

@@ -1484,7 +1484,7 @@ impl ConversationP2P {
         }
 
         // request must correspond to valid PoX fork and must be aligned to reward cycle
-        let base_snapshot = match SortitionDB::get_block_snapshot_consensus(
+        let base_snapshot = match SortitionDB::<Conn>::get_block_snapshot_consensus(
             sortdb.conn(),
             &get_blocks_inv.consensus_hash,
         )? {
@@ -1529,7 +1529,7 @@ impl ConversationP2P {
 
         // find the tail end of this range on the canonical fork.
         let tip_snapshot = {
-            let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+            let tip_sort_id = SortitionDB::<Conn>::get_canonical_sortition_tip(sortdb.conn())?;
             let ic = sortdb.index_conn();
             // NOTE: need the '- 1' here because get_stacks_header_hashes includes
             // tip_snapshot.consensus_hash at the end.
@@ -1584,7 +1584,7 @@ impl ConversationP2P {
         }?;
 
         // update cache
-        SortitionDB::merge_block_header_cache(network.get_header_cache_mut(), &block_hashes);
+        SortitionDB::<Conn>::merge_block_header_cache(network.get_header_cache_mut(), &block_hashes);
 
         let reward_cycle = network
             .get_burnchain()
@@ -1689,7 +1689,7 @@ impl ConversationP2P {
             )));
         }
         // consensus hash in getpoxinv must exist on the canonical chain tip
-        match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &getpoxinv.consensus_hash) {
+        match SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), &getpoxinv.consensus_hash) {
             Ok(Some(sn)) => {
                 if !sn.pox_valid {
                     // invalid consensus hash

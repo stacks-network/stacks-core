@@ -46,6 +46,7 @@ use wsts::curve::scalar::Scalar;
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
@@ -59,6 +60,7 @@ use crate::core::{
 use crate::util_lib::boot;
 use crate::util_lib::strings::VecDisplay;
 
+use super::db::v2::stacks_chainstate_db::ChainStateDb;
 use super::index::db::DbConnection;
 use super::index::trie_db::TrieDb;
 
@@ -197,9 +199,9 @@ impl RewardSet {
     }
 }
 
-impl<Conn> StacksChainState<Conn> 
+impl<ChainDB> StacksChainState<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     /// Return the MARF key used to store whether or not a given PoX
     ///  cycle's "start" has been handled by the Stacks fork yet. This
@@ -468,13 +470,16 @@ where
         Ok(total_events)
     }
 
-    fn eval_boot_code_read_only(
+    fn eval_boot_code_read_only<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         stacks_block_id: &StacksBlockId,
         boot_contract_name: &str,
         code: &str,
-    ) -> Result<Value, Error> {
+    ) -> Result<Value, Error> 
+    where
+        SortDB: SortitionDb
+    {
         let iconn = sortdb.index_conn();
         let dbconn = self.state_index.sqlite_conn();
         self.clarity_state
@@ -503,11 +508,14 @@ where
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
     /// reward cycle
     #[cfg(test)]
-    pub fn get_stacking_minimum(
+    pub fn get_stacking_minimum<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         stacks_block_id: &StacksBlockId,
-    ) -> Result<u128, Error> {
+    ) -> Result<u128, Error> 
+    where
+        SortDB: SortitionDb
+    {
         self.eval_boot_code_read_only(
             sortdb,
             stacks_block_id,
@@ -517,13 +525,16 @@ where
         .map(|value| value.expect_u128())
     }
 
-    pub fn get_total_ustx_stacked(
+    pub fn get_total_ustx_stacked<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         tip: &StacksBlockId,
         reward_cycle: u128,
         pox_contract: &str,
-    ) -> Result<u128, Error> {
+    ) -> Result<u128, Error> 
+    where
+        SortDB: SortitionDb
+    {
         let function = "get-total-ustx-stacked";
         let mainnet = self.mainnet;
         let chain_id = self.chain_id;
@@ -556,12 +567,15 @@ where
 
     /// Determine how many uSTX are stacked in a given reward cycle
     #[cfg(test)]
-    pub fn test_get_total_ustx_stacked(
+    pub fn test_get_total_ustx_stacked<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         stacks_block_id: &StacksBlockId,
         reward_cycle: u128,
-    ) -> Result<u128, Error> {
+    ) -> Result<u128, Error> 
+    where
+        SortDB: SortitionDb
+    {
         self.eval_boot_code_read_only(
             sortdb,
             stacks_block_id,
@@ -572,13 +586,16 @@ where
     }
 
     /// Is PoX active in the given reward cycle?
-    pub fn is_pox_active(
+    pub fn is_pox_active<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         stacks_block_id: &StacksBlockId,
         reward_cycle: u128,
         pox_contract: &str,
-    ) -> Result<bool, Error> {
+    ) -> Result<bool, Error> 
+    where
+        SortDB: SortitionDb
+    {
         self.eval_boot_code_read_only(
             sortdb,
             stacks_block_id,
@@ -741,12 +758,15 @@ where
         (threshold, participation)
     }
 
-    fn get_reward_addresses_pox_1(
+    fn get_reward_addresses_pox_1<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         block_id: &StacksBlockId,
         reward_cycle: u64,
-    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+    ) -> Result<Vec<RawRewardSetEntry>, Error> 
+    where
+        SortDB: SortitionDb
+    {
         if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_1_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
@@ -819,12 +839,15 @@ where
         Ok(ret)
     }
 
-    fn get_reward_addresses_pox_2(
+    fn get_reward_addresses_pox_2<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         block_id: &StacksBlockId,
         reward_cycle: u64,
-    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+    ) -> Result<Vec<RawRewardSetEntry>, Error> 
+    where
+        SortDB: SortitionDb
+    {
         if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_2_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
@@ -908,12 +931,15 @@ where
         Ok(ret)
     }
 
-    fn get_reward_addresses_pox_3(
+    fn get_reward_addresses_pox_3<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         block_id: &StacksBlockId,
         reward_cycle: u64,
-    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+    ) -> Result<Vec<RawRewardSetEntry>, Error> 
+    where
+        SortDB: SortitionDb
+    {
         if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_3_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
@@ -999,12 +1025,15 @@ where
 
     /// Get all PoX reward addresses from .pox-4
     /// TODO: also return their stacker signer keys (as part of `RawRewardSetEntry`
-    fn get_reward_addresses_pox_4(
+    fn get_reward_addresses_pox_4<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         block_id: &StacksBlockId,
         reward_cycle: u64,
-    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+    ) -> Result<Vec<RawRewardSetEntry>, Error> 
+    where   
+        SortDB: SortitionDb
+    {
         if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
@@ -1091,13 +1120,16 @@ where
     /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
     /// lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
-    pub fn get_reward_addresses(
+    pub fn get_reward_addresses<SortDB>(
         &mut self,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         current_burn_height: u64,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+    ) -> Result<Vec<RawRewardSetEntry>, Error> 
+    where
+        SortDB: SortitionDb
+    {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
@@ -1107,13 +1139,16 @@ where
     /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
     /// lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
-    pub fn get_reward_addresses_in_cycle(
+    pub fn get_reward_addresses_in_cycle<SortDB>(
         &mut self,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         reward_cycle: u64,
         block_id: &StacksBlockId,
-    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+    ) -> Result<Vec<RawRewardSetEntry>, Error> 
+    where
+        SortDB: SortitionDb
+    {
         let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
         let pox_contract_name = burnchain
@@ -1149,12 +1184,15 @@ where
     }
 
     /// Get the aggregate public key for a given reward cycle from pox 4
-    pub fn get_aggregate_public_key_pox_4(
+    pub fn get_aggregate_public_key_pox_4<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         block_id: &StacksBlockId,
         reward_cycle: u64,
-    ) -> Result<Option<Point>, Error> {
+    ) -> Result<Option<Point>, Error> 
+    where
+        SortDB: SortitionDb
+    {
         if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",

@@ -1406,10 +1406,10 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
 pub type ConnectionP2P = NetworkConnection<StacksP2P>;
 pub type ReplyHandleP2P = NetworkReplyHandle<StacksP2P>;
 
-pub type ConnectionHttp<Conn: DbConnection + TrieDb> = 
-    NetworkConnection<StacksHttp<Conn>>;
-pub type ReplyHandleHttp<Conn: DbConnection + TrieDb> = 
-    NetworkReplyHandle<StacksHttp<Conn>>;
+pub type ConnectionHttp<DB: TrieDb> = 
+    NetworkConnection<StacksHttp<DB>>;
+pub type ReplyHandleHttp<DB: TrieDb> = 
+    NetworkReplyHandle<StacksHttp<DB>>;
 
 #[cfg(test)]
 mod test {

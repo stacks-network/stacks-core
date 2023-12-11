@@ -125,11 +125,14 @@ impl<DB> AnalysisPass for TypeChecker<'_, DB>
 where
     DB: ClarityDbAnalysis
 {
-    fn run_pass(
+    fn run_pass<ADB>(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
-        analysis_db: &mut DB,
-    ) -> CheckResult<()> {
+        analysis_db: &mut ADB,
+    ) -> CheckResult<()> 
+    where
+        ADB: ClarityDbAnalysis + 'static
+    {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(
             analysis_db,
@@ -899,7 +902,7 @@ pub fn no_type() -> TypeSignature {
 
 impl<'a, DB> TypeChecker<'a, DB> 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     fn new(
         db: &'a mut DB,

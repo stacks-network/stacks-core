@@ -38,7 +38,7 @@ pub fn list_cons<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     let eval_tried: Result<Vec<Value>> = args.iter().map(|x| eval(x, env, context)).collect();
     let args = eval_tried?;
@@ -59,7 +59,7 @@ pub fn special_filter<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(2, args)?;
 
@@ -93,7 +93,7 @@ pub fn special_fold<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(3, args)?;
 
@@ -129,7 +129,7 @@ pub fn special_map<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -190,7 +190,7 @@ pub fn special_append<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(2, args)?;
 
@@ -241,7 +241,7 @@ pub fn special_concat_v200<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(2, args)?;
 
@@ -270,7 +270,7 @@ pub fn special_concat_v205<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(2, args)?;
 
@@ -302,7 +302,7 @@ pub fn special_as_max_len<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(2, args)?;
 
@@ -383,7 +383,7 @@ pub fn special_slice<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(3, args)?;
 
@@ -436,7 +436,7 @@ pub fn special_replace_at<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(3, args)?;
 

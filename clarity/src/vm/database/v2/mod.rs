@@ -1,7 +1,9 @@
 #![warn(unused_imports)]
 
-use stacks_common::types::{chainstate::StacksBlockId, StacksEpochId};
-use crate::vm::{contracts::Contract, types::{QualifiedContractIdentifier, TypeSignature}, analysis::{ContractAnalysis, CheckErrors}, Value, errors::InterpreterResult as Result};
+use std::fmt::Display;
+
+use stacks_common::{types::{chainstate::StacksBlockId, StacksEpochId}, util::hash::Sha512Trunc256Sum};
+use crate::vm::{contracts::Contract, types::{QualifiedContractIdentifier, TypeSignature, serialization::SerializationError}, analysis::{ContractAnalysis, CheckErrors}, Value, errors::{RuntimeErrorType, InterpreterError, ShortReturnType}, costs::CostErrors};
 use crate::vm::errors::Error;
 use super::{ClaritySerializable, ClarityDeserializable, key_value_wrapper::ValueResult};
 
@@ -42,6 +44,7 @@ where
     + ClarityDbAssets
     + ClarityDbVars
     + ClarityDbMaps
+    + 'static
 {}
 
 impl<T> ClarityDB for T 
@@ -53,7 +56,83 @@ where
     + ClarityDbAssets
     + ClarityDbVars
     + ClarityDbMaps
+    + 'static
 {}
+
+#[derive(Debug)]
+pub enum ClarityDbError {
+    Check(CheckErrors),
+    Runtime(RuntimeErrorType),
+    Cost(CostErrors),
+    Interpreter(InterpreterError),
+    ShortReturn(ShortReturnType),
+    Serialization(SerializationError)
+}
+
+impl Display for ClarityDbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClarityDbError::Check(e) => write!(f, "Check error: {}", e),
+            ClarityDbError::Runtime(e) => write!(f, "Runtime error: {}", e),
+            ClarityDbError::Cost(e) => write!(f, "Cost error: {:?}", e),
+            ClarityDbError::Interpreter(e) => write!(f, "Interpreter error: {:?}", e),
+            ClarityDbError::ShortReturn(e) => write!(f, "Short return error: {:?}", e),
+            ClarityDbError::Serialization(e) => write!(f, "Serialization error: {:?}", e),
+        }
+    }
+}
+
+impl From<SerializationError> for ClarityDbError {
+    fn from(err: SerializationError) -> Self {
+        Self::Serialization(err)
+    }
+}
+
+impl From<CheckErrors> for ClarityDbError {
+    fn from(err: CheckErrors) -> Self {
+        Self::Check(err)
+    }
+}
+
+impl From<RuntimeErrorType> for ClarityDbError {
+    fn from(err: RuntimeErrorType) -> Self {
+        Self::Runtime(err)
+    }
+}
+
+impl From<CostErrors> for ClarityDbError {
+    fn from(err: CostErrors) -> Self {
+        Self::Cost(err)
+    }
+}
+
+impl From<InterpreterError> for ClarityDbError {
+    fn from(err: InterpreterError) -> Self {
+        Self::Interpreter(err)
+    }
+}
+
+impl From<crate::vm::errors::Error> for ClarityDbError {
+    fn from(err: crate::vm::errors::Error) -> Self {
+        match err {
+            Error::Interpreter(e) => Self::Interpreter(e),
+            Error::Runtime(e, _) => Self::Runtime(e),
+            Error::Unchecked(e) => Self::Check(e),
+            Error::ShortReturn(e) => Self::ShortReturn(e),
+        }
+    }
+}
+
+impl From<ClarityDbError> for CostErrors {
+    fn from(err: ClarityDbError) -> Self {
+        match err {
+            ClarityDbError::Cost(e) => e,
+            _ => unimplemented!("Cannot convert {:?} to CostErrors", err)
+        }
+    }
+}
+
+pub type Result<T> = std::result::Result<T, ClarityDbError>;
 
 pub trait ClarityDb {
     fn set_block_hash(
@@ -79,6 +158,21 @@ pub trait ClarityDb {
     ) -> Result<u64>
     where
         Self: Sized;
+
+    /// put K-V data into the committed datastore
+    fn put_all(
+        &mut self, 
+        items: Vec<(String, String)>
+    ) -> Result<()> 
+    where
+        Self: Sized
+    {
+        for (key, value) in items.into_iter() {
+            self.put(&key, &value)?;
+        }
+
+        Ok(())
+    }
 
     /// Deserializes and returns the value stored under the specified key.
     fn get<T>(&mut self, key: &str) -> Result<Option<T>>
@@ -143,6 +237,20 @@ pub trait ClarityDb {
     where
         Self: Sized;
 
+    fn put_all_metadata(
+        &mut self, 
+        items: Vec<((QualifiedContractIdentifier, String), String)>
+    ) -> Result<()> 
+    where
+        Self: Sized
+    {
+        for ((contract, key), value) in items.into_iter() {
+            self.insert_metadata(&contract, &key, &value)?;
+        }
+
+        Ok(())
+    }
+
     /// Retrieves the deserialized metadata value for the given contract identifier 
     /// and key, attempting to deserialize to the type `T`.
     fn fetch_metadata<T>(
@@ -205,6 +313,13 @@ pub trait ClarityDb {
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract>;
 
+    /// The contract commitment is the hash of the contract, plus the block height in
+    ///   which the contract was initialized.
+    fn make_contract_commitment(
+        &mut self, 
+        contract_hash: Sha512Trunc256Sum
+    ) -> Result<String>;
+
     /// Returns the epoch version currently applied in the stored Clarity state.
     /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
     /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
@@ -213,9 +328,8 @@ pub trait ClarityDb {
     where Self: Sized
     {
         match self.get(clarity_state_epoch_key())? {
-            Some(x) => u32::try_into(x).map_err(|_| {
-                Error::Unchecked(CheckErrors::InvalidEpochVersion(x.to_string()))
-            }),
+            Some(x) => u32::try_into(x).map_err(|_|
+                CheckErrors::InvalidEpochVersion(x.to_string()).into()),
             None => Ok(StacksEpochId::Epoch20),
         }
     }
@@ -226,5 +340,9 @@ pub trait ClarityDb {
         Self: Sized
     {
         self.put(clarity_state_epoch_key(), &(epoch as u32))
+    }
+
+    fn is_in_regtest(&self) -> bool {
+        cfg!(test)
     }
 }

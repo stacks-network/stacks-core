@@ -28,7 +28,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::AssetMap;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::{BurnStateDB, ClarityDatabase, NULL_BURN_STATE_DB};
+use clarity::vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
@@ -49,6 +49,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::db::v2::SortitionDbTransaction;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
@@ -434,9 +435,9 @@ impl StagingMicroblock {
     }
 }
 
-impl<Conn> StacksChainState<Conn> 
+impl<ChainDB> StacksChainState<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     fn get_index_block_pathbuf(blocks_dir: &str, index_block_hash: &StacksBlockId) -> PathBuf {
         let block_hash_bytes = index_block_hash.as_bytes();
@@ -1492,11 +1493,14 @@ where
     }
 
     /// only used in integration tests with stacks-node
-    pub fn get_parent_consensus_hash(
-        sort_ic: &SortitionDBConn<Conn>,
+    pub fn get_parent_consensus_hash<SortDB>(
+        sort_ic: &SortDB,
         parent_block_hash: &BlockHeaderHash,
         my_consensus_hash: &ConsensusHash,
-    ) -> Result<Option<ConsensusHash>, Error> {
+    ) -> Result<Option<ConsensusHash>, Error> 
+    where
+        SortDB: SortitionDb
+    {
         let sort_handle = SortitionHandleConn::open_reader_consensus(sort_ic, my_consensus_hash)?;
 
         // find all blocks that we have that could be this block's parent
@@ -1517,12 +1521,15 @@ where
     /// Get an anchored block's parent block header.
     /// Doesn't matter if it's staging or not.
     #[cfg(test)]
-    pub fn load_parent_block_header(
-        sort_ic: &SortitionDBConn<Conn>,
+    pub fn load_parent_block_header<SortDB>(
+        sort_ic: &SortDB,
         blocks_path: &str,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
-    ) -> Result<Option<(StacksBlockHeader, ConsensusHash)>, Error> {
+    ) -> Result<Option<(StacksBlockHeader, ConsensusHash)>, Error> 
+    where
+        SortDB: SortitionDb
+    {
         let header = match StacksChainState::load_block_header(
             blocks_path,
             consensus_hash,
@@ -2225,12 +2232,15 @@ where
 
     /// Find the canonical affirmation map.  Handle unaffirmed anchor blocks by simply seeing if we
     /// have the block data for it or not.
-    pub fn find_canonical_affirmation_map<B: BurnchainHeaderReader>(
+    pub fn find_canonical_affirmation_map<B>(
         burnchain: &Burnchain,
         indexer: &B,
         burnchain_db: &BurnchainDB,
-        chainstate: &StacksChainState<Conn>,
-    ) -> Result<AffirmationMap, Error> {
+        chainstate: &StacksChainState<ChainDB>,
+    ) -> Result<AffirmationMap, Error> 
+    where
+        B: BurnchainHeaderReader,
+    {
         BurnchainDB::get_canonical_affirmation_map(
             burnchain_db.conn(),
             burnchain,
@@ -3246,14 +3256,18 @@ where
     /// Returns None if not valid
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
-    fn validate_anchored_block_burnchain(
+    fn validate_anchored_block_burnchain<SortDB, SortTX>(
         blocks_conn: &DBConn,
-        db_handle: &SortitionHandleConn<Conn>,
+        db_handle: &SortTX,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         mainnet: bool,
         chain_id: u32,
-    ) -> Result<Option<(u64, u64)>, Error> {
+    ) -> Result<Option<(u64, u64)>, Error> 
+    where
+        SortDB: SortitionDb,
+        SortTX: SortitionDbTransaction<SortDB>
+    {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();
         let (block_commit, parent_stacks_chain_tip) = match db_handle
@@ -3435,14 +3449,17 @@ where
     /// consensus_hash: this is the consensus hash of the sortition that chose this block
     /// block: the actual block data for this anchored Stacks block
     /// parent_consensus_hash: this the consensus hash of the sortition that chose this Stack's block's parent
-    pub fn preprocess_anchored_block(
+    pub fn preprocess_anchored_block<SortDB>(
         &mut self,
-        sort_ic: &SortitionDBConn<Conn>,
+        sort_ic: &SortDB,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         parent_consensus_hash: &ConsensusHash,
         download_time: u64,
-    ) -> Result<bool, Error> {
+    ) -> Result<bool, Error> 
+    where
+        SortDB: SortitionDb
+    {
         debug!(
             "preprocess anchored block {}/{}",
             consensus_hash,
@@ -3652,13 +3669,16 @@ where
     /// Given a burnchain snapshot, a Stacks block and a microblock stream, preprocess them all.
     /// This does not work when forking
     #[cfg(test)]
-    pub fn preprocess_stacks_epoch(
+    pub fn preprocess_stacks_epoch<SortDB>(
         &mut self,
-        sort_ic: &SortitionDBConn<Conn>,
+        sort_ic: &SortDB,
         snapshot: &BlockSnapshot,
         block: &StacksBlock,
         microblocks: &Vec<StacksMicroblock>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error> 
+    where
+        SortDB: SortitionDb
+    {
         let parent_sn = match SortitionDB::get_block_snapshot_for_winning_stacks_block(
             sort_ic,
             &snapshot.sortition_id,
@@ -4136,7 +4156,7 @@ where
         // is this stacks block the first of a new epoch?
         let (stacks_parent_epoch, sortition_epoch) = clarity_tx.with_clarity_db_readonly(|db| {
             (
-                db.get_clarity_epoch_version(),
+                db.get_clarity_epoch_version()?,
                 db.get_stacks_epoch(chain_tip_burn_header_height),
             )
         });
@@ -4906,7 +4926,7 @@ where
     ///  though it would theoretically be safe).
     pub fn setup_block<'a, 'b>(
         chainstate_tx: &'b mut ChainstateTx,
-        clarity_instance: &'a mut ClarityInstance<Conn>,
+        clarity_instance: &'a mut ClarityInstance<ChainDB>,
         burn_dbconn: &'b dyn BurnStateDB,
         sortition_dbconn: &'b dyn SortitionDBRef,
         conn: &Connection, // connection to the sortition DB
@@ -5232,7 +5252,7 @@ where
     /// event observer has emitted.
     fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
-        clarity_instance: &'a mut ClarityInstance<Conn>,
+        clarity_instance: &'a mut ClarityInstance<ChainDB>,
         burn_dbconn: &mut SortitionHandleTx,
         pox_constants: &PoxConstants,
         parent_chain_tip: &StacksHeaderInfo,
@@ -6163,12 +6183,18 @@ where
     /// Elsewhere, block processing is invoked by the ChainsCoordinator,
     ///  which handles tracking the chain tip itself
     #[cfg(test)]
-    pub fn process_blocks_at_tip(
+    pub fn process_blocks_at_tip<SortDB, BurnDB>(
         &mut self,
-        burnchain_db_conn: &DBConn,
-        sort_db: &mut SortitionDB<Conn>,
+        burnchain_db_conn: &BurnDB,
+        sort_db: &mut SortDB,
         max_blocks: usize,
-    ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> {
+    ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> 
+    where
+        SortDB: SortitionDb,
+        BurnDB: BurnChainDb,
+    {
+        use crate::burnchains::db::v2::BurnChainDb;
+
         let tx = sort_db.tx_begin_at_tip();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
         self.process_blocks(burnchain_db_conn, tx, max_blocks, null_event_dispatcher)
@@ -6416,13 +6442,16 @@ where
 
     /// Given an outstanding clarity connection, can we append the tx to the chain state?
     /// Used when determining whether a transaction can be added to the mempool.
-    fn can_include_tx<T: ClarityConnection>(
-        clarity_connection: &mut T,
+    fn can_include_tx<DB>(
+        clarity_connection: &mut DB,
         chainstate_config: &DBConfig,
         has_microblock_pubkey: bool,
         tx: &StacksTransaction,
         tx_size: u64,
-    ) -> Result<(), MemPoolRejection> {
+    ) -> Result<(), MemPoolRejection> 
+    where
+        DB: ClarityDb
+    {
         // 1: must parse (done)
 
         // 2: it must be validly signed.

@@ -27,7 +27,6 @@ use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::ClarityDatabase;
 use clarity::vm::test_util::TEST_BURN_STATE_DB;
 use clarity::vm::types::*;
 use rand::seq::SliceRandom;

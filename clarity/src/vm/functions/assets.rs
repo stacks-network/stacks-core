@@ -20,7 +20,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker};
-use crate::vm::database::v2::{ClarityDb, ClarityDbStx, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbUstx, ClarityDbAssets, ClarityDB};
+use crate::vm::database::v2::{ClarityDb, ClarityDbStx, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbUstx, ClarityDbAssets, ClarityDB, ClarityDbError};
 use crate::vm::database::{ClaritySerializable, STXBalance};
 use crate::vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
@@ -308,8 +308,8 @@ where
             return clarity_ecode!(StxErrorCodes::NOT_ENOUGH_BALANCE);
         }
 
-        burner_snapshot.debit(amount);
-        burner_snapshot.save();
+        burner_snapshot.debit(amount)?;
+        burner_snapshot.save()?;
 
         env.global_context
             .database
@@ -429,7 +429,7 @@ where
             &asset,
             expected_asset_type,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
+            Err(ClarityDbError::Runtime(RuntimeErrorType::NoSuchToken)) => Ok(()),
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
             Err(e) => Err(e),
         }?;
@@ -497,7 +497,7 @@ where
             &asset,
             expected_asset_type,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
+            Err(ClarityDbError::Runtime(RuntimeErrorType::NoSuchToken)) => Ok(()),
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
             Err(e) => Err(e),
         }?;
@@ -572,7 +572,7 @@ where
             expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(ClarityDbError::Runtime(RuntimeErrorType::NoSuchToken)) => {
                 return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
             }
             Err(e) => Err(e),
@@ -663,7 +663,7 @@ where
             expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(ClarityDbError::Runtime(RuntimeErrorType::NoSuchToken)) => {
                 return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
             }
             Err(e) => Err(e),
@@ -890,8 +890,8 @@ where
             Ok(Value::some(Value::Principal(owner))
                 .expect("Principal should always fit in optional."))
         }
-        Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
-        Err(e) => Err(e),
+        Err(ClarityDbError::Runtime(RuntimeErrorType::NoSuchToken)) => Ok(Value::none()),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -935,8 +935,8 @@ where
             Ok(Value::some(Value::Principal(owner))
                 .expect("Principal should always fit in optional."))
         }
-        Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
-        Err(e) => Err(e),
+        Err(ClarityDbError::Runtime(RuntimeErrorType::NoSuchToken)) => Ok(Value::none()),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -1072,7 +1072,7 @@ where
             &asset,
             expected_asset_type,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(ClarityDbError::Runtime(RuntimeErrorType::NoSuchToken)) => {
                 return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
             }
             Ok(owner) => Ok(owner),
@@ -1154,7 +1154,7 @@ where
             &asset,
             expected_asset_type,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(ClarityDbError::Runtime(RuntimeErrorType::NoSuchToken)) => {
                 return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
             }
             Ok(owner) => Ok(owner),

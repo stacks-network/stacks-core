@@ -1,7 +1,8 @@
 use stacks_common::util::hash::Hash160;
 
-use crate::vm::{database::StoreType, types::{QualifiedContractIdentifier, PrincipalData}, analysis::CheckErrors, errors::Error};
-use super::super::super::errors::InterpreterResult as Result;
+use crate::vm::{database::StoreType, types::{QualifiedContractIdentifier, PrincipalData}, analysis::CheckErrors, Value};
+
+use super::{Result, ClarityDbError};
 
 /// Generates a key for the given variable name and data type, to be stored in the
 /// database's metadata storage.
@@ -75,7 +76,32 @@ pub fn map_no_contract_as_none<T>(
     res: Result<Option<T>>
 ) -> Result<Option<T>> {
     res.or_else(|e| match e {
-        Error::Unchecked(CheckErrors::NoSuchContract(_)) => Ok(None),
+        ClarityDbError::Check(CheckErrors::NoSuchContract(_)) => Ok(None),
         x => Err(x),
     })
+}
+
+pub fn make_key_for_data_map_entry(
+    contract_identifier: &QualifiedContractIdentifier,
+    map_name: &str,
+    key_value: &Value,
+) -> String {
+    make_key_for_data_map_entry_serialized(
+        contract_identifier,
+        map_name,
+        &key_value.serialize_to_hex(),
+    )
+}
+
+pub fn make_key_for_data_map_entry_serialized(
+    contract_identifier: &QualifiedContractIdentifier,
+    map_name: &str,
+    key_value_serialized: &str,
+) -> String {
+    make_key_for_quad(
+        contract_identifier,
+        StoreType::DataMap,
+        map_name,
+        key_value_serialized,
+    )
 }

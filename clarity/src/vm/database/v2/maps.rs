@@ -1,6 +1,6 @@
 use stacks_common::types::StacksEpochId;
-use crate::vm::{types::{QualifiedContractIdentifier, TypeSignature, byte_len_of_serialization, serialization::NONE_SERIALIZATION_LEN}, analysis::CheckErrors, Value, errors::InterpreterResult as Result};
-use super::{super::{StoreType, key_value_wrapper::ValueResult, DataMapMetadata}, ClarityDb, utils::{make_key_for_quad, make_metadata_key, map_no_contract_as_none}};
+use crate::vm::{types::{QualifiedContractIdentifier, TypeSignature, byte_len_of_serialization, serialization::NONE_SERIALIZATION_LEN}, analysis::CheckErrors, Value};
+use super::{super::{StoreType, key_value_wrapper::ValueResult, DataMapMetadata}, ClarityDb, Result, utils::{make_key_for_quad, make_metadata_key, map_no_contract_as_none}, make_key_for_data_map_entry, make_key_for_data_map_entry_serialized};
 
 pub trait ClarityDbMaps: ClarityDb {
     fn create_map(
@@ -36,33 +36,6 @@ pub trait ClarityDbMaps: ClarityDb {
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
             .ok_or(CheckErrors::NoSuchMap(map_name.to_string()).into())
-    }
-
-    fn make_key_for_data_map_entry(
-        &self,
-        contract_identifier: &QualifiedContractIdentifier,
-        map_name: &str,
-        key_value: &Value,
-    ) -> String {
-        self.make_key_for_data_map_entry_serialized(
-            contract_identifier,
-            map_name,
-            &key_value.serialize_to_hex(),
-        )
-    }
-
-    fn make_key_for_data_map_entry_serialized(
-        &self,
-        contract_identifier: &QualifiedContractIdentifier,
-        map_name: &str,
-        key_value_serialized: &str,
-    ) -> String {
-        make_key_for_quad(
-            contract_identifier,
-            StoreType::DataMap,
-            map_name,
-            key_value_serialized,
-        )
     }
 
     fn fetch_entry_unknown_descriptor(
@@ -102,7 +75,7 @@ pub trait ClarityDbMaps: ClarityDb {
         }
 
         let key =
-            self.make_key_for_data_map_entry(contract_identifier, map_name, key_value);
+            make_key_for_data_map_entry(contract_identifier, map_name, key_value);
 
         let stored_type = TypeSignature::new_option(map_descriptor.value_type.clone())?;
         let result = self.get_value(&key, &stored_type, epoch)?;
@@ -136,7 +109,7 @@ pub trait ClarityDbMaps: ClarityDb {
         }
 
         let key_serialized = key_value.serialize_to_hex();
-        let key = self.make_key_for_data_map_entry_serialized(
+        let key = make_key_for_data_map_entry_serialized(
             contract_identifier,
             map_name,
             &key_serialized,
@@ -335,5 +308,15 @@ pub trait ClarityDbMaps: ClarityDb {
             epoch,
         )
         .map(|data| data.value)
+    }
+
+    fn has_entry(
+        &mut self, 
+        key: &str
+    ) -> Result<bool> 
+    where
+        Self: Sized
+    {
+        Ok(self.get::<String>(key)?.is_some())
     }
 }

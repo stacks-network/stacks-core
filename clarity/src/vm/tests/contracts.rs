@@ -257,6 +257,7 @@ where
         + ClarityDbAssets
         + ClarityDbVars
         + ClarityDbMaps
+        + 'static
 {
     let sponsor = match sponsor {
         None => Value::none(),

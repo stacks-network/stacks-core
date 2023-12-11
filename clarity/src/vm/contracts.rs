@@ -52,6 +52,7 @@ impl Contract {
             + ClarityDbUstx
             + ClarityDbVars
             + ClarityDbMaps
+            + 'static
     {
         let mut contract_context = ContractContext::new(contract_identifier, version);
 

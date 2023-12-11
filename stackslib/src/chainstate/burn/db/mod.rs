@@ -36,6 +36,7 @@ use crate::util_lib::db::{Error as db_error, FromColumn};
 
 pub mod processing;
 pub mod sortdb;
+pub mod v2;
 
 pub type DBConn = Connection;
 

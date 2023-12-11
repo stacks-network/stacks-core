@@ -253,9 +253,11 @@ where
     )?;
 
     let epoch = *env.epoch();
-    env.global_context
+    let value = env.global_context
         .database
-        .lookup_variable(contract, var_name, data_types, &epoch)
+        .lookup_variable(contract, var_name, data_types, &epoch)?;
+
+    Ok(value)
 }
 
 /// The Stacks v205 version of fetch_variable uses the actual stored size of the
@@ -293,7 +295,8 @@ where
 
     runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
 
-    result.map(|data| data.value)
+    let value = result.map(|data| data.value)?;
+    Ok(value)
 }
 
 pub fn special_set_variable_v200<DB>(
@@ -331,10 +334,12 @@ where
     env.add_memory(value.get_memory_use())?;
 
     let epoch = *env.epoch();
-    env.global_context
+    let value = env.global_context
         .database
         .set_variable(contract, var_name, value, data_types, &epoch)
-        .map(|data| data.value)
+        .map(|data| data.value)?;
+
+    Ok(value)
 }
 
 /// The Stacks v205 version of set_variable uses the actual stored size of the
@@ -380,7 +385,9 @@ where
 
     env.add_memory(result_size)?;
 
-    result.map(|data| data.value)
+    let value = result.map(|data| data.value)?;
+
+    Ok(value)
 }
 
 pub fn special_fetch_entry_v200<DB>(
@@ -412,9 +419,11 @@ where
     )?;
 
     let epoch = *env.epoch();
-    env.global_context
+    let value = env.global_context
         .database
-        .fetch_entry(contract, map_name, &key, data_types, &epoch)
+        .fetch_entry(contract, map_name, &key, data_types, &epoch)?;
+
+    Ok(value)
 }
 
 /// The Stacks v205 version of fetch_entry uses the actual stored size of the
@@ -454,7 +463,8 @@ where
 
     runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
 
-    result.map(|data| data.value)
+    let value = result.map(|data| data.value)?;
+    Ok(value)
 }
 
 pub fn special_at_block<DB>(
@@ -525,10 +535,12 @@ where
     env.add_memory(value.get_memory_use())?;
 
     let epoch = *env.epoch();
-    env.global_context
+    let value = env.global_context
         .database
         .set_entry(contract, map_name, key, value, data_types, &epoch)
-        .map(|data| data.value)
+        .map(|data| data.value)?;
+
+    Ok(value)
 }
 
 /// The Stacks v205 version of set_entry uses the actual stored size of the
@@ -576,7 +588,9 @@ where
 
     env.add_memory(result_size)?;
 
-    result.map(|data| data.value)
+    let value = result.map(|data| data.value)?;
+
+    Ok(value)
 }
 
 pub fn special_insert_entry_v200<DB>(
@@ -618,10 +632,12 @@ where
 
     let epoch = *env.epoch();
 
-    env.global_context
+    let value = env.global_context
         .database
         .insert_entry(contract, map_name, key, value, data_types, &epoch)
-        .map(|data| data.value)
+        .map(|data| data.value)?;
+
+    Ok(value)
 }
 
 /// The Stacks v205 version of insert_entry uses the actual stored size of the
@@ -669,7 +685,8 @@ where
 
     env.add_memory(result_size)?;
 
-    result.map(|data| data.value)
+    let value = result.map(|data| data.value)?;
+    Ok(value)
 }
 
 pub fn special_delete_entry_v200<DB>(
@@ -707,10 +724,12 @@ where
     env.add_memory(key.get_memory_use())?;
 
     let epoch = *env.epoch();
-    env.global_context
+    let value = env.global_context
         .database
         .delete_entry(contract, map_name, &key, data_types, &epoch)
-        .map(|data| data.value)
+        .map(|data| data.value)?;
+
+    Ok(value)
 }
 
 /// The Stacks v205 version of delete_entry uses the actual stored size of the
@@ -756,7 +775,8 @@ where
 
     env.add_memory(result_size)?;
 
-    result.map(|data| data.value)
+    let value = result.map(|data| data.value)?;
+    Ok(value)
 }
 
 pub fn special_get_block_info<DB>(

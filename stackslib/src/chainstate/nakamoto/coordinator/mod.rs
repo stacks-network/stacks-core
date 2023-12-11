@@ -23,9 +23,11 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
+use crate::burnchains::db::v2::BurnChainDb;
 use crate::burnchains::db::{BurnchainBlockData, BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Burnchain, BurnchainBlockHeader};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::comm::{
@@ -39,6 +41,7 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::boot::RewardSet;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -53,18 +56,19 @@ use crate::util_lib::db::Error as DBError;
 pub mod tests;
 
 impl OnChainRewardSetProvider {
-    pub fn get_reward_set_nakamoto<Conn>(
+    pub fn get_reward_set_nakamoto<SortDB, ChainDB>(
         &self,
         // NOTE: this value is the first burnchain block in the prepare phase which has a Stacks
         // block (unlike in Stacks 2.x, where this is the first block of the reward phase)
         current_burn_height: u64,
-        chainstate: &mut StacksChainState<Conn>,
+        chainstate: &mut StacksChainState<ChainDB>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
@@ -114,13 +118,13 @@ impl OnChainRewardSetProvider {
 /// phase, then the returned list is empty.  If the burnchain block is in a prepare phase, then all
 /// consensus hashes back to the first block in the prepare phase are loaded and returned in
 /// ascending height order.
-fn find_prepare_phase_sortitions<Conn>(
-    sort_db: &SortitionDB<Conn>,
+fn find_prepare_phase_sortitions<SortDB>(
+    sort_db: &SortDB,
     burnchain: &Burnchain,
     sortition_tip: &SortitionId,
 ) -> Result<Vec<BlockSnapshot>, Error> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
     let mut prepare_phase_sn = SortitionDB::get_block_snapshot(sort_db.conn(), sortition_tip)?
         .ok_or(DBError::NotFoundError)?;
@@ -161,16 +165,17 @@ where
 /// Returns Err(Error::NotInPreparePhase) if `burn_height` is not in the prepare phase
 /// Returns Err(Error::RewardCycleAlreadyProcessed) if the reward set for this reward cycle has
 /// already been processed.
-pub fn get_nakamoto_reward_cycle_info<Conn, U>(
+pub fn get_nakamoto_reward_cycle_info<SortDB, ChainDB, U>(
     burn_height: u64,
     sortition_tip: &SortitionId,
     burnchain: &Burnchain,
-    chain_state: &mut StacksChainState<Conn>,
-    sort_db: &mut SortitionDB<Conn>,
+    chain_state: &mut StacksChainState<ChainDB>,
+    sort_db: &mut SortDB,
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> 
 where
-    Conn: DbConnection + TrieDb,
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
     U: RewardSetProvider
 {
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
@@ -319,13 +324,13 @@ where
 /// * we're guaranteed to have an anchor block
 /// * we pre-compute the reward set at the start of the prepare phase, so we only need to load it
 /// up here at the start of the reward phase.
-pub fn get_nakamoto_next_recipients<Conn>(
+pub fn get_nakamoto_next_recipients<SortDB>(
     sortition_tip: &BlockSnapshot,
-    sort_db: &mut SortitionDB<Conn>,
+    sort_db: &mut SortDB,
     burnchain: &Burnchain,
 ) -> Result<Option<RewardSetInfo>, Error> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
     let reward_cycle_info = if burnchain.is_reward_cycle_start(sortition_tip.block_height + 1) {
         // load up new reward cycle info so we can start using *that*
@@ -356,9 +361,12 @@ where
         .map_err(Error::from)
 }
 
-impl<'a, Conn, T, N, U, CE, FE, B> ChainsCoordinator<'a, Conn, T, N, U, CE, FE, B>
+impl<'a, SortDB, ChainDB, BurnDB, T, N, U, CE, FE, B> 
+    ChainsCoordinator<'a, SortDB, ChainDB, BurnDB, T, N, U, CE, FE, B>
 where
-    Conn: DbConnection + TrieDb,
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb,
     T: BlockEventDispatcher,
     N: CoordinatorNotices,
     U: RewardSetProvider,

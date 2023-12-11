@@ -18,7 +18,8 @@ use std::io::{Read, Write};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::{ClarityDatabase, STXBalance};
+use clarity::vm::database::STXBalance;
+use clarity::vm::database::v2::{make_key_for_account_nonce, make_key_for_account_balance};
 use clarity::vm::representations::PRINCIPAL_DATA_REGEX_STRING;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
 use clarity::vm::ClarityVersion;
@@ -149,7 +150,7 @@ where
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        let key = ClarityDatabase::make_key_for_account_balance(&account);
+                        let key = make_key_for_account_balance(&account);
                         let burn_block_height =
                             clarity_db.get_current_burnchain_block_height() as u64;
                         let v1_unlock_height = clarity_db.get_v1_unlock_height();
@@ -167,7 +168,7 @@ where
                                 .unwrap_or_else(|| (STXBalance::zero(), None))
                         };
 
-                        let key = ClarityDatabase::make_key_for_account_nonce(&account);
+                        let key = make_key_for_account_nonce(&account);
                         let (nonce, nonce_proof) = if with_proof {
                             clarity_db
                                 .get_with_proof(&key)

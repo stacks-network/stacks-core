@@ -140,6 +140,7 @@ where
         + ClarityDbAssets
         + ClarityDbVars
         + ClarityDbMaps
+        + 'static
 {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }

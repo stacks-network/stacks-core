@@ -33,7 +33,7 @@ pub fn check_special_get_owner<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -64,7 +64,7 @@ pub fn check_special_get_balance<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -88,7 +88,7 @@ pub fn check_special_mint_asset<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -122,7 +122,7 @@ pub fn check_special_mint_token<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -152,7 +152,7 @@ pub fn check_special_transfer_asset<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(4, args)?;
 
@@ -187,7 +187,7 @@ pub fn check_special_transfer_token<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(4, args)?;
 
@@ -218,7 +218,7 @@ pub fn check_special_stx_transfer<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -244,7 +244,7 @@ pub fn check_special_stx_transfer_memo<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(4, args)?;
 
@@ -295,7 +295,7 @@ pub fn check_special_burn_asset<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -329,7 +329,7 @@ pub fn check_special_burn_token<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 

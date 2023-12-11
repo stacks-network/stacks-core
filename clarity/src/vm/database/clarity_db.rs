@@ -44,7 +44,7 @@ use crate::vm::database::structures::{
     DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
     STXBalanceSnapshot, SimmedBlock,
 };
-use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
+use crate::vm::database::RollbackWrapper;
 use crate::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,

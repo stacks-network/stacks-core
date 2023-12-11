@@ -15,19 +15,23 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::contexts::GlobalContext;
+use clarity::vm::database::v2::{ClarityDb, ClarityDB};
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
-pub fn handle_contract_call_special_cases(
-    global_context: &mut GlobalContext,
+pub fn handle_contract_call_special_cases<DB>(
+    global_context: &mut GlobalContext<DB>,
     sender: Option<&PrincipalData>,
     sponsor: Option<&PrincipalData>,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
     args: &[Value],
     result: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), ClarityError> 
+where
+    DB: ClarityDB
+{
     pox_locking::handle_contract_call_special_cases(
         global_context,
         sender,

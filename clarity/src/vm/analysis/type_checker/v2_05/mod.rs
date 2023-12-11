@@ -121,7 +121,7 @@ impl<AnalysisDB> AnalysisPass for TypeChecker<'_, AnalysisDB>
 where
     AnalysisDB: ClarityDbAnalysis
 {
-    fn run_pass<DB: ClarityDbAnalysis>(
+    fn run_pass<DB: ClarityDbAnalysis + 'static>(
         _epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut DB,
@@ -346,7 +346,7 @@ pub fn no_type() -> TypeSignature {
 
 impl<'a, DB> TypeChecker<'a, DB> 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     fn new(
         db: &'a mut DB,

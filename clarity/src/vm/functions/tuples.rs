@@ -50,7 +50,7 @@ pub fn tuple_get<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     // (get arg-name (tuple ...))
     //    if the tuple argument is an option type, then return option(field-name).

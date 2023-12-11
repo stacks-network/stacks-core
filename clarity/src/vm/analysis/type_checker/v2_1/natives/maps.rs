@@ -33,7 +33,7 @@ pub fn check_special_fetch_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -76,7 +76,7 @@ pub fn check_special_delete_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -112,7 +112,7 @@ fn check_set_or_insert_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(3, args)?;
 
@@ -161,7 +161,7 @@ pub fn check_special_set_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_set_or_insert_entry(checker, args, context)
 }
@@ -172,7 +172,7 @@ pub fn check_special_insert_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_set_or_insert_entry(checker, args, context)
 }

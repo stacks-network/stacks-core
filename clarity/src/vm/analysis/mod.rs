@@ -40,7 +40,7 @@ use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
-use super::database::stores::memory::MemoryClarityStore;
+use super::database::stores::memory::ClarityMemoryStore;
 use super::database::v2::{ClarityDb, analysis::ClarityDbAnalysis};
 
 /// Used by CLI tools like the docs generator. Not used in production
@@ -61,7 +61,7 @@ pub fn mem_type_check(
     .unwrap()
     .expressions;
 
-    let mut marf = MemoryClarityStore::new();
+    let mut marf = ClarityMemoryStore::new();
     //let mut analysis_db = marf.as_analysis_db();
     let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(
@@ -99,7 +99,7 @@ pub fn type_check<DB>(
     version: &ClarityVersion,
 ) -> CheckResult<ContractAnalysis> 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
 
     run_analysis(
@@ -126,7 +126,7 @@ pub fn run_analysis<DB>(
     version: ClarityVersion,
 ) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),

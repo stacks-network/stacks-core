@@ -8,6 +8,7 @@ pub trait UndoLog
 
     fn nest(&mut self) -> UndoRecord;
     fn depth(&self) -> usize;
+    fn is_stack_empty(&self) -> bool;
 }
 
 #[derive(Debug, Clone)]

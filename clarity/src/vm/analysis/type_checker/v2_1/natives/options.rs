@@ -35,7 +35,7 @@ pub fn check_special_okay<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -52,7 +52,7 @@ pub fn check_special_some<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -69,7 +69,7 @@ pub fn check_special_error<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -86,7 +86,7 @@ pub fn check_special_is_response<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -107,7 +107,7 @@ pub fn check_special_is_optional<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -128,7 +128,7 @@ pub fn check_special_default_to<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -152,7 +152,7 @@ pub fn check_special_asserts<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -220,7 +220,7 @@ pub fn check_special_unwrap_or_ret<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -238,7 +238,7 @@ pub fn check_special_unwrap_err_or_ret<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -256,7 +256,7 @@ pub fn check_special_try_ret<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -297,7 +297,7 @@ pub fn check_special_unwrap<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -312,7 +312,7 @@ pub fn check_special_unwrap_err<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -329,7 +329,7 @@ fn eval_with_new_binding<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     let mut inner_context = context.extend()?;
 
@@ -357,7 +357,7 @@ fn check_special_match_opt<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     if args.len() != 3 {
         Err(CheckErrors::BadMatchOptionSyntax(Box::new(
@@ -397,7 +397,7 @@ fn check_special_match_resp<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     if args.len() != 4 {
         Err(CheckErrors::BadMatchResponseSyntax(Box::new(
@@ -438,7 +438,7 @@ pub fn check_special_match<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(1, args)?;
 

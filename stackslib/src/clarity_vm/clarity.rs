@@ -18,7 +18,7 @@ use std::convert::TryFrom;
 use std::{error, fmt, thread};
 
 use clarity::vm::analysis::errors::{CheckError, CheckErrors};
-use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::ast::errors::{ParseError, ParseErrors};
 use clarity::vm::ast::{ASTRules, ContractAST};
 use clarity::vm::clarity::TransactionConnection;
@@ -26,9 +26,10 @@ pub use clarity::vm::clarity::{ClarityConnection, Error};
 use clarity::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use clarity::vm::costs::{CostTracker, ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
+    BurnStateDB, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
     STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
+use clarity::vm::database::v2::{ClarityDb, ClarityDB, ClarityDbAnalysis};
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{
@@ -91,7 +92,7 @@ use crate::util_lib::strings::StacksString;
 ///
 pub struct ClarityInstance<Conn> 
 where
-    Conn: DbConnection + TrieDb
+    Conn: TrieDb
 {
     datastore: MarfedKV<Conn>,
     mainnet: bool,
@@ -293,13 +294,13 @@ where
 
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
-            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            //let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
                     self.chain_id,
                     epoch.block_limit.clone(),
-                    &mut clarity_db,
+                    &mut datastore,
                     epoch.epoch_id,
                 )
                 .expect("FAIL: problem instantiating cost tracking"),
@@ -546,13 +547,13 @@ where
         let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
 
         let cost_track = {
-            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            //let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
                 LimitedCostTracker::new(
                     self.mainnet,
                     self.chain_id,
                     epoch.block_limit.clone(),
-                    &mut clarity_db,
+                    &mut datastore,
                     epoch.epoch_id,
                 )
                 .expect("FAIL: problem instantiating cost tracking"),
@@ -643,11 +644,14 @@ where
     }
 }
 
-impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
+/*impl<'a, 'b, DB> ClarityConnection<DB> for ClarityBlockConnection<'a, 'b> 
+where
+    DB: ClarityDB + ClarityDbAnalysis
+{
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
+        F: FnOnce(DB) -> (R, DB),
     {
         let mut db =
             ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
@@ -659,9 +663,9 @@ impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
 
     fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
+        F: FnOnce(&mut DB) -> R,
     {
-        let mut db = AnalysisDatabase::new(&mut self.datastore);
+        let mut db = DB::new(&mut self.datastore);
         db.begin();
         let result = to_do(&mut db);
         db.roll_back();
@@ -671,16 +675,17 @@ impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
     fn get_epoch(&self) -> StacksEpochId {
         self.epoch
     }
-}
+}*/
 
-impl<Conn> ClarityConnection for ClarityReadOnlyConnection<'_, Conn> 
+/*impl<Conn, DB> ClarityConnection<DB> for ClarityReadOnlyConnection<'_, Conn> 
 where
+    DB: ClarityDB + ClarityDbAnalysis,
     Conn: DbConnection + TrieDb
 {
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
+        F: FnOnce(DB) -> (R, DB),
     {
         let mut db = self
             .datastore
@@ -693,7 +698,7 @@ where
 
     fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
+        F: FnOnce(&mut DB) -> R,
     {
         let mut db = self.datastore.as_analysis_db();
         db.begin();
@@ -705,7 +710,7 @@ where
     fn get_epoch(&self) -> StacksEpochId {
         self.epoch
     }
-}
+}*/
 
 impl<'a> PreCommitClarityBlock<'a> {
     pub fn commit(self) {
@@ -1503,33 +1508,37 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
+impl<'a, 'b, DB> ClarityConnection<DB> for ClarityTransactionConnection<'a, 'b> 
+where
+    DB: ClarityDB + ClarityDbAnalysis
+{
     /// Do something with ownership of the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
+        F: FnOnce(DB) -> (R, DB),
     {
         using!(self.log, "log", |log| {
             let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = ClarityDatabase::new_with_rollback_wrapper(
+            let mut db = DB::from_rollback_wrapper(rollback_wrapper);
+            /*let mut db = ClarityDatabase::new_with_rollback_wrapper(
                 rollback_wrapper,
                 &self.header_db,
                 &self.burn_state_db,
-            );
+            );*/
             db.begin();
             let (r, mut db) = to_do(db);
-            db.roll_back();
+            db.rollback();
             (db.destroy().into(), r)
         })
     }
 
     fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
+        F: FnOnce(&mut DB) -> R,
     {
         self.with_analysis_db(|mut db, cost_tracker| {
             db.begin();
-            let result = to_do(&mut db);
+            let result = to_do(db);
             db.roll_back();
             (cost_tracker, result)
         })
@@ -1560,24 +1569,28 @@ impl<'a, 'b> Drop for ClarityTransactionConnection<'a, 'b> {
     }
 }
 
-impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
+impl<'a, 'b, DB> TransactionConnection<DB> for ClarityTransactionConnection<'a, 'b> 
+where
+    DB: ClarityDB + ClarityDbAnalysis
+{
     fn with_abort_callback<F, A, R, E>(
         &mut self,
         to_do: F,
         abort_call_back: A,
     ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
     where
-        A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        A: FnOnce(&AssetMap, &mut DB) -> bool,
+        F: FnOnce(&mut OwnedEnvironment<DB>) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
     {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                let mut db = DB::from_rollback_wrapper(rollback_wrapper);
+                /*let mut db = ClarityDatabase::new_with_rollback_wrapper(
                     rollback_wrapper,
                     &self.header_db,
                     &self.burn_state_db,
-                );
+                );*/
 
                 // wrap the whole contract-call in a claritydb transaction,
                 //   so we can abort on call_back's boolean retun
@@ -1618,12 +1631,13 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
 
     fn with_analysis_db<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R),
+        F: FnOnce(&mut DB, LimitedCostTracker) -> (LimitedCostTracker, R),
     {
         using!(self.cost_track, "cost tracker", |cost_track| {
             using!(self.log, "log", |log| {
                 let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
+                let mut db = DB::from_rollback_wrapper(rollback_wrapper);
+                //let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
                 let r = to_do(&mut db, cost_track);
                 (db.destroy().into(), r)
             })
@@ -1633,17 +1647,22 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
 
 impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
     /// Do something to the underlying DB that involves writing.
-    pub fn with_clarity_db<F, R>(&mut self, to_do: F) -> Result<R, Error>
+    pub fn with_clarity_db<DB, F, R>(
+        &mut self, 
+        to_do: F
+    ) -> Result<R, Error>
     where
-        F: FnOnce(&mut ClarityDatabase) -> Result<R, Error>,
+        DB: ClarityDb,
+        F: FnOnce(&mut DB) -> Result<R, Error>,
     {
         using!(self.log, "log", |log| {
             let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-            let mut db = ClarityDatabase::new_with_rollback_wrapper(
+            let mut db = DB::from_rollback_wrapper(rollback_wrapper);
+            /*let mut db = ClarityDatabase::new_with_rollback_wrapper(
                 rollback_wrapper,
                 &self.header_db,
                 &self.burn_state_db,
-            );
+            );*/
 
             db.begin();
             let result = to_do(&mut db);
@@ -1746,7 +1765,7 @@ mod tests {
     use std::fs;
 
     use clarity::vm::analysis::errors::CheckErrors;
-    use clarity::vm::database::{ClarityBackingStore, STXBalance};
+    use clarity::vm::database::STXBalance;
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
     use clarity::vm::types::{StandardPrincipalData, Value};
     use rusqlite::NO_PARAMS;

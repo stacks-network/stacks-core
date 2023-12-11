@@ -26,7 +26,7 @@ use super::contracts::type_check;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::ast::parse;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::stores::memory::ClarityMemoryStore;
 use crate::vm::database::v2::ClarityDbAnalysis;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{
@@ -120,7 +120,7 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: S
     let mut tokens_contract =
         parse(&tokens_contract_id, FIRST_CLASS_TOKENS, version, epoch).unwrap();
     let mut names_contract = parse(&names_contract_id, ASSET_NAMES, version, epoch).unwrap();
-    let mut marf = MemoryBackingStore::new();
+    let mut marf = ClarityMemoryStore::new();
     //let mut db: &mut dyn ClarityDbAnalysis = &mut marf;
 
     marf.execute(|db| {

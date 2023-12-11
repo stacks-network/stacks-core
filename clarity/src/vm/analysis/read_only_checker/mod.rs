@@ -58,11 +58,14 @@ impl<'a, DB> AnalysisPass for ReadOnlyChecker<'a, DB>
 where
     DB: ClarityDbAnalysis
 {
-    fn run_pass(
+    fn run_pass<ADB>(
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
-        analysis_db: &mut DB,
-    ) -> CheckResult<()> {
+        analysis_db: &mut ADB,
+    ) -> CheckResult<()> 
+    where
+        ADB: ClarityDbAnalysis
+    {
         let mut command =
             ReadOnlyChecker::new(analysis_db, epoch, &contract_analysis.clarity_version);
         command.run(contract_analysis)?;

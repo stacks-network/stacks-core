@@ -39,7 +39,7 @@ fn get_simple_native_or_user_define<DB>(
     checker: &mut TypeChecker<DB>,
 ) -> CheckResult<FunctionType> 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
     if let Some(ref native_function) =
@@ -65,7 +65,7 @@ pub fn check_special_map<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -124,7 +124,7 @@ pub fn check_special_filter<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -165,7 +165,7 @@ pub fn check_special_fold<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -215,7 +215,7 @@ pub fn check_special_concat<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -279,7 +279,7 @@ pub fn check_special_append<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -314,7 +314,7 @@ pub fn check_special_as_max_len<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -370,7 +370,7 @@ pub fn check_special_len<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
 
@@ -391,7 +391,7 @@ pub fn check_special_element_at<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -428,7 +428,7 @@ pub fn check_special_index_of<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -452,7 +452,7 @@ pub fn check_special_slice<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -481,7 +481,7 @@ pub fn check_special_replace_at<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 

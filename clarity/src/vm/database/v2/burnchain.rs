@@ -2,8 +2,7 @@ use stacks_common::types::chainstate::SortitionId;
 
 use crate::vm::StacksEpoch;
 
-use super::ClarityDb;
-use super::super::super::errors::InterpreterResult as Result;
+use super::{ClarityDb, Result};
 
 pub trait ClarityDbBurnchain: ClarityDb {
     fn get_burn_block_height(&self, sortition_id: &SortitionId) -> Result<Option<u32>>;

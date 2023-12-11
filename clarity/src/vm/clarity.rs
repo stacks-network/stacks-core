@@ -12,7 +12,7 @@ use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
 
-use super::database::v2::{ClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbUstx, ClarityDbAssets, TransactionalClarityDb, ClarityDbVars, ClarityDbMaps};
+use super::database::v2::{ClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbUstx, ClarityDbAssets, TransactionalClarityDb, ClarityDbVars, ClarityDbMaps, ClarityDB};
 use super::database::v2::analysis::ClarityDbAnalysis;
 
 #[derive(Debug)]
@@ -99,13 +99,7 @@ impl From<ParseError> for Error {
 
 pub trait ClarityConnection<DB> 
 where
-    DB: TransactionalClarityDb 
-        + ClarityDbMicroblocks 
-        + ClarityDbStx
-        + ClarityDbUstx
-        + ClarityDbAssets
-        + ClarityDbVars
-        + ClarityDbMaps
+    DB: ClarityDB
 {
     /// Do something to the underlying DB that involves only reading.
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
@@ -159,13 +153,7 @@ where
 
 pub trait TransactionConnection<DB>: ClarityConnection<DB> 
 where
-    DB: ClarityDbAnalysis 
-        + ClarityDbMicroblocks 
-        + ClarityDbStx
-        + ClarityDbUstx
-        + ClarityDbAssets
-        + ClarityDbVars
-        + ClarityDbMaps
+    DB: ClarityDB + ClarityDbAnalysis
 {
     /// Do something with this connection's Clarity environment that can be aborted
     ///  with `abort_call_back`.

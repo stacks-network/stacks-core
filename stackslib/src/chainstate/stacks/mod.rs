@@ -22,6 +22,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
+use clarity::vm::database::v2::ClarityDb;
 use clarity::vm::errors::Error as clarity_interpreter_error;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
@@ -335,11 +336,14 @@ impl From<clarity_interpreter_error> for Error {
 }
 
 impl Error {
-    pub fn from_cost_error(
+    pub fn from_cost_error<DB>(
         err: CostErrors,
         cost_before: ExecutionCost,
-        context: &GlobalContext,
-    ) -> Error {
+        context: &GlobalContext<DB>,
+    ) -> Error 
+    where
+        DB: ClarityDb
+    {
         match err {
             CostErrors::CostBalanceExceeded(used, budget) => {
                 Error::CostOverflowError(cost_before, used, budget)

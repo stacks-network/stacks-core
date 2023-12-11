@@ -1,5 +1,5 @@
-use crate::vm::{types::PrincipalData, database::{STXBalance, v2::utils::*}, errors::InterpreterResult as Result};
-use super::{super::structures::STXBalanceSnapshot, ClarityDb, blocks::ClarityDbBlocks};
+use crate::vm::{types::PrincipalData, database::{STXBalance, v2::utils::*}};
+use super::{super::structures::STXBalanceSnapshot, ClarityDb, Result, blocks::ClarityDbBlocks};
 
 pub trait ClarityDbStx: ClarityDb + ClarityDbBlocks {
     fn get_stx_balance_snapshot(

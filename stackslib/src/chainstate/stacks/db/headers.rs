@@ -105,9 +105,9 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
     }
 }
 
-impl<Conn> StacksChainState<Conn> 
+impl<ChainDB> StacksChainState<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
     pub fn insert_stacks_block_header(

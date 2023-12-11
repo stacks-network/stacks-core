@@ -439,6 +439,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::UncheckedIntermediaryResponses => "intermediary responses in consecutive statements must be checked".into(),
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {}", s),
             CheckErrors::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
+            CheckErrors::InvalidEpochVersion(s) => format!("an invalid epoch version was provided: {}", s),
         }
     }
 

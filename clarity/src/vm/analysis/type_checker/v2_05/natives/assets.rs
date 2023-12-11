@@ -18,7 +18,7 @@ use super::{no_type, FunctionType, TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::errors::{check_argument_count, CheckError, CheckErrors, CheckResult};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost};
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BlockInfoProperty, TupleTypeSignature, TypeSignature, MAX_VALUE_SIZE};
 
@@ -28,7 +28,7 @@ pub fn check_special_get_owner<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -59,7 +59,7 @@ pub fn check_special_get_balance<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -83,7 +83,7 @@ pub fn check_special_mint_asset<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -117,7 +117,7 @@ pub fn check_special_mint_token<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -147,7 +147,7 @@ pub fn check_special_transfer_asset<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(4, args)?;
 
@@ -182,7 +182,7 @@ pub fn check_special_transfer_token<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(4, args)?;
 
@@ -234,7 +234,7 @@ pub fn check_special_burn_asset<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -268,7 +268,7 @@ pub fn check_special_burn_token<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 

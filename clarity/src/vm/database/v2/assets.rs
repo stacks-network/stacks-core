@@ -1,6 +1,10 @@
 use stacks_common::types::StacksEpochId;
-use crate::vm::{types::{QualifiedContractIdentifier, TypeSignature, PrincipalData}, analysis::CheckErrors, Value, errors::{RuntimeErrorType, InterpreterResult as Result}};
-use super::{super::{ClaritySerializable, StoreType, key_value_wrapper::ValueResult, FungibleTokenMetadata, NonFungibleTokenMetadata}, ClarityDb, utils::{make_key_for_quad, make_metadata_key, make_key_for_trip, map_no_contract_as_none}};
+use crate::vm::{types::{QualifiedContractIdentifier, TypeSignature, PrincipalData}, analysis::CheckErrors, Value, errors::RuntimeErrorType};
+use super::{
+    super::{ClaritySerializable, StoreType, key_value_wrapper::ValueResult, FungibleTokenMetadata, NonFungibleTokenMetadata}, 
+    ClarityDb, Result,
+    utils::{make_key_for_quad, make_metadata_key, make_key_for_trip, map_no_contract_as_none}
+};
 
 pub trait ClarityDbAssets: ClarityDb {
     fn create_fungible_token(
@@ -134,7 +138,7 @@ pub trait ClarityDbAssets: ClarityDb {
 
         let new_supply = current_supply - amount;
 
-        self.put(&key, &new_supply);
+        self.put(&key, &new_supply)?;
         Ok(())
     }
 
@@ -219,7 +223,12 @@ pub trait ClarityDbAssets: ClarityDb {
     {
         let epoch_version = self.get_clarity_epoch_version()?;
         if !key_type.admits(&epoch_version, asset)? {
-            return Err(CheckErrors::TypeValueError(key_type.clone(), (*asset).clone()).into());
+            return Err(
+                    CheckErrors::TypeValueError(
+                        key_type.clone(), 
+                        (*asset).clone()
+                    ).into()
+            );
         }
 
         let key = make_key_for_quad(

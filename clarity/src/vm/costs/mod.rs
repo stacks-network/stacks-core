@@ -37,7 +37,7 @@ use crate::vm::types::{
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
 
-use super::database::stores::null::NullClarityStore;
+use super::database::stores::null::ClarityNullStore;
 use super::database::v2::{ClarityDb, transactional::TransactionalClarityDb};
 use super::database::v2::blocks::ClarityDbBlocks;
 use super::database::v2::maps::ClarityDbMaps;
@@ -674,7 +674,7 @@ impl LimitedCostTracker {
         epoch: StacksEpochId,
     ) -> Result<LimitedCostTracker> 
     where
-        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps
+        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps + ClarityDbBlocks
     {
         let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
@@ -726,7 +726,7 @@ impl LimitedCostTracker {
         use_mainnet: bool,
     ) -> Result<LimitedCostTracker> 
     where
-        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps
+        DB: TransactionalClarityDb + ClarityDbVars + ClarityDbMaps + ClarityDbBlocks
     {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
         let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
@@ -931,7 +931,7 @@ fn compute_cost(
 ) -> Result<ExecutionCost> {
     let mainnet = cost_tracker.mainnet;
     let chain_id = cost_tracker.chain_id;
-    let mut null_store = NullClarityStore::new();
+    let null_store = ClarityNullStore::new();
     //let conn = null_store.as_clarity_db();
     let mut global_context = GlobalContext::new(
         mainnet,

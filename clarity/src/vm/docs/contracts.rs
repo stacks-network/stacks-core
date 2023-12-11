@@ -8,7 +8,7 @@ use crate::vm::analysis::{mem_type_check, ContractAnalysis};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::stores::ClarityMemoryStore;
 use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
@@ -69,7 +69,7 @@ fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
 fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
-    let mut marf = MemoryBackingStore::new();
+    let marf = ClarityMemoryStore::new();
     let mut global_context = GlobalContext::new(
         false,
         CHAIN_ID_TESTNET,

@@ -1,8 +1,8 @@
 use stacks_common::types::StacksEpochId;
-use crate::vm::{types::TypeSignature, Value, errors::{InterpreterError, RuntimeErrorType, InterpreterResult as Result}};
+use crate::vm::{types::TypeSignature, Value, errors::{InterpreterError, RuntimeErrorType}};
 use crate::vm::errors::Error;
 
-use super::ClarityDb;
+use super::{ClarityDb, Result};
 
 pub trait ClarityDbUstx : ClarityDb {
     fn ustx_liquid_supply_key() -> &'static str {
@@ -26,11 +26,10 @@ pub trait ClarityDbUstx : ClarityDb {
             if let Value::UInt(x) = val.value {
                 Ok(x)
             } else {
-                Err(Error::Interpreter(
-                    InterpreterError::InterpreterError(
+                Err(InterpreterError::InterpreterError(
                         "Invalid value stored for ustx_liquid_supply Clarity key"
-                        .to_string()),
-                ))
+                        .to_string()).into()
+                )
             }
         } else {
             Ok(0)
@@ -45,9 +44,9 @@ pub trait ClarityDbUstx : ClarityDb {
             // okay to pin epoch, because ustx_liquid_supply does not need to sanitize
             &StacksEpochId::Epoch21,
         ).map_err(|_| {
-            Error::Interpreter(InterpreterError::FailedToStoreClarityKey(
+            InterpreterError::FailedToStoreClarityKey(
                 Self::ustx_liquid_supply_key().to_string(),
-            ))
+            ).into()
         })
     }
 

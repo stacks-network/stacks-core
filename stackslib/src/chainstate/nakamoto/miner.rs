@@ -42,6 +42,7 @@ use stacks_common::util::vrf::*;
 
 use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::nakamoto::{
@@ -53,6 +54,7 @@ use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{
     ChainstateTx, ClarityTx, MinerRewardInfo, StacksChainState, StacksHeaderInfo,
     MINER_REWARD_MATURITY,
@@ -108,7 +110,7 @@ pub struct NakamotoBlockBuilder {
 
 pub struct MinerTenureInfo<'a, Conn> 
 where
-    Conn: DbConnection + TrieDb
+    Conn: TrieDb
 {
     pub chainstate_tx: ChainstateTx<'a>,
     pub clarity_instance: &'a mut ClarityInstance<Conn>,
@@ -286,14 +288,15 @@ impl NakamotoBlockBuilder {
     /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
     /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
     /// expire.
-    pub fn load_tenure_info<'a, Conn>(
+    pub fn load_tenure_info<'a, SortDB, ChainDB>(
         &self,
-        chainstate: &'a mut StacksChainState<Conn>,
-        burn_dbconn: &'a SortitionDBConn<Conn>,
+        chainstate: &'a mut StacksChainState<ChainDB>,
+        burn_dbconn: &'a SortDB,
         tenure_start: bool,
-    ) -> Result<MinerTenureInfo<'a, Conn>, Error> 
+    ) -> Result<MinerTenureInfo<'a, SortDB>, Error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         debug!("Nakamoto miner tenure begin");
 
@@ -498,10 +501,10 @@ impl NakamotoBlockBuilder {
 
     /// Given access to the mempool, mine a nakamoto block.
     /// It will not be signed.
-    pub fn build_nakamoto_block<Conn>(
+    pub fn build_nakamoto_block<SortDB, ChainDB>(
         // not directly used; used as a handle to open other chainstates
-        chainstate_handle: &StacksChainState<Conn>,
-        burn_dbconn: &SortitionDBConn<Conn>,
+        chainstate_handle: &StacksChainState<ChainDB>,
+        burn_dbconn: &SortitionDBConn<SortDB>,
         mempool: &mut MemPoolDB,
         // tenure ID -- this is the index block hash of the start block of the last tenure (i.e.
         // the data we committed to in the block-commit)
@@ -517,7 +520,8 @@ impl NakamotoBlockBuilder {
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(NakamotoBlock, ExecutionCost, u64), Error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let (tip_consensus_hash, tip_block_hash, tip_height) = (
             parent_stacks_header.consensus_hash.clone(),

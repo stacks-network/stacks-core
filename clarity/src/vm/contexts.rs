@@ -561,6 +561,7 @@ where
         + ClarityDbAssets
         + ClarityDbVars
         + ClarityDbMaps
+        + 'static
 {
     #[cfg(any(test, feature = "testing"))]
     pub fn new(database: DB, epoch: StacksEpochId) -> OwnedEnvironment<'a, DB> {
@@ -807,8 +808,8 @@ where
                     .database
                     .get_stx_balance_snapshot(recipient)?;
 
-                snapshot.credit(amount);
-                snapshot.save();
+                snapshot.credit(amount).expect("Failed to credit STX");
+                snapshot.save().expect("Failed to save STX balance");
 
                 env.global_context
                     .database
@@ -881,7 +882,7 @@ where
         self.context.destruct()
     }
 
-    pub fn add_eval_hook(&mut self, hook: &mut dyn EvalHook) {
+    pub fn add_eval_hook(&mut self, hook: &'a mut dyn EvalHook) {
         if let Some(mut hooks) = self.context.eval_hooks.take() {
             hooks.push(hook);
             self.context.eval_hooks = Some(hooks);
@@ -972,6 +973,7 @@ where
         + ClarityDbUstx
         + ClarityDbVars
         + ClarityDbMaps
+        + 'static
 {
     /// Returns an Environment value & checks the types of the contract sender, caller, and sponsor
     ///
@@ -979,9 +981,9 @@ where
     /// Panics if the Value types for sender (Principal), caller (Principal), or sponsor
     /// (Optional Principal) are incorrect.
     pub fn new(
-        global_context: &mut GlobalContext<DB>,
-        contract_context: &ContractContext,
-        call_stack: &mut CallStack,
+        global_context: &'a mut GlobalContext<'b, DB>,
+        contract_context: &'a ContractContext,
+        call_stack: &'a mut CallStack,
         sender: Option<PrincipalData>,
         caller: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
@@ -1297,19 +1299,19 @@ where
             .database
             .set_block_hash(bhh, false)
             .and_then(|prior_bhh| {
-                let result = eval(closure, self, local);
+                let result = eval(closure, self, local)?;
                 self.global_context
                     .database
                     .set_block_hash(prior_bhh, true)
                     .expect(
                     "ERROR: Failed to restore prior active block after time-shifted evaluation.",
                 );
-                result
+                Ok(result)
             });
 
         self.global_context.roll_back();
 
-        result
+        Ok(result?)
     }
 
     pub fn initialize_contract(
@@ -1389,7 +1391,7 @@ where
                 let data_size = contract.contract_context.data_size;
                 self.global_context
                     .database
-                    .insert_contract(&contract_identifier, contract);
+                    .insert_contract(&contract_identifier, contract)?;
                 self.global_context
                     .database
                     .set_contract_data_size(&contract_identifier, data_size)?;
@@ -1625,6 +1627,7 @@ where
         + ClarityDbAssets
         + ClarityDbVars
         + ClarityDbMaps
+        + 'static
 {
     // Instantiate a new Global Context
     pub fn new(
@@ -1894,6 +1897,7 @@ impl ContractContext {
             + ClarityDbAssets
             + ClarityDbVars
             + ClarityDbMaps
+            + 'static
     {
         is_reserved::<DB>(name, self.get_clarity_version())
             || self.variables.contains_key(name)

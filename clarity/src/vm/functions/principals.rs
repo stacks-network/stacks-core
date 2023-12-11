@@ -66,7 +66,7 @@ pub fn special_is_standard<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: ClarityDB
+    DB: ClarityDB + 'static
 {
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;

@@ -506,7 +506,7 @@ impl Relayer {
             let block_hash = block.block_hash();
 
             // is this the right Stacks block for this sortition?
-            let sn = match SortitionDB::get_block_snapshot_consensus(conn.conn(), consensus_hash)? {
+            let sn = match SortitionDB::<Conn>::get_block_snapshot_consensus(conn.conn(), consensus_hash)? {
                 Some(sn) => {
                     if !sn.pox_valid {
                         info!(
@@ -597,7 +597,7 @@ impl Relayer {
             &block.block_hash()
         );
 
-        let block_sn = SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash)?
+        let block_sn = SortitionDB::<Conn>::get_block_snapshot_consensus(sort_ic, consensus_hash)?
             .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
 
         if chainstate.fault_injection.hide_blocks
@@ -619,8 +619,8 @@ impl Relayer {
 
         // don't relay this block if it's using the wrong AST rules (this would render at least one of its
         // txs problematic).
-        let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_sn.block_height)?;
-        let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_sn.block_height)?
+        let ast_rules = SortitionDB::<Conn>::get_ast_rules(sort_ic, block_sn.block_height)?;
+        let epoch_id = SortitionDB::<Conn>::get_stacks_epoch(sort_ic, block_sn.block_height)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
         debug!(
@@ -692,12 +692,12 @@ impl Relayer {
         }
 
         let block_sn =
-            SortitionDB::get_block_snapshot_consensus(sort_handle, &block.header.consensus_hash)?
+            SortitionDB::<Conn>::get_block_snapshot_consensus(sort_handle, &block.header.consensus_hash)?
                 .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
 
         // NOTE: it's `+ 1` because the first Nakamoto block is built atop the last epoch 2.x
         // tenure, right after the last 2.x sortition
-        let epoch_id = SortitionDB::get_stacks_epoch(sort_handle, block_sn.block_height + 1)?
+        let epoch_id = SortitionDB::<Conn>::get_stacks_epoch(sort_handle, block_sn.block_height + 1)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
 
@@ -877,7 +877,7 @@ impl Relayer {
             );
             if chainstate.fault_injection.hide_blocks {
                 if let Some(sn) =
-                    SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)
+                    SortitionDB::<Conn>::get_block_snapshot_consensus(sort_ic, &consensus_hash)
                         .expect("FATAL: failed to query downloaded block snapshot")
                 {
                     if Self::fault_injection_is_block_hidden(&block.header, sn.block_height) {
@@ -993,7 +993,7 @@ impl Relayer {
                 }
 
                 for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
-                    match SortitionDB::get_block_snapshot_consensus(
+                    match SortitionDB::<Conn>::get_block_snapshot_consensus(
                         sort_ic.conn(),
                         &consensus_hash,
                     )? {
@@ -1094,7 +1094,7 @@ impl Relayer {
             let anchored_block_hash = microblock_stream[0].header.prev_block.clone();
 
             let block_snapshot =
-                match SortitionDB::get_block_snapshot_consensus(sort_ic, consensus_hash) {
+                match SortitionDB::<Conn>::get_block_snapshot_consensus(sort_ic, consensus_hash) {
                     Ok(Some(sn)) => sn,
                     Ok(None) => {
                         warn!(
@@ -1109,14 +1109,14 @@ impl Relayer {
                     }
                 };
 
-            let ast_rules = match SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height) {
+            let ast_rules = match SortitionDB::<Conn>::get_ast_rules(sort_ic, block_snapshot.block_height) {
                 Ok(rules) => rules,
                 Err(e) => {
                     error!("Failed to load current AST rules: {:?}", &e);
                     continue;
                 }
             };
-            let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
+            let epoch_id = match SortitionDB::<Conn>::get_stacks_epoch(sort_ic, block_snapshot.block_height)
             {
                 Ok(Some(epoch)) => epoch.epoch_id,
                 Ok(None) => {
@@ -1214,10 +1214,10 @@ impl Relayer {
                 let index_block_hash = mblock_data.index_anchor_block.clone();
 
                 let block_snapshot =
-                    SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)?
+                    SortitionDB::<Conn>::get_block_snapshot_consensus(sort_ic, &consensus_hash)?
                         .ok_or(net_error::DBError(db_error::NotFoundError))?;
-                let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height)?;
-                let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)?
+                let ast_rules = SortitionDB::<Conn>::get_ast_rules(sort_ic, block_snapshot.block_height)?;
+                let epoch_id = SortitionDB::<Conn>::get_stacks_epoch(sort_ic, block_snapshot.block_height)?
                     .expect("FATAL: no epoch defined")
                     .epoch_id;
 
@@ -1593,7 +1593,7 @@ impl Relayer {
         for block_data in network_result.uploaded_blocks.drain(..) {
             for BlocksDatum(consensus_hash, block) in block_data.blocks.into_iter() {
                 // did we actually store it?
-                if StacksChainState::get_staging_block_status(
+                if StacksChainState::<Conn>::get_staging_block_status(
                     chainstate.db(),
                     &consensus_hash,
                     &block.block_hash(),
@@ -1656,7 +1656,7 @@ impl Relayer {
     {
         let mut ret = BlocksAvailableMap::new();
         for ch in consensus_hashes.into_iter() {
-            let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &ch)? {
+            let sn = match SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), &ch)? {
                 Some(sn) => sn,
                 None => {
                     continue;
@@ -1753,7 +1753,7 @@ impl Relayer {
                     return Ok(vec![]);
                 }
             };
-        let epoch_id = SortitionDB::get_stacks_epoch(sortdb.conn(), network_result.burn_height)?
+        let epoch_id = SortitionDB::<Conn>::get_stacks_epoch(sortdb.conn(), network_result.burn_height)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
 
@@ -1850,7 +1850,7 @@ impl Relayer {
         Conn: DbConnection + TrieDb
     {
         let (canonical_consensus_hash, canonical_block_hash) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+            SortitionDB::<Conn>::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let canonical_tip = StacksBlockHeader::make_index_block_hash(
             &canonical_consensus_hash,
             &canonical_block_hash,
@@ -1876,7 +1876,7 @@ impl Relayer {
         Conn: DbConnection + TrieDb
     {
         let (canonical_consensus_hash, canonical_block_hash) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+            SortitionDB::<Conn>::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let canonical_tip = StacksBlockHeader::make_index_block_hash(
             &canonical_consensus_hash,
             &canonical_block_hash,
@@ -2647,7 +2647,6 @@ pub mod test {
     use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::LimitedCostTracker;
-    use clarity::vm::database::ClarityDatabase;
     use clarity::vm::types::QualifiedContractIdentifier;
     use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
     use stacks_common::address::AddressHashMode;

@@ -24,15 +24,15 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::SpecialCaseHandler;
-use super::v2::ClarityDb;
-use super::{ClarityBackingStore, ClarityDeserializable};
+use super::v2::{ClarityDb, ClarityDbMicroblocks, ClarityDbBlocks, ClarityDbError, ClarityDbMaps, ClarityDbKvStore};
+use super::ClarityDeserializable;
 use crate::vm::database::clarity_store::make_contract_hash_key;
-use crate::vm::errors::InterpreterResult;
 use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
 };
 use crate::vm::{StacksEpoch, Value};
+use crate::vm::database::v2::Result;
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;
@@ -211,9 +211,9 @@ where
 
 impl<'a, DB> RollbackWrapper<'a, DB> 
 where
-    DB: ClarityDb
+    DB: ClarityDb + ClarityDbMicroblocks
 {
-    pub fn new(store: &impl ClarityBackingStore<DB>) -> RollbackWrapper<DB> {
+    pub fn new(store: &mut DB) -> RollbackWrapper<DB> {
         RollbackWrapper {
             store,
             lookup_map: HashMap::new(),
@@ -224,7 +224,7 @@ where
     }
 
     pub fn from_persisted_log(
-        store: &impl ClarityBackingStore<DB>,
+        store: &mut DB,
         log: RollbackWrapperPersistedLog,
     ) -> RollbackWrapper<DB> {
         RollbackWrapper {
@@ -236,7 +236,7 @@ where
         }
     }
 
-    pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler<DB>> {
+    pub fn get_cc_special_cases_handler(&self) -> crate::vm::database::v2::Result<Option<SpecialCaseHandler<DB>>> {
         self.store.get_cc_special_cases_handler()
     }
 
@@ -272,7 +272,7 @@ where
         self.stack.len()
     }
 
-    pub fn commit(&mut self) {
+    pub fn commit(&mut self) -> Result<()>{
         let mut last_item = self
             .stack
             .pop()
@@ -282,7 +282,7 @@ where
             // committing to the backing store
             let all_edits = rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map);
             if !all_edits.is_empty() {
-                self.store.put_all(all_edits);
+                self.store.put_all(all_edits)?;
             }
 
             let metadata_edits = rollback_check_pre_bottom_commit(
@@ -290,7 +290,7 @@ where
                 &mut self.metadata_lookup_map,
             );
             if !metadata_edits.is_empty() {
-                self.store.put_all_metadata(metadata_edits);
+                self.store.put_all_metadata(metadata_edits)?;
             }
         } else {
             // bubble up to the next item in the stack
@@ -302,6 +302,8 @@ where
                 next_up.metadata_edits.push((key, value));
             }
         }
+
+        Ok(())
     }
 }
 
@@ -323,7 +325,7 @@ fn inner_put<T>(
 
 impl<'a, DB> RollbackWrapper<'a, DB> 
 where
-    DB: ClarityDb
+    DB: ClarityDb + ClarityDbBlocks + ClarityDbMaps + ClarityDbKvStore
 {
     pub fn put(&mut self, key: &str, value: &str) {
         let current = self
@@ -348,8 +350,8 @@ where
         &mut self,
         bhh: StacksBlockId,
         query_pending_data: bool,
-    ) -> InterpreterResult<InterpreterResult<StacksBlockId>> {
-        self.store.set_block_hash(bhh, query_pending_data)?
+    ) -> Result<StacksBlockId> {
+        self.store.set_block_hash(bhh, query_pending_data)
             .map(|x| {
                 // use and_then so that query_pending_data is only set once set_block_hash succeeds
                 //  this doesn't matter in practice, because a set_block_hash failure always aborts
@@ -362,16 +364,18 @@ where
 
     /// this function will only return commitment proofs for values _already_ materialized
     ///  in the underlying store. otherwise it returns None.
-    pub fn get_with_proof<T>(&mut self, key: &str) -> Option<(T, Vec<u8>)>
+    pub fn get_with_proof<T>(&mut self, key: &str) -> Result<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
-        self.store
-            .get_with_proof(key)
-            .map(|(value, proof)| (T::deserialize(&value), proof))
+        let result = self.store
+            .get_with_proof::<String>(key)?
+            .map(|(value, proof)| (T::deserialize(&value), proof));
+
+        Ok(result)
     }
 
-    pub fn get<T>(&mut self, key: &str) -> Option<T>
+    pub fn get<T>(&mut self, key: &str) -> Result<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -388,14 +392,21 @@ where
             None
         };
 
-        lookup_result.or_else(|| self.store.get(key).map(|x| T::deserialize(&x)))
+        let result = lookup_result.or_else(|| {
+             self.store
+                .get::<String>(key)
+                .unwrap_or_else(|_| None)
+                .map(|x| T::deserialize(&x))
+        });
+
+        Ok(result)
     }
 
     pub fn deserialize_value(
         value_hex: &str,
         expected: &TypeSignature,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult, SerializationError> {
+    ) -> Result<ValueResult> {
         let serialized_byte_len = value_hex.len() as u64 / 2;
         let sanitize = epoch.value_sanitizing();
         let value = Value::try_deserialize_hex(value_hex, expected, sanitize)?;
@@ -413,41 +424,48 @@ where
         key: &str,
         expected: &TypeSignature,
         epoch: &StacksEpochId,
-    ) -> Result<Option<ValueResult>, SerializationError> {
+    ) -> Result<Option<ValueResult>> 
+    {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
         if self.query_pending_data {
-            if let Some(x) = self.lookup_map.get(key).and_then(|x| x.last()) {
-                return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
+            if let Some(x) = self.lookup_map
+                .get(key)
+                .and_then(|x| x.last()) {
+                    return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
             }
         }
 
-        match self.store.get(key) {
+        let result: Option<String> = self.store.get(key)?;
+        
+        match result  {
             Some(x) => Ok(Some(Self::deserialize_value(&x, expected, epoch)?)),
             None => Ok(None),
         }
     }
 
     /// This is the height we are currently constructing. It comes from the MARF.
-    pub fn get_current_block_height(&mut self) -> u32 {
+    pub fn get_current_block_height(&mut self) -> Result<u32> {
         self.store.get_current_block_height()
     }
 
     /// Is None if `block_height` >= the "currently" under construction Stacks block height.
-    pub fn get_block_header_hash(&mut self, block_height: u32) -> Option<StacksBlockId> {
-        self.store.get_block_at_height(block_height)
+    pub fn get_block_header_hash(&mut self, block_height: u32) -> Result<Option<StacksBlockId>> {
+        self.store.kv_get_block_at_height(block_height)
     }
 
     pub fn prepare_for_contract_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         content_hash: Sha512Trunc256Sum,
-    ) {
+    ) -> Result<()> {
         let key = make_contract_hash_key(contract);
-        let value = self.store.make_contract_commitment(content_hash);
-        self.put(&key, &value)
+        let value = self.store.make_contract_commitment(content_hash)?;
+        self.put(&key, &value);
+
+        Ok(())
     }
 
     pub fn insert_metadata(
@@ -455,7 +473,7 @@ where
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) {
+    ) -> Result<()> {
         let current = self
             .stack
             .last_mut()
@@ -468,7 +486,9 @@ where
             &mut current.metadata_edits,
             metadata_key,
             value.to_string(),
-        )
+        );
+
+        Ok(())
     }
 
     // Throws a NoSuchContract error if contract doesn't exist,
@@ -477,7 +497,7 @@ where
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
@@ -495,7 +515,7 @@ where
 
         match lookup_result {
             Some(x) => Ok(Some(x)),
-            None => self.store.get_metadata(contract, key),
+            None => self.store.fetch_metadata(contract, key),
         }
     }
 
@@ -506,7 +526,7 @@ where
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
@@ -524,16 +544,16 @@ where
 
         match lookup_result {
             Some(x) => Ok(Some(x)),
-            None => self.store.get_metadata_manual(at_height, contract, key),
+            None => self.store.fetch_metadata_manual(at_height, contract, key),
         }
     }
 
-    pub fn has_entry(&mut self, key: &str) -> bool {
+    pub fn has_entry(&mut self, key: &str) -> Result<bool> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
         if self.query_pending_data && self.lookup_map.contains_key(key) {
-            true
+            Ok(true)
         } else {
             self.store.has_entry(key)
         }
@@ -543,7 +563,11 @@ where
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> bool {
-        matches!(self.get_metadata(contract, key), Ok(Some(_)))
+    ) -> Result<bool> {
+        Ok(
+            matches!(
+                self.get_metadata(contract, key), 
+                Ok(Some(_)))
+        )
     }
 }

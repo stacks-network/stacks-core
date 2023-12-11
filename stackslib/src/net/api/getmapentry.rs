@@ -19,7 +19,8 @@ use std::io::{Read, Write};
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::database::{ClarityDatabase, STXBalance, StoreType};
+use clarity::vm::database::v2::{ClarityDbMaps, make_key_for_data_map_entry};
+use clarity::vm::database::{STXBalance, StoreType};
 use clarity::vm::representations::{
     CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
 };
@@ -180,7 +181,7 @@ where
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        let key = ClarityDatabase::make_key_for_data_map_entry(
+                        let key = make_key_for_data_map_entry(
                             &contract_identifier,
                             &map_name,
                             &key,

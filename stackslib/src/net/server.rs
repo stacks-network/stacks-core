@@ -38,12 +38,12 @@ use crate::net::rpc::*;
 use crate::net::{Error as net_error, *};
 
 #[derive(Debug)]
-pub struct HttpPeer<Conn> 
+pub struct HttpPeer<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
     /// ongoing http conversations (either they reached out to us, or we to them)
-    pub peers: HashMap<usize, ConversationHttp<Conn>>,
+    pub peers: HashMap<usize, ConversationHttp<DB>>,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
 
     /// outbound connections that are pending connection
@@ -67,15 +67,15 @@ where
     pub connection_opts: ConnectionOptions,
 }
 
-impl<Conn> HttpPeer<Conn> 
+impl<DB> HttpPeer<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
     pub fn new(
         conn_opts: ConnectionOptions,
         server_handle: usize,
         server_addr: SocketAddr,
-    ) -> HttpPeer<Conn> {
+    ) -> HttpPeer<DB> {
         HttpPeer {
             peers: HashMap::new(),
             sockets: HashMap::new(),
@@ -106,7 +106,7 @@ where
     }
 
     /// Get a mut ref to a conversation
-    pub fn get_conversation(&mut self, event_id: usize) -> Option<&mut ConversationHttp<Conn>> {
+    pub fn get_conversation(&mut self, event_id: usize) -> Option<&mut ConversationHttp<DB>> {
         self.peers.get_mut(&event_id)
     }
 
@@ -115,7 +115,7 @@ where
         &mut self,
         event_id: usize,
     ) -> (
-        Option<&mut ConversationHttp<Conn>>,
+        Option<&mut ConversationHttp<DB>>,
         Option<&mut mio::net::TcpStream>,
     ) {
         (
@@ -131,7 +131,7 @@ where
     pub fn connect_http(
         &mut self,
         network_state: &mut NetworkState,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork<DB>,
         data_url: UrlString,
         addr: SocketAddr,
         request: Option<StacksHttpRequest>,
@@ -218,7 +218,7 @@ where
     fn register_http(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState<Conn>,
+        node_state: &mut StacksNodeState<DB>,
         event_id: usize,
         mut socket: mio_net::TcpStream,
         outbound_url: Option<UrlString>,
@@ -347,7 +347,7 @@ where
     /// buffer.
     pub fn saturate_http_socket(
         client_sock: &mut mio::net::TcpStream,
-        convo: &mut ConversationHttp<Conn>,
+        convo: &mut ConversationHttp<DB>,
     ) -> Result<(), net_error> {
         // saturate the socket
         loop {
@@ -373,7 +373,7 @@ where
     fn process_new_sockets(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState<Conn>,
+        node_state: &mut StacksNodeState<DB>,
         poll_state: &mut NetworkPollState,
     ) -> Vec<usize> {
         let mut registered = vec![];
@@ -421,10 +421,10 @@ where
     /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
     /// forwarded to the peer network.
     fn process_http_conversation(
-        node_state: &mut StacksNodeState<Conn>,
+        node_state: &mut StacksNodeState<DB>,
         event_id: usize,
         client_sock: &mut mio_net::TcpStream,
-        convo: &mut ConversationHttp<Conn>,
+        convo: &mut ConversationHttp<DB>,
     ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
@@ -520,7 +520,7 @@ where
     fn process_connecting_sockets(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState<Conn>,
+        node_state: &mut StacksNodeState<DB>,
         poll_state: &mut NetworkPollState,
     ) -> () {
         for event_id in poll_state.ready.iter() {
@@ -554,7 +554,7 @@ where
     fn process_ready_sockets(
         &mut self,
         poll_state: &mut NetworkPollState,
-        node_state: &mut StacksNodeState<Conn>,
+        node_state: &mut StacksNodeState<DB>,
     ) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -636,7 +636,7 @@ where
     pub fn run(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState<Conn>,
+        node_state: &mut StacksNodeState<DB>,
         mut poll_state: NetworkPollState,
     ) -> Vec<StacksMessageType> {
         // set up new inbound conversations

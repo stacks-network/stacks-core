@@ -25,7 +25,8 @@ use crate::vm::analysis::{
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::stores::memory::ClarityMemoryStore;
+use crate::vm::database::v2::ClarityDbAnalysis;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::{ClarityVersion, SymbolicExpression};
 
@@ -406,8 +407,7 @@ fn test_names_tokens_contracts() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap();
-    let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = ClarityMemoryStore::new();
 
     db.execute(|db| {
         type_check(
@@ -465,8 +465,7 @@ fn test_names_tokens_contracts_bad() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap();
-    let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = ClarityMemoryStore::new();
 
     db.execute(|db| {
         db.test_insert_contract_hash(&tokens_contract_id);
@@ -574,8 +573,7 @@ fn test_same_function_name() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap();
-    let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = ClarityMemoryStore::new();
 
     db.execute(|db| {
         type_check(

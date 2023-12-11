@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
+    BurnStateDB, HeadersDB, SpecialCaseHandler,
     SqliteConnection,
 };
 use clarity::vm::errors::{
@@ -282,18 +281,6 @@ impl<'a, Conn> ReadOnlyMarfStore<'a, Conn>
 where
     Conn: DbConnection + TrieDb
 {
-    pub fn as_clarity_db<'b>(
-        &'b mut self,
-        headers_db: &'b dyn HeadersDB,
-        burn_state_db: &'b dyn BurnStateDB,
-    ) -> ClarityDatabase<'b> {
-        ClarityDatabase::new(self, headers_db, burn_state_db)
-    }
-
-    pub fn as_analysis_db<'b>(&'b mut self) -> AnalysisDatabase<'b> {
-        AnalysisDatabase::new(self)
-    }
-
     pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, DatabaseError> {
         self.marf.with_conn(|conn| match conn.has_block(bhh) {
             Ok(res) => Ok(res),
@@ -302,7 +289,7 @@ where
     }
 }
 
-impl<'a, Conn> ClarityBackingStore for ReadOnlyMarfStore<'a, Conn> 
+/*impl<'a, Conn> ClarityBackingStore for ReadOnlyMarfStore<'a, Conn> 
 where
     Conn: DbConnection + TrieDb
 {
@@ -451,21 +438,9 @@ where
         error!("Attempted to commit changes to read-only MARF");
         panic!("BUG: attempted commit to read-only MARF");
     }
-}
+}*/
 
 impl<'a> WritableMarfStore<'a> {
-    pub fn as_clarity_db<'b>(
-        &'b mut self,
-        headers_db: &'b dyn HeadersDB,
-        burn_state_db: &'b dyn BurnStateDB,
-    ) -> ClarityDatabase<'b> {
-        ClarityDatabase::new(self, headers_db, burn_state_db)
-    }
-
-    pub fn as_analysis_db<'b>(&'b mut self) -> AnalysisDatabase<'b> {
-        AnalysisDatabase::new(self)
-    }
-
     pub fn rollback_block(self) {
         self.marf.drop_current();
     }
@@ -529,7 +504,7 @@ impl<'a> WritableMarfStore<'a> {
     }
 }
 
-impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
+/*impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         self.marf
             .check_ancestor_block_hash(&bhh)
@@ -680,4 +655,4 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             .insert_batch(&keys, values)
             .expect("ERROR: Unexpected MARF Failure");
     }
-}
+}*/

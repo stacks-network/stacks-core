@@ -28,15 +28,18 @@ use stacks_common::util::secp256k1::*;
 use stacks_common::util::vrf::*;
 
 use super::*;
+use super::db::v2::BurnChainDb;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::*;
 use crate::burnchains::{Burnchain, *};
 use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::{BlockstackOperationType, *};
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::comm::*;
 use crate::chainstate::coordinator::*;
 use crate::chainstate::stacks::*;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::core::{STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_3_0_MARKER};
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
 use crate::stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -103,11 +106,11 @@ pub struct TestBurnchainFork {
     pub fork_id: u64,
 }
 
-pub struct TestBurnchainNode<Conn> 
+pub struct TestBurnchainNode<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: SortitionDb
 {
-    pub sortdb: SortitionDB<Conn>,
+    pub sortdb: DB,
     pub dirty: bool,
     pub burnchain: Burnchain,
 }
@@ -533,13 +536,13 @@ impl TestBurnchainBlock {
         }
     }
 
-    pub fn mine<Conn>(
+    pub fn mine<DB>(
         &self, 
-        db: &mut SortitionDB<Conn>, 
+        db: &mut DB, 
         burnchain: &Burnchain
     ) -> BlockSnapshot 
     where
-        Conn: DbConnection + TrieDb
+        DB: SortitionDb
     {
         let block_hash = BurnchainHeaderHash::from_test_data(
             self.block_height,
@@ -592,14 +595,16 @@ impl TestBurnchainBlock {
         new_snapshot.0
     }
 
-    pub fn mine_pox<'a, Conn, T, N, R, CE, FE, B>(
+    pub fn mine_pox<'a, SortDB, ChainDB, BurnDB, T, N, R, CE, FE, B>(
         &self,
-        db: &mut SortitionDB<Conn>,
+        db: &mut SortDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, Conn, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'a, SortDB, ChainDB, BurnDB, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -716,13 +721,13 @@ impl TestBurnchainFork {
         TestBurnchainBlock::new(&fork_tip, self.fork_id)
     }
 
-    pub fn mine_pending_blocks<Conn>(
+    pub fn mine_pending_blocks<DB>(
         &mut self,
-        db: &mut SortitionDB<Conn>,
+        db: &mut DB,
         burnchain: &Burnchain,
     ) -> BlockSnapshot 
     where
-        Conn: DbConnection + TrieDb
+        DB: SortitionDb
     {
         let mut snapshot = {
             let ic = db.index_conn();
@@ -747,14 +752,16 @@ impl TestBurnchainFork {
         snapshot
     }
 
-    pub fn mine_pending_blocks_pox<'a, Conn, T, N, R, CE, FE, B>(
+    pub fn mine_pending_blocks_pox<'a, SortDB, ChainDB, BurnDB, T, N, R, CE, FE, B>(
         &mut self,
-        db: &mut SortitionDB<Conn>,
+        db: &mut SortDB,
         burnchain: &Burnchain,
-        coord: &mut ChainsCoordinator<'a, Conn, T, N, R, CE, FE, B>,
+        coord: &mut ChainsCoordinator<'a, SortDB, ChainDB, BurnDB, T, N, R, CE, FE, B>,
     ) -> BlockSnapshot 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb,
         T: BlockEventDispatcher,
         N: CoordinatorNotices,
         R: RewardSetProvider,
@@ -786,11 +793,11 @@ impl TestBurnchainFork {
     }
 }
 
-impl<Conn> TestBurnchainNode<Conn> 
+impl<DB> TestBurnchainNode<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: SortitionDb
 {
-    pub fn new() -> TestBurnchainNode<Conn> {
+    pub fn new() -> TestBurnchainNode<DB> {
         let first_block_height = 100;
         let first_block_hash = BurnchainHeaderHash([0u8; 32]);
         let db = SortitionDB::connect_test(first_block_height, &first_block_hash).unwrap();
@@ -806,8 +813,8 @@ where
     }
 }
 
-fn process_next_sortition<Conn>(
-    node: &mut TestBurnchainNode<Conn>,
+fn process_next_sortition<DB>(
+    node: &mut TestBurnchainNode<DB>,
     fork: &mut TestBurnchainFork,
     miners: &mut Vec<TestMiner>,
     prev_keys: &Vec<LeaderKeyRegisterOp>,
@@ -819,7 +826,7 @@ fn process_next_sortition<Conn>(
     Vec<UserBurnSupportOp>,
 )
 where
-    Conn: DbConnection + TrieDb 
+    DB: SortitionDb
 {
     assert_eq!(miners.len(), block_hashes.len());
 
@@ -868,12 +875,12 @@ where
     (tip_snapshot, next_prev_keys, next_commits, vec![])
 }
 
-fn verify_keys_accepted<Conn>(
-    node: &mut TestBurnchainNode<Conn>, 
+fn verify_keys_accepted<DB>(
+    node: &mut TestBurnchainNode<DB>, 
     prev_keys: &Vec<LeaderKeyRegisterOp>
 ) -> ()
 where
-    Conn: DbConnection + TrieDb
+    DB: SortitionDb
 {
     // all keys accepted
     for key in prev_keys.iter() {
@@ -892,12 +899,12 @@ where
     }
 }
 
-fn verify_commits_accepted<Conn>(
-    node: &TestBurnchainNode<Conn>,
+fn verify_commits_accepted<DB>(
+    node: &TestBurnchainNode<DB>,
     next_block_commits: &Vec<LeaderBlockCommitOp>,
 ) -> () 
 where
-    Conn: DbConnection + TrieDb
+    DB: SortitionDb
 {
     // all commits accepted
     for commit in next_block_commits.iter() {

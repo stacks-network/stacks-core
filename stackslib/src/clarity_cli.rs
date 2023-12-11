@@ -23,6 +23,7 @@ use std::str::FromStr;
 use std::{env, fs, io, process};
 
 use clarity::vm::coverage::CoverageReporter;
+use clarity::vm::database::v2::ClarityDb;
 use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::types::ToSql;
@@ -51,13 +52,14 @@ use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId};
 use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::clarity::vm::analysis::errors::{CheckError, CheckResult};
-use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use crate::clarity::vm::analysis::ContractAnalysis;
 use crate::clarity::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
 use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
+    BurnStateDB, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };
+use crate::clarity::vm::database::v2::{ClarityDB, ClarityDbAnalysis};
 use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use crate::clarity::vm::types::{OptionalData, PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
@@ -177,38 +179,61 @@ fn parse(
 }
 
 trait ClarityStorage {
-    fn get_clarity_db<'a>(
-        &'a mut self,
-        headers_db: &'a dyn HeadersDB,
-        burn_db: &'a dyn BurnStateDB,
-    ) -> ClarityDatabase<'a>;
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a>;
+    fn get_clarity_db<DB>(
+        &mut self,
+        headers_db: &impl HeadersDB,
+        burn_db: &impl BurnStateDB,
+    ) -> DB
+    where
+        DB: ClarityDb;
+
+    fn get_analysis_db<DB>(
+        &mut self
+    ) -> DB
+    where
+        DB: ClarityDbAnalysis;
 }
 
 impl ClarityStorage for WritableMarfStore<'_> {
-    fn get_clarity_db<'a>(
-        &'a mut self,
-        headers_db: &'a dyn HeadersDB,
-        burn_db: &'a dyn BurnStateDB,
-    ) -> ClarityDatabase<'a> {
+    fn get_clarity_db<DB>(
+        &mut self,
+        headers_db: &impl HeadersDB,
+        burn_db: &impl BurnStateDB,
+    ) -> DB 
+    where
+        DB: ClarityDb
+    {
         self.as_clarity_db(headers_db, burn_db)
     }
 
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    fn get_analysis_db<DB>(
+        &mut self
+    ) -> DB
+    where
+        DB: ClarityDbAnalysis
+    {
         self.as_analysis_db()
     }
 }
 
 impl ClarityStorage for ClarityMemoryStore {
-    fn get_clarity_db<'a>(
-        &'a mut self,
-        _headers_db: &'a dyn HeadersDB,
-        _burn_db: &'a dyn BurnStateDB,
-    ) -> ClarityDatabase<'a> {
+    fn get_clarity_db<DB>(
+        &mut self,
+        _headers_db: &impl HeadersDB,
+        _burn_db: &impl BurnStateDB,
+    ) -> DB 
+    where
+        DB: ClarityDb
+    {
         self.as_clarity_db()
     }
 
-    fn get_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
+    fn get_analysis_db<DB>(
+        &mut self
+    ) -> DB 
+    where
+        DB: ClarityDbAnalysis
+    {
         self.as_analysis_db()
     }
 }
@@ -427,7 +452,7 @@ fn default_chain_id(mainnet: bool) -> u32 {
     chain_id
 }
 
-fn with_env_costs<F, R>(
+fn with_env_costs<DB, F, R>(
     mainnet: bool,
     header_db: &CLIHeadersDB,
     marf: &mut WritableMarfStore,
@@ -435,7 +460,8 @@ fn with_env_costs<F, R>(
     f: F,
 ) -> (R, ExecutionCost)
 where
-    F: FnOnce(&mut OwnedEnvironment) -> R,
+    DB: ClarityDb,
+    F: FnOnce(&mut OwnedEnvironment<DB>) -> R,
 {
     let mut db = marf.as_clarity_db(header_db, &NULL_BURN_STATE_DB);
     let cost_track = LimitedCostTracker::new(

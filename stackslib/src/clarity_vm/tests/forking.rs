@@ -17,7 +17,7 @@
 use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::v2::ClarityDb;
 use clarity::vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{
@@ -27,6 +27,7 @@ use clarity::vm::tests::test_clarity_versions;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::version::ClarityVersion;
 use clarity::vm::ContractContext;
+use clarity::vm::database::stores::ClarityMemoryStore;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 
@@ -55,9 +56,12 @@ fn test_forking_simple(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
 }
 
 #[apply(test_clarity_versions)]
-fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+fn test_at_block_mutations(
+    #[case] version: ClarityVersion, 
+    #[case] epoch: StacksEpochId
+) {
     // test how at-block works when a mutation has occurred
-    fn initialize(owned_env: &mut OwnedEnvironment) {
+    fn initialize(owned_env: &mut OwnedEnvironment<ClarityMemoryStore>) {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let contract =
             "(define-data-var datum int 1)
@@ -76,7 +80,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
     }
 
     fn branch(
-        owned_env: &mut OwnedEnvironment,
+        owned_env: &mut OwnedEnvironment<ClarityMemoryStore>,
         version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
@@ -133,7 +137,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
 
 #[apply(test_clarity_versions)]
 fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-    fn initialize(owned_env: &mut OwnedEnvironment) {
+    fn initialize(owned_env: &mut OwnedEnvironment<ClarityMemoryStore>) {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let contract =
             "(define-data-var datum int 1)
@@ -155,7 +159,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
     }
 
     fn branch(
-        owned_env: &mut OwnedEnvironment,
+        owned_env: &mut OwnedEnvironment<ClarityMemoryStore>,
         version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
@@ -212,7 +216,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
 
 #[apply(test_clarity_versions)]
 fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-    fn initialize_1(owned_env: &mut OwnedEnvironment) {
+    fn initialize_1(owned_env: &mut OwnedEnvironment<ClarityMemoryStore>) {
         let c_a = QualifiedContractIdentifier::local("contract-a").unwrap();
 
         let contract = "(define-map datum { id: bool } { value: int })
@@ -228,7 +232,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
             .unwrap();
     }
 
-    fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
+    fn initialize_2(owned_env: &mut OwnedEnvironment<ClarityMemoryStore>) -> Error {
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract = "(define-private (problematic-cc)
@@ -271,7 +275,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
 // with b @ block 3;32
 // with z @ block 4;32
 
-fn with_separate_forks_environment<F0, F1, F2, F3>(
+fn with_separate_forks_environment<DB, F0, F1, F2, F3>(
     version: ClarityVersion,
     epoch: StacksEpochId,
     f: F0,
@@ -279,10 +283,11 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
     b: F2,
     z: F3,
 ) where
-    F0: FnOnce(&mut OwnedEnvironment),
-    F1: FnOnce(&mut OwnedEnvironment),
-    F2: FnOnce(&mut OwnedEnvironment),
-    F3: FnOnce(&mut OwnedEnvironment),
+    DB: ClarityDb,
+    F0: FnOnce(&mut OwnedEnvironment<DB>),
+    F1: FnOnce(&mut OwnedEnvironment<DB>),
+    F2: FnOnce(&mut OwnedEnvironment<DB>),
+    F3: FnOnce(&mut OwnedEnvironment<DB>),
 {
     let mut marf_kv = MarfedKV::temporary();
 
@@ -337,7 +342,12 @@ fn with_separate_forks_environment<F0, F1, F2, F3>(
     }
 }
 
-fn initialize_contract(owned_env: &mut OwnedEnvironment) {
+fn initialize_contract<DB>(
+    owned_env: &mut OwnedEnvironment<DB>
+)
+where
+    DB: ClarityDb
+{
     let p1_address = {
         if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
             address
@@ -366,11 +376,14 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
         .unwrap();
 }
 
-fn branched_execution(
+fn branched_execution<DB>(
     version: ClarityVersion,
-    owned_env: &mut OwnedEnvironment,
+    owned_env: &mut OwnedEnvironment<DB>,
     expect_success: bool,
-) {
+) 
+where
+    DB: ClarityDb
+{
     let p1_address = {
         if let Value::Principal(PrincipalData::Standard(address)) = execute(p1_str) {
             address

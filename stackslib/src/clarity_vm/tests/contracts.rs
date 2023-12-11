@@ -20,7 +20,6 @@ use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::contexts::{Environment, GlobalContext, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::{ClarityDatabase, ClarityMemoryStore};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{

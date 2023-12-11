@@ -29,7 +29,6 @@ use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{cost_functions, runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::database::{ClarityBackingStore, ClarityDatabase};
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
@@ -373,15 +372,18 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
     }
 }
 
-impl<Conn> StacksChainState<Conn> 
+impl<ChainDB> StacksChainState<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     /// Get the payer account
-    fn get_payer_account<T: ClarityConnection>(
-        clarity_tx: &mut T,
+    fn get_payer_account<DB>(
+        clarity_tx: &mut DB,
         tx: &StacksTransaction,
-    ) -> StacksAccount {
+    ) -> StacksAccount 
+    where
+        DB: ClarityDb
+    {
         // who's paying the fee?
         let payer_account = if let Some(sponsor_address) = tx.sponsor_address() {
             let payer_account = StacksChainState::get_account(clarity_tx, &sponsor_address.into());
@@ -397,14 +399,17 @@ where
 
     /// Check the account nonces for the supplied stacks transaction,
     ///   returning the origin and payer accounts if valid.
-    pub fn check_transaction_nonces<T: ClarityConnection>(
-        clarity_tx: &mut T,
+    pub fn check_transaction_nonces<DB>(
+        clarity_tx: &mut DB,
         tx: &StacksTransaction,
         quiet: bool,
     ) -> Result<
         (StacksAccount, StacksAccount),
         (TransactionNonceMismatch, (StacksAccount, StacksAccount)),
-    > {
+    > 
+    where
+        DB: ClarityDb
+    {
         // who's sending it?
         let origin = tx.get_origin();
         let origin_account = StacksChainState::get_account(clarity_tx, &tx.origin_address().into());
@@ -761,11 +766,14 @@ where
     /// * contains the microblock public key hash
     /// * contains the sender that reported the poison-microblock
     /// * contains the sequence number at which the fork occured
-    pub fn handle_poison_microblock(
-        env: &mut Environment,
+    pub fn handle_poison_microblock<DB>(
+        env: &mut Environment<DB>,
         mblock_header_1: &StacksMicroblockHeader,
         mblock_header_2: &StacksMicroblockHeader,
-    ) -> Result<Value, Error> {
+    ) -> Result<Value, Error> 
+    where
+        DB: ClarityDb
+    {
         let cost_before = env.global_context.cost_track.get_total();
 
         // encodes MARF reads for loading microblock height and current height, and loading and storing a

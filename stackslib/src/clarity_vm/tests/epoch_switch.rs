@@ -14,10 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SqliteConnection,
+    BurnStateDB, HeadersDB, SqliteConnection,
     NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};

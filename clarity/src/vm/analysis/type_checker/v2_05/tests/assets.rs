@@ -21,7 +21,8 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::mem_type_check;
 use crate::vm::ast::parse;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::stores::memory::ClarityMemoryStore;
+use crate::vm::database::v2::ClarityDbAnalysis;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
@@ -126,8 +127,7 @@ fn test_names_tokens_contracts() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap();
-    let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = ClarityMemoryStore::new();
 
     db.execute(|db| {
         type_check(

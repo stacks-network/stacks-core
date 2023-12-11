@@ -36,7 +36,7 @@ use crate::vm::Value;
 
 use super::v2::{ClarityDb, ClarityDbAnalysis, TransactionalClarityDb, ClarityDbMicroblocks, ClarityDbStx, ClarityDbUstx, ClarityDbBlocks, ClarityDbVars, ClarityDbMaps, ClarityDbAssets};
 
-pub type SpecialCaseHandler<DB: ClarityDb> = &'static dyn Fn(
+pub type SpecialCaseHandler<DB> = &'static dyn Fn(
     // the current Clarity global context
     &mut GlobalContext<DB>,
     // the current sender
@@ -56,7 +56,7 @@ pub type SpecialCaseHandler<DB: ClarityDb> = &'static dyn Fn(
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
 //    attempt to continue processing in the event of an unexpected storage error.
-pub trait ClarityBackingStore<DB> 
+/*pub trait ClarityBackingStore<DB> 
 where
     DB: ClarityDb,
 {
@@ -173,7 +173,7 @@ where
             self.insert_metadata(&contract, &key, &value);
         }
     }
-}
+}*/
 
 // TODO: Figure out where this belongs
 pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
@@ -201,9 +201,9 @@ impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
     }
 }
 
-/*pub struct NullBackingStore {}
+/*pub struct ClarityNullStore {}
 
-impl ClarityDb for NullBackingStore {
+impl ClarityDb for ClarityNullStore {
     fn set_block_hash(
         &mut self,
         bhh: StacksBlockId,
@@ -370,7 +370,7 @@ impl ClarityDb for NullBackingStore {
     }
 }
 
-impl TransactionalClarityDb for NullBackingStore {
+impl TransactionalClarityDb for ClarityNullStore {
     fn begin(&mut self) {
         todo!()
     }
@@ -384,7 +384,7 @@ impl TransactionalClarityDb for NullBackingStore {
     }
 }
 
-impl ClarityDbMicroblocks for NullBackingStore {
+impl ClarityDbMicroblocks for ClarityNullStore {
     fn get_cc_special_cases_handler(
         &self
     ) -> InterpreterResult<Option<SpecialCaseHandler<Self>>>
@@ -394,15 +394,15 @@ impl ClarityDbMicroblocks for NullBackingStore {
     }
 }
 
-impl Default for NullBackingStore {
+impl Default for ClarityNullStore {
     fn default() -> Self {
-        NullBackingStore::new()
+        ClarityNullStore::new()
     }
 }
 
-impl NullBackingStore {
+impl ClarityNullStore {
     pub fn new() -> Self {
-        NullBackingStore {}
+        ClarityNullStore {}
     }
 
     /*pub fn as_clarity_db(&mut self) -> ClarityDatabase {
@@ -419,58 +419,58 @@ impl NullBackingStore {
     }*/
 }
 
-impl<DB> ClarityBackingStore<DB> for NullBackingStore 
+impl<DB> ClarityBackingStore<DB> for ClarityNullStore 
 where
     DB: ClarityDb,
 {
     fn set_block_hash(&mut self, _bhh: StacksBlockId) -> Result<StacksBlockId> {
-        panic!("NullBackingStore can't set block hash")
+        panic!("ClarityNullStore can't set block hash")
     }
 
     fn get(&mut self, _key: &str) -> Option<String> {
-        panic!("NullBackingStore can't retrieve data")
+        panic!("ClarityNullStore can't retrieve data")
     }
 
     fn get_with_proof(&mut self, _key: &str) -> Option<(String, Vec<u8>)> {
-        panic!("NullBackingStore can't retrieve data")
+        panic!("ClarityNullStore can't retrieve data")
     }
 
     fn get_side_store(&mut self) -> &Connection {
-        panic!("NullBackingStore has no side store")
+        panic!("ClarityNullStore has no side store")
     }
 
     fn get_block_at_height(&mut self, _height: u32) -> Option<StacksBlockId> {
-        panic!("NullBackingStore can't get block at height")
+        panic!("ClarityNullStore can't get block at height")
     }
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {
-        panic!("NullBackingStore can't open chain tip")
+        panic!("ClarityNullStore can't open chain tip")
     }
 
     fn get_open_chain_tip_height(&mut self) -> u32 {
-        panic!("NullBackingStore can't get open chain tip height")
+        panic!("ClarityNullStore can't get open chain tip height")
     }
 
     fn get_current_block_height(&mut self) -> u32 {
-        panic!("NullBackingStore can't get current block height")
+        panic!("ClarityNullStore can't get current block height")
     }
 
     fn put_all(&mut self, mut _items: Vec<(String, String)>) {
-        panic!("NullBackingStore cannot put")
+        panic!("ClarityNullStore cannot put")
     }
 }*/
 
-/*pub struct MemoryBackingStore {
+/*pub struct ClarityMemoryStore {
     side_store: Connection,
 }
 
-impl Default for MemoryBackingStore {
+impl Default for ClarityMemoryStore {
     fn default() -> Self {
-        MemoryBackingStore::new()
+        ClarityMemoryStore::new()
     }
 }
 
-impl ClarityDb for MemoryBackingStore {
+impl ClarityDb for ClarityMemoryStore {
     fn set_block_hash(
         &mut self,
         bhh: StacksBlockId,
@@ -637,7 +637,7 @@ impl ClarityDb for MemoryBackingStore {
     }
 }
 
-impl TransactionalClarityDb for MemoryBackingStore {
+impl TransactionalClarityDb for ClarityMemoryStore {
     fn begin(&mut self) {
         todo!()
     }
@@ -651,7 +651,7 @@ impl TransactionalClarityDb for MemoryBackingStore {
     }
 }
 
-impl ClarityDbAnalysis for MemoryBackingStore {
+impl ClarityDbAnalysis for ClarityMemoryStore {
     fn execute<F, T, E>(&mut self, f: F) -> std::prelude::v1::Result<T, E>
     where
         Self: Sized,
@@ -745,11 +745,11 @@ impl ClarityDbAnalysis for MemoryBackingStore {
     }
 }
 
-impl ClarityDbStx for MemoryBackingStore {}
+impl ClarityDbStx for ClarityMemoryStore {}
 
-impl ClarityDbUstx for MemoryBackingStore {}
+impl ClarityDbUstx for ClarityMemoryStore {}
 
-impl ClarityDbBlocks for MemoryBackingStore {
+impl ClarityDbBlocks for ClarityMemoryStore {
     fn get_index_block_header_hash(&mut self, block_height: u32) -> InterpreterResult<StacksBlockId> {
         todo!()
     }
@@ -837,7 +837,7 @@ impl ClarityDbBlocks for MemoryBackingStore {
     }
 }
 
-impl ClarityDbMicroblocks for MemoryBackingStore {
+impl ClarityDbMicroblocks for ClarityMemoryStore {
     fn get_cc_special_cases_handler(
         &self
     ) -> InterpreterResult<Option<SpecialCaseHandler<Self>>>
@@ -847,9 +847,9 @@ impl ClarityDbMicroblocks for MemoryBackingStore {
     }
 }
 
-impl ClarityDbVars for MemoryBackingStore {}
+impl ClarityDbVars for ClarityMemoryStore {}
 
-impl ClarityDbMaps for MemoryBackingStore {
+impl ClarityDbMaps for ClarityMemoryStore {
     fn set_entry(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -863,13 +863,13 @@ impl ClarityDbMaps for MemoryBackingStore {
     }
 }
 
-impl ClarityDbAssets for MemoryBackingStore {}
+impl ClarityDbAssets for ClarityMemoryStore {}
 
-impl MemoryBackingStore {
-    pub fn new() -> MemoryBackingStore {
+impl ClarityMemoryStore {
+    pub fn new() -> ClarityMemoryStore {
         let side_store = SqliteConnection::memory().unwrap();
 
-        let mut memory_marf = MemoryBackingStore { side_store };
+        let mut memory_marf = ClarityMemoryStore { side_store };
 
         memory_marf.as_clarity_db().initialize();
 
@@ -890,7 +890,7 @@ impl MemoryBackingStore {
     }*/
 }
 
-impl<DB> ClarityBackingStore<DB> for MemoryBackingStore 
+impl<DB> ClarityBackingStore<DB> for ClarityMemoryStore 
 where
     DB: ClarityDb,
 {

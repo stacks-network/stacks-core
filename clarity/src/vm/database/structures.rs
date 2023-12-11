@@ -369,7 +369,8 @@ where
 
     pub fn save(self) -> Result<()> {
         let key = make_key_for_account_balance(&self.principal);
-        self.db_ref.put(&key, &self.balance)
+        self.db_ref.put(&key, &self.balance)?;
+        Ok(())
     }
 
     pub fn transfer_to(mut self, recipient: &PrincipalData, amount: u128) -> Result<()> {
@@ -387,9 +388,9 @@ where
             .checked_add_unlocked_amount(amount)
             .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
 
-        self.debit(amount);
-        self.db_ref.put(&recipient_key, &recipient_balance);
-        self.save();
+        self.debit(amount)?;
+        self.db_ref.put(&recipient_key, &recipient_balance)?;
+        self.save()?;
         Ok(())
     }
 

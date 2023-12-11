@@ -38,6 +38,7 @@ use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
@@ -53,6 +54,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::blocks::test::store_staging_block;
 use crate::chainstate::stacks::db::test::*;
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::miner::*;
@@ -241,12 +243,12 @@ impl TestMiner {
     }
 }
 
-impl<Conn> TestStacksNode<Conn>
+impl<ChainDB> TestStacksNode<ChainDB>
 where
-    Conn: DbConnection + TrieDb 
+    ChainDB: ChainStateDb
 {
-    pub fn add_nakamoto_tenure_commit(
-        sortdb: &SortitionDB<Conn>,
+    pub fn add_nakamoto_tenure_commit<SortDB>(
+        sortdb: &SortDB,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         last_tenure_start: &StacksBlockId,
@@ -254,7 +256,10 @@ where
         key_op: &LeaderKeyRegisterOp,
         parent_block_snapshot: Option<&BlockSnapshot>,
         vrf_seed: VRFSeed,
-    ) -> LeaderBlockCommitOp {
+    ) -> LeaderBlockCommitOp 
+    where
+        SortDB: SortitionDb
+    {
         let block_commit_op = {
             let ic = sortdb.index_conn();
             let parent_snapshot = burn_block.parent_snapshot.clone();
@@ -298,16 +303,19 @@ where
     /// Begin the next nakamoto tenure by triggering a tenure-change.
     /// Follow this call with a call to self.add_nakamoto_tenure_blocks() to add the corresponding
     /// blocks, once they've been generated.
-    pub fn make_nakamoto_tenure_commitment(
+    pub fn make_nakamoto_tenure_commitment<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         last_tenure_id: &StacksBlockId,
         burn_amount: u64,
         miner_key: &LeaderKeyRegisterOp,
         parent_block_snapshot_opt: Option<&BlockSnapshot>,
-    ) -> LeaderBlockCommitOp {
+    ) -> LeaderBlockCommitOp 
+    where    
+        SortDB: SortitionDb
+    {
         test_debug!(
             "Miner {}: Commit to Nakamoto tenure starting at {}",
             miner.id,
@@ -368,9 +376,9 @@ where
     /// Begin the next Nakamoto tenure.
     /// Create a block-commit, as well as a tenure change and VRF proof for use in a follow-on call
     /// to make_nakamoto_tenure_blocks()
-    pub fn begin_nakamoto_tenure(
+    pub fn begin_nakamoto_tenure<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         miner: &mut TestMiner,
         burn_block: &mut TestBurnchainBlock,
         miner_key: &LeaderKeyRegisterOp,
@@ -380,7 +388,10 @@ where
         parent_nakamoto_tenure: Option<&[NakamotoBlock]>,
         burn_amount: u64,
         tenure_change_cause: TenureChangeCause,
-    ) -> (LeaderBlockCommitOp, TenureChangePayload) {
+    ) -> (LeaderBlockCommitOp, TenureChangePayload) 
+    where
+        SortDB: SortitionDb
+    {
         let (
             last_tenure_id,
             previous_tenure_end,
@@ -487,16 +498,18 @@ where
     /// Construct a full Nakamoto tenure with the given block builder.
     /// The first block will contain a coinbase and a tenure-change.
     /// Process the blocks via the chains coordinator as we produce them.
-    pub fn make_nakamoto_tenure_blocks<'a, F>(
-        chainstate: &mut StacksChainState<Conn>,
-        sortdb: &SortitionDB<Conn>,
+    pub fn make_nakamoto_tenure_blocks<'a, SortDB, F>(
+        chainstate: &mut StacksChainState<ChainDB>,
+        sortdb: &SortDB,
         miner: &mut TestMiner,
         signers: &mut TestSigners,
         proof: VRFProof,
         tenure_change_payload: TenureChangePayload,
         coord: &mut ChainsCoordinator<
             'a,
-            Conn,
+            SortDB,
+            ChainDB,
+            (),
             TestEventObserver,
             (),
             OnChainRewardSetProvider,
@@ -509,8 +522,8 @@ where
     where
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState<Conn>,
-            &SortitionDB<Conn>,
+            &mut StacksChainState<ChainDB>,
+            &SortDB,
             usize,
         ) -> Vec<StacksTransaction>,
     {

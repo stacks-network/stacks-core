@@ -1,8 +1,8 @@
 use stacks_common::{types::chainstate::StacksBlockId, util::hash::Sha512Trunc256Sum};
 
-use crate::vm::{database::{SqliteConnection, clarity_store::ContractCommitment, ClarityDeserializable, ClaritySerializable, SpecialCaseHandler}, errors::{InterpreterResult as Result, RuntimeErrorType}, types::QualifiedContractIdentifier, analysis::CheckErrors};
+use crate::vm::{database::{clarity_store::ContractCommitment, ClaritySerializable, SpecialCaseHandler}, types::QualifiedContractIdentifier};
 
-use super::{ClarityDb, utils::make_contract_hash_key};
+use super::{ClarityDb, Result};
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
@@ -83,12 +83,17 @@ pub trait ClarityDbKvStore: ClarityDb
         key: &str,
     ) -> Result<Option<String>>;
 
-    fn kv_put_all_metadata(&mut self, items: Vec<((QualifiedContractIdentifier, String), String)>) 
+    fn kv_put_all_metadata(
+        &mut self, 
+        items: Vec<((QualifiedContractIdentifier, String), String)>
+    ) -> Result<()>
     where
         Self: Sized
     {
         for ((contract, key), value) in items.into_iter() {
-            self.insert_metadata(&contract, &key, &value);
+            self.insert_metadata(&contract, &key, &value)?;
         }
+
+        Ok(())
     }
 }

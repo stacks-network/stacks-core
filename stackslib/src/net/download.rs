@@ -710,7 +710,7 @@ impl BlockDownloader {
         // what blocks do we have in this range?
         let local_blocks = {
             let ic = sortdb.index_conn();
-            let tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
+            let tip = SortitionDB::<Conn>::get_canonical_burn_chain_tip(&ic)?;
 
             if tip.block_height < first_block_height + sortition_height_start {
                 test_debug!(
@@ -781,7 +781,7 @@ impl BlockDownloader {
             debug!("End headers load ({} ms)", end_ts.saturating_sub(begin_ts));
 
             // update cache
-            SortitionDB::merge_block_header_cache(header_cache, &local_blocks);
+            SortitionDB::<Conn>::merge_block_header_cache(header_cache, &local_blocks);
 
             local_blocks
         };
@@ -859,7 +859,7 @@ impl BlockDownloader {
     where
         Conn: DbConnection + TrieDb
     {
-        let sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)?
+        let sn = SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)?
             .ok_or_else(|| net_error::DBError(db_error::NotFoundError))?;
 
         let block_height = sn.block_height;
@@ -1095,7 +1095,7 @@ where
     ) -> Result<bool, net_error> {
         // already in queue or already processed?
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
-        if StacksChainState::has_block_indexed(&chainstate.blocks_path, &index_block_hash)? {
+        if StacksChainState::<Conn>::has_block_indexed(&chainstate.blocks_path, &index_block_hash)? {
             test_debug!(
                 "{:?}: Block already stored to chunk store: {}/{} ({})",
                 _local_peer,
@@ -1119,7 +1119,7 @@ where
     ) -> Result<bool, net_error> {
         // if the child is processed, then we have all the microblocks we need.
         // this is the overwhelmingly likely case.
-        if let Ok(Some(true)) = StacksChainState::get_staging_block_status(
+        if let Ok(Some(true)) = StacksChainState::<Conn>::get_staging_block_status(
             &chainstate.db(),
             &child_consensus_hash,
             &child_block_hash,
@@ -1138,7 +1138,7 @@ where
         // block not processed for some reason.  Do we have the parent and child anchored blocks at
         // least?
 
-        let _parent_header = match StacksChainState::load_block_header(
+        let _parent_header = match StacksChainState::<Conn>::load_block_header(
             &chainstate.blocks_path,
             parent_consensus_hash,
             parent_block_hash,
@@ -1155,7 +1155,7 @@ where
             }
         };
 
-        let child_header = match StacksChainState::load_block_header(
+        let child_header = match StacksChainState::<Conn>::load_block_header(
             &chainstate.blocks_path,
             child_consensus_hash,
             child_block_hash,
@@ -1179,7 +1179,7 @@ where
 
         // try and load the connecting stream.  If we have it, then we're good to go.
         // SLOW
-        match StacksChainState::load_microblock_stream_fork(
+        match StacksChainState::<Conn>::load_microblock_stream_fork(
             &chainstate.db(),
             parent_consensus_hash,
             parent_block_hash,
@@ -1315,7 +1315,7 @@ where
                 (consensus_hash, block_hash)
             } else {
                 // asking for microblocks
-                let block_header = match StacksChainState::load_block_header(
+                let block_header = match StacksChainState::<Conn>::load_block_header(
                     &chainstate.blocks_path,
                     &consensus_hash,
                     &block_hash,
@@ -1352,7 +1352,7 @@ where
 
                 // does this anchor block _confirm_ a microblock stream that we don't know about?
                 let parent_header_opt = {
-                    let child_block_info = match StacksChainState::load_staging_block_info(
+                    let child_block_info = match StacksChainState::<Conn>::load_staging_block_info(
                         &chainstate.db(),
                         &index_block_hash,
                     )? {
@@ -1367,7 +1367,7 @@ where
                         }
                     };
 
-                    match StacksChainState::load_block_header(
+                    match StacksChainState::<Conn>::load_block_header(
                         &chainstate.blocks_path,
                         &child_block_info.parent_consensus_hash,
                         &child_block_info.parent_anchored_block_hash,
@@ -1996,7 +1996,7 @@ where
     pub fn block_getblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests(&downloader.blocks_to_try);
+            let mut priority = PeerNetwork::<Conn>::prioritize_requests(&downloader.blocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
@@ -2034,7 +2034,7 @@ where
     pub fn block_getmicroblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::prioritize_requests(&downloader.microblocks_to_try);
+            let mut priority = PeerNetwork::<Conn>::prioritize_requests(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
@@ -2125,7 +2125,7 @@ where
                 // NOTE: microblock streams are served in reverse order, since they're forks
                 microblock_stream.reverse();
 
-                let block_header = match StacksChainState::load_block_header(
+                let block_header = match StacksChainState::<Conn>::load_block_header(
                     &chainstate.blocks_path,
                     &request_key.consensus_hash,
                     &request_key.anchor_block_hash,
@@ -2153,7 +2153,7 @@ where
                 let parent_block_header = request_key.parent_block_header.unwrap();
                 let parent_consensus_hash = request_key.parent_consensus_hash.unwrap();
 
-                if StacksChainState::validate_parent_microblock_stream(
+                if StacksChainState::<Conn>::validate_parent_microblock_stream(
                     &parent_block_header,
                     &block_header,
                     &microblock_stream,

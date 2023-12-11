@@ -390,7 +390,7 @@ where
         preamble: &HttpRequestPreamble,
         sortdb: &SortitionDB<Conn>,
     ) -> Result<BlockSnapshot, StacksHttpResponse> {
-        SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
+        SortitionDB::<Conn>::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
             StacksHttpResponse::new_error(
                 &preamble,
                 &HttpServerError::new(format!("Failed to load canonical burnchain tip: {:?}", &e)),
@@ -405,7 +405,7 @@ where
         sortdb: &SortitionDB<Conn>,
         block_height: u64,
     ) -> Result<StacksEpoch, StacksHttpResponse> {
-        SortitionDB::get_stacks_epoch(sortdb.conn(), block_height)
+        SortitionDB::<Conn>::get_stacks_epoch(sortdb.conn(), block_height)
             .map_err(|e| {
                 StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))
             })?

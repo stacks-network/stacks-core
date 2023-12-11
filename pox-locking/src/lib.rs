@@ -27,6 +27,7 @@
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::contexts::GlobalContext;
+use clarity::vm::database::v2::{ClarityDB, ClarityDbError};
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
@@ -54,24 +55,27 @@ pub const POX_2_NAME: &str = "pox-2";
 pub const POX_3_NAME: &str = "pox-3";
 
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
-pub fn handle_contract_call_special_cases(
-    global_context: &mut GlobalContext,
+pub fn handle_contract_call_special_cases<DB>(
+    global_context: &mut GlobalContext<DB>,
     sender: Option<&PrincipalData>,
     _sponsor: Option<&PrincipalData>,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
     args: &[Value],
     result: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), ClarityError> 
+where
+    DB: ClarityDB
+{
     if *contract_id == boot_code_id(POX_1_NAME, global_context.mainnet) {
         if !pox_1::is_read_only(function_name)
-            && global_context.database.get_v1_unlock_height()
-                <= global_context.database.get_current_burnchain_block_height()
+            && global_context.database.get_v1_unlock_height()?
+                <= global_context.database.get_current_burnchain_block_height()?
         {
             // NOTE: get-pox-info is read-only, so it can call old pox v1 stuff
             warn!("PoX-1 function call attempted on an account after v1 unlock height";
-                  "v1_unlock_ht" => global_context.database.get_v1_unlock_height(),
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "v1_unlock_ht" => global_context.database.get_v1_unlock_height()?,
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
@@ -85,8 +89,8 @@ pub fn handle_contract_call_special_cases(
         if !pox_2::is_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch22
         {
             warn!("PoX-2 function call attempted on an account after Epoch 2.2";
-                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height(),
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height()?,
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
@@ -116,4 +120,16 @@ pub fn handle_contract_call_special_cases(
     }
 
     Ok(())
+}
+
+impl From<ClarityDbError> for LockingError {
+    fn from(_err: ClarityDbError) -> Self {
+        todo!()
+    }
+}
+
+impl From<clarity::vm::errors::Error> for LockingError {
+    fn from(_value: clarity::vm::errors::Error) -> Self {
+        todo!()
+    }
 }

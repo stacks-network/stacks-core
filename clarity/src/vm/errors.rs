@@ -29,6 +29,8 @@ use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
 use crate::vm::types::{TypeSignature, Value};
 
+use super::database::v2::ClarityDbError;
+
 #[derive(Debug)]
 pub struct IncomparableError<T> {
     pub err: T,
@@ -206,6 +208,19 @@ impl From<ShortReturnType> for Error {
 impl From<InterpreterError> for Error {
     fn from(err: InterpreterError) -> Self {
         Error::Interpreter(err)
+    }
+}
+
+impl From<ClarityDbError> for Error {
+    fn from(err: ClarityDbError) -> Self {
+        match err {
+            ClarityDbError::Check(e) => Self::Unchecked(e),
+            ClarityDbError::Runtime(e) => Self::Runtime(e, None),
+            ClarityDbError::Cost(e) => Error::from(CheckErrors::from(e)),
+            ClarityDbError::Interpreter(e) => e.into(),
+            ClarityDbError::ShortReturn(e) => e.into(),
+            ClarityDbError::Serialization(_e) => todo!(),
+        }
     }
 }
 

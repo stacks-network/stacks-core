@@ -17,7 +17,6 @@
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::database::ClarityMemoryStore;
 use clarity::vm::events::*;
 use clarity::vm::tests::{
     execute, test_only_mainnet_to_chain_id, TEST_BURN_STATE_DB, TEST_HEADER_DB,

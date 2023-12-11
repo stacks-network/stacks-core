@@ -1,6 +1,6 @@
 use stacks_common::util::hash::{Hash160, to_hex};
-use crate::vm::{types::{StandardPrincipalData, TupleData, PrincipalData}, Value, ClarityName, errors::InterpreterResult as Result};
-use super::{super::SpecialCaseHandler, ClarityDb, utils::{make_microblock_pubkey_height_key, make_microblock_poison_key}};
+use crate::vm::{types::{StandardPrincipalData, TupleData, PrincipalData}, Value, ClarityName};
+use super::{super::SpecialCaseHandler, ClarityDb, Result, utils::{make_microblock_pubkey_height_key, make_microblock_poison_key}};
 
 pub trait ClarityDbMicroblocks: ClarityDb {
     fn insert_microblock_pubkey_hash_height(
@@ -52,7 +52,7 @@ pub trait ClarityDbMicroblocks: ClarityDb {
             .expect("BUG: valid tuple representation did not serialize");
 
         let value_str = to_hex(&value_bytes);
-        self.put(&key, &value_str);
+        self.put(&key, &value_str)?;
         Ok(())
     }
 

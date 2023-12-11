@@ -39,7 +39,7 @@ pub trait AnalysisPass {
         analysis_db: &mut DB,
     ) -> CheckResult<()>
     where
-        DB: ClarityDbAnalysis;
+        DB: ClarityDbAnalysis + 'static;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]

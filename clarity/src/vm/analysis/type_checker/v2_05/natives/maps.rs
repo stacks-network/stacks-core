@@ -23,7 +23,7 @@ use crate::vm::analysis::type_checker::v2_05::{
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::functions::tuples;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{PrincipalData, TypeSignature, Value};
@@ -34,7 +34,7 @@ pub fn check_special_fetch_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -77,7 +77,7 @@ pub fn check_special_delete_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -113,7 +113,7 @@ fn check_set_or_insert_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(3, args)?;
 
@@ -162,7 +162,7 @@ pub fn check_special_set_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_set_or_insert_entry(checker, args, context)
 }
@@ -173,7 +173,7 @@ pub fn check_special_insert_entry<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_set_or_insert_entry(checker, args, context)
 }

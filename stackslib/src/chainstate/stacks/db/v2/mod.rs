@@ -8,7 +8,7 @@ use stacks_common::types::chainstate::{StacksBlockId, TrieHash, ConsensusHash, B
 
 use crate::{
     chainstate::stacks::{
-            Error, events::StacksTransactionReceipt, StacksTransaction, index::{
+            events::StacksTransactionReceipt, StacksTransaction, index::{
                 db::DbConnection, trie_db::TrieDb, marf::MARF
             }
     }, 
@@ -19,7 +19,7 @@ use crate::{
 use stacks_chainstate::StacksChainState;
 
 use super::{
-    ChainStateBootData, ClarityTx, DBConfig, CHAINSTATE_VERSION, StacksAccount, transactions::ClarityRuntimeTxError,
+    ClarityTx, DBConfig, CHAINSTATE_VERSION, StacksAccount,
 };
 
 pub mod stacks_chainstate;
@@ -29,7 +29,11 @@ pub mod transactions;
 pub mod blocks;
 pub mod contracts;
 pub mod boot;
-pub mod accounts;
+
+#[derive(Debug)]
+pub enum ChainStateError {}
+
+pub type Result<T> = std::result::Result<T, ChainStateError>;
 
 pub struct StacksChainStateImpl<Conn>
 where
@@ -60,7 +64,7 @@ impl<Conn> StacksChainState for StacksChainStateImpl<Conn>
 where
     Conn: DbConnection + TrieDb
 {
-    fn get_genesis_root_hash(&self) -> Result<TrieHash, Error> {
+    fn get_genesis_root_hash(&self) -> Result<TrieHash> {
         Self::get_genesis_root_hash(self)
     }
 
@@ -87,7 +91,7 @@ where
         tx: &StacksTransaction,
         origin_account: &StacksAccount,
         ast_rules: ASTRules,
-    ) -> Result<StacksTransactionReceipt, Error> {
+    ) -> Result<StacksTransactionReceipt> {
         Self::process_transaction_payload(clarity_tx, tx, origin_account, ast_rules)
     }
 }

@@ -51,6 +51,7 @@ use crate::burnchains::{
 use crate::chainstate::burn::db::sortdb::{
     SortitionDB, SortitionHandle, SortitionHandleConn, SortitionHandleTx,
 };
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
@@ -71,6 +72,8 @@ use crate::core::{
 use crate::deps;
 use crate::monitoring::update_burnchain_height;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
+
+use super::db::v2::BurnChainDb;
 
 impl BurnchainStateTransitionOps {
     pub fn noop() -> BurnchainStateTransitionOps {
@@ -654,15 +657,16 @@ impl Burnchain {
     }
 
     /// Connect to the burnchain databases.  They may or may not already exist.
-    pub fn connect_db<Conn>(
+    pub fn connect_db<SortDB, BurnDB>(
         &self,
         readwrite: bool,
         first_block_header_hash: BurnchainHeaderHash,
         first_block_header_timestamp: u64,
         epochs: Vec<StacksEpoch>,
-    ) -> Result<(SortitionDB<Conn>, BurnchainDB), burnchain_error> 
+    ) -> Result<(SortDB, BurnDB), burnchain_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: TrieDb + SortitionDb,
+        BurnDB: BurnChainDb
     {
         Burnchain::setup_chainstate_dirs(&self.working_dir)?;
 
@@ -703,12 +707,12 @@ impl Burnchain {
     }
 
     /// Open just the sortition database
-    pub fn open_sortition_db<Conn>(
+    pub fn open_sortition_db<DB>(
         &self, 
         readwrite: bool
-    ) -> Result<SortitionDB<Conn>, burnchain_error> 
+    ) -> Result<DB, burnchain_error> 
     where
-        Conn: DbConnection + TrieDb
+        DB: TrieDb + SortitionDb
     {
         let sort_db_path = self.get_db_path();
         if let Err(e) = fs::metadata(&sort_db_path) {
@@ -724,12 +728,13 @@ impl Burnchain {
     }
 
     /// Open the burn databases.  They must already exist.
-    pub fn open_db<Conn>(
+    pub fn open_db<SortDB, BurnDB>(
         &self, 
         readwrite: bool
-    ) -> Result<(SortitionDB<Conn>, BurnchainDB), burnchain_error> 
+    ) -> Result<(SortDB, BurnDB), burnchain_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: DbConnection + TrieDb,
+        BurnDB: BurnChainDb
     {
         let burn_db = self.open_burnchain_db(readwrite)?;
         let sort_db = self.open_sortition_db(readwrite)?;
@@ -1056,15 +1061,15 @@ impl Burnchain {
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
     ///   *only* to be used by legacy stacks node interfaces, like the Helium node
-    pub fn process_block_and_sortition_deprecated<Conn, B>(
-        db: &mut SortitionDB<Conn>,
+    pub fn process_block_and_sortition_deprecated<DB, B>(
+        db: &mut DB,
         burnchain_db: &mut BurnchainDB,
         burnchain: &Burnchain,
         indexer: &B,
         block: &BurnchainBlock,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> 
     where
-        Conn: DbConnection + TrieDb,
+        DB: TrieDb + SortitionDb,
         B: BurnchainHeaderReader,
     {
         debug!(
@@ -1074,7 +1079,7 @@ impl Burnchain {
         );
 
         let cur_epoch =
-            SortitionDB::get_stacks_epoch(db.conn(), block.block_height())?.expect(&format!(
+            db.get_stacks_epoch(block.block_height())?.expect(&format!(
                 "FATAL: no epoch for burn block height {}",
                 block.block_height()
             ));

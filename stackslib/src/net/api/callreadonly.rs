@@ -20,7 +20,7 @@ use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{ClarityDatabase, STXBalance, StoreType};
+use clarity::vm::database::{STXBalance, StoreType};
 use clarity::vm::errors::Error::Unchecked;
 use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
 use clarity::vm::representations::{

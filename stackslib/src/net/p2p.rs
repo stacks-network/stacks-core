@@ -204,9 +204,9 @@ pub enum MempoolSyncState {
 
 pub type PeerMap = HashMap<usize, ConversationP2P>;
 
-pub struct PeerNetwork<Conn> 
+pub struct PeerNetwork<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: SortitionDb
 {
     // constants
     pub peer_version: u32,
@@ -263,7 +263,7 @@ where
     have_data_to_download: bool,
 
     // neighbor walk state
-    pub walk: Option<NeighborWalk<Conn, PeerDBNeighborWalk, PeerNetworkComms>>,
+    pub walk: Option<NeighborWalk<DB, PeerDBNeighborWalk, PeerNetworkComms>>,
     pub walk_deadline: u64,
     pub walk_count: u64,
     pub walk_attempts: u64,
@@ -313,7 +313,7 @@ where
     pub prune_inbound_counts: HashMap<NeighborKey, u64>,
 
     // http endpoint, used for driving HTTP conversations (some of which we initiate)
-    pub http: Option<HttpPeer<Conn>>,
+    pub http: Option<HttpPeer<DB>>,
 
     // our own neighbor address that we bind on
     bind_nk: NeighborKey,
@@ -352,9 +352,9 @@ where
     fault_last_disconnect: u64,
 }
 
-impl<Conn> PeerNetwork<Conn> 
+impl<DB> PeerNetwork<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: SortitionDb
 {
     pub fn new(
         peerdb: PeerDB,
@@ -370,7 +370,7 @@ where
             (StackerDBConfig, StackerDBSync<PeerNetworkComms>),
         >,
         epochs: Vec<StacksEpoch>,
-    ) -> PeerNetwork<Conn> {
+    ) -> PeerNetwork<DB> {
         let http = HttpPeer::new(
             connection_opts.clone(),
             0,
@@ -521,9 +521,9 @@ where
     /// Do something with the HTTP peer.
     /// NOTE: the HTTP peer is *always* instantiated; it's just an Option<..> so its methods can
     /// receive a ref to the PeerNetwork that contains it.
-    pub fn with_http<F, R>(network: &mut PeerNetwork<Conn>, to_do: F) -> R
+    pub fn with_http<F, R>(network: &mut PeerNetwork<DB>, to_do: F) -> R
     where
-        F: FnOnce(&mut PeerNetwork<Conn>, &mut HttpPeer<Conn>) -> R,
+        F: FnOnce(&mut PeerNetwork<DB>, &mut HttpPeer<DB>) -> R,
     {
         let mut http = network
             .http
@@ -701,11 +701,11 @@ where
 
     /// Run a closure with the network state
     pub fn with_network_state<F, R>(
-        peer_network: &mut PeerNetwork<Conn>,
+        peer_network: &mut PeerNetwork<DB>,
         closure: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<Conn>, &mut NetworkState) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork<DB>, &mut NetworkState) -> Result<R, net_error>,
     {
         let mut net = peer_network.network.take();
         let res = match net {
@@ -720,11 +720,11 @@ where
 
     /// Run a closure with the attachments_downloader
     pub fn with_attachments_downloader<F, R>(
-        peer_network: &mut PeerNetwork<Conn>,
+        peer_network: &mut PeerNetwork<DB>,
         closure: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<Conn>, &mut AttachmentsDownloader) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork<DB>, &mut AttachmentsDownloader) -> Result<R, net_error>,
     {
         let mut attachments_downloader = peer_network.attachments_downloader.take();
         let res = match attachments_downloader {
@@ -790,7 +790,7 @@ where
         handle: &mut ReplyHandleP2P,
     ) -> Result<(usize, bool), net_error> {
         let res = self.with_p2p_convo(event_id, |_network, convo, client_sock| {
-            PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle)
+            PeerNetwork::<DB>::do_saturate_p2p_socket(convo, client_sock, handle)
         })?;
         res
     }
@@ -858,7 +858,7 @@ where
             let _seq = message.preamble.seq;
             let mut reply_handle = convo.relay_signed_message(message)?;
             let (num_sent, flushed) =
-                PeerNetwork::do_saturate_p2p_socket(convo, client_sock, &mut reply_handle)?;
+                PeerNetwork::<DB>::do_saturate_p2p_socket(convo, client_sock, &mut reply_handle)?;
             test_debug!(
                 "Saturated socket {:?} with message {} seq {}: sent={}, flushed={}",
                 &client_sock,
@@ -1519,7 +1519,7 @@ where
         }
 
         // consider rate-limits on in-bound peers
-        let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
+        let num_outbound = PeerNetwork::<DB>::count_outbound_conversations(&self.peers);
         if !outbound && (self.peers.len() as u64) - num_outbound >= self.connection_opts.num_clients
         {
             // too many inbounds
@@ -1880,7 +1880,7 @@ where
     /// so `todo` can take a mutable ref to the PeerNetwork
     fn with_p2p_convo<F, R>(&mut self, event_id: usize, todo: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<Conn>, &mut ConversationP2P, &mut mio_net::TcpStream) -> R,
+        F: FnOnce(&mut PeerNetwork<DB>, &mut ConversationP2P, &mut mio_net::TcpStream) -> R,
     {
         // "check out" the conversation and client socket.
         // If one of them is missing, then "check in" the other so we can properly deregister the
@@ -1921,8 +1921,8 @@ where
     fn process_p2p_conversation(
         &mut self,
         event_id: usize,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &mut StacksChainState<DB>,
     ) -> Result<(Vec<StacksMessage>, bool), net_error> {
         self.with_p2p_convo(event_id, |network, convo, client_sock| {
             // get incoming bytes and update the state of this conversation.
@@ -2008,8 +2008,8 @@ where
     /// unhandled messages grouped by event_id.
     fn process_ready_sockets(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &mut StacksChainState<DB>,
         poll_state: &mut NetworkPollState,
     ) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
         let mut to_remove = vec![];
@@ -2315,7 +2315,7 @@ where
                 let res = self.with_p2p_convo(*event_id, |_network, convo, client_sock| {
                     if let Some(handle) = handle_list.front_mut() {
                         let (num_sent, flushed) =
-                            match PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle) {
+                            match PeerNetwork::<DB>::do_saturate_p2p_socket(convo, client_sock, handle) {
                                 Ok(x) => x,
                                 Err(e) => {
                                     info!("Broken connection on event {}: {:?}", event_id, &e);
@@ -2716,7 +2716,7 @@ where
     /// Return true if we finish
     fn do_network_inv_sync(
         &mut self, 
-        sortdb: &SortitionDB<Conn>, 
+        sortdb: &SortitionDB<DB>, 
         ibd: bool
     ) -> (bool, bool) {
         if cfg!(test) && self.connection_opts.disable_inv_sync {
@@ -2750,8 +2750,8 @@ where
     /// Download blocks, and add them to our network result.
     fn do_network_block_download(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &mut StacksChainState<DB>,
         dns_client: &mut DNSClient,
         ibd: bool,
         network_result: &mut NetworkResult,
@@ -2865,8 +2865,8 @@ where
         nk: &NeighborKey,
         reward_cycle: u64,
         height: u64,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &StacksChainState<DB>,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
     ) -> Option<(ConsensusHash, StacksBlock)> {
@@ -2890,7 +2890,8 @@ where
                 &ancestor_sn.consensus_hash,
                 &ancestor_sn.winning_stacks_block_hash,
             );
-            let block = match StacksChainState::load_block(
+
+            let block = match StacksChainState::<DB>::load_block(
                 &chainstate.blocks_path,
                 &ancestor_sn.consensus_hash,
                 &ancestor_sn.winning_stacks_block_hash,
@@ -2929,8 +2930,8 @@ where
         nk: &NeighborKey,
         reward_cycle: u64,
         height: u64,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &StacksChainState<DB>,
         local_blocks_inv: &BlocksInvData,
         block_stats: &NeighborBlockStats,
     ) -> Option<(ConsensusHash, BlockHeaderHash, Vec<StacksMicroblock>)> {
@@ -2952,7 +2953,7 @@ where
                 }
             };
 
-            let block_info = match StacksChainState::load_staging_block_info(
+            let block_info = match StacksChainState::<DB>::load_staging_block_info(
                 &chainstate.db(),
                 &StacksBlockHeader::make_index_block_hash(
                     &ancestor_sn.consensus_hash,
@@ -2981,7 +2982,7 @@ where
                 }
             };
 
-            let microblocks = match StacksChainState::load_processed_microblock_stream_fork(
+            let microblocks = match StacksChainState::<DB>::load_processed_microblock_stream_fork(
                 &chainstate.db(),
                 &block_info.parent_consensus_hash,
                 &block_info.parent_anchored_block_hash,
@@ -3035,8 +3036,8 @@ where
     /// fetched older data via the block-downloader.
     fn try_push_local_data(
         &mut self, 
-        sortdb: &SortitionDB<Conn>, 
-        chainstate: &StacksChainState<Conn>
+        sortdb: &SortitionDB<DB>, 
+        chainstate: &StacksChainState<DB>
     ) {
         if self.antientropy_last_push_ts + self.connection_opts.antientropy_retry
             >= get_epoch_time_secs()
@@ -3448,7 +3449,7 @@ where
                 }
                 let url = convo.data_url.clone();
                 if dns_client_opt.is_none() {
-                    if let Ok(Some(_)) = PeerNetwork::try_get_url_ip(&url) {
+                    if let Ok(Some(_)) = PeerNetwork::<DB>::try_get_url_ip(&url) {
                     } else {
                         // need a DNS client for this one
                         continue;
@@ -3490,7 +3491,7 @@ where
         };
 
         // bare IP address?
-        if let Some(addr) = PeerNetwork::try_get_url_ip(&url_str)? {
+        if let Some(addr) = PeerNetwork::<DB>::try_get_url_ip(&url_str)? {
             return Ok(Some(MempoolSyncState::SendQuery(
                 url_str,
                 addr,
@@ -3535,7 +3536,7 @@ where
         request: &DNSRequest,
         dns_client_opt: &mut Option<&mut DNSClient>,
     ) -> Result<(bool, Option<SocketAddr>), net_error> {
-        if let Ok(Some(addr)) = PeerNetwork::try_get_url_ip(url_str) {
+        if let Ok(Some(addr)) = PeerNetwork::<DB>::try_get_url_ip(url_str) {
             // URL contains an IP address -- go with that
             Ok((false, Some(addr)))
         } else if let Some(dns_client) = dns_client_opt {
@@ -3830,8 +3831,8 @@ where
     /// Return true if we need to prune connections.
     fn do_network_work(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &mut StacksChainState<DB>,
         dns_client_opt: &mut Option<&mut DNSClient>,
         download_backpressure: bool,
         ibd: bool,
@@ -3971,12 +3972,12 @@ where
                                 self.inv_state
                             {
                                 let (consensus_hash, _) =
-                                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                                    SortitionDB::<DB>::get_canonical_stacks_chain_tip_hash(
                                         sortdb.conn(),
                                     )
                                     .expect("FATAL: failed to load canonical stacks chain tip hash from sortition DB");
                                 let stacks_tip_sortition_height =
-                                    SortitionDB::get_block_snapshot_consensus(
+                                    SortitionDB::<DB>::get_block_snapshot_consensus(
                                         sortdb.conn(),
                                         &consensus_hash,
                                     )
@@ -4273,7 +4274,7 @@ where
     /// If updated, return the sortition height of the bit in the inv that was set.
     fn handle_unsolicited_inv_update(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortitionDB<DB>,
         event_id: usize,
         outbound_neighbor_key: &NeighborKey,
         consensus_hash: &ConsensusHash,
@@ -4437,12 +4438,12 @@ where
 
     /// Do we need a block or microblock stream, given its sortition's consensus hash?
     fn need_block_or_microblock_stream(
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &StacksChainState<DB>,
         consensus_hash: &ConsensusHash,
         is_microblock: bool,
     ) -> Result<bool, net_error> {
-        let sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)?
+        let sn = SortitionDB::<DB>::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)?
             .ok_or(chainstate_error::NoSuchBlockError)?;
         let block_hash_opt = if sn.sortition {
             Some(sn.winning_stacks_block_hash)
@@ -4466,8 +4467,8 @@ where
     /// Return whether or not we need to buffer this message
     fn handle_unsolicited_BlocksAvailable(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &StacksChainState<DB>,
         event_id: usize,
         new_blocks: &BlocksAvailableData,
         ibd: bool,
@@ -4567,8 +4568,8 @@ where
     /// Return whether or not we need to buffer this message
     fn handle_unsolicited_MicroblocksAvailable(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &StacksChainState<DB>,
         event_id: usize,
         new_mblocks: &BlocksAvailableData,
         ibd: bool,
@@ -4666,7 +4667,7 @@ where
     /// Mask errors.
     fn handle_unsolicited_BlocksData(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortitionDB<DB>,
         event_id: usize,
         new_blocks: &BlocksData,
         buffer: bool,
@@ -4707,7 +4708,7 @@ where
         let mut to_buffer = false;
 
         for BlocksDatum(consensus_hash, block) in new_blocks.blocks.iter() {
-            let sn = match SortitionDB::get_block_snapshot_consensus(
+            let sn = match SortitionDB::<DB>::get_block_snapshot_consensus(
                 &sortdb.conn(),
                 &consensus_hash,
             ) {
@@ -4788,7 +4789,7 @@ where
     /// Returns whether or not to pass to the relayer (if buffer is false).
     fn handle_unsolicited_MicroblocksData(
         &mut self,
-        chainstate: &StacksChainState<Conn>,
+        chainstate: &StacksChainState<DB>,
         event_id: usize,
         new_microblocks: &MicroblocksData,
         buffer: bool,
@@ -4863,8 +4864,8 @@ where
     /// Returns (x, true) if the relayer should receive the message
     fn handle_unsolicited_message(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &StacksChainState<DB>,
         event_id: usize,
         preamble: &Preamble,
         payload: &StacksMessageType,
@@ -4939,8 +4940,8 @@ where
     /// If buffer is true, then re-try handling this message once the burnchain view advances.
     fn handle_unsolicited_messages(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &StacksChainState<DB>,
         unsolicited: HashMap<usize, Vec<StacksMessage>>,
         ibd: bool,
         buffer: bool,
@@ -5226,15 +5227,15 @@ where
     pub fn refresh_burnchain_view<B>(
         &mut self,
         indexer: &B,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &mut StacksChainState<DB>,
         ibd: bool,
     ) -> Result<HashMap<NeighborKey, Vec<StacksMessage>>, net_error> 
     where
         B: BurnchainHeaderReader,
     {
         // update burnchain snapshot if we need to (careful -- it's expensive)
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
+        let sn = SortitionDB::<DB>::get_canonical_burn_chain_tip(&sortdb.conn())?;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
         if sn.block_height != self.chain_view.burn_block_height {
             debug!(
@@ -5251,7 +5252,7 @@ where
                     new_chain_view.burn_stable_block_height,
                     &sn.sortition_id,
                 )?
-                .unwrap_or(SortitionDB::get_first_block_snapshot(sortdb.conn())?);
+                .unwrap_or(SortitionDB::<DB>::get_first_block_snapshot(sortdb.conn())?);
                 ancestor_sn.consensus_hash
             };
 
@@ -5275,7 +5276,7 @@ where
             self.chain_view_stable_consensus_hash = new_chain_view_stable_consensus_hash;
 
             // update tx validation information
-            self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), sn.block_height)?;
+            self.ast_rules = SortitionDB::<DB>::get_ast_rules(sortdb.conn(), sn.block_height)?;
 
             // update heaviest affirmation map view
             let burnchain_db = self.burnchain.open_burnchain_db(false)?;
@@ -5389,9 +5390,9 @@ where
     fn dispatch_network(
         &mut self,
         network_result: &mut NetworkResult,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortitionDB<DB>,
         mempool: &MemPoolDB,
-        chainstate: &mut StacksChainState<Conn>,
+        chainstate: &mut StacksChainState<DB>,
         mut dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,
         ibd: bool,
@@ -5522,7 +5523,7 @@ where
         // do this after processing new sockets, so we don't accidentally re-use an event ID.
         self.dispatch_requests();
 
-        let outbound_neighbors = PeerNetwork::count_outbound_conversations(&self.peers);
+        let outbound_neighbors = PeerNetwork::<DB>::count_outbound_conversations(&self.peers);
         let inbound_neighbors = self.peers.len() - outbound_neighbors as usize;
         update_outbound_neighbors(outbound_neighbors as i64);
         update_inbound_neighbors(inbound_neighbors as i64);
@@ -5547,8 +5548,8 @@ where
     /// Has to be done here, since only the p2p network has the unconfirmed state.
     fn store_transaction(
         mempool: &mut MemPoolDB,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &mut StacksChainState<DB>,
         burnchain_tip: &BlockSnapshot,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -5596,8 +5597,8 @@ where
     /// relayed.
     pub fn store_transactions(
         mempool: &mut MemPoolDB,
-        chainstate: &mut StacksChainState<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<DB>,
+        sortdb: &SortitionDB<DB>,
         network_result: &mut NetworkResult,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), net_error> {
@@ -5612,7 +5613,7 @@ where
             )
         };
 
-        let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
+        let sn = SortitionDB::<DB>::get_canonical_burn_chain_tip(&sortdb.conn())?;
 
         let mut ret: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>> =
             HashMap::new();
@@ -5671,8 +5672,8 @@ where
     pub fn run<B>(
         &mut self,
         indexer: &B,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<DB>,
+        chainstate: &mut StacksChainState<DB>,
         mempool: &mut MemPoolDB,
         dns_client_opt: Option<&mut DNSClient>,
         download_backpressure: bool,

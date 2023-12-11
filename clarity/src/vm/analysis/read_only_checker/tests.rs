@@ -23,7 +23,8 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{type_check, CheckError, CheckErrors};
 use crate::vm::ast::parse;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::stores::memory::ClarityMemoryStore;
+use crate::vm::database::v2::ClarityDbAnalysis;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
@@ -212,9 +213,8 @@ fn test_contract_call_read_only_violations(
     let mut bad_caller = parse(&contract_bad_caller_id, bad_caller, version, epoch).unwrap();
     let mut ok_caller = parse(&contract_ok_caller_id, ok_caller, version, epoch).unwrap();
 
-    let mut marf = MemoryBackingStore::new();
+    let mut db = ClarityMemoryStore::new();
 
-    let mut db = marf.as_analysis_db();
     db.execute(|db| {
         db.test_insert_contract_hash(&contract_1_id);
         type_check(&contract_1_id, &mut contract1, db, true, &epoch, &version)

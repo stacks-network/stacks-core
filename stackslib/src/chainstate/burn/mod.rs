@@ -34,9 +34,10 @@ use stacks_common::util::uint::Uint256;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::burnchains::{Address, PublicKey, Txid};
-use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::core::SYSTEM_FORK_SET_VERSION;
 use crate::util_lib::db::Error as db_error;
+
+use self::db::v2::{SortitionDbTransaction, SortitionDb};
 
 use super::stacks::index::db::DbConnection;
 use super::stacks::index::trie_db::TrieDb;
@@ -268,22 +269,27 @@ pub trait ConsensusHashExtensions {
 
     /// Get the previous consensus hashes that must be hashed to find
     /// the *next* consensus hash at a particular block.
-    fn get_prev_consensus_hashes(
-        sort_tx: &mut SortitionHandleTx,
+    fn get_prev_consensus_hashes<DB>(
+        sort_tx: &mut impl SortitionDbTransaction<DB>,
         block_height: u64,
         first_block_height: u64,
-    ) -> Result<Vec<ConsensusHash>, db_error>;
+    ) -> Result<Vec<ConsensusHash>, db_error>
+    where
+        DB: SortitionDb
+    ;
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    fn from_parent_block_data(
-        sort_tx: &mut SortitionHandleTx,
+    fn from_parent_block_data<DB>(
+        sort_tx: &mut impl SortitionDbTransaction<DB>,
         opshash: &OpsHash,
         parent_block_height: u64,
         first_block_height: u64,
         this_block_hash: &BurnchainHeaderHash,
         total_burn: u64,
         pox_id: &PoxId,
-    ) -> Result<ConsensusHash, db_error>;
+    ) -> Result<ConsensusHash, db_error>
+    where
+        DB: SortitionDb;
 
     /// raw consensus hash
     fn from_data(bytes: &[u8]) -> ConsensusHash;
@@ -354,11 +360,14 @@ impl ConsensusHashExtensions for ConsensusHash {
 
     /// Get the previous consensus hashes that must be hashed to find
     /// the *next* consensus hash at a particular block.
-    fn get_prev_consensus_hashes(
-        sort_tx: &mut SortitionHandleTx,
+    fn get_prev_consensus_hashes<DB>(
+        sort_tx: &mut impl SortitionDbTransaction<DB>,
         block_height: u64,
         first_block_height: u64,
-    ) -> Result<Vec<ConsensusHash>, db_error> {
+    ) -> Result<Vec<ConsensusHash>, db_error> 
+    where
+        DB: SortitionDb
+    {
         let mut i = 0;
         let mut prev_chs = vec![];
         while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
@@ -367,7 +376,7 @@ impl ConsensusHashExtensions for ConsensusHash {
                 .get_consensus_at(prev_block)
                 .expect(&format!(
                     "FATAL: failed to get consensus hash at {} in fork {}",
-                    prev_block, &sort_tx.context.chain_tip
+                    prev_block, &sort_tx.get_chain_tip()?
                 ))
                 .unwrap_or(ConsensusHash::empty());
 
@@ -388,15 +397,18 @@ impl ConsensusHashExtensions for ConsensusHash {
     }
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    fn from_parent_block_data(
-        sort_tx: &mut SortitionHandleTx,
+    fn from_parent_block_data<DB>(
+        sort_tx: &mut impl SortitionDbTransaction<DB>,
         opshash: &OpsHash,
         parent_block_height: u64,
         first_block_height: u64,
         this_block_hash: &BurnchainHeaderHash,
         total_burn: u64,
         pox_id: &PoxId,
-    ) -> Result<ConsensusHash, db_error> {
+    ) -> Result<ConsensusHash, db_error> 
+    where
+        DB: SortitionDb
+    {
         let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(
             sort_tx,
             parent_block_height,

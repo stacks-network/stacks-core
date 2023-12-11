@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use super::database::stores::ClarityNullStore;
 use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
 use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
 use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
@@ -828,7 +829,7 @@ fn make_for_simple_native(
 ) -> FunctionAPI {
     let (input_type, output_type) = {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
-            TypedNativeFunction::type_native_function(function)
+            TypedNativeFunction::<ClarityNullStore>::type_native_function(function)
         {
             let input_type = get_input_type_string(&function_type);
             let output_type = get_output_type_string(&function_type);
@@ -2643,8 +2644,9 @@ mod test {
     use crate::vm::ast::ASTRules;
     use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
+    use crate::vm::database::v2::{ClarityDbStx, ClarityDbUstx};
     use crate::vm::database::{
-        BurnStateDB, HeadersDB, MemoryBackingStore, STXBalance,
+        BurnStateDB, HeadersDB, stores::ClarityMemoryStore, STXBalance,
     };
     use crate::vm::docs::get_output_type_string;
     use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
@@ -2660,11 +2662,11 @@ mod test {
     struct DocHeadersDB {}
     const DOC_HEADER_DB: DocHeadersDB = DocHeadersDB {};
 
-    impl MemoryBackingStore {
+    /*impl ClarityMemoryStore {
         pub fn as_docs_clarity_db(&mut self) -> ClarityDatabase {
             ClarityDatabase::new(self, &DOC_HEADER_DB, &DOC_POX_STATE_DB)
         }
-    }
+    }*/
 
     impl HeadersDB for DocHeadersDB {
         fn get_burn_header_hash_for_block(
@@ -2833,7 +2835,7 @@ mod test {
         }
     }
 
-    fn docs_execute(store: &mut MemoryBackingStore, program: &str) {
+    fn docs_execute(store: &mut ClarityMemoryStore, program: &str) {
         // execute the program, iterating at each ";; Returns" comment
         // there are maybe more rust-y ways of doing this, but this is the simplest.
         let mut segments = vec![];
@@ -2853,7 +2855,6 @@ mod test {
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
 
         {
-            let mut analysis_db = store.as_analysis_db();
             let whole_contract = segments.join("\n");
             eprintln!("{}", whole_contract);
             let mut parsed = ast::build_ast(
@@ -2869,7 +2870,7 @@ mod test {
             let analysis = type_check(
                 &contract_id,
                 &mut parsed,
-                &mut analysis_db,
+                store,
                 false,
                 &StacksEpochId::latest(),
                 &ClarityVersion::latest(),
@@ -2891,11 +2892,10 @@ mod test {
             .unwrap()
             .expressions;
 
-            let mut analysis_db = store.as_analysis_db();
             let analysis = type_check(
                 &contract_id,
                 &mut parsed,
-                &mut analysis_db,
+                store,
                 false,
                 &StacksEpochId::latest(),
                 &ClarityVersion::latest(),
@@ -2911,13 +2911,12 @@ mod test {
             );
         }
 
-        let conn = store.as_docs_clarity_db();
         let mut contract_context =
             ContractContext::new(contract_id.clone(), ClarityVersion::latest());
         let mut global_context = GlobalContext::new(
             false,
             CHAIN_ID_TESTNET,
-            conn,
+            *store,
             LimitedCostTracker::new_free(),
             StacksEpochId::latest(),
         );
@@ -2987,7 +2986,7 @@ mod test {
                 continue;
             }
 
-            let mut store = MemoryBackingStore::new();
+            let mut store = ClarityMemoryStore::new();
             // first, load the samples for contract-call
             // and give the doc environment's contract some STX
             {
@@ -2998,7 +2997,6 @@ mod test {
                 .unwrap();
 
                 {
-                    let mut analysis_db = store.as_analysis_db();
                     let mut parsed = ast::build_ast(
                         &contract_id,
                         token_contract_content,
@@ -3012,7 +3010,7 @@ mod test {
                     type_check(
                         &contract_id,
                         &mut parsed,
-                        &mut analysis_db,
+                        &mut store,
                         true,
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
@@ -3021,7 +3019,6 @@ mod test {
                 }
 
                 {
-                    let mut analysis_db = store.as_analysis_db();
                     let mut parsed = ast::build_ast(
                         &trait_def_id,
                         super::DEFINE_TRAIT_API.example,
@@ -3035,7 +3032,7 @@ mod test {
                     type_check(
                         &trait_def_id,
                         &mut parsed,
-                        &mut analysis_db,
+                        &mut store,
                         true,
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
@@ -3043,10 +3040,9 @@ mod test {
                     .expect("Failed to type check sample-contracts/tokens");
                 }
 
-                let conn = store.as_docs_clarity_db();
                 let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
                 let docs_principal_id = PrincipalData::Contract(docs_test_id);
-                let mut env = OwnedEnvironment::new(conn, StacksEpochId::latest());
+                let mut env = OwnedEnvironment::new(store, StacksEpochId::latest());
                 let balance = STXBalance::initial(1000);
                 env.execute_in_env::<_, _, ()>(
                     QualifiedContractIdentifier::local("tokens").unwrap().into(),
@@ -3056,9 +3052,10 @@ mod test {
                         let mut snapshot = e
                             .global_context
                             .database
-                            .get_stx_balance_snapshot_genesis(&docs_principal_id);
+                            .get_stx_balance_snapshot_genesis(&docs_principal_id)
+                            .expect("failed to get stx balance for genesis block");
                         snapshot.set_balance(balance);
-                        snapshot.save();
+                        snapshot.save()?;
                         e.global_context
                             .database
                             .increment_ustx_liquid_supply(100000)

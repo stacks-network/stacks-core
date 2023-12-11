@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use clarity::vm::database::clarity_store::*;
 use clarity::vm::database::*;
+use clarity::vm::database::v2::ClarityDbMicroblocks;
 use clarity::vm::types::*;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
@@ -250,14 +251,17 @@ impl MinerPaymentSchedule {
     }
 }
 
-impl<Conn> StacksChainState<Conn> 
+impl<ChainDB> StacksChainState<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
-    pub fn get_account<T: ClarityConnection>(
-        clarity_tx: &mut T,
+    pub fn get_account<DB>(
+        clarity_tx: &mut DB,
         principal: &PrincipalData,
-    ) -> StacksAccount {
+    ) -> StacksAccount 
+    where
+        DB: ClarityDb
+    {
         clarity_tx.with_clarity_db_readonly(|ref mut db| {
             let stx_balance = db.get_account_stx_balance(principal);
             let nonce = db.get_account_nonce(principal);
@@ -269,7 +273,13 @@ where
         })
     }
 
-    pub fn get_nonce<T: ClarityConnection>(clarity_tx: &mut T, principal: &PrincipalData) -> u64 {
+    pub fn get_nonce<DB>(
+        clarity_tx: &mut DB, 
+        principal: &PrincipalData
+    ) -> u64 
+    where
+        DB: ClarityDb
+    {
         clarity_tx.with_clarity_db_readonly(|ref mut db| db.get_account_nonce(principal))
     }
 
@@ -702,15 +712,16 @@ where
 
     /// Find the reported poison-microblock data for this block
     /// Returns None if there are no forks.
-    pub fn get_poison_microblock_report<T: ClarityConnection>(
-        clarity_tx: &mut T,
+    pub fn get_poison_microblock_report<DB>(
+        clarity_tx: &mut DB,
         height: u64,
-    ) -> Result<Option<(StacksAddress, u16)>, Error> {
-        let principal_seq_opt = clarity_tx
-            .with_clarity_db_readonly(|ref mut db| {
-                Ok(db.get_microblock_poison_report(height as u32))
-            })
-            .map_err(Error::ClarityError)?;
+    ) -> Result<Option<(StacksAddress, u16)>, Error> 
+    where
+        DB: ClarityDb + ClarityDbMicroblocks
+    {
+        let principal_seq_opt = 
+            Ok(clarity_tx.get_microblock_poison_report(height as u32))?
+                .map_err(Error::ClarityError)?;
 
         Ok(principal_seq_opt.map(|(principal, seq)| (principal.into(), seq)))
     }

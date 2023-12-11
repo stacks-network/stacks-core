@@ -21,7 +21,7 @@ use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
-use clarity::vm::database::{ClarityDatabase, STXBalance, StoreType};
+use clarity::vm::database::{STXBalance, StoreType};
 use clarity::vm::representations::{
     CONTRACT_NAME_REGEX_STRING, PRINCIPAL_DATA_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING,
 };

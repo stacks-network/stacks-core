@@ -16,6 +16,7 @@
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::StacksEpochId;
 
+use super::database::stores::memory::ClarityMemoryStore;
 use super::database::v2::ClarityDb;
 pub use super::test_util::*;
 use super::ClarityVersion;
@@ -129,20 +130,20 @@ impl Value {
 
 #[fixture]
 pub fn env_factory() -> MemoryEnvironmentGenerator {
-    MemoryEnvironmentGenerator(MemoryBackingStore::new())
+    MemoryEnvironmentGenerator(ClarityMemoryStore::new())
 }
 
 #[fixture]
 pub fn tl_env_factory() -> TopLevelMemoryEnvironmentGenerator {
-    TopLevelMemoryEnvironmentGenerator(MemoryBackingStore::new())
+    TopLevelMemoryEnvironmentGenerator(ClarityMemoryStore::new())
 }
 
-pub struct MemoryEnvironmentGenerator(MemoryBackingStore);
+pub struct MemoryEnvironmentGenerator(ClarityMemoryStore);
 impl MemoryEnvironmentGenerator {
     fn get_env(
         &mut self, 
         epoch: StacksEpochId
-    ) -> OwnedEnvironment<MemoryBackingStore>
+    ) -> OwnedEnvironment<ClarityMemoryStore>
     {
         let mut owned_env = OwnedEnvironment::new(self.0, epoch);
         // start an initial transaction.
@@ -151,12 +152,12 @@ impl MemoryEnvironmentGenerator {
     }
 }
 
-pub struct TopLevelMemoryEnvironmentGenerator(MemoryBackingStore);
+pub struct TopLevelMemoryEnvironmentGenerator(ClarityMemoryStore);
 impl TopLevelMemoryEnvironmentGenerator {
     fn get_env(
         &mut self, 
         epoch: StacksEpochId
-    ) -> OwnedEnvironment<MemoryBackingStore>
+    ) -> OwnedEnvironment<ClarityMemoryStore>
     {
         let owned_env = OwnedEnvironment::new(self.0, epoch);
         owned_env

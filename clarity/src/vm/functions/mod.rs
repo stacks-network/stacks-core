@@ -48,13 +48,7 @@ macro_rules! switch_on_global_epoch {
             context: &LocalContext,
         ) -> Result<Value> 
         where
-            DB: crate::vm::database::v2::TransactionalClarityDb 
-                + crate::vm::database::v2::ClarityDbMicroblocks
-                + crate::vm::database::v2::ClarityDbVars
-                + crate::vm::database::v2::ClarityDbMaps
-                + crate::vm::database::v2::ClarityDbAssets
-                + crate::vm::database::v2::ClarityDbStx
-                + crate::vm::database::v2::ClarityDbUstx
+            DB: crate::vm::database::v2::ClarityDB
         {
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
@@ -605,13 +599,7 @@ fn native_eq<DB>(
     env: &mut Environment<DB>
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb 
-        + ClarityDbMicroblocks
-        + ClarityDbStx
-        + ClarityDbUstx
-        + ClarityDbAssets
-        + ClarityDbVars
-        + ClarityDbMaps
+    DB: ClarityDB
 {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
@@ -647,13 +635,7 @@ fn special_print<DB>(
     context: &LocalContext,
 ) -> Result<Value> 
 where
-    DB: TransactionalClarityDb 
-        + ClarityDbMicroblocks
-        + ClarityDbStx
-        + ClarityDbUstx
-        + ClarityDbAssets
-        + ClarityDbVars
-        + ClarityDbMaps
+    DB: ClarityDB
 {
     let input = eval(&args[0], env, context)?;
 

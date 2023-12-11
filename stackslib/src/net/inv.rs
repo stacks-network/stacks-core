@@ -1205,7 +1205,7 @@ impl InvState {
     where
         Conn: DbConnection + TrieDb
     {
-        let sn = match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)? {
+        let sn = match SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)? {
             Some(sn) => {
                 if !sn.pox_valid {
                     debug!(
@@ -1340,7 +1340,7 @@ where
         &self, 
         sortdb: &SortitionDB<Conn>
     ) -> Result<BlockSnapshot, net_error> {
-        match SortitionDB::get_block_snapshot(sortdb.conn(), &self.tip_sort_id)? {
+        match SortitionDB::<Conn>::get_block_snapshot(sortdb.conn(), &self.tip_sort_id)? {
             Some(sn) => {
                 if !sn.pox_valid {
                     // our sortition ID tip got invalidated
@@ -1799,11 +1799,11 @@ where
         // tip.
         // NOTE: This code path only works in Stacks 2.x, but that's okay because this whole state
         // machine is only used in Stacks 2.x
-        let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+        let (consensus_hash, _) = SortitionDB::<Conn>::get_canonical_stacks_chain_tip_hash(sortdb.conn())
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 
         let stacks_tip_burn_block_height =
-            match SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash) {
+            match SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash) {
                 Err(_) => self.burnchain.first_block_height,
                 Ok(x) => x
                     .map(|sn| sn.block_height)

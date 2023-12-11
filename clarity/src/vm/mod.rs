@@ -187,6 +187,7 @@ where
         + ClarityDbAssets
         + ClarityDbVars
         + ClarityDbMaps
+        + 'static
 {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(InterpreterError::BadSymbolicRepresentation(format!(
@@ -368,14 +369,16 @@ where
         + ClarityDbAssets
         + ClarityDbVars
         + ClarityDbMaps
+        + 'static
 {
     use crate::vm::representations::SymbolicExpressionType::{
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
 
     if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
-        for hook in eval_hooks.iter_mut() {
-            hook.will_begin_eval(env, context, exp);
+        for _hook in eval_hooks.iter_mut() {
+            // TODO: Fix hooks
+            //hook.will_begin_eval(env, context, exp);
         }
         env.global_context.eval_hooks = Some(eval_hooks);
     }
@@ -398,8 +401,9 @@ where
     };
 
     if let Some(mut eval_hooks) = env.global_context.eval_hooks.take() {
-        for hook in eval_hooks.iter_mut() {
-            hook.did_finish_eval(env, context, exp, &res);
+        for _hook in eval_hooks.iter_mut() {
+            // TODO: Fix hooks
+            //hook.did_finish_eval(env, context, exp, &res);
         }
         env.global_context.eval_hooks = Some(eval_hooks);
     }
@@ -419,6 +423,7 @@ where
         + ClarityDbVars
         + ClarityDbAssets
         + ClarityDbUstx
+        + 'static
 {
     if let Some(_result) = functions::lookup_reserved_functions::<DB>(name, version) {
         true
@@ -444,6 +449,7 @@ where
         + ClarityDbVars 
         + ClarityDbMaps
         + ClarityDbAssets
+        + 'static
 {
     let mut last_executed = None;
     let context = LocalContext::new();
@@ -589,12 +595,12 @@ pub fn execute_with_parameters(
     ast_rules: ast::ASTRules,
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
-    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::database::stores::ClarityMemoryStore;
     use crate::vm::tests::test_only_mainnet_to_chain_id;
 
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
-    let mut marf = MemoryBackingStore::new();
+    let marf = ClarityMemoryStore::new();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
     let mut global_context = GlobalContext::new(
         use_mainnet,
@@ -663,7 +669,7 @@ mod test {
     use super::ClarityVersion;
     use crate::vm::callables::{DefineType, DefinedFunction};
     use crate::vm::costs::LimitedCostTracker;
-    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::database::stores::ClarityMemoryStore;
     use crate::vm::errors::RuntimeErrorType;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
     use crate::vm::{
@@ -705,7 +711,7 @@ mod test {
             ClarityVersion::Clarity1,
         );
 
-        let mut marf = MemoryBackingStore::new();
+        let marf = ClarityMemoryStore::new();
         let mut global_context = GlobalContext::new(
             false,
             CHAIN_ID_TESTNET,

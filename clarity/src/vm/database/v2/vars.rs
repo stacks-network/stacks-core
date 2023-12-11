@@ -1,7 +1,6 @@
-use stacks_common::{types::{chainstate::{StacksBlockId, BlockHeaderHash, BurnchainHeaderHash, VRFSeed, SortitionId}, StacksEpochId}, util::hash::{Hash160, to_hex}};
-use crate::vm::{contracts::Contract, types::{QualifiedContractIdentifier, TypeSignature, StandardPrincipalData, TupleData, PrincipalData, serialization::NONE_SERIALIZATION_LEN, byte_len_of_serialization}, analysis::{ContractAnalysis, CheckErrors}, Value, errors::{InterpreterError, RuntimeErrorType}, ClarityName, database::STXBalance, StacksEpoch};
-use crate::vm::errors::Error;
-use super::{super::{super::errors::InterpreterResult as Result, ClaritySerializable, ClarityDeserializable, StoreType, key_value_wrapper::ValueResult, RollbackWrapper, SpecialCaseHandler, DataVariableMetadata, DataMapMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, structures::STXBalanceSnapshot}, ClarityDb, utils::*};
+use stacks_common::types::StacksEpochId;
+use crate::vm::{types::{QualifiedContractIdentifier, TypeSignature, serialization::NONE_SERIALIZATION_LEN}, analysis::CheckErrors, Value};
+use super::{super::{StoreType, key_value_wrapper::ValueResult, DataVariableMetadata}, ClarityDb, Result, utils::*};
 
 pub trait ClarityDbVars: ClarityDb {
     fn create_variable(

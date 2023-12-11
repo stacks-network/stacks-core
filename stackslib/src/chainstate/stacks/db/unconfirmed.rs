@@ -64,13 +64,13 @@ impl Default for ProcessedUnconfirmedState {
     }
 }
 
-pub struct UnconfirmedState<Conn> 
+pub struct UnconfirmedState<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
     pub confirmed_chain_tip: StacksBlockId,
     pub unconfirmed_chain_tip: StacksBlockId,
-    pub clarity_inst: ClarityInstance<Conn>,
+    pub clarity_inst: ClarityInstance<DB>,
     pub mined_txs: UnconfirmedTxMap,
     pub cost_so_far: ExecutionCost,
     pub bytes_so_far: u64,
@@ -93,13 +93,13 @@ where
     pub disable_bytes_check: bool,
 }
 
-impl<Conn> UnconfirmedState<Conn>
+impl<DB> UnconfirmedState<DB>
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
     /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
     /// call .refresh() to instatiate and store the underlying state trie.
-    fn new(chainstate: &StacksChainState<Conn>, tip: StacksBlockId) -> Result<UnconfirmedState<Conn>, Error> {
+    fn new(chainstate: &StacksChainState<DB>, tip: StacksBlockId) -> Result<Self, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &chainstate.clarity_state_index_root,
             None,
@@ -139,7 +139,7 @@ where
 
     /// Make a read-only copy of this unconfirmed state.  The resulting unconfiremd state cannot
     /// be refreshed, but it will represent a snapshot of the existing unconfirmed state.
-    pub fn make_readonly_owned(&self) -> Result<UnconfirmedState<Conn>, Error> {
+    pub fn make_readonly_owned(&self) -> Result<UnconfirmedState<DB>, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &self.clarity_state_index_root,
             None,
@@ -176,9 +176,9 @@ where
 
     /// Make a new unconfirmed state, but don't do anything with it yet, and deny refreshes.
     fn new_readonly(
-        chainstate: &StacksChainState<Conn>,
+        chainstate: &StacksChainState<DB>,
         tip: StacksBlockId,
-    ) -> Result<UnconfirmedState<Conn>, Error> {
+    ) -> Result<UnconfirmedState<DB>, Error> {
         let marf = MarfedKV::open_unconfirmed(
             &chainstate.clarity_state_index_root,
             None,
@@ -223,7 +223,7 @@ where
     /// Idempotent.
     fn append_microblocks(
         &mut self,
-        chainstate: &StacksChainState<Conn>,
+        chainstate: &StacksChainState<DB>,
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
     ) -> Result<ProcessedUnconfirmedState, Error> {
@@ -377,7 +377,7 @@ where
     /// Load up the Stacks microblock stream to process, composed of only the new microblocks
     fn load_child_microblocks(
         &self,
-        chainstate: &StacksChainState<Conn>,
+        chainstate: &StacksChainState<DB>,
     ) -> Result<Option<Vec<StacksMicroblock>>, Error> {
         let (consensus_hash, anchored_block_hash) =
             match chainstate.get_block_header_hashes(&self.confirmed_chain_tip)? {
@@ -399,7 +399,7 @@ where
     /// Returns ProcessedUnconfirmedState for the microblocks newly added to the unconfirmed state
     pub fn refresh(
         &mut self,
-        chainstate: &StacksChainState<Conn>,
+        chainstate: &StacksChainState<DB>,
         burn_dbconn: &dyn BurnStateDB,
     ) -> Result<ProcessedUnconfirmedState, Error> {
         assert!(

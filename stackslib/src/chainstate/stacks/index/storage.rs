@@ -39,6 +39,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
 
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::index::bits::{
     get_node_byte_len, get_node_hash, read_block_identifier, read_hash_bytes, read_node_hash_bytes,
     read_nodetype, read_root_hash, write_nodetype_bytes,
@@ -70,15 +71,15 @@ pub trait NodeHashReader {
     fn read_node_hash_bytes<W: Write>(&mut self, ptr: &TriePtr, w: &mut W) -> Result<(), Error>;
 }
 
-impl<Id, Conn> BlockMap for TrieFileStorage<Id, Conn>
+impl<Id, DB> BlockMap for TrieFileStorage<Id, DB>
 where
     Id: MarfTrieId,
-    Conn: DbConnection + TrieDb 
+    DB: TrieDb
 {
     type TrieId = Id;
 
     fn get_block_hash(&self, id: u32) -> Result<Id, Error> {
-        trie_sql::get_block_hash(&self.db, id)
+        self.db.get_block_hash(id)
     }
 
     fn get_block_hash_caching(&mut self, id: u32) -> Result<&Id, Error> {
@@ -1286,14 +1287,14 @@ pub struct TrieStorageTransientData<T: MarfTrieId> {
 // disk-backed Trie.
 // Keeps the last-extended Trie in-RAM and flushes it to disk on either a call to flush() or a call
 // to extend_to_block() with a different block header hash.
-pub struct TrieFileStorage<Id, Conn>
+pub struct TrieFileStorage<Id, DB>
 where
     Id: MarfTrieId,
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
     pub db_path: String,
 
-    db: Rc<Conn>,
+    db: DB,
     blobs: Option<TrieFile>,
     data: TrieStorageTransientData<Id>,
     cache: TrieCache<Id>,
@@ -1335,10 +1336,10 @@ impl<T: MarfTrieId> TrieStorageTransientData<T> {
     }
 }
 
-impl<Id, Conn> TrieFileStorage<Id, Conn>
+impl<Id, DB> TrieFileStorage<Id, DB>
 where
     Id: MarfTrieId,
-    Conn: DbConnection + TrieDb 
+    DB: TrieDb
 {
     pub fn connection<'a>(&'a mut self) -> TrieStorageConnection<'a, Id> {
         TrieStorageConnection {
@@ -1377,7 +1378,7 @@ where
         }))
     }
 
-    pub fn sqlite_conn(&self) -> &Connection {
+    /*pub fn sqlite_conn(&self) -> &Connection {
         &self.db
     }
 
@@ -1387,14 +1388,14 @@ where
 
     pub fn into_sqlite_conn(self) -> Connection {
         self.db
-    }
+    }*/
 
     fn open_opts(
         db_path: &str,
         readonly: bool,
         unconfirmed: bool,
         marf_opts: MARFOpenOpts,
-    ) -> Result<TrieFileStorage<Id, Conn>, Error> {
+    ) -> Result<TrieFileStorage<Id, DB>, Error> {
         let mut create_flag = false;
         let open_flags = if db_path != ":memory:" {
             match fs::metadata(db_path) {
@@ -1501,25 +1502,25 @@ where
     }
 
     #[cfg(test)]
-    pub fn new_memory(marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, Conn>, Error> {
+    pub fn new_memory(marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, DB>, Error> {
         TrieFileStorage::open(":memory:", marf_opts)
     }
 
-    pub fn open(db_path: &str, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, Conn>, Error> {
+    pub fn open(db_path: &str, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, DB>, Error> {
         TrieFileStorage::open_opts(db_path, false, false, marf_opts)
     }
 
     pub fn open_readonly(
         db_path: &str,
         marf_opts: MARFOpenOpts,
-    ) -> Result<TrieFileStorage<Id, Conn>, Error> {
+    ) -> Result<TrieFileStorage<Id, DB>, Error> {
         TrieFileStorage::open_opts(db_path, true, false, marf_opts)
     }
 
     pub fn open_unconfirmed(
         db_path: &str,
         mut marf_opts: MARFOpenOpts,
-    ) -> Result<TrieFileStorage<Id, Conn>, Error> {
+    ) -> Result<TrieFileStorage<Id, DB>, Error> {
         // no caching allowed for unconfirmed tries, since they can disappear
         marf_opts.cache_strategy = "noop".to_string();
         TrieFileStorage::open_opts(db_path, false, true, marf_opts)
@@ -1540,7 +1541,7 @@ where
     /// Returns a new TrieFileStorage in read-only mode.
     ///
     /// Returns Err if the underlying SQLite database connection cannot be created.
-    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<Id, Conn>, Error> {
+    pub fn reopen_readonly(&self) -> Result<TrieFileStorage<Id, DB>, Error> {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let cache = TrieCache::default();
         let blobs = if self.blobs.is_some() {
@@ -1608,11 +1609,11 @@ where
 {
     /// reopen this transaction as a read-only marf.
     ///  _does not_ preserve the cur_block/open tip
-    pub fn reopen_readonly<Conn>(
+    pub fn reopen_readonly<DB>(
         &self
-    ) -> Result<TrieFileStorage<Id, Conn>, Error> 
+    ) -> Result<TrieFileStorage<Id, DB>, Error> 
     where
-        Conn: DbConnection + TrieDb
+        DB: TrieDb
     {
         let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let blobs = if self.blobs.is_some() {

@@ -26,7 +26,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
 };
-use crate::vm::database::v2::ClarityDb;
+use crate::vm::database::v2::{ClarityDb, ClarityDbAnalysis};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::{
@@ -60,7 +60,7 @@ fn check_special_list_cons<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     let typed_args = checker.type_check_all(args, context)?;
     for type_arg in typed_args.iter() {
@@ -81,7 +81,7 @@ fn check_special_print<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
@@ -93,7 +93,7 @@ fn check_special_as_contract<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
@@ -105,7 +105,7 @@ fn check_special_at_block<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
@@ -118,7 +118,7 @@ fn check_special_begin<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(1, args)?;
 
@@ -155,7 +155,7 @@ fn check_special_get<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -184,7 +184,7 @@ fn check_special_merge<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
 
@@ -215,7 +215,7 @@ pub fn check_special_tuple_cons<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(1, args)?;
 
@@ -251,7 +251,7 @@ fn check_special_let<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -323,7 +323,7 @@ fn check_special_set_var<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -359,7 +359,7 @@ fn check_special_equals<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(1, args)?;
 
@@ -381,7 +381,7 @@ fn check_special_if<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
 
@@ -404,7 +404,7 @@ fn check_contract_call<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -530,7 +530,7 @@ fn check_principal_of<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_33)?;
@@ -543,7 +543,7 @@ fn check_secp256k1_recover<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
@@ -557,7 +557,7 @@ fn check_secp256k1_verify<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(3, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
@@ -572,7 +572,7 @@ fn check_get_block_info<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis + 'static
 {
     check_arguments_at_least(2, args)?;
 
@@ -595,7 +595,7 @@ where
 
 impl<DB> TypedNativeFunction<DB> 
 where
-    DB: ClarityDb
+    DB: ClarityDbAnalysis
 {
     pub fn type_check_application(
         &self,

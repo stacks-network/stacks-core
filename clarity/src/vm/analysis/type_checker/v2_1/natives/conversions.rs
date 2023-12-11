@@ -18,7 +18,7 @@ pub fn check_special_to_consensus_buff<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(1, args)?;
     let input_type = checker.type_check(&args[0], context)?;
@@ -39,7 +39,7 @@ pub fn check_special_from_consensus_buff<DB>(
     context: &TypingContext,
 ) -> TypeResult 
 where
-    DB: ClarityDbAnalysis
+    DB: ClarityDbAnalysis + 'static
 {
     check_argument_count(2, args)?;
     let result_type = TypeSignature::parse_type_repr(StacksEpochId::Epoch21, &args[0], checker)?;

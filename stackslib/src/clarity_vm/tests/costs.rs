@@ -24,7 +24,8 @@ use clarity::vm::contexts::{
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::{ClarityDatabase, ClarityMemoryStore};
+use clarity::vm::database::stores::ClarityMemoryStore;
+use clarity::vm::database::v2::ClarityDb;
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
@@ -171,19 +172,27 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
     }
 }
 
-fn execute_transaction(
-    env: &mut OwnedEnvironment,
+fn execute_transaction<DB>(
+    env: &mut OwnedEnvironment<DB>,
     issuer: PrincipalData,
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
     args: &[SymbolicExpression],
-) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> 
+where
+    DB: ClarityDb
+{
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
-fn with_owned_env<F, R>(epoch: StacksEpochId, use_mainnet: bool, to_do: F) -> R
+fn with_owned_env<DB, F, R>(
+    epoch: StacksEpochId, 
+    use_mainnet: bool, 
+    to_do: F
+) -> R
 where
-    F: Fn(OwnedEnvironment) -> R,
+    DB: ClarityDb,
+    F: Fn(OwnedEnvironment<DB>) -> R,
 {
     let marf_kv = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
@@ -825,11 +834,14 @@ fn epoch205_nfts_testnet() {
     epoch205_nfts(false)
 }
 
-fn setup_cost_tracked_test(
+fn setup_cost_tracked_test<DB>(
     use_mainnet: bool,
     version: ClarityVersion,
-    owned_env: &mut OwnedEnvironment,
-) {
+    owned_env: &mut OwnedEnvironment<DB>,
+) 
+where
+    DB: ClarityDb
+{
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
                           ))";
@@ -874,12 +886,15 @@ fn setup_cost_tracked_test(
         .unwrap();
 }
 
-fn test_program_cost(
+fn test_program_cost<DB>(
     prog: &str,
     version: ClarityVersion,
-    owned_env: &mut OwnedEnvironment,
+    owned_env: &mut OwnedEnvironment<DB>,
     prog_id: usize,
-) -> ExecutionCost {
+) -> ExecutionCost 
+where
+    DB: ClarityDb
+{
     let contract_self = format!(
         "(define-map map-foo {{ a: int }} {{ b: int }})
         (define-non-fungible-token nft-foo int)

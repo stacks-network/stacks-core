@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, io};
 
+use clarity::vm::database::v2::ClarityDB;
 use clarity::vm::types::PrincipalData;
 use rand::distributions::Uniform;
 use rand::prelude::Distribution;
@@ -968,14 +969,15 @@ impl NonceCache {
     /// fails due to lock contention, then the method will return `true` for its second tuple argument.
     ///
     /// Returns (nonce, should-try-store-again?)
-    fn get<C>(
+    fn get<DB, C>(
         &mut self,
         address: &StacksAddress,
         clarity_tx: &mut C,
         mempool_db: &DBConn,
     ) -> (u64, bool)
     where
-        C: ClarityConnection,
+        DB: ClarityDB,
+        C: ClarityConnection<DB>,
     {
         #[cfg(test)]
         assert!(self.cache.len() <= self.max_cache_size);
@@ -1531,7 +1533,7 @@ impl MemPoolDB
     /// `output_events` is modified in place, adding all substantive
     /// transaction events (success and error events, but not skipped) output
     /// by `todo`.
-    pub fn iterate_candidates<F, E, C>(
+    pub fn iterate_candidates<DB, F, E, C>(
         &mut self,
         clarity_tx: &mut C,
         output_events: &mut Vec<TransactionEvent>,
@@ -1540,7 +1542,8 @@ impl MemPoolDB
         mut todo: F,
     ) -> Result<u64, E>
     where
-        C: ClarityConnection,
+        DB: ClarityDB,
+        C: ClarityConnection<DB>,
         F: FnMut(
             &mut C,
             &ConsiderTransaction,

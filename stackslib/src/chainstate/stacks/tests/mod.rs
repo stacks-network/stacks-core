@@ -33,6 +33,7 @@ use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
@@ -52,6 +53,7 @@ use crate::net::test::*;
 use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
 
+use super::db::v2::stacks_chainstate_db::ChainStateDb;
 use super::index::db::DbConnection;
 use super::index::trie_db::TrieDb;
 
@@ -269,11 +271,11 @@ where
     }
 }
 
-pub struct TestStacksNode<Conn> 
+pub struct TestStacksNode<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
-    pub chainstate: StacksChainState<Conn>,
+    pub chainstate: StacksChainState<ChainDB>,
     pub prev_keys: Vec<LeaderKeyRegisterOp>, // _all_ keys generated
     pub key_ops: HashMap<VRFPublicKey, usize>, // map VRF public keys to their locations in the prev_keys array
     pub anchored_blocks: Vec<StacksBlock>,
@@ -285,16 +287,16 @@ where
     forkable: bool,
 }
 
-impl<Conn> TestStacksNode<Conn> 
+impl<DB> TestStacksNode<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb + SortitionDb
 {
     pub fn new(
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
         mut initial_balance_recipients: Vec<StacksAddress>,
-    ) -> TestStacksNode<Conn> {
+    ) -> TestStacksNode<DB> {
         initial_balance_recipients.sort();
         let initial_balances = initial_balance_recipients
             .into_iter()
@@ -316,7 +318,7 @@ where
         }
     }
 
-    pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode<Conn> {
+    pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode<DB> {
         let chainstate = open_chainstate(mainnet, chain_id, test_name);
         TestStacksNode {
             chainstate: chainstate,
@@ -332,7 +334,7 @@ where
         }
     }
 
-    pub fn from_chainstate(chainstate: StacksChainState<Conn>) -> TestStacksNode<Conn> {
+    pub fn from_chainstate(chainstate: StacksChainState<DB>) -> TestStacksNode<DB> {
         TestStacksNode {
             chainstate: chainstate,
             prev_keys: vec![],
@@ -348,7 +350,7 @@ where
     }
 
     // NOTE: can't do this if instantiated via from_chainstate()
-    pub fn fork(&self, new_test_name: &str) -> TestStacksNode<Conn> {
+    pub fn fork(&self, new_test_name: &str) -> TestStacksNode<DB> {
         if !self.forkable {
             panic!("Tried to fork an unforkable chainstate instance");
         }
@@ -385,7 +387,7 @@ where
     }
 
     pub fn next_burn_block(
-        sortdb: &mut SortitionDB<Conn>,
+        sortdb: &mut SortitionDB<DB>,
         fork: &mut TestBurnchainFork,
     ) -> TestBurnchainBlock {
         let burn_block = {
@@ -414,7 +416,7 @@ where
     }
 
     pub fn add_block_commit(
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortitionDB<DB>,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         block_hash: &BlockHeaderHash,
@@ -458,7 +460,7 @@ where
 
     pub fn get_last_accepted_anchored_block(
         &self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortitionDB<DB>,
         miner: &TestMiner,
     ) -> Option<StacksBlock> {
         for bc in miner.block_commits.iter().rev() {
@@ -520,7 +522,7 @@ where
     }
 
     pub fn get_last_winning_snapshot(
-        ic: &SortitionDBConn<Conn>,
+        ic: &SortitionDBConn<DB>,
         fork_tip: &BlockSnapshot,
         miner: &TestMiner,
     ) -> Option<BlockSnapshot> {
@@ -550,7 +552,7 @@ where
 
     pub fn make_tenure_commitment(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortitionDB<DB>,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         stacks_block: &StacksBlock,
@@ -599,7 +601,7 @@ where
     /// Produce its block-commit.
     pub fn mine_stacks_block<F>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortitionDB<DB>,
         miner: &mut TestMiner,
         burn_block: &mut TestBurnchainBlock,
         miner_key: &LeaderKeyRegisterOp,
@@ -611,7 +613,7 @@ where
         F: FnOnce(
             StacksBlockBuilder,
             &mut TestMiner,
-            &SortitionDB<Conn>,
+            &SortitionDB<DB>,
         ) -> (StacksBlock, Vec<StacksMicroblock>),
     {
         let proof = miner
@@ -651,12 +653,12 @@ where
                         .unwrap()
                         .unwrap();
                     let burned_last =
-                        SortitionDB::get_block_burn_amount(&ic, &burn_block.parent_snapshot)
+                        sortdb.get_block_burn_amount(&burn_block.parent_snapshot)
                             .unwrap();
                     parent_stacks_block_snapshot
                 };
 
-                let parent_chain_tip = StacksChainState::get_anchored_block_header_info(
+                let parent_chain_tip = sortdb.get_anchored_block_header_info(
                     self.chainstate.db(),
                     &parent_stacks_block_snapshot.consensus_hash,
                     &parent_stacks_block.header.block_hash(),
@@ -1319,12 +1321,12 @@ pub fn sign_standard_singlesig_tx(
     tx_signer.get_tx().unwrap()
 }
 
-pub fn get_stacks_account<Conn>(
-    peer: &mut TestPeer<Conn>, 
+pub fn get_stacks_account<DB>(
+    peer: &mut TestPeer<DB>, 
     addr: &PrincipalData
 ) -> StacksAccount 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb + SortitionDb
 {
     let account = peer
         .with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {

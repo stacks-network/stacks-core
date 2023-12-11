@@ -1,6 +1,6 @@
 use stacks_common::types::chainstate::{StacksBlockId, BlockHeaderHash, BurnchainHeaderHash, VRFSeed, SortitionId};
-use crate::vm::{types::{StandardPrincipalData, TupleData}, errors::InterpreterResult as Result};
-use super::ClarityDb;
+use crate::vm::types::{StandardPrincipalData, TupleData};
+use super::{ClarityDb, Result};
 
 pub trait ClarityDbBlocks: ClarityDb {
     /// Returns the ID of a *Stacks* block, by a *Stacks* block height.

@@ -47,12 +47,12 @@ pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH"
 pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
-pub struct MARF<Id, Conn> 
+pub struct MARF<Id, DB> 
 where
     Id: MarfTrieId,
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
-    storage: TrieFileStorage<Id, Conn>,
+    storage: TrieFileStorage<Id, DB>,
     open_chain_tip: Option<WriteChainTip<Id>>,
 }
 

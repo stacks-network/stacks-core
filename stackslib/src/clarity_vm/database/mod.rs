@@ -1,8 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
-use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::{
-    BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
+    BurnStateDB, HeadersDB, SpecialCaseHandler,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
@@ -711,27 +710,9 @@ impl ClarityMemoryStore {
 
         memory_marf
     }
-
-    pub fn as_clarity_db<'a>(&'a mut self) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
-    }
-
-    /// Returns a new ClarityDatabase with underlying databases `headers_db` and
-    /// `burn_state_db`.
-    pub fn as_clarity_db_with_databases<'a>(
-        &'a mut self,
-        headers_db: &'a dyn HeadersDB,
-        burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityDatabase<'a> {
-        ClarityDatabase::new(self, headers_db, burn_state_db)
-    }
-
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
-        AnalysisDatabase::new(self)
-    }
 }
 
-impl ClarityBackingStore for ClarityMemoryStore {
+/*impl ClarityBackingStore for ClarityMemoryStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
@@ -777,4 +758,4 @@ impl ClarityBackingStore for ClarityMemoryStore {
             SqliteConnection::put(self.get_side_store(), &key, &value);
         }
     }
-}
+}*/

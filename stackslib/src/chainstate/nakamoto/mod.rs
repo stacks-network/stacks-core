@@ -45,9 +45,11 @@ use stacks_common::util::vrf::{VRFProof, VRF};
 use wsts::curve::point::Point;
 
 use super::burn::db::sortdb::{get_block_commit_by_txid, SortitionHandleConn, SortitionHandleTx};
+use super::burn::db::v2::{SortitionDbTransaction, SortitionDb};
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
+use super::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
@@ -871,9 +873,9 @@ impl NakamotoBlock {
     }
 }
 
-impl<Conn> StacksChainState<Conn>
+impl<ChainDB> StacksChainState<ChainDB>
 where
-    Conn: DbConnection + TrieDb 
+    ChainDB: ChainStateDb
 {
     /// Begin a transaction against the staging blocks DB.
     /// Note that this DB is (or will eventually be) in a separate database from the headers.
@@ -1020,13 +1022,15 @@ impl NakamotoChainState {
     ///
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
     /// The caller should keep calling this until it gets Ok(None)
-    pub fn process_next_nakamoto_block<'a, Conn, T>(
-        stacks_chain_state: &mut StacksChainState<Conn>,
-        sort_tx: &mut SortitionHandleTx,
+    pub fn process_next_nakamoto_block<'a, SortDB, SortTX, ChainDB, T>(
+        stacks_chain_state: &mut StacksChainState<ChainDB>,
+        sort_tx: &mut SortTX,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        SortTX: SortitionDbTransaction<SortDB>,
         T: BlockEventDispatcher
     {
         let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
@@ -1434,15 +1438,17 @@ impl NakamotoChainState {
     }
 
     /// Get the aggregate public key for the given block.
-    pub fn get_aggregate_public_key<Conn>(
-        sortdb: &SortitionDB<Conn>,
-        sort_handle: &SortitionHandleConn<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+    pub fn get_aggregate_public_key<SortDB, SortTX, ChainDB>(
+        sortdb: &SortDB,
+        sort_handle: &SortTX,
+        chainstate: &mut StacksChainState<ChainDB>,
         for_block_height: u64,
         at_block_id: &StacksBlockId,
     ) -> Result<Point, ChainstateError> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        SortTX: SortitionDbTransaction<SortDB>,
+        ChainDB: ChainStateDb
     {
         // Get the current reward cycle
         let Some(reward_cycle) = sort_handle
@@ -1657,12 +1663,13 @@ impl NakamotoChainState {
     }
 
     /// Load the canonical Stacks block header (either epoch-2 rules or Nakamoto)
-    pub fn get_canonical_block_header<Conn>(
-        chainstate_conn: &Connection,
-        sortdb: &SortitionDB<Conn>,
+    pub fn get_canonical_block_header<SortDB, ChainDB>(
+        chainstate_conn: &ChainDB,
+        sortdb: &SortDB,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let (consensus_hash, block_hash) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;

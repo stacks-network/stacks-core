@@ -27,7 +27,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
 use clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, ClaritySerializable, STXBalance, StoreType,
+    BurnStateDB, ClaritySerializable, STXBalance, StoreType,
 };
 use clarity::vm::errors::Error::Unchecked;
 use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
@@ -84,12 +84,12 @@ use crate::{monitoring, version_string};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
-pub struct ConversationHttp<Conn> 
+pub struct ConversationHttp<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
     /// send/receive buffering state-machine for interfacing with a non-blocking socket
-    connection: ConnectionHttp<Conn>,
+    connection: ConnectionHttp<DB>,
     /// poll ID for this struct's associated socket
     conn_id: usize,
     /// time (in seconds) for how long an attempt to connect to a peer is allowed to take
@@ -115,9 +115,9 @@ where
     /// stacks canonical chain tip that this peer reported
     canonical_stacks_tip_height: Option<u32>,
     /// Ongoing replies
-    reply_streams: VecDeque<(ReplyHandleHttp<Conn>, HttpResponseContents, bool)>,
+    reply_streams: VecDeque<(ReplyHandleHttp<DB>, HttpResponseContents, bool)>,
     /// outstanding request
-    pending_request: Option<ReplyHandleHttp<Conn>>,
+    pending_request: Option<ReplyHandleHttp<DB>>,
     /// outstanding response
     pending_response: Option<StacksHttpResponse>,
     /// whether or not there's an error response pending
@@ -156,9 +156,9 @@ where
     }
 }
 
-impl<Conn> ConversationHttp<Conn> 
+impl<DB> ConversationHttp<DB> 
 where
-    Conn: DbConnection + TrieDb
+    DB: TrieDb
 {
     pub fn new(
         peer_addr: SocketAddr,
@@ -167,8 +167,8 @@ where
         conn_opts: &ConnectionOptions,
         conn_id: usize,
         socket_send_buffer_size: u32,
-    ) -> ConversationHttp<Conn> {
-        let stacks_http = StacksHttp::new(peer_addr.clone(), conn_opts);
+    ) -> ConversationHttp<DB> {
+        let stacks_http = StacksHttp::<DB>::new(peer_addr.clone(), conn_opts);
         ConversationHttp {
             connection: ConnectionHttp::new(stacks_http, conn_opts, None),
             conn_id: conn_id,
@@ -213,7 +213,7 @@ where
 
     /// Start a HTTP request from this peer, and expect a response.
     /// Returns the request handle; does not set the handle into this connection.
-    fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp<Conn>, net_error> {
+    fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp<DB>, net_error> {
         test_debug!(
             "{:?},id={}: Start HTTP request {:?}",
             &self.peer_host,
@@ -293,7 +293,7 @@ where
     pub fn handle_request(
         &mut self,
         req: StacksHttpRequest,
-        node: &mut StacksNodeState<Conn>,
+        node: &mut StacksNodeState<DB>,
     ) -> Result<Option<StacksMessageType>, net_error> {
         // NOTE: This may set node.relay_message
         let keep_alive = req.preamble().keep_alive;
@@ -424,8 +424,8 @@ where
     /// If we are not done yet, then return Ok(reply-handle) if we can try again, or net_error if
     /// we cannot.
     fn try_send_recv_response(
-        req: ReplyHandleHttp<Conn>,
-    ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp<Conn>, net_error>> {
+        req: ReplyHandleHttp<DB>,
+    ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp<DB>, net_error>> {
         match req.try_send_recv() {
             Ok(message) => match message {
                 StacksHttpMessage::Request(_) => {
@@ -534,7 +534,7 @@ where
     /// Returns the list of messages we'll need to forward to the peer network
     pub fn chat(
         &mut self,
-        node: &mut StacksNodeState<Conn>,
+        node: &mut StacksNodeState<DB>,
     ) -> Result<Vec<StacksMessageType>, net_error> {
         // if we have an in-flight error, then don't take any more requests.
         if self.pending_error_response {

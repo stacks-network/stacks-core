@@ -16,6 +16,7 @@
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::GlobalContext;
+use clarity::vm::database::v2::ClarityDB;
 use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
@@ -342,13 +343,16 @@ fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
 /// Synthesize an events data tuple to return on the successful execution of a pox-2 or pox-3 stacking
 /// function.  It runs a series of Clarity queries against the PoX contract's data space (including
 /// calling PoX functions).
-pub fn synthesize_pox_2_or_3_event_info(
-    global_context: &mut GlobalContext,
+pub fn synthesize_pox_2_or_3_event_info<DB>(
+    global_context: &mut GlobalContext<DB>,
     contract_id: &QualifiedContractIdentifier,
     sender_opt: Option<&PrincipalData>,
     function_name: &str,
     args: &[Value],
-) -> Result<Option<Value>, ClarityError> {
+) -> Result<Option<Value>, ClarityError> 
+where
+    DB: ClarityDB
+{
     let sender = match sender_opt {
         Some(sender) => sender,
         None => {

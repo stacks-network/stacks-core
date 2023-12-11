@@ -18,7 +18,8 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
-use clarity::vm::database::{ClarityDatabase, STXBalance};
+use clarity::vm::database::STXBalance;
+use clarity::vm::database::v2::ClarityDB;
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -157,24 +158,27 @@ pub fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData,
 /// - Returns Error::PoxExtendNotLocked if this function was called on an account
 ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
 ///     so this should surface in a panic.
-pub fn pox_lock_increase_v2(
-    db: &mut ClarityDatabase,
+pub fn pox_lock_increase_v2<DB>(
+    db: &mut DB,
     principal: &PrincipalData,
     new_total_locked: u128,
-) -> Result<STXBalance, LockingError> {
+) -> Result<STXBalance, LockingError> 
+where
+    DB: ClarityDB
+{
     assert!(new_total_locked > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if !snapshot.has_locked_tokens() {
+    if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    if !snapshot.is_v2_locked() {
+    if !snapshot.is_v2_locked()? {
         return Err(LockingError::PoxIncreaseOnV1);
     }
 
-    let bal = snapshot.canonical_balance_repr();
+    let bal = snapshot.canonical_balance_repr()?;
     let total_amount = bal
         .amount_unlocked()
         .checked_add(bal.amount_locked())
@@ -187,9 +191,9 @@ pub fn pox_lock_increase_v2(
         return Err(LockingError::PoxInvalidIncrease);
     }
 
-    snapshot.increase_lock_v2(new_total_locked);
+    snapshot.increase_lock_v2(new_total_locked)?;
 
-    let out_balance = snapshot.canonical_balance_repr();
+    let out_balance = snapshot.canonical_balance_repr()?;
 
     debug!(
         "PoX v2 lock increased";
@@ -199,7 +203,7 @@ pub fn pox_lock_increase_v2(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(out_balance)
 }
 
@@ -210,20 +214,23 @@ pub fn pox_lock_increase_v2(
 /// - Returns Error::PoxExtendNotLocked if this function was called on an account
 ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
 ///     so this should surface in a panic.
-pub fn pox_lock_extend_v2(
-    db: &mut ClarityDatabase,
+pub fn pox_lock_extend_v2<DB>(
+    db: &mut DB,
     principal: &PrincipalData,
     unlock_burn_height: u64,
-) -> Result<u128, LockingError> {
+) -> Result<u128, LockingError> 
+where
+    DB: ClarityDB
+{
     assert!(unlock_burn_height > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if !snapshot.has_locked_tokens() {
+    if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    snapshot.extend_lock_v2(unlock_burn_height);
+    snapshot.extend_lock_v2(unlock_burn_height)?;
 
     let amount_locked = snapshot.balance().amount_locked();
 
@@ -235,29 +242,32 @@ pub fn pox_lock_extend_v2(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(amount_locked)
 }
 
 /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
-fn pox_lock_v2(
-    db: &mut ClarityDatabase,
+fn pox_lock_v2<DB>(
+    db: &mut DB,
     principal: &PrincipalData,
     lock_amount: u128,
     unlock_burn_height: u64,
-) -> Result<(), LockingError> {
+) -> Result<(), LockingError> 
+where
+    DB: ClarityDB
+{
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if snapshot.has_locked_tokens() {
+    if snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxAlreadyLocked);
     }
-    if !snapshot.can_transfer(lock_amount) {
+    if !snapshot.can_transfer(lock_amount)? {
         return Err(LockingError::PoxInsufficientBalance);
     }
-    snapshot.lock_tokens_v2(lock_amount, unlock_burn_height);
+    snapshot.lock_tokens_v2(lock_amount, unlock_burn_height)?;
 
     debug!(
         "PoX v2 lock applied";
@@ -267,17 +277,20 @@ fn pox_lock_v2(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(())
 }
 
 /// Handle responses from stack-stx and delegate-stack-stx -- functions that *lock up* STX
 #[allow(clippy::needless_return)]
-fn handle_stack_lockup_pox_v2(
-    global_context: &mut GlobalContext,
+fn handle_stack_lockup_pox_v2<DB>(
+    global_context: &mut GlobalContext<DB>,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, ClarityError> 
+where
+    DB: ClarityDB
+{
     debug!(
         "Handle special-case contract-call to {:?} {} (which returned {:?})",
         "PoX-2 contract", function_name, value
@@ -338,11 +351,14 @@ fn handle_stack_lockup_pox_v2(
 /// Handle responses from stack-extend and delegate-stack-extend -- functions that *extend
 /// already-locked* STX.
 #[allow(clippy::needless_return)]
-fn handle_stack_lockup_extension_pox_v2(
-    global_context: &mut GlobalContext,
+fn handle_stack_lockup_extension_pox_v2<DB>(
+    global_context: &mut GlobalContext<DB>,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, ClarityError> 
+where
+    DB: ClarityDB
+{
     // in this branch case, the PoX-2 contract has stored the extension information
     //  and performed the extension checks. Now, the VM needs to update the account locks
     //  (because the locks cannot be applied directly from the Clarity code itself)
@@ -402,11 +418,14 @@ fn handle_stack_lockup_extension_pox_v2(
 /// Handle responses from stack-increase and delegate-stack-increase -- functions that *increase
 /// already-locked* STX amounts.
 #[allow(clippy::needless_return)]
-fn handle_stack_lockup_increase_pox_v2(
-    global_context: &mut GlobalContext,
+fn handle_stack_lockup_increase_pox_v2<DB>(
+    global_context: &mut GlobalContext<DB>,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, ClarityError> 
+where
+    DB: ClarityDB
+{
     // in this branch case, the PoX-2 contract has stored the increase information
     //  and performed the increase checks. Now, the VM needs to update the account locks
     //  (because the locks cannot be applied directly from the Clarity code itself)
@@ -463,14 +482,17 @@ fn handle_stack_lockup_increase_pox_v2(
 }
 
 /// Handle special cases when calling into the PoX API contract
-pub fn handle_contract_call(
-    global_context: &mut GlobalContext,
+pub fn handle_contract_call<DB>(
+    global_context: &mut GlobalContext<DB>,
     sender_opt: Option<&PrincipalData>,
     contract_id: &QualifiedContractIdentifier,
     function_name: &str,
     args: &[Value],
     value: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), ClarityError> 
+where
+    DB: ClarityDB
+{
     // Generate a synthetic print event for all functions that alter stacking state
     let print_event_opt = if let Value::Response(response) = value {
         if response.committed {
@@ -496,7 +518,7 @@ pub fn handle_contract_call(
                 let event_response =
                     Value::okay(event_info).expect("FATAL: failed to construct (ok event-info)");
                 let tx_event =
-                    Environment::construct_print_transaction_event(contract_id, &event_response);
+                    Environment::<DB>::construct_print_transaction_event(contract_id, &event_response);
                 Some(tx_event)
             } else {
                 None

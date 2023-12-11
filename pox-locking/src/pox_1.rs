@@ -18,7 +18,7 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::v2::ClarityDB;
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::PrincipalData;
@@ -82,29 +82,32 @@ pub fn is_read_only(func_name: &str) -> bool {
 /////////////////////// PoX (first version) /////////////////////////////////
 
 /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
-pub fn pox_lock_v1(
-    db: &mut ClarityDatabase,
+pub fn pox_lock_v1<DB>(
+    db: &mut DB,
     principal: &PrincipalData,
     lock_amount: u128,
     unlock_burn_height: u64,
-) -> Result<(), LockingError> {
+) -> Result<(), LockingError> 
+where
+    DB: ClarityDB,
+{
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
     if snapshot.balance().was_locked_by_v2() {
         debug!("PoX Lock attempted on an account locked by v2");
         return Err(LockingError::DefunctPoxContract);
     }
 
-    if snapshot.has_locked_tokens() {
+    if snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxAlreadyLocked);
     }
-    if !snapshot.can_transfer(lock_amount) {
+    if !snapshot.can_transfer(lock_amount)? {
         return Err(LockingError::PoxInsufficientBalance);
     }
-    snapshot.lock_tokens_v1(lock_amount, unlock_burn_height);
+    snapshot.lock_tokens_v1(lock_amount, unlock_burn_height)?;
 
     debug!(
         "PoX v1 lock applied";
@@ -114,18 +117,21 @@ pub fn pox_lock_v1(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(())
 }
 
 /// Handle special cases when calling into the PoX v1 contract
 #[allow(clippy::needless_return)]
-pub fn handle_contract_call(
-    global_context: &mut GlobalContext,
+pub fn handle_contract_call<DB>(
+    global_context: &mut GlobalContext<DB>,
     _sender_opt: Option<&PrincipalData>,
     function_name: &str,
     value: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), ClarityError> 
+where
+    DB: ClarityDB,
+{
     if !(function_name == "stack-stx" || function_name == "delegate-stack-stx") {
         // only have work to do if the function is `stack-stx` or `delegate-stack-stx`
         return Ok(());

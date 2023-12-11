@@ -36,6 +36,8 @@ use crate::util_lib::db::{
     tx_begin_immediate, tx_busy_handler, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
 
+pub mod v2;
+
 pub struct BurnchainDB {
     conn: Connection,
 }

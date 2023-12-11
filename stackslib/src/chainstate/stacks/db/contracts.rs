@@ -23,7 +23,7 @@ pub use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::contracts::Contract;
-use clarity::vm::database::ClarityDatabase;
+use clarity::vm::database::v2::ClarityDbVars;
 use clarity::vm::errors::Error as clarity_vm_error;
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
@@ -38,39 +38,41 @@ use crate::net::Error as net_error;
 use crate::util_lib::db::{query_count, query_rows, DBConn, Error as db_error};
 use crate::util_lib::strings::StacksString;
 
-impl<Conn> StacksChainState<Conn> 
+impl<ChainDB> StacksChainState<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
-    pub fn get_contract<T: ClarityConnection>(
-        clarity_tx: &mut T,
+    pub fn get_contract<DB>(
+        clarity_db: &mut DB,
         contract_id: &QualifiedContractIdentifier,
-    ) -> Result<Option<Contract>, Error> {
-        clarity_tx
-            .with_clarity_db_readonly(|ref mut db| match db.get_contract(contract_id) {
-                Ok(c) => Ok(Some(c)),
-                Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchContract(_))) => Ok(None),
-                Err(e) => Err(clarity_error::Interpreter(e)),
-            })
-            .map_err(Error::ClarityError)
+    ) -> Result<Option<Contract>, Error> 
+    where
+        DB: ClarityDb
+    {
+        match clarity_db.get_contract(contract_id) {
+            Ok(c) => Ok(Some(c)),
+            Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchContract(_))) => Ok(None),
+            Err(e) => Err(clarity_error::Interpreter(e)),
+        }
+        .map_err(Error::ClarityError)
     }
 
-    pub fn get_data_var<T: ClarityConnection>(
-        clarity_tx: &mut T,
+    pub fn get_data_var<DB>(
+        clarity_db: &mut DB,
         contract_id: &QualifiedContractIdentifier,
         data_var: &str,
-    ) -> Result<Option<Value>, Error> {
-        let epoch = clarity_tx.get_epoch();
-        clarity_tx
-            .with_clarity_db_readonly(|ref mut db| {
-                match db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
-                    Ok(c) => Ok(Some(c)),
-                    Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => {
-                        Ok(None)
-                    }
-                    Err(e) => Err(clarity_error::Interpreter(e)),
-                }
-            })
-            .map_err(Error::ClarityError)
+    ) -> Result<Option<Value>, Error> 
+    where
+        DB: ClarityDb + ClarityDbVars
+    {
+        let epoch = clarity_db.get_epoch();
+        match clarity_db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
+            Ok(c) => Ok(Some(c)),
+            Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => {
+                Ok(None)
+            }
+            Err(e) => Err(clarity_error::Interpreter(e)),
+        }
+        .map_err(Error::ClarityError)
     }
 }
