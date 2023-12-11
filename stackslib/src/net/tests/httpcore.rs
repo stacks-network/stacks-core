@@ -1012,7 +1012,7 @@ fn test_http_parse_proof_request_query() {
     let proof_req = HttpRequestContents::new()
         .query_string(Some(query_txt))
         .get_with_proof();
-    assert!(!proof_req);
+    assert!(proof_req);
 
     let query_txt = "proof=0";
     let proof_req = HttpRequestContents::new()
