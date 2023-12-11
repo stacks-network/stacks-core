@@ -29,7 +29,8 @@ use stacks::burnchains::{
 };
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
+    TransferStxOp, UserBurnSupportOp,
 };
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
