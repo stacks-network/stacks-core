@@ -8,6 +8,7 @@ use std::path::Path;
 
 use clarity::vm::costs::ExecutionCost;
 use rusqlite::Error as SqliteError;
+use serde_json::json;
 
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::StacksEpochReceipt;

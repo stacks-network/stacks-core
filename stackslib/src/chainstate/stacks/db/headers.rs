@@ -25,6 +25,7 @@ use rusqlite::{OptionalExtension, Row};
 use stacks_common::types::chainstate::{StacksBlockId, StacksWorkScore};
 
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::{Error, *};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
@@ -107,19 +108,19 @@ impl FromRow<StacksMicroblockHeader> for StacksMicroblockHeader {
 impl StacksChainState {
     /// Insert a block header that is paired with an already-existing block commit and snapshot
     pub fn insert_stacks_block_header(
-        tx: &mut DBTx,
+        tx: &DBTx,
         parent_id: &StacksBlockId,
         tip_info: &StacksHeaderInfo,
         anchored_block_cost: &ExecutionCost,
         affirmation_weight: u64,
     ) -> Result<(), Error> {
-        assert_eq!(
-            tip_info.stacks_block_height,
-            tip_info.anchored_header.total_work.work
-        );
+        let StacksBlockHeaderTypes::Epoch2(header) = &tip_info.anchored_header else {
+            return Err(Error::InvalidChildOfNakomotoBlock);
+        };
+
+        assert_eq!(tip_info.stacks_block_height, header.total_work.work);
         assert!(tip_info.burn_header_timestamp < i64::MAX as u64);
 
-        let header = &tip_info.anchored_header;
         let index_root = &tip_info.index_root;
         let consensus_hash = &tip_info.consensus_hash;
         let burn_header_hash = &tip_info.burn_header_hash;
@@ -240,6 +241,21 @@ impl StacksChainState {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
         query_row_panic(conn, sql, &[&index_block_hash], || {
             "FATAL: multiple rows for the same block hash".to_string()
+        })
+        .map_err(Error::DBError)
+    }
+
+    /// Get a stacks header info by its sortition's consensus hash.
+    /// Because the consensus hash mixes in the burnchain header hash and the PoX bit vector,
+    /// it's guaranteed to be unique across all burnchain forks and all PoX forks, and thus all
+    /// Stacks forks.
+    pub fn get_stacks_block_header_info_by_consensus_hash(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<Option<StacksHeaderInfo>, Error> {
+        let sql = "SELECT * FROM block_headers WHERE consensus_hash = ?1";
+        query_row_panic(conn, sql, &[&consensus_hash], || {
+            "FATAL: multiple rows for the same consensus hash".to_string()
         })
         .map_err(Error::DBError)
     }

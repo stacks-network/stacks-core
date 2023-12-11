@@ -181,7 +181,7 @@ impl Hash160 {
     }
 
     /// Create a hash by hashing some data
-    /// (borrwed from Andrew Poelstra)
+    // (borrowed from Andrew Poelstra)
     pub fn from_data(data: &[u8]) -> Hash160 {
         let sha2_result = Sha256::digest(data);
         let ripe_160_result = Ripemd160::digest(sha2_result.as_slice());

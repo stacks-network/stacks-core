@@ -21,6 +21,7 @@ use std::fmt;
 use std::mem::replace;
 
 use serde::Serialize;
+use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;

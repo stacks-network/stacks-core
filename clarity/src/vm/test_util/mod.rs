@@ -38,6 +38,9 @@ pub const TEST_BURN_STATE_DB_21: UnitTestBurnStateDB = UnitTestBurnStateDB {
 
 pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnStateDB {
     match epoch_id {
+        StacksEpochId::Epoch10 => {
+            panic!("Epoch 1.0 not testable");
+        }
         StacksEpochId::Epoch20 => UnitTestBurnStateDB {
             epoch_id,
             ast_rules: ASTRules::Typical,
@@ -46,11 +49,12 @@ pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnState
         | StacksEpochId::Epoch21
         | StacksEpochId::Epoch22
         | StacksEpochId::Epoch23
-        | StacksEpochId::Epoch24 => UnitTestBurnStateDB {
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25
+        | StacksEpochId::Epoch30 => UnitTestBurnStateDB {
             epoch_id,
             ast_rules: ASTRules::PrecheckSize,
         },
-        _ => panic!("Epoch {} not covered", &epoch_id),
     }
 }
 
@@ -229,7 +233,15 @@ impl BurnStateDB for UnitTestBurnStateDB {
         u32::MAX
     }
 
+    fn get_v3_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
     fn get_pox_3_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_4_activation_height(&self) -> u32 {
         u32::MAX
     }
 

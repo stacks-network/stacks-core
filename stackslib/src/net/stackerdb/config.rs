@@ -48,19 +48,21 @@ use clarity::vm::types::{
     TypeSignature,
 };
 use clarity::vm::ClarityName;
+use lazy_static::lazy_static;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
 use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
 use crate::net::stackerdb::{
     StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
 };
-use crate::net::{Error as net_error, NeighborAddress};
+use crate::net::{Error as NetError, NeighborAddress};
 
 const MAX_HINT_REPLICAS: u32 = 128;
 
@@ -160,7 +162,7 @@ impl StackerDBConfig {
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
-    ) -> Result<Vec<(StacksAddress, u32)>, net_error> {
+    ) -> Result<Vec<(StacksAddress, u32)>, NetError> {
         let value = chainstate.eval_read_only(
             burn_dbconn,
             tip,
@@ -177,7 +179,7 @@ impl StackerDBConfig {
                     contract_id, &err_code
                 );
                 warn!("{}", &reason);
-                return Err(net_error::InvalidStackerDBContract(
+                return Err(NetError::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
                 ));
@@ -206,7 +208,7 @@ impl StackerDBConfig {
                     contract_id, STACKERDB_INV_MAX
                 );
                 warn!("{}", &reason);
-                return Err(net_error::InvalidStackerDBContract(
+                return Err(NetError::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
                 ));
@@ -215,7 +217,7 @@ impl StackerDBConfig {
             total_num_slots =
                 total_num_slots
                     .checked_add(num_slots)
-                    .ok_or(net_error::OverflowError(format!(
+                    .ok_or(NetError::OverflowError(format!(
                         "Contract {} stipulates more than u32::MAX slots",
                         &contract_id
                     )))?;
@@ -226,7 +228,7 @@ impl StackerDBConfig {
                     contract_id
                 );
                 warn!("{}", &reason);
-                return Err(net_error::InvalidStackerDBContract(
+                return Err(NetError::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
                 ));
@@ -237,7 +239,7 @@ impl StackerDBConfig {
                 PrincipalData::Contract(..) => {
                     let reason = format!("Contract {} stipulated a contract principal as a writer, which is not supported", contract_id);
                     warn!("{}", &reason);
-                    return Err(net_error::InvalidStackerDBContract(
+                    return Err(NetError::InvalidStackerDBContract(
                         contract_id.clone(),
                         reason,
                     ));
@@ -260,7 +262,7 @@ impl StackerDBConfig {
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
         signers: Vec<(StacksAddress, u32)>,
-    ) -> Result<StackerDBConfig, net_error> {
+    ) -> Result<StackerDBConfig, NetError> {
         let value =
             chainstate.eval_read_only(burn_dbconn, tip, contract_id, "(stackerdb-get-config)")?;
 
@@ -273,7 +275,7 @@ impl StackerDBConfig {
                     contract_id, &err_code
                 );
                 warn!("{}", &reason);
-                return Err(net_error::InvalidStackerDBContract(
+                return Err(NetError::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
                 ));
@@ -293,7 +295,7 @@ impl StackerDBConfig {
                 contract_id
             );
             warn!("{}", &reason);
-            return Err(net_error::InvalidStackerDBContract(
+            return Err(NetError::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
             ));
@@ -310,7 +312,7 @@ impl StackerDBConfig {
                 contract_id
             );
             warn!("{}", &reason);
-            return Err(net_error::InvalidStackerDBContract(
+            return Err(NetError::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
             ));
@@ -327,7 +329,7 @@ impl StackerDBConfig {
                 contract_id
             );
             warn!("{}", &reason);
-            return Err(net_error::InvalidStackerDBContract(
+            return Err(NetError::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
             ));
@@ -344,7 +346,7 @@ impl StackerDBConfig {
                 contract_id
             );
             warn!("{}", &reason);
-            return Err(net_error::InvalidStackerDBContract(
+            return Err(NetError::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
             ));
@@ -384,7 +386,7 @@ impl StackerDBConfig {
                         contract_id
                     );
                     warn!("{}", &reason);
-                    return Err(net_error::InvalidStackerDBContract(
+                    return Err(NetError::InvalidStackerDBContract(
                         contract_id.clone(),
                         reason,
                     ));
@@ -397,7 +399,7 @@ impl StackerDBConfig {
                     contract_id
                 );
                 warn!("{}", &reason);
-                return Err(net_error::InvalidStackerDBContract(
+                return Err(NetError::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
                 ));
@@ -409,7 +411,7 @@ impl StackerDBConfig {
                     contract_id
                 );
                 warn!("{}", &reason);
-                return Err(net_error::InvalidStackerDBContract(
+                return Err(NetError::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
                 ));
@@ -443,10 +445,10 @@ impl StackerDBConfig {
         chainstate: &mut StacksChainState,
         sortition_db: &SortitionDB,
         contract_id: &QualifiedContractIdentifier,
-    ) -> Result<StackerDBConfig, net_error> {
-        let chain_tip = chainstate
-            .get_stacks_chain_tip(sortition_db)?
-            .ok_or(net_error::NoSuchStackerDB(contract_id.clone()))?;
+    ) -> Result<StackerDBConfig, NetError> {
+        let chain_tip =
+            NakamotoChainState::get_canonical_block_header(chainstate.db(), sortition_db)?
+                .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
 
         let burn_tip = SortitionDB::get_block_snapshot_consensus(
             sortition_db.conn(),
@@ -454,8 +456,10 @@ impl StackerDBConfig {
         )?
         .expect("FATAL: missing snapshot for Stacks block");
 
-        let chain_tip_hash =
-            StacksBlockId::new(&chain_tip.consensus_hash, &chain_tip.anchored_block_hash);
+        let chain_tip_hash = StacksBlockId::new(
+            &chain_tip.consensus_hash,
+            &chain_tip.anchored_header.block_hash(),
+        );
         let cur_epoch = SortitionDB::get_stacks_epoch(sortition_db.conn(), burn_tip.block_height)?
             .expect("FATAL: no epoch defined");
 
@@ -469,7 +473,7 @@ impl StackerDBConfig {
                     // contract must exist or this errors out
                     let analysis = db
                         .load_contract_analysis(contract_id)
-                        .ok_or(net_error::NoSuchStackerDB(contract_id.clone()))?;
+                        .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
 
                     // contract must be consistent with StackerDB control interface
                     if let Err(invalid_reason) =
@@ -480,7 +484,7 @@ impl StackerDBConfig {
                             contract_id, invalid_reason
                         );
                         warn!("{}", &reason);
-                        return Err(net_error::InvalidStackerDBContract(
+                        return Err(NetError::InvalidStackerDBContract(
                             contract_id.clone(),
                             reason,
                         ));
@@ -496,7 +500,7 @@ impl StackerDBConfig {
                 contract_id, &chain_tip_hash
             );
             warn!("{}", &reason);
-            return Err(net_error::InvalidStackerDBContract(
+            return Err(NetError::InvalidStackerDBContract(
                 contract_id.clone(),
                 reason,
             ));

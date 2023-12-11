@@ -7,9 +7,14 @@ members = [
     "clarity",
     "stx-genesis",
     "libstackerdb",
+    "contrib/tools/relay-server",
     "libsigner",
     "stacks-signer",
     "testnet/stacks-node"]
+
+# Dependencies we want to keep the same between workspace members
+[workspace.dependencies]  
+wsts = "5.0"
 
 # Use a bit more than default optimization for
 #  dev builds to speed up test execution

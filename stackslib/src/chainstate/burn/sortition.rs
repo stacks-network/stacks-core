@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 
 use rusqlite::Connection;
+use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, PoxId, SortitionId, StacksBlockId, TrieHash, VRFSeed,
 };
@@ -70,6 +71,7 @@ impl BlockSnapshot {
             parent_sortition_id: SortitionId([0; 32]),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,
+            miner_pk_hash: None,
         }
     }
 
@@ -106,6 +108,7 @@ impl BlockSnapshot {
             parent_sortition_id: SortitionId::stubbed(first_burn_header_hash),
             pox_valid: true,
             accumulated_coinbase_ustx: 0,
+            miner_pk_hash: None,
         }
     }
 
@@ -259,6 +262,7 @@ impl BlockSnapshot {
             parent_sortition_id: parent_snapshot.sortition_id.clone(),
             pox_valid: true,
             accumulated_coinbase_ustx,
+            miner_pk_hash: None,
         })
     }
 
@@ -404,8 +408,17 @@ impl BlockSnapshot {
             block_height, &winning_block.block_header_hash, &winning_block.txid
         );
 
+        let miner_pk_hash = sort_tx
+            .get_leader_key_at(
+                winning_block.key_block_ptr.into(),
+                winning_block.key_vtxindex.into(),
+                &parent_snapshot.sortition_id,
+            )?
+            .map(|key_op| key_op.interpret_nakamoto_signing_key())
+            .flatten();
+
         Ok(BlockSnapshot {
-            block_height: block_height,
+            block_height,
             burn_header_hash: block_hash,
             burn_header_timestamp: block_header.timestamp,
             parent_burn_header_hash: parent_block_hash,
@@ -430,6 +443,7 @@ impl BlockSnapshot {
             parent_sortition_id: parent_snapshot.sortition_id.clone(),
             pox_valid: true,
             accumulated_coinbase_ustx,
+            miner_pk_hash,
         })
     }
 }

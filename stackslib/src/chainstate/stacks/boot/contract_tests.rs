@@ -22,6 +22,7 @@ use clarity::vm::types::{
     TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
 use clarity::vm::version::ClarityVersion;
+use lazy_static::lazy_static;
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
@@ -395,7 +396,15 @@ impl BurnStateDB for TestSimBurnStateDB {
         u32::MAX
     }
 
+    fn get_v3_unlock_height(&self) -> u32 {
+        u32::MAX
+    }
+
     fn get_pox_3_activation_height(&self) -> u32 {
+        u32::MAX
+    }
+
+    fn get_pox_4_activation_height(&self) -> u32 {
         u32::MAX
     }
 

@@ -33,11 +33,14 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
+use lazy_static::lazy_static;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
 use stacks_common::util::hash::{to_hex, Hash160};
+use wsts::curve::point::{Compressed, Point};
+use wsts::curve::scalar::Scalar;
 
 use crate::burnchains::bitcoin::address::BitcoinAddress;
 use crate::burnchains::{Address, Burnchain, PoxConstants};
@@ -69,9 +72,11 @@ pub const BOOT_CODE_GENESIS: &'static str = std::include_str!("genesis.clar");
 pub const POX_1_NAME: &'static str = "pox";
 pub const POX_2_NAME: &'static str = "pox-2";
 pub const POX_3_NAME: &'static str = "pox-3";
+pub const POX_4_NAME: &'static str = "pox-4";
 
 const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
+const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -92,6 +97,10 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
+    pub static ref POX_4_MAINNET_CODE: String =
+        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_4_BODY);
+    pub static ref POX_4_TESTNET_CODE: String =
+        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_4_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -150,7 +159,7 @@ pub struct PoxStartCycleInfo {
     pub missed_reward_slots: Vec<(PrincipalData, u128)>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RewardSet {
     pub rewarded_addresses: Vec<PoxAddress>,
     pub start_cycle_state: PoxStartCycleInfo,
@@ -334,6 +343,18 @@ impl StacksChainState {
         cycle_info: Option<PoxStartCycleInfo>,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_3_NAME)
+    }
+
+    /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
+    /// Currently, this just means applying any auto-unlocks to Stackers who qualified.
+    ///
+    /// This should only be called for PoX v4 cycles.
+    pub fn handle_pox_cycle_start_pox_4(
+        clarity: &mut ClarityTransactionConnection,
+        cycle_number: u64,
+        cycle_info: Option<PoxStartCycleInfo>,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        Self::handle_pox_cycle_start(clarity, cycle_number, cycle_info, POX_4_NAME)
     }
 
     /// Do all the necessary Clarity operations at the start of a PoX reward cycle.
@@ -655,7 +676,7 @@ impl StacksChainState {
     ) -> u128 {
         // set the lower limit on reward scaling at 25% of liquid_ustx
         //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
-        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
+        let scale_by = cmp::max(participation, liquid_ustx / u128::from(POX_MAXIMAL_SCALING));
         let threshold_precise = scale_by / reward_slots;
         // compute the threshold as nearest 10k > threshold_precise
         let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
@@ -682,9 +703,10 @@ impl StacksChainState {
 
         // set the lower limit on reward scaling at 25% of liquid_ustx
         //   (i.e., liquid_ustx / POX_MAXIMAL_SCALING)
-        let scale_by = cmp::max(participation, liquid_ustx / POX_MAXIMAL_SCALING as u128);
+        let scale_by = cmp::max(participation, liquid_ustx / u128::from(POX_MAXIMAL_SCALING));
 
-        let reward_slots = pox_settings.reward_slots() as u128;
+        let reward_slots = u128::try_from(pox_settings.reward_slots())
+            .expect("FATAL: unreachable: more than 2^128 reward slots");
         let threshold_precise = scale_by / reward_slots;
         // compute the threshold as nearest 10k > threshold_precise
         let ceil_amount = match threshold_precise % POX_THRESHOLD_STEPS_USTX {
@@ -705,7 +727,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_1_NAME)? {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_1_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -783,7 +805,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_2_NAME)? {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_2_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -872,7 +894,7 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, reward_cycle as u128, POX_3_NAME)? {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_3_NAME)? {
             debug!(
                 "PoX was voted disabled in block {} (reward cycle {})",
                 block_id, reward_cycle
@@ -955,6 +977,97 @@ impl StacksChainState {
         Ok(ret)
     }
 
+    /// Get all PoX reward addresses from .pox-4
+    /// TODO: also return their stacker signer keys (as part of `RawRewardSetEntry`
+    fn get_reward_addresses_pox_4(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
+            debug!(
+                "PoX was voted disabled in block {} (reward cycle {})",
+                block_id, reward_cycle
+            );
+            return Ok(vec![]);
+        }
+
+        // how many in this cycle?
+        let num_addrs = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                POX_4_NAME,
+                &format!("(get-reward-set-size u{})", reward_cycle),
+            )?
+            .expect_u128();
+
+        debug!(
+            "At block {:?} (reward cycle {}): {} PoX reward addresses",
+            block_id, reward_cycle, num_addrs
+        );
+
+        let mut ret = vec![];
+        for i in 0..num_addrs {
+            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            let tuple = self
+                .eval_boot_code_read_only(
+                    sortdb,
+                    block_id,
+                    POX_4_NAME,
+                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
+                )?
+                .expect_optional()
+                .expect(&format!(
+                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                    i, num_addrs, reward_cycle
+                ))
+                .expect_tuple();
+
+            let pox_addr_tuple = tuple
+                .get("pox-addr")
+                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned();
+
+            let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
+                .expect(&format!(
+                    "FATAL: not a valid PoX address: {:?}",
+                    &pox_addr_tuple
+                ));
+
+            let total_ustx = tuple
+                .get("total-ustx")
+                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .to_owned()
+                .expect_u128();
+
+            let stacker = tuple
+                .get("stacker")
+                .expect(&format!(
+                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i
+                ))
+                .to_owned()
+                .expect_optional()
+                .map(|value| value.expect_principal());
+
+            debug!(
+                "Parsed PoX reward address";
+                "stacked_ustx" => total_ustx,
+                "reward_address" => %reward_address,
+                "stacker" => ?stacker,
+            );
+            ret.push(RawRewardSetEntry {
+                reward_address,
+                amount_stacked: total_ustx,
+                stacker,
+            })
+        }
+
+        Ok(ret)
+    }
+
     /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
     /// lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
@@ -968,17 +1081,34 @@ impl StacksChainState {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
+        self.get_reward_addresses_in_cycle(burnchain, sortdb, reward_cycle, block_id)
+    }
 
+    /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
+    /// lost in the conversion to StacksAddress)
+    /// Each address will have at least (get-stacking-minimum) tokens.
+    pub fn get_reward_addresses_in_cycle(
+        &mut self,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        reward_cycle: u64,
+        block_id: &StacksBlockId,
+    ) -> Result<Vec<RawRewardSetEntry>, Error> {
         let reward_cycle_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
         let pox_contract_name = burnchain
             .pox_constants
             .active_pox_contract(reward_cycle_start_height);
 
+        info!(
+            "Active PoX contract at {} (cycle start height {}): {}",
+            block_id, reward_cycle_start_height, &pox_contract_name
+        );
         let result = match pox_contract_name {
             x if x == POX_1_NAME => self.get_reward_addresses_pox_1(sortdb, block_id, reward_cycle),
             x if x == POX_2_NAME => self.get_reward_addresses_pox_2(sortdb, block_id, reward_cycle),
             x if x == POX_3_NAME => self.get_reward_addresses_pox_3(sortdb, block_id, reward_cycle),
+            x if x == POX_4_NAME => self.get_reward_addresses_pox_4(sortdb, block_id, reward_cycle),
             unknown_contract => {
                 panic!("Blockchain implementation failure: PoX contract name '{}' is unknown. Chainstate is corrupted.",
                        unknown_contract);
@@ -996,6 +1126,39 @@ impl StacksChainState {
             }
             x => x,
         }
+    }
+
+    /// Get the aggregate public key for a given reward cycle from pox 4
+    pub fn get_aggregate_public_key_pox_4(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<Option<Point>, Error> {
+        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
+            debug!(
+                "PoX was voted disabled in block {} (reward cycle {})",
+                block_id, reward_cycle
+            );
+            return Ok(None);
+        }
+
+        let aggregate_public_key = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                POX_4_NAME,
+                &format!("(get-aggregate-public-key u{})", reward_cycle),
+            )?
+            .expect_optional()
+            .map(|value| {
+                // A point should have 33 bytes exactly.
+                let data = value.expect_buff(33);
+                let msg = "Pox-4 get-aggregate-public-key returned a corrupted value.";
+                let compressed_data = Compressed::try_from(data.as_slice()).expect(msg);
+                Point::try_from(&compressed_data).expect(msg)
+            });
+        Ok(aggregate_public_key)
     }
 }
 
@@ -1094,8 +1257,20 @@ pub mod test {
 
     #[test]
     fn get_reward_threshold_units() {
-        let test_pox_constants =
-            PoxConstants::new(501, 1, 1, 1, 5, 5000, 10000, u32::MAX, u32::MAX, u32::MAX);
+        let test_pox_constants = PoxConstants::new(
+            501,
+            1,
+            1,
+            1,
+            5,
+            5000,
+            10000,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        );
         // when the liquid amount = the threshold step,
         //   the threshold should always be the step size.
         let liquid = POX_THRESHOLD_STEPS_USTX;
@@ -1224,19 +1399,17 @@ pub mod test {
     pub fn instantiate_pox_peer<'a>(
         burnchain: &Burnchain,
         test_name: &str,
-        port: u16,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
-        instantiate_pox_peer_with_epoch(burnchain, test_name, port, None, None)
+        instantiate_pox_peer_with_epoch(burnchain, test_name, None, None)
     }
 
     pub fn instantiate_pox_peer_with_epoch<'a>(
         burnchain: &Burnchain,
         test_name: &str,
-        port: u16,
         epochs: Option<Vec<StacksEpoch>>,
         observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
-        let mut peer_config = TestPeerConfig::new(test_name, port, port + 1);
+        let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
         peer_config.burnchain = burnchain.clone();
         peer_config.epochs = epochs;
         peer_config.setup_code = format!(
@@ -1476,6 +1649,37 @@ pub mod test {
         make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_3_NAME)
     }
 
+    /// TODO: add signer key
+    pub fn make_pox_4_lockup(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        addr: PoxAddress,
+        lock_period: u128,
+        burn_ht: u64,
+    ) -> StacksTransaction {
+        // ;; TODO: add signer key
+        // (define-public (stack-stx (amount-ustx uint)
+        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+        //                           (burn-height uint)
+        //                           (lock-period uint))
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            "pox-4",
+            "stack-stx",
+            vec![
+                Value::UInt(amount),
+                addr_tuple,
+                Value::UInt(burn_ht as u128),
+                Value::UInt(lock_period),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     pub fn make_pox_2_or_3_lockup(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -1503,6 +1707,24 @@ pub mod test {
         )
         .unwrap();
 
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_aggregate_key(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        reward_cycle: u64,
+        aggregate_public_key: &Point,
+    ) -> StacksTransaction {
+        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "set-aggregate-public-key",
+            vec![Value::UInt(reward_cycle as u128), aggregate_public_key],
+        )
+        .unwrap();
         make_tx(key, nonce, 0, payload)
     }
 
@@ -1873,7 +2095,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!(), 6000);
+        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
@@ -2061,7 +2283,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 1;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6007);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 15;
 
@@ -2176,7 +2398,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6026);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
         let mut expected_liquid_ustx = 1024 * POX_THRESHOLD_STEPS_USTX * (keys.len() as u128);
@@ -2284,7 +2506,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6002);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -2496,7 +2718,7 @@ pub mod test {
         burnchain.pox_constants.anchor_threshold = 1;
         assert_eq!(burnchain.pox_constants.reward_slots(), 4);
 
-        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!(), 6026);
+        let (mut peer, keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 20;
 
@@ -2754,7 +2976,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6018);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -3020,7 +3242,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6004);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 10;
 
@@ -3235,7 +3457,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6006);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 3;
 
@@ -3447,7 +3669,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6012);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 2;
 
@@ -3687,7 +3909,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6014);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 25;
 
@@ -4211,7 +4433,7 @@ pub mod test {
         burnchain.pox_constants.prepare_length = 2;
         burnchain.pox_constants.anchor_threshold = 1;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6016);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 20;
 
@@ -4661,7 +4883,7 @@ pub mod test {
         //   owned by charlie.
         burnchain.pox_constants.pox_rejection_fraction = 5;
 
-        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!(), 6024);
+        let (mut peer, mut keys) = instantiate_pox_peer(&burnchain, function_name!());
 
         let num_blocks = 15;
 

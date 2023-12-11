@@ -16,6 +16,7 @@
 
 use std::{error, fmt};
 
+use clarity::vm::types::PrincipalData;
 use rusqlite::{Connection, Error as sqlite_error, Row};
 use serde_json::Error as serde_error;
 use stacks_common::types::chainstate::{
@@ -68,6 +69,13 @@ impl FromColumn<StacksAddress> for StacksAddress {
             Some(a) => Ok(a),
             None => Err(db_error::ParseError),
         }
+    }
+}
+
+impl FromColumn<PrincipalData> for PrincipalData {
+    fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<Self, db_error> {
+        let address_str: String = row.get_unwrap(column_name);
+        Self::parse(&address_str).map_err(|_| db_error::ParseError)
     }
 }
 

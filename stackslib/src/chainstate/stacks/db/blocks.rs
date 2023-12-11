@@ -23,6 +23,7 @@ use std::{cmp, fmt, fs, io};
 
 pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
 use clarity::vm::analysis::run_analysis;
+use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::AssetMap;
 use clarity::vm::contracts::Contract;
@@ -36,6 +37,7 @@ use clarity::vm::types::{
 use rand::{thread_rng, Rng, RngCore};
 use rusqlite::{Connection, DatabaseName, Error as sqlite_error, OptionalExtension};
 use serde::Serialize;
+use serde_json::json;
 use stacks_common::codec::{read_next, write_next, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
@@ -50,10 +52,12 @@ use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::transactions::TransactionNonceMismatch;
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::events::StacksBlockEventData;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::{
     Error, StacksBlockHeader, StacksMicroblockHeader, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
@@ -131,6 +135,7 @@ pub enum MemPoolRejection {
     InvalidMicroblocks,
     BadAddressVersionByte,
     NoCoinbaseViaMempool,
+    NoTenureChangeViaMempool,
     NoSuchChainTip(ConsensusHash, BlockHeaderHash),
     ConflictingNonceInMempool,
     TooMuchChaining {
@@ -170,7 +175,7 @@ pub struct DummyEventDispatcher;
 impl BlockEventDispatcher for DummyEventDispatcher {
     fn announce_block(
         &self,
-        _block: &StacksBlock,
+        _block: &StacksBlockEventData,
         _metadata: &StacksHeaderInfo,
         _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
@@ -284,6 +289,7 @@ impl MemPoolRejection {
             InvalidMicroblocks => ("PoisonMicroblockIsInvalid", None),
             BadAddressVersionByte => ("BadAddressVersionByte", None),
             NoCoinbaseViaMempool => ("NoCoinbaseViaMempool", None),
+            NoTenureChangeViaMempool => ("NoTenureChangeViaMempool", None),
             // this should never happen via the RPC interface
             NoSuchChainTip(..) => ("ServerFailureNoSuchChainTip", None),
             DBError(e) => (
@@ -564,7 +570,7 @@ impl StacksChainState {
                 }
             })?;
 
-        let mut bound_reader = BoundReader::from_reader(&mut fd, MAX_MESSAGE_LEN as u64);
+        let mut bound_reader = BoundReader::from_reader(&mut fd, u64::from(MAX_MESSAGE_LEN));
         let inst = T::consensus_deserialize(&mut bound_reader).map_err(Error::CodecError)?;
         Ok(inst)
     }
@@ -802,7 +808,7 @@ impl StacksChainState {
             debug!("Zero-sized block {}", block_hash);
             return Ok(None);
         }
-        if sz > MAX_MESSAGE_LEN as u64 {
+        if sz > u64::from(MAX_MESSAGE_LEN) {
             debug!("Invalid block {}: too big", block_hash);
             return Ok(None);
         }
@@ -1566,8 +1572,8 @@ impl StacksChainState {
             block.block_hash(),
             parent_consensus_hash
         );
-        assert!(commit_burn < i64::MAX as u64);
-        assert!(sortition_burn < i64::MAX as u64);
+        assert!(commit_burn < u64::try_from(i64::MAX).expect("unreachable"));
+        assert!(sortition_burn < u64::try_from(i64::MAX).expect("unreachable"));
 
         let block_hash = block.block_hash();
         let index_block_hash =
@@ -1737,7 +1743,7 @@ impl StacksChainState {
         burn_supports: &[UserBurnSupportOp],
     ) -> Result<(), Error> {
         for burn_support in burn_supports.iter() {
-            assert!(burn_support.burn_fee < i64::MAX as u64);
+            assert!(burn_support.burn_fee < u64::try_from(i64::MAX).expect("unreachable"));
         }
 
         for burn_support in burn_supports.iter() {
@@ -2043,7 +2049,8 @@ impl StacksChainState {
         );
 
         Ok(BlocksInvData {
-            bitlen: block_bits.len() as u16,
+            bitlen: u16::try_from(block_bits.len())
+                .expect("FATAL: unreachable: more than 2^16 block bits"),
             block_bitvec: block_bitvec,
             microblocks_bitvec: microblocks_bitvec,
         })
@@ -2075,7 +2082,10 @@ impl StacksChainState {
             .query_row(sql, args, |row| {
                 let start_height_i64: i64 = row.get_unwrap(0);
                 let end_height_i64: i64 = row.get_unwrap(1);
-                return Ok((start_height_i64 as u64, end_height_i64 as u64));
+                return Ok((
+                    u64::try_from(start_height_i64).expect("FATAL: height exceeds i64::MAX"),
+                    u64::try_from(end_height_i64).expect("FATAL: height exceeds i64::MAX"),
+                ));
             })
             .optional()?
             .ok_or_else(|| Error::DBError(db_error::NotFoundError))
@@ -2165,7 +2175,8 @@ impl StacksChainState {
         );
 
         Ok(BlocksInvData {
-            bitlen: block_bits.len() as u16,
+            bitlen: u16::try_from(block_bits.len())
+                .expect("FATAL: block bits has more than 2^16 members"),
             block_bitvec: block_bitvec,
             microblocks_bitvec: microblocks_bitvec,
         })
@@ -3278,8 +3289,8 @@ impl StacksChainState {
         // key of the winning leader
         let leader_key = db_handle
             .get_leader_key_at(
-                block_commit.key_block_ptr as u64,
-                block_commit.key_vtxindex as u32,
+                u64::from(block_commit.key_block_ptr),
+                u32::from(block_commit.key_vtxindex),
             )?
             .expect("FATAL: have block commit but no leader key");
 
@@ -3703,37 +3714,35 @@ impl StacksChainState {
             125
         };
 
-        stx_reward * (MICROSTACKS_PER_STACKS as u128)
+        stx_reward * (u128::from(MICROSTACKS_PER_STACKS))
     }
 
     /// Create the block reward.
     /// `coinbase_reward_ustx` is the total coinbase reward for this block, including any
     ///    accumulated rewards from missed sortitions or initial mining rewards.
-    fn make_scheduled_miner_reward(
+    pub fn make_scheduled_miner_reward(
         mainnet: bool,
         epoch_id: StacksEpochId,
         parent_block_hash: &BlockHeaderHash,
         parent_consensus_hash: &ConsensusHash,
-        block: &StacksBlock,
+        block_hash: &BlockHeaderHash,
+        coinbase_tx: &StacksTransaction,
         block_consensus_hash: &ConsensusHash,
         block_height: u64,
         anchored_fees: u128,
         streamed_fees: u128,
-        stx_burns: u128,
+        _stx_burns: u128,
         burnchain_commit_burn: u64,
         burnchain_sortition_burn: u64,
         coinbase_reward_ustx: u128,
     ) -> Result<MinerPaymentSchedule, Error> {
-        let coinbase_tx = block.get_coinbase_tx().ok_or(Error::InvalidStacksBlock(
-            "No coinbase transaction".to_string(),
-        ))?;
         let miner_auth = coinbase_tx.get_origin();
         let miner_addr = miner_auth.get_address(mainnet);
 
         let recipient = if epoch_id >= StacksEpochId::Epoch21 {
             // pay to tx-designated recipient, or if there is none, pay to the origin
             match coinbase_tx.try_as_coinbase() {
-                Some((_, recipient_opt)) => recipient_opt
+                Some((_, recipient_opt, _)) => recipient_opt
                     .cloned()
                     .unwrap_or(miner_addr.to_account_principal()),
                 None => miner_addr.to_account_principal(),
@@ -3748,17 +3757,18 @@ impl StacksChainState {
         // not become valid until after 2.1 activates).
         let miner_reward = MinerPaymentSchedule {
             address: miner_addr,
-            recipient: recipient,
-            block_hash: block.block_hash(),
+            recipient,
+            block_hash: block_hash.clone(),
             consensus_hash: block_consensus_hash.clone(),
             parent_block_hash: parent_block_hash.clone(),
             parent_consensus_hash: parent_consensus_hash.clone(),
             coinbase: coinbase_reward_ustx,
-            tx_fees_anchored: anchored_fees,
-            tx_fees_streamed: streamed_fees,
-            stx_burns: stx_burns,
-            burnchain_commit_burn: burnchain_commit_burn,
-            burnchain_sortition_burn: burnchain_sortition_burn,
+            tx_fees: MinerPaymentTxFees::Epoch2 {
+                anchored: anchored_fees,
+                streamed: streamed_fees,
+            },
+            burnchain_commit_burn,
+            burnchain_sortition_burn,
             miner: true,
             stacks_block_height: block_height,
             vtxindex: 0,
@@ -3858,7 +3868,7 @@ impl StacksChainState {
             &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
         )
         .map_err(Error::DBError)?;
-        Ok(cnt as u64)
+        Ok(u64::try_from(cnt).expect("more than i64::MAX rows"))
     }
 
     /// How many processed staging blocks do we have, up to a limit, at or after the given
@@ -3875,7 +3885,7 @@ impl StacksChainState {
             &[&u64_to_sql(min_arrival_time)?, &u64_to_sql(limit)?],
         )
         .map_err(Error::DBError)?;
-        Ok(cnt as u64)
+        Ok(u64::try_from(cnt).expect("more than i64::MAX rows"))
     }
 
     /// Measure how long a block waited in-between when it arrived and when it got processed.
@@ -3968,7 +3978,7 @@ impl StacksChainState {
                     &candidate.anchored_block_hash,
                     &candidate.parent_consensus_hash,
                     &candidate.parent_anchored_block_hash,
-                    if candidate.parent_microblock_hash != BlockHeaderHash([0u8; 32]) { (candidate.parent_microblock_seq as u32) + 1 } else { 0 },
+                    if candidate.parent_microblock_hash != BlockHeaderHash([0u8; 32]) { u32::from(candidate.parent_microblock_seq) + 1 } else { 0 },
                     &candidate.parent_microblock_hash
                 );
 
@@ -4100,10 +4110,10 @@ impl StacksChainState {
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
-                tx_receipt.tx_index = tx_index as u32;
-                fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+                tx_receipt.tx_index = u32::try_from(tx_index).expect("more than 2^32 items");
+                fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
                 burns = burns
-                    .checked_add(tx_receipt.stx_burned as u128)
+                    .checked_add(u128::from(tx_receipt.stx_burned))
                     .expect("Burns overflow");
                 receipts.push(tx_receipt);
             }
@@ -4130,128 +4140,54 @@ impl StacksChainState {
         let mut applied = false;
 
         if let Some(sortition_epoch) = sortition_epoch {
-            // the parent stacks block has a different epoch than what the Sortition DB
-            //  thinks should be in place.
-            if stacks_parent_epoch != sortition_epoch.epoch_id {
-                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %stacks_parent_epoch);
+            // check if the parent stacks block has a different epoch than what the Sortition DB
+            //  thinks should be in place, and apply epoch transitions
+            let mut current_epoch = stacks_parent_epoch;
+            while current_epoch != sortition_epoch.epoch_id {
+                applied = true;
+                info!("Applying epoch transition"; "new_epoch_id" => %sortition_epoch.epoch_id, "old_epoch_id" => %current_epoch);
                 // this assertion failing means that the _parent_ block was invalid: this is bad and should panic.
-                assert!(stacks_parent_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, parent epoch = {}", sortition_epoch.epoch_id, stacks_parent_epoch);
+                assert!(current_epoch < sortition_epoch.epoch_id, "The SortitionDB believes the epoch is earlier than this Stacks block's parent: sortition db epoch = {}, current epoch = {}", sortition_epoch.epoch_id, current_epoch);
                 // time for special cases:
-                match stacks_parent_epoch {
+                match current_epoch {
                     StacksEpochId::Epoch10 => {
                         panic!("Clarity VM believes it was running in 1.0: pre-Clarity.")
                     }
-                    StacksEpochId::Epoch20 => match sortition_epoch.epoch_id {
-                        StacksEpochId::Epoch2_05 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch21 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch22 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch23 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch24 => {
-                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                            applied = true;
-                        }
-                        _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
-                        }
-                    },
-                    StacksEpochId::Epoch2_05 => match sortition_epoch.epoch_id {
-                        StacksEpochId::Epoch21 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch22 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch23 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch24 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                            applied = true;
-                        }
-                        _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
-                        }
-                    },
-                    StacksEpochId::Epoch21 => match sortition_epoch.epoch_id {
-                        StacksEpochId::Epoch22 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch23 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch24 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                            applied = true;
-                        }
-                        _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
-                        }
-                    },
-                    StacksEpochId::Epoch22 => match sortition_epoch.epoch_id {
-                        StacksEpochId::Epoch23 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            applied = true;
-                        }
-                        StacksEpochId::Epoch24 => {
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
-                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                            applied = true;
-                        }
-                        _ => {
-                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
-                        }
-                    },
+                    StacksEpochId::Epoch20 => {
+                        receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                        current_epoch = StacksEpochId::Epoch2_05;
+                    }
+                    StacksEpochId::Epoch2_05 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                        current_epoch = StacksEpochId::Epoch21;
+                    }
+                    StacksEpochId::Epoch21 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                        current_epoch = StacksEpochId::Epoch22;
+                    }
+                    StacksEpochId::Epoch22 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                        current_epoch = StacksEpochId::Epoch23;
+                    }
                     StacksEpochId::Epoch23 => {
-                        assert_eq!(
-                            sortition_epoch.epoch_id,
-                            StacksEpochId::Epoch24,
-                            "Should only transition from Epoch23 to Epoch24"
-                        );
                         receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
-                        applied = true;
+                        current_epoch = StacksEpochId::Epoch24;
                     }
                     StacksEpochId::Epoch24 => {
-                        panic!("No defined transition from Epoch23 forward")
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_5()?);
+                        current_epoch = StacksEpochId::Epoch25;
+                    }
+                    StacksEpochId::Epoch25 => {
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_3_0()?);
+                        current_epoch = StacksEpochId::Epoch30;
+                    }
+                    StacksEpochId::Epoch30 => {
+                        panic!("No defined transition from Epoch30 forward")
                     }
                 }
             }
         }
+
         Ok((applied, receipts))
     }
 
@@ -4518,22 +4454,22 @@ impl StacksChainState {
 
     /// Process a single anchored block.
     /// Return the fees and burns.
-    fn process_block_transactions(
+    pub fn process_block_transactions(
         clarity_tx: &mut ClarityTx,
-        block: &StacksBlock,
+        block_txs: &[StacksTransaction],
         mut tx_index: u32,
         ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
-        for tx in block.txs.iter() {
+        for tx in block_txs.iter() {
             let (tx_fee, mut tx_receipt) =
                 StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules)?;
-            fees = fees.checked_add(tx_fee as u128).expect("Fee overflow");
+            fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             burns = burns
-                .checked_add(tx_receipt.stx_burned as u128)
+                .checked_add(u128::from(tx_receipt.stx_burned))
                 .expect("Burns overflow");
             receipts.push(tx_receipt);
             tx_index += 1;
@@ -4655,7 +4591,11 @@ impl StacksChainState {
                         .to_owned()
                         .expect_principal();
                     total_minted += amount;
-                    StacksChainState::account_credit(tx_connection, &recipient, amount as u64);
+                    StacksChainState::account_credit(
+                        tx_connection,
+                        &recipient,
+                        u64::try_from(amount).expect("FATAL: transferred more STX than exist"),
+                    );
                     let event = STXEventType::STXMintEvent(STXMintEventData { recipient, amount });
                     events.push(StacksTransactionEvent::STXEvent(event));
                 }
@@ -4721,7 +4661,7 @@ impl StacksChainState {
     ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>, Vec<DelegateStxOp>), Error> {
         // only consider transactions in Stacks 2.1
         let search_window: u8 =
-            if epoch_start_height + (BURNCHAIN_TX_SEARCH_WINDOW as u64) > burn_tip_height {
+            if epoch_start_height + u64::from(BURNCHAIN_TX_SEARCH_WINDOW) > burn_tip_height {
                 burn_tip_height
                     .saturating_sub(epoch_start_height)
                     .try_into()
@@ -4813,7 +4753,7 @@ impl StacksChainState {
     /// The change in Stacks 2.1+ makes it so that it's overwhelmingly likely to work
     /// the first time -- the choice of K is significantly bigger than the length of short-lived
     /// forks or periods of time with no sortition than have been observed in practice.
-    fn get_stacking_and_transfer_and_delegate_burn_ops(
+    pub fn get_stacking_and_transfer_and_delegate_burn_ops(
         chainstate_tx: &mut ChainstateTx,
         parent_index_hash: &StacksBlockId,
         sortdb_conn: &Connection,
@@ -4839,7 +4779,10 @@ impl StacksChainState {
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30 => {
+                // TODO: sbtc ops in epoch 3.0
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -4856,12 +4799,12 @@ impl StacksChainState {
     ///  Clarity VM work necessary at the start of the cycle (i.e., processing of accelerated unlocks
     ///  for failed stackers).
     /// If it has not yet been handled, then perform that work now.
-    fn check_and_handle_reward_start(
+    pub fn check_and_handle_reward_start(
         burn_tip_height: u64,
         burn_dbconn: &dyn BurnStateDB,
         sortition_dbconn: &dyn SortitionDBRef,
         clarity_tx: &mut ClarityTx,
-        chain_tip: &StacksHeaderInfo,
+        chain_tip_burn_header_height: u32,
         parent_sortition_id: &SortitionId,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         let pox_reward_cycle = Burnchain::static_block_height_to_reward_cycle(
@@ -4900,7 +4843,7 @@ impl StacksChainState {
 
         let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
             parent_sortition_id,
-            chain_tip.burn_header_height.into(),
+            chain_tip_burn_header_height.into(),
             pox_reward_cycle,
         )?;
         debug!("check_and_handle_reward_start: got pox reward cycle info");
@@ -4929,6 +4872,13 @@ impl StacksChainState {
                     pox_reward_cycle,
                     pox_start_cycle_info,
                 ),
+                StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
+                    Self::handle_pox_cycle_start_pox_4(
+                        clarity_tx,
+                        pox_reward_cycle,
+                        pox_start_cycle_info,
+                    )
+                }
             }
         })?;
         debug!("check_and_handle_reward_start: handled pox cycle start");
@@ -5038,7 +4988,7 @@ impl StacksChainState {
         let matured_miner_rewards_opt = match StacksChainState::find_mature_miner_rewards(
             &mut clarity_tx,
             conn,
-            &chain_tip,
+            chain_tip.stacks_block_height,
             latest_matured_miners,
             matured_miner_parent,
         ) {
@@ -5127,7 +5077,7 @@ impl StacksChainState {
                 burn_dbconn,
                 sortition_dbconn,
                 &mut clarity_tx,
-                chain_tip,
+                chain_tip.burn_header_height,
                 &parent_sortition_id,
             )?;
             debug!(
@@ -5140,7 +5090,7 @@ impl StacksChainState {
             vec![]
         };
 
-        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height as u64);
+        let active_pox_contract = pox_constants.active_pox_contract(u64::from(burn_tip_height));
 
         // process stacking & transfer operations from burnchain ops
         tx_receipts.extend(StacksChainState::process_stacking_ops(
@@ -5435,7 +5385,7 @@ impl StacksChainState {
                     )? {
                         Some(sn) => (
                             sn.burn_header_hash,
-                            sn.block_height as u32,
+                            u32::try_from(sn.block_height).expect("FATAL: block height overflow"),
                             sn.burn_header_timestamp,
                         ),
                         None => {
@@ -5496,8 +5446,9 @@ impl StacksChainState {
             let (block_fees, block_burns, txs_receipts) =
                 match StacksChainState::process_block_transactions(
                     &mut clarity_tx,
-                    &block,
-                    microblock_txs_receipts.len() as u32,
+                    &block.txs,
+                    u32::try_from(microblock_txs_receipts.len())
+                        .expect("more than 2^32 tx receipts"),
                     ast_rules,
                 ) {
                     Err(e) => {
@@ -5542,7 +5493,7 @@ impl StacksChainState {
             let mut lockup_events = match StacksChainState::finish_block(
                 &mut clarity_tx,
                 miner_payouts_opt.as_ref(),
-                block.header.total_work.work as u32,
+                u32::try_from(block.header.total_work.work).expect("FATAL: more than 2^32 blocks"),
                 block.header.microblock_pubkey_hash,
             ) {
                 Err(Error::InvalidStacksBlock(e)) => {
@@ -5610,7 +5561,7 @@ impl StacksChainState {
             .accumulated_coinbase_ustx;
 
             let coinbase_at_block = StacksChainState::get_coinbase_reward(
-                chain_tip_burn_header_height as u64,
+                u64::from(chain_tip_burn_header_height),
                 burn_dbconn.context.first_block_height,
             );
 
@@ -5622,7 +5573,11 @@ impl StacksChainState {
                 evaluated_epoch,
                 &parent_block_hash,
                 &parent_consensus_hash,
-                &block,
+                &block.block_hash(),
+                block
+                    .get_coinbase_tx()
+                    .as_ref()
+                    .ok_or(Error::InvalidStacksBlock("No coinbase transaction".into()))?,
                 chain_tip_consensus_hash,
                 next_block_height,
                 block_fees,
@@ -5657,9 +5612,13 @@ impl StacksChainState {
             .as_ref()
             .map(|(_, _, _, info)| info.clone());
 
+        let parent_block_header = parent_chain_tip
+            .anchored_header
+            .as_stacks_epoch2()
+            .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?;
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
-            &parent_chain_tip.anchored_header,
+            parent_block_header,
             &parent_chain_tip.consensus_hash,
             &block.header,
             chain_tip_consensus_hash,
@@ -5682,7 +5641,9 @@ impl StacksChainState {
 
         chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
 
-        set_last_block_transaction_count(block.txs.len() as u64);
+        set_last_block_transaction_count(
+            u64::try_from(block.txs.len()).expect("more than 2^64 txs"),
+        );
         set_last_execution_cost_observed(&block_execution_cost, &block_limit);
 
         let epoch_receipt = StacksEpochReceipt {
@@ -5805,7 +5766,10 @@ impl StacksChainState {
         // NOTE: since we got the microblocks from staging, where their signatures were already
         // validated, we don't need to validate them again.
         let microblock_terminus = match StacksChainState::validate_parent_microblock_stream(
-            &parent_block_header_info.anchored_header,
+            parent_block_header_info
+                .anchored_header
+                .as_stacks_epoch2()
+                .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?,
             &block.header,
             &next_microblocks,
             false,
@@ -5876,7 +5840,7 @@ impl StacksChainState {
             )? {
                 Some(sn) => (
                     sn.burn_header_hash,
-                    sn.block_height as u32,
+                    u32::try_from(sn.block_height).expect("FATAL: more than 2^32 blocks"),
                     sn.burn_header_timestamp,
                     sn.winning_block_txid,
                 ),
@@ -5906,7 +5870,8 @@ impl StacksChainState {
         };
 
         let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
-        let block_size = next_staging_block.block_data.len() as u64;
+        let block_size = u64::try_from(next_staging_block.block_data.len())
+            .expect("FATAL: more than 2^64 transactions");
 
         // sanity check -- don't process this block again if we already did so
         if StacksChainState::has_stacks_block(
@@ -5942,7 +5907,10 @@ impl StacksChainState {
 
         // validation check -- the block must attach to its accepted parent
         if !StacksChainState::check_block_attachment(
-            &parent_header_info.anchored_header,
+            parent_header_info
+                .anchored_header
+                .as_stacks_epoch2()
+                .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?,
             &block.header,
         ) {
             let msg = format!(
@@ -6098,6 +6066,12 @@ impl StacksChainState {
             }
         };
 
+        let receipt_anchored_header = epoch_receipt
+            .header
+            .anchored_header
+            .as_stacks_epoch2()
+            .expect("FATAL: received nakamoto block header from epoch-2 append_block()");
+
         assert_eq!(
             epoch_receipt.header.anchored_header.block_hash(),
             block.block_hash()
@@ -6107,14 +6081,11 @@ impl StacksChainState {
             next_staging_block.consensus_hash
         );
         assert_eq!(
-            epoch_receipt.header.anchored_header.parent_microblock,
+            receipt_anchored_header.parent_microblock,
             last_microblock_hash
         );
         assert_eq!(
-            epoch_receipt
-                .header
-                .anchored_header
-                .parent_microblock_sequence,
+            receipt_anchored_header.parent_microblock_sequence,
             last_microblock_seq
         );
 
@@ -6144,7 +6115,7 @@ impl StacksChainState {
                 &next_staging_block.parent_anchored_block_hash,
             );
             dispatcher.announce_block(
-                &block,
+                &block.into(),
                 &epoch_receipt.header.clone(),
                 &epoch_receipt.tx_receipts,
                 &parent_id,
@@ -6290,21 +6261,6 @@ impl StacksChainState {
             version == C32_ADDRESS_VERSION_TESTNET_SINGLESIG
                 || version == C32_ADDRESS_VERSION_TESTNET_MULTISIG
         }
-    }
-
-    /// Get the highest processed block on the canonical burn chain.
-    /// Break ties on lexigraphical ordering of the block hash
-    /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
-    /// in.
-    pub fn get_stacks_chain_tip(
-        &self,
-        sortdb: &SortitionDB,
-    ) -> Result<Option<StagingBlock>, Error> {
-        let (consensus_hash, block_bhh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
-        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let args: &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
-        query_row(&self.db(), sql, args).map_err(Error::DBError)
     }
 
     /// Get the parent block of `staging_block`.
@@ -6527,21 +6483,23 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height, v2_unlock_height) = clarity_connection
-            .with_clarity_db_readonly(|ref mut db| {
+        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
+            clarity_connection.with_clarity_db_readonly(|ref mut db| {
                 (
-                    db.get_current_burnchain_block_height() as u64,
+                    u64::from(db.get_current_burnchain_block_height()),
                     db.get_v1_unlock_height(),
                     db.get_v2_unlock_height(),
+                    db.get_v3_unlock_height(),
                 )
             });
 
         // 5: the paying account must have enough funds
         if !payer.stx_balance.can_transfer_at_burn_block(
-            fee as u128,
+            u128::from(fee),
             block_height,
             v1_unlock_height,
             v2_unlock_height,
+            v3_unlock_height,
         ) {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
@@ -6549,11 +6507,12 @@ impl StacksChainState {
                 }
                 _ => {
                     return Err(MemPoolRejection::NotEnoughFunds(
-                        fee as u128,
+                        u128::from(fee),
                         payer.stx_balance.get_available_balance_at_burn_block(
                             block_height,
                             v1_unlock_height,
                             v2_unlock_height,
+                            v3_unlock_height,
                         ),
                     ));
                 }
@@ -6572,12 +6531,14 @@ impl StacksChainState {
                 }
 
                 // does the owner have the funds for the token transfer?
-                let total_spent = (*amount as u128) + if origin == payer { fee as u128 } else { 0 };
+                let total_spent =
+                    u128::from(*amount) + if origin == payer { u128::from(fee) } else { 0 };
                 if !origin.stx_balance.can_transfer_at_burn_block(
                     total_spent,
                     block_height,
                     v1_unlock_height,
                     v2_unlock_height,
+                    v3_unlock_height,
                 ) {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
@@ -6585,6 +6546,7 @@ impl StacksChainState {
                             block_height,
                             v1_unlock_height,
                             v2_unlock_height,
+                            v3_unlock_height,
                         ),
                     ));
                 }
@@ -6592,17 +6554,19 @@ impl StacksChainState {
                 // if the payer for the tx is different from owner, check if they can afford fee
                 if origin != payer {
                     if !payer.stx_balance.can_transfer_at_burn_block(
-                        fee as u128,
+                        u128::from(fee),
                         block_height,
                         v1_unlock_height,
                         v2_unlock_height,
+                        v3_unlock_height,
                     ) {
                         return Err(MemPoolRejection::NotEnoughFunds(
-                            fee as u128,
+                            u128::from(fee),
                             payer.stx_balance.get_available_balance_at_burn_block(
                                 block_height,
                                 v1_unlock_height,
                                 v2_unlock_height,
+                                v3_unlock_height,
                             ),
                         ));
                     }
@@ -6692,6 +6656,9 @@ impl StacksChainState {
                 }
             }
             TransactionPayload::Coinbase(..) => return Err(MemPoolRejection::NoCoinbaseViaMempool),
+            TransactionPayload::TenureChange(..) => {
+                return Err(MemPoolRejection::NoTenureChangeViaMempool)
+            }
         };
 
         Ok(())
@@ -6739,7 +6706,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
@@ -6804,7 +6771,7 @@ pub mod test {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
         );
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
         let mut tx_signer = StacksTransactionSigner::new(&tx_coinbase);
@@ -11020,12 +10987,11 @@ pub mod test {
         let sortdb = peer.sortdb.take().unwrap();
 
         // definitely missing some blocks -- there are empty sortitions
-        let stacks_tip = peer
-            .chainstate()
-            .get_stacks_chain_tip(&sortdb)
-            .unwrap()
-            .unwrap();
-        assert_eq!(stacks_tip.height, 8);
+        let stacks_tip =
+            NakamotoChainState::get_canonical_block_header(peer.chainstate().db(), &sortdb)
+                .unwrap()
+                .unwrap();
+        assert_eq!(stacks_tip.anchored_header.height(), 8);
 
         // but we did process all burnchain operations
         let (consensus_hash, block_bhh) =
@@ -11691,12 +11657,11 @@ pub mod test {
         let sortdb = peer.sortdb.take().unwrap();
 
         // definitely missing some blocks -- there are empty sortitions
-        let stacks_tip = peer
-            .chainstate()
-            .get_stacks_chain_tip(&sortdb)
-            .unwrap()
-            .unwrap();
-        assert_eq!(stacks_tip.height, 13);
+        let stacks_tip =
+            NakamotoChainState::get_canonical_block_header(peer.chainstate().db(), &sortdb)
+                .unwrap()
+                .unwrap();
+        assert_eq!(stacks_tip.anchored_header.height(), 13);
 
         // but we did process all burnchain operations
         let (consensus_hash, block_bhh) =

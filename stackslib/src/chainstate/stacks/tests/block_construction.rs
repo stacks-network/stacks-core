@@ -3056,7 +3056,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     &sortdb.index_conn(),
                     &mut mempool,
                     &parent_tip,
-                    parent_tip.anchored_header.total_work.burn + 1000,
+                    parent_tip.anchored_header.as_stacks_epoch2().unwrap().total_work.burn + 1000,
                     vrf_proof,
                     mblock_pubkey_hash,
                     &coinbase_tx,
@@ -4359,9 +4359,10 @@ fn mempool_incorporate_pox_unlocks() {
                          let burn_block_height = db.get_current_burnchain_block_height() as u64;
                          let v1_unlock_height = db.get_v1_unlock_height();
                          let v2_unlock_height = db.get_v2_unlock_height();
+                         let v3_unlock_height = db.get_v3_unlock_height();
                          let balance = db.get_account_stx_balance(&principal);
                          info!("Checking balance"; "v1_unlock_height" => v1_unlock_height, "burn_block_height" => burn_block_height);
-                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height, v2_unlock_height)
+                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height)
                      })
                  }).unwrap();
 

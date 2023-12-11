@@ -142,7 +142,9 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24 => {
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30 => {
                 let (ast, _analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-3", false),

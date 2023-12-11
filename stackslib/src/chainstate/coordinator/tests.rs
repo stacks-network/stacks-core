@@ -26,6 +26,7 @@ use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityVersion, Value};
+use lazy_static::lazy_static;
 use rand::RngCore;
 use rusqlite::Connection;
 use stacks_common::address::AddressHashMode;
@@ -38,6 +39,7 @@ use stacks_common::types::chainstate::{
     TrieHash, VRFSeed,
 };
 use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::*;
 use stacks_common::{address, types, util};
 
@@ -53,12 +55,13 @@ use crate::chainstate::burn::operations::leader_block_commit::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::{Error as CoordError, *};
-use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType32};
 use crate::chainstate::stacks::boot::{
     PoxStartCycleInfo, COSTS_2_NAME, POX_1_NAME, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksHeaderInfo};
+use crate::chainstate::stacks::miner::BlockBuilder;
 use crate::chainstate::stacks::*;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::*;
@@ -226,7 +229,7 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
     block_hash
 }
 
-fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
+pub fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     let pk = StacksPublicKey::from_private(sk);
     StacksAddress::from_public_keys(
         chainstate::stacks::C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -237,7 +240,7 @@ fn p2pkh_from(sk: &StacksPrivateKey) -> StacksAddress {
     .unwrap()
 }
 
-fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
+pub fn pox_addr_from(sk: &StacksPrivateKey) -> PoxAddress {
     let stacks_addr = p2pkh_from(sk);
     PoxAddress::Standard(stacks_addr, Some(AddressHashMode::SerializeP2PKH))
 }
@@ -410,7 +413,7 @@ pub struct NullEventDispatcher;
 impl BlockEventDispatcher for NullEventDispatcher {
     fn announce_block(
         &self,
-        _block: &StacksBlock,
+        _block: &StacksBlockEventData,
         _metadata: &StacksHeaderInfo,
         _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
@@ -527,6 +530,8 @@ pub fn get_burnchain(path: &str, pox_consts: Option<PoxConstants>) -> Burnchain 
             u32::MAX,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
+            u32::MAX,
         )
     });
     b
@@ -605,7 +610,7 @@ fn make_genesis_block_with_recipients(
     let mut tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
     );
     tx.chain_id = 0x80000000;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -837,7 +842,7 @@ fn make_stacks_block_with_input(
     let mut tx = StacksTransaction::new(
         TransactionVersion::Testnet,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None, None),
     );
     tx.chain_id = 0x80000000;
     tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -971,6 +976,8 @@ fn missed_block_commits_2_05() {
         5,
         7010,
         sunset_ht,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1291,6 +1298,8 @@ fn missed_block_commits_2_1() {
         5,
         7010,
         sunset_ht,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -1635,6 +1644,8 @@ fn late_block_commits_2_1() {
         5,
         7010,
         sunset_ht,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -2695,6 +2706,7 @@ fn test_pox_btc_ops() {
     let sunset_ht = 8000;
     let pox_v1_unlock_ht = u32::MAX;
     let pox_v2_unlock_ht = u32::MAX;
+    let pox_v3_unlock_ht = u32::MAX;
     let pox_consts = Some(PoxConstants::new(
         5,
         3,
@@ -2705,6 +2717,8 @@ fn test_pox_btc_ops() {
         sunset_ht,
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
+        pox_v3_unlock_ht,
+        u32::MAX,
         u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -2886,7 +2900,8 @@ fn test_pox_btc_ops() {
                     stacker_balance.get_available_balance_at_burn_block(
                         burn_height as u64,
                         pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
+                        pox_v2_unlock_ht,
+                        pox_v3_unlock_ht,
                     ),
                     balance as u128,
                     "No lock should be active"
@@ -2977,6 +2992,7 @@ fn test_stx_transfer_btc_ops() {
 
     let pox_v1_unlock_ht = u32::MAX;
     let pox_v2_unlock_ht = u32::MAX;
+    let pox_v3_unlock_ht = u32::MAX;
     let sunset_ht = 8000;
     let pox_consts = Some(PoxConstants::new(
         5,
@@ -2988,6 +3004,8 @@ fn test_stx_transfer_btc_ops() {
         sunset_ht,
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
+        pox_v3_unlock_ht,
+        u32::MAX,
         u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -3191,7 +3209,8 @@ fn test_stx_transfer_btc_ops() {
                     sender_balance.get_available_balance_at_burn_block(
                         burn_height as u64,
                         pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
+                        pox_v2_unlock_ht,
+                        pox_v3_unlock_ht,
                     ),
                     (balance as u128) - transfer_amt,
                     "Transfer should have decremented balance"
@@ -3200,7 +3219,8 @@ fn test_stx_transfer_btc_ops() {
                     recipient_balance.get_available_balance_at_burn_block(
                         burn_height as u64,
                         pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
+                        pox_v2_unlock_ht,
+                        pox_v3_unlock_ht,
                     ),
                     transfer_amt,
                     "Recipient should have incremented balance"
@@ -3210,7 +3230,8 @@ fn test_stx_transfer_btc_ops() {
                     sender_balance.get_available_balance_at_burn_block(
                         burn_height as u64,
                         pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
+                        pox_v2_unlock_ht,
+                        pox_v3_unlock_ht,
                     ),
                     balance as u128,
                 );
@@ -3218,7 +3239,8 @@ fn test_stx_transfer_btc_ops() {
                     recipient_balance.get_available_balance_at_burn_block(
                         burn_height as u64,
                         pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
+                        pox_v2_unlock_ht,
+                        pox_v3_unlock_ht,
                     ),
                     0,
                 );
@@ -3299,6 +3321,281 @@ fn test_stx_transfer_btc_ops() {
                    "111111111111",
                    "PoX ID should reflect the 5 reward cycles _with_ a known anchor block, plus the 'initial' known reward cycle at genesis");
     }
+}
+
+#[test]
+fn test_sbtc_ops() {
+    let path = "/tmp/stacks-blockchain-sbtc-ops";
+    let _r = std::fs::remove_dir_all(path);
+
+    let pox_v1_unlock_ht = 12;
+    let pox_v2_unlock_ht = 14;
+    let pox_v3_unlock_ht = 16;
+    let pox_3_activation_ht = 15;
+    let pox_4_activation_ht = 16;
+    let sunset_ht = 8000;
+    let pox_consts = Some(PoxConstants::new(
+        100,
+        3,
+        3,
+        25,
+        5,
+        7010,
+        sunset_ht,
+        pox_v1_unlock_ht,
+        pox_v2_unlock_ht,
+        pox_v3_unlock_ht,
+        pox_3_activation_ht,
+        pox_4_activation_ht,
+    ));
+    let burnchain_conf = get_burnchain(path, pox_consts.clone());
+
+    let vrf_keys: Vec<_> = (0..50).map(|_| VRFPrivateKey::new()).collect();
+    let committers: Vec<_> = (0..50).map(|_| StacksPrivateKey::new()).collect();
+
+    let stacker = p2pkh_from(&StacksPrivateKey::new());
+    let recipient = p2pkh_from(&StacksPrivateKey::new());
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let transfer_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let initial_balances = vec![(stacker.clone().into(), balance)];
+
+    setup_states(
+        &[path],
+        &vrf_keys,
+        &committers,
+        pox_consts.clone(),
+        Some(initial_balances),
+        StacksEpochId::Epoch24,
+    );
+
+    let mut coord = make_coordinator(path, Some(burnchain_conf.clone()));
+
+    coord.handle_new_burnchain_block().unwrap();
+
+    let sort_db = get_sortition_db(path, pox_consts.clone());
+
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    assert_eq!(tip.block_height, 1);
+    assert_eq!(tip.sortition, false);
+    let (_, ops) = sort_db
+        .get_sortition_result(&tip.sortition_id)
+        .unwrap()
+        .unwrap();
+
+    // we should have all the VRF registrations accepted
+    assert_eq!(ops.accepted_ops.len(), vrf_keys.len());
+    assert_eq!(ops.consumed_leader_keys.len(), 0);
+
+    // process sequential blocks, and their sortitions...
+    let mut stacks_blocks: Vec<(SortitionId, StacksBlock)> = vec![];
+    let mut burnchain_block_hashes = vec![];
+
+    let first_peg_in_memo = vec![1, 3, 3, 7];
+    let second_peg_in_memo = vec![4, 2];
+
+    let first_peg_out_request_memo = vec![1, 3, 3, 8];
+    let second_peg_out_request_memo = vec![4, 3];
+
+    let peg_out_fulfill_memo = vec![1, 3, 3, 8];
+
+    for ix in 0..vrf_keys.len() {
+        let vrf_key = &vrf_keys[ix];
+        let miner = &committers[ix];
+
+        let mut burnchain = get_burnchain_db(path, pox_consts.clone());
+        let mut chainstate = get_chainstate(path);
+
+        let parent = if ix == 0 {
+            BlockHeaderHash([0; 32])
+        } else {
+            stacks_blocks[ix - 1].1.header.block_hash()
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        let next_mock_header = BurnchainBlockHeader {
+            block_height: burnchain_tip.block_height + 1,
+            block_hash: BurnchainHeaderHash([0; 32]),
+            parent_block_hash: burnchain_tip.block_hash,
+            num_txs: 0,
+            timestamp: 1,
+        };
+
+        let b = get_burnchain(path, pox_consts.clone());
+        let (good_op, block) = if ix == 0 {
+            make_genesis_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &parent,
+                miner,
+                10000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        } else {
+            make_stacks_block_with_recipients(
+                &sort_db,
+                &mut chainstate,
+                &b,
+                &parent,
+                burnchain_tip.block_height,
+                miner,
+                1000,
+                vrf_key,
+                ix as u32,
+                None,
+            )
+        };
+
+        let expected_winner = good_op.txid();
+        let mut ops = vec![good_op];
+        let peg_wallet_address = PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0; 32]);
+        let recipient_btc_address = PoxAddress::Standard(stacker.into(), None);
+        let canonical_chain_tip_snapshot =
+            SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+
+        let chain_tip = StacksBlockId::new(
+            &canonical_chain_tip_snapshot.consensus_hash,
+            &canonical_chain_tip_snapshot.winning_stacks_block_hash,
+        );
+
+        match ix {
+            0 => {
+                ops.push(BlockstackOperationType::PegIn(PegInOp {
+                    recipient: stacker.into(),
+                    peg_wallet_address,
+                    amount: 1337,
+                    memo: first_peg_in_memo.clone(),
+                    txid: next_txid(),
+                    vtxindex: 5,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            1 => {
+                // Shouldn't be accepted -- amount must be positive
+                ops.push(BlockstackOperationType::PegIn(PegInOp {
+                    recipient: stacker.into(),
+                    peg_wallet_address,
+                    amount: 0,
+                    memo: second_peg_in_memo.clone(),
+                    txid: next_txid(),
+                    vtxindex: 5,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            2 => {
+                // Shouldn't be accepted -- amount must be positive
+                ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
+                    recipient: recipient_btc_address,
+                    signature: MessageSignature([0; 65]),
+                    amount: 0,
+                    peg_wallet_address,
+                    fulfillment_fee: 3,
+                    memo: first_peg_out_request_memo.clone(),
+                    txid: next_txid(),
+                    vtxindex: 5,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            3 => {
+                // Add a valid peg-out request op
+                ops.push(BlockstackOperationType::PegOutRequest(PegOutRequestOp {
+                    recipient: recipient_btc_address,
+                    signature: MessageSignature([0; 65]),
+                    amount: 5,
+                    peg_wallet_address,
+                    fulfillment_fee: 3,
+                    txid: Txid([0x13; 32]),
+                    memo: second_peg_out_request_memo.clone(),
+                    vtxindex: 8,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            4 => {
+                // Fulfill the peg-out request
+                ops.push(BlockstackOperationType::PegOutFulfill(PegOutFulfillOp {
+                    recipient: recipient_btc_address,
+                    amount: 3,
+                    chain_tip,
+                    memo: peg_out_fulfill_memo.clone(),
+                    request_ref: Txid([0x13; 32]),
+                    txid: next_txid(),
+                    vtxindex: 6,
+                    block_height: 0,
+                    burn_header_hash: BurnchainHeaderHash([0; 32]),
+                }));
+            }
+            _ => {}
+        };
+
+        let burnchain_tip = burnchain.get_canonical_chain_tip().unwrap();
+        produce_burn_block(
+            &b,
+            &mut burnchain,
+            &burnchain_tip.block_hash,
+            ops,
+            vec![].iter_mut(),
+        );
+
+        burnchain_block_hashes.push(burnchain_tip.block_hash);
+        // handle the sortition
+        coord.handle_new_burnchain_block().unwrap();
+
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+        assert_eq!(&tip.winning_block_txid, &expected_winner);
+
+        // load the block into staging
+        let block_hash = block.header.block_hash();
+
+        assert_eq!(&tip.winning_stacks_block_hash, &block_hash);
+        stacks_blocks.push((tip.sortition_id.clone(), block.clone()));
+
+        preprocess_block(&mut chainstate, &sort_db, &tip, block);
+
+        // handle the stacks block
+        coord.handle_new_stacks_block().unwrap();
+    }
+
+    let peg_in_ops: Vec<_> = burnchain_block_hashes
+        .iter()
+        .flat_map(|block_hash| {
+            SortitionDB::get_peg_in_ops(&sort_db.conn(), block_hash)
+                .expect("Failed to get peg in ops")
+        })
+        .collect();
+
+    let peg_out_request_ops: Vec<_> = burnchain_block_hashes
+        .iter()
+        .flat_map(|block_hash| {
+            SortitionDB::get_peg_out_request_ops(&sort_db.conn(), block_hash)
+                .expect("Failed to get peg out request ops")
+        })
+        .collect();
+
+    let peg_out_fulfill_ops: Vec<_> = burnchain_block_hashes
+        .iter()
+        .flat_map(|block_hash| {
+            SortitionDB::get_peg_out_fulfill_ops(&sort_db.conn(), block_hash)
+                .expect("Failed to get peg out fulfillment ops")
+        })
+        .collect();
+
+    assert_eq!(peg_in_ops.len(), 1);
+    assert_eq!(peg_in_ops[0].memo, first_peg_in_memo);
+
+    assert_eq!(peg_out_request_ops.len(), 1);
+    assert_eq!(peg_out_request_ops[0].memo, second_peg_out_request_memo);
+
+    assert_eq!(peg_out_fulfill_ops.len(), 1);
+    assert_eq!(peg_out_fulfill_ops[0].memo, peg_out_fulfill_memo);
+    assert_eq!(
+        peg_out_fulfill_ops[0].request_ref,
+        peg_out_request_ops[0].txid
+    );
 }
 
 // This helper function retrieves the delegation info from the delegate address
@@ -3394,6 +3691,8 @@ fn test_delegate_stx_btc_ops() {
         sunset_ht,
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
@@ -3700,6 +3999,8 @@ fn test_initial_coinbase_reward_distributions() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -3939,6 +4240,8 @@ fn test_epoch_switch_cost_contract_instantiation() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4140,6 +4443,8 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
         10,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -4333,7 +4638,20 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
     let _r = std::fs::remove_dir_all(path);
 
     let sunset_ht = 8000;
-    let pox_consts = Some(PoxConstants::new(6, 3, 3, 25, 5, 10, sunset_ht, 10, 14, 16));
+    let pox_consts = Some(PoxConstants::new(
+        6,
+        3,
+        3,
+        25,
+        5,
+        10,
+        sunset_ht,
+        10,
+        14,
+        u32::MAX,
+        16,
+        u32::MAX,
+    ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
     let vrf_keys: Vec<_> = (0..25).map(|_| VRFPrivateKey::new()).collect();
@@ -4535,6 +4853,8 @@ fn atlas_stop_start() {
         10,
         sunset_ht,
         10,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     ));
@@ -4846,6 +5166,8 @@ fn test_epoch_verify_active_pox_contract() {
         pox_v1_unlock_ht,
         pox_v2_unlock_ht,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     ));
     let burnchain_conf = get_burnchain(path, pox_consts.clone());
 
@@ -5134,6 +5456,8 @@ fn test_sortition_with_sunset() {
         5,
         10,
         sunset_ht,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5444,6 +5768,8 @@ fn test_sortition_with_sunset_and_epoch_switch() {
         10,
         sunset_ht,
         v1_unlock_ht,
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
     ));
@@ -5795,6 +6121,8 @@ fn test_pox_processable_block_in_different_pox_forks() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
+        u32::MAX,
+        u32::MAX,
     ));
     let b = get_burnchain(path, pox_consts.clone());
     let b_blind = get_burnchain(path_blinded, pox_consts.clone());
@@ -5914,7 +6242,10 @@ fn test_pox_processable_block_in_different_pox_forks() {
         );
 
         loop {
-            let missing_anchor_opt = coord.handle_new_burnchain_block().unwrap();
+            let missing_anchor_opt = coord
+                .handle_new_burnchain_block()
+                .unwrap()
+                .into_missing_block_hash();
             if let Some(missing_anchor) = missing_anchor_opt {
                 eprintln!(
                     "Unblinded database reports missing anchor block {:?} (ix={})",

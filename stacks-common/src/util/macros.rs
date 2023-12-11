@@ -465,6 +465,7 @@ macro_rules! impl_byte_array_newtype {
             }
 
             /// Instantiates from a slice of bytes
+            /// Note: if this type is a hashing type, this sets the hash result to `inp` exactly: this method does **not** perform the hash.
             #[allow(dead_code)]
             pub fn from_bytes(inp: &[u8]) -> Option<$thing> {
                 match inp.len() {
