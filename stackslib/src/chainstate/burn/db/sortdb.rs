@@ -1820,6 +1820,23 @@ impl<'a> SortitionHandleTx<'a> {
         Ok(())
     }
 
+    /// Update the canonical Stacks tip (testing only)
+    #[cfg(test)]
+    pub fn test_update_canonical_stacks_tip(
+        &mut self,
+        sort_id: &SortitionId,
+        consensus_hash: &ConsensusHash,
+        stacks_block_hash: &BlockHeaderHash,
+        stacks_block_height: u64,
+    ) -> Result<(), db_error> {
+        self.update_canonical_stacks_tip(
+            sort_id,
+            consensus_hash,
+            stacks_block_hash,
+            stacks_block_height,
+        )
+    }
+
     /// Mark an existing snapshot's stacks block as accepted at a particular burn chain tip within a PoX fork (identified by the consensus hash),
     /// and calculate and store its arrival index.
     /// If this Stacks block extends the canonical stacks chain tip, then also update the memoized canonical
@@ -4590,9 +4607,9 @@ impl SortitionDB {
     }
 
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
-    pub fn get_canonical_stacks_chain_tip_hash(
+    pub fn get_canonical_stacks_chain_tip_hash_and_height(
         conn: &Connection,
-    ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
+    ) -> Result<(ConsensusHash, BlockHeaderHash, u64), db_error> {
         let sn = SortitionDB::get_canonical_burn_chain_tip(conn)?;
         let cur_epoch = SortitionDB::get_stacks_epoch(conn, sn.block_height)?.expect(&format!(
             "FATAL: no epoch defined for burn height {}",
@@ -4605,9 +4622,9 @@ impl SortitionDB {
             let mut cursor = sn;
             loop {
                 let result_at_tip = conn.query_row_and_then(
-                    "SELECT consensus_hash,block_hash FROM stacks_chain_tips WHERE sortition_id = ?",
+                    "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?",
                     &[&cursor.sortition_id],
-                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
+                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
                 ).optional()?;
                 if let Some(stacks_tip) = result_at_tip {
                     return Ok(stacks_tip);
@@ -4620,8 +4637,16 @@ impl SortitionDB {
         // epoch 2.x behavior -- look at the snapshot itself
         let stacks_block_hash = sn.canonical_stacks_tip_hash;
         let consensus_hash = sn.canonical_stacks_tip_consensus_hash;
+        let stacks_block_height = sn.canonical_stacks_tip_height;
+        Ok((consensus_hash, stacks_block_hash, stacks_block_height))
+    }
 
-        Ok((consensus_hash, stacks_block_hash))
+    /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
+    pub fn get_canonical_stacks_chain_tip_hash(
+        conn: &Connection,
+    ) -> Result<(ConsensusHash, BlockHeaderHash), db_error> {
+        Self::get_canonical_stacks_chain_tip_hash_and_height(conn)
+            .map(|(ch, bhh, _height)| (ch, bhh))
     }
 
     /// Get the maximum arrival index for any known snapshot.
