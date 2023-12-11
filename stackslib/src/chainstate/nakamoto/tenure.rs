@@ -510,73 +510,20 @@ impl NakamotoChainState {
     }
 
     /// Get the highest processed tenure on the canonical sortition history.
-    pub fn get_highest_nakamoto_tenure<SH: SortitionHandle>(
-        conn: &Connection,
-        sort_handle: &mut SH,
+    pub fn get_highest_nakamoto_tenure(
+        headers_conn: &Connection,
+        sortdb_conn: &Connection,
     ) -> Result<Option<NakamotoTenure>, ChainstateError> {
-        let mut max_search_coinbase_height = u64::try_from(i64::MAX - 1).expect("infallible");
-        while max_search_coinbase_height > 0 {
-            let Some(max_coinbase_height) =
-                Self::get_highest_nakamoto_coinbase_height(conn, max_search_coinbase_height)?
-            else {
-                // no tenures yet
-                test_debug!(
-                    "No tenures yet (max search height was {})",
-                    max_search_coinbase_height
-                );
-                return Ok(None);
-            };
-
-            let sql = "SELECT * FROM nakamoto_tenures WHERE coinbase_height = ?1 ORDER BY tenure_index DESC";
-            let args: &[&dyn ToSql] = &[&u64_to_sql(max_coinbase_height)?];
-            let tenures: Vec<NakamotoTenure> = query_rows(conn, sql, args)?;
-
-            test_debug!(
-                "Found {} tenures at coinbase height {}",
-                tenures.len(),
-                max_coinbase_height
-            );
-
-            // find the one that's in the canonical sortition history
-            for tenure in tenures.into_iter() {
-                // check the tenure consensus and the sortition consensus
-                let mut canonical = true;
-                for ch in &[
-                    &tenure.tenure_id_consensus_hash,
-                    &tenure.burn_view_consensus_hash,
-                ] {
-                    let Some(sn) =
-                        SortitionDB::get_block_snapshot_consensus(sort_handle.sqlite(), ch)?
-                    else {
-                        // not in sortition DB.
-                        // This is unreachable, but be defensive and just skip it.
-                        canonical = false;
-                        break;
-                    };
-                    let Some(ancestor_snapshot) =
-                        sort_handle.get_block_snapshot_by_height(sn.block_height)?
-                    else {
-                        // not canonical
-                        canonical = false;
-                        break;
-                    };
-                    if ancestor_snapshot.sortition_id != sn.sortition_id {
-                        // not canonical
-                        canonical = false;
-                        break;
-                    }
-                }
-                if canonical {
-                    return Ok(Some(tenure));
-                }
-            }
-
-            // no tenures at max_search_coinbase_height were canonical,
-            // but lower ones may be!
-            max_search_coinbase_height = max_coinbase_height.saturating_sub(1);
+        // find the tenure for the Stacks chain tip
+        let (tip_ch, tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb_conn)?;
+        if tip_ch == FIRST_BURNCHAIN_CONSENSUS_HASH || tip_bhh == FIRST_STACKS_BLOCK_HASH {
+            // no chain tip, so no tenure
+            return Ok(None);
         }
-        // no tenures at all were canonical
-        Ok(None)
+        let sql = "SELECT * FROM nakamoto_tenures WHERE tenure_id_consensus_hash = ?1 ORDER BY tenure_index DESC LIMIT 1";
+        let args: &[&dyn ToSql] = &[&tip_ch];
+        let tenure_opt: Option<NakamotoTenure> = query_row(headers_conn, sql, args)?;
+        Ok(tenure_opt)
     }
 
     /// Verify that a tenure change tx is a valid first-ever tenure change.  It must connect to an
@@ -761,7 +708,7 @@ impl NakamotoChainState {
         }
 
         let Some(highest_processed_tenure) =
-            Self::get_highest_nakamoto_tenure(headers_conn, sort_handle)?
+            Self::get_highest_nakamoto_tenure(headers_conn, sort_handle.sqlite())?
         else {
             // no previous tenures.  This is the first tenure change.  It should point to an epoch
             // 2.x block.
@@ -914,9 +861,9 @@ impl NakamotoChainState {
     ///
     /// Returns Ok(bool) to indicate whether or not this block is in the same tenure as its parent.
     /// Returns Err(..) on DB error
-    pub(crate) fn check_tenure_continuity<SH: SortitionHandle>(
+    pub(crate) fn check_tenure_continuity(
         headers_conn: &Connection,
-        sort_handle: &mut SH,
+        sortdb_conn: &Connection,
         parent_ch: &ConsensusHash,
         block_header: &NakamotoBlockHeader,
     ) -> Result<bool, ChainstateError> {
@@ -926,7 +873,7 @@ impl NakamotoChainState {
         }
 
         // block must be in the same tenure as the highest-processed tenure.
-        let Some(highest_tenure) = Self::get_highest_nakamoto_tenure(headers_conn, sort_handle)?
+        let Some(highest_tenure) = Self::get_highest_nakamoto_tenure(headers_conn, sortdb_conn)?
         else {
             // no tenures yet, so definitely not continuous
             return Ok(false);
