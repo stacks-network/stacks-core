@@ -59,7 +59,7 @@ impl StacksClient {
 
     /// Check if the proposed Nakamoto block is a valid block
     pub fn is_valid_nakamoto_block(&self, _block: &NakamotoBlock) -> Result<bool, ClientError> {
-        // TODO: Depends on https://github.com/stacks-network/stacks-core/issues/3866 
+        // TODO: Depends on https://github.com/stacks-network/stacks-core/issues/3866
         let send_request = || {
             self.stacks_node_client
                 .get(self.block_proposal_path())

@@ -210,7 +210,7 @@ impl<C: Coordinator> RunLoop<C> {
                         //     warn!("Received a block proposal signed with an invalid miner public key. Ignoring block proposal: {:?}.", block);
                         //     return;
                         // }
-                        
+
                         // This is a block proposal from the miner. Trigger a signing round for it.
                         self.commands.push_back(RunLoopCommand::Sign {
                             message: block.serialize_to_vec(),
