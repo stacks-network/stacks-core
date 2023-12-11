@@ -64,9 +64,8 @@ macro_rules! switch_on_global_epoch {
     };
 }
 
-use crate::vm::ClarityVersion;
-
 use super::errors::InterpreterError;
+use crate::vm::ClarityVersion;
 
 mod arithmetic;
 mod assets;
