@@ -984,7 +984,10 @@ fn pox_3_unlocks() {
         }
     }
 
-    info!( "Block height: {}", get_tip(peer.sortdb.as_ref()).block_height);
+    info!(
+        "Block height: {}",
+        get_tip(peer.sortdb.as_ref()).block_height
+    );
 
     let mut txs = vec![];
     let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
@@ -1086,7 +1089,7 @@ fn pox_3_unlocks() {
     }
 }
 
-fn assert_latest_was_burn (peer: &mut TestPeer) {
+fn assert_latest_was_burn(peer: &mut TestPeer) {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
@@ -1119,7 +1122,7 @@ fn assert_latest_was_burn (peer: &mut TestPeer) {
     }
 }
 
-fn assert_latest_was_pox (peer: &mut TestPeer) -> Vec<PoxAddress> {
+fn assert_latest_was_pox(peer: &mut TestPeer) -> Vec<PoxAddress> {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
