@@ -66,7 +66,7 @@ use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::stacks::boot::POX_4_NAME;
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH};
-use crate::clarity::vm::clarity::ClarityConnection;
+use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
@@ -2564,30 +2564,32 @@ impl NakamotoChainState {
                     })
                     .expect("get-aggregate-public-key returned None");
 
-                clarity_tx
-                    .connection()
-                    .with_readonly_clarity_env(
-                        false,
-                        chain_id,
-                        ClarityVersion::Clarity2,
-                        StacksAddress::burn_address(false).into(),
-                        None,
-                        LimitedCostTracker::Free,
+                clarity_tx.connection().as_transaction(|tx| {
+                    tx.with_abort_callback(
                         |vm_env| {
-                            vm_env.execute_contract_allow_private(
-                                &boot_code_id(POX_4_NAME, false),
-                                "set-aggregate-public-key",
-                                &vec![
-                                    SymbolicExpression::atom_value(Value::UInt(u128::from(
-                                        my_reward_cycle,
-                                    ))),
-                                    SymbolicExpression::atom_value(aggregate_public_key),
-                                ],
-                                false,
+                            vm_env.execute_in_env(
+                                StacksAddress::burn_address(false).into(),
+                                None,
+                                None,
+                                |vm_env| {
+                                    vm_env.execute_contract_allow_private(
+                                        &boot_code_id(POX_4_NAME, false),
+                                        "set-aggregate-public-key",
+                                        &vec![
+                                            SymbolicExpression::atom_value(Value::UInt(
+                                                u128::from(my_reward_cycle),
+                                            )),
+                                            SymbolicExpression::atom_value(aggregate_public_key),
+                                        ],
+                                        false,
+                                    )
+                                },
                             )
                         },
+                        |_, _| false,
                     )
-                    .ok();
+                    .expect("FATAL: `ust-liquid-supply` overflowed")
+                });
             }
         }
 

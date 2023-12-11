@@ -213,7 +213,7 @@ fn observe_set_aggregate_key() {
 
     // complete within 5 seconds or abort (we are only observing one block)
     let completed = loop {
-        if Instant::now().duration_since(start) > Duration::from_secs(5) {
+        if Instant::now().duration_since(start) > Duration::from_secs(120) {
             break false;
         }
         let latest_block = test_observer::get_blocks().pop();
@@ -224,8 +224,9 @@ fn observe_set_aggregate_key() {
         };
         let stacks_block_height = latest_block.get("block_height").unwrap().as_u64().unwrap();
         info!("Block height observed: {stacks_block_height}");
-
-        break true;
+        if stacks_block_height >= 100 {
+            break true;
+        }
     };
 
     globals.signal_stop();
