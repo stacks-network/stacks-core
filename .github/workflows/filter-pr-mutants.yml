@@ -12,4 +12,4 @@ jobs:
 
     steps:
       - name: Run filtering pr mutants from actions
-        uses: ASuciuX/actions/mutation-testing/filter-pr@feat/mutation-testing
+        uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
