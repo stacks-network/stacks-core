@@ -177,10 +177,10 @@ impl StackerDB {
             let slot_version = *self.slot_versions.entry(slot_id).or_insert(0) + 1;
             let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message_bytes.clone());
             chunk.sign(&self.stacks_private_key)?;
-            debug!("Sending a chunk to stackerdb!\n{:?}", chunk.clone());
+            debug!("Sending a chunk to stackerdb!\n{:?}", &chunk);
             let send_request = || {
                 self.signers_stackerdb_session
-                    .put_chunk(chunk.clone())
+                    .put_chunk(&chunk)
                     .map_err(backoff::Error::transient)
             };
             let chunk_ack: StackerDBChunkAckData = retry_with_exponential_backoff(send_request)?;
