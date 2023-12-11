@@ -3458,8 +3458,12 @@ fn pox_lock_unlock() {
     let mut rewarded = HashSet::new();
 
     // Check that STX are locked for 2 reward cycles
-    for c in 0..lock_period {
-        info!("Checking STX locked, iteration {}", c + 1);
+    for _ in 0..lock_period {
+        let tip = get_tip(peer.sortdb.as_ref());
+        let cycle = burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap();
+        info!("Checking no stackers for cycle {cycle}");
         for i in 0..reward_blocks {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
@@ -3479,21 +3483,20 @@ fn pox_lock_unlock() {
         for stacker in stackers.iter() {
             assert!(
                 rewarded.contains(stacker),
-                "Reward cycle should include {}",
-                stacker
+                "Reward cycle should include {stacker}"
             );
         }
 
         // now we should be back in a prepare phase
         info!("Checking we are in prepare phase");
-        for _i in 0..burnchain.pox_constants.prepare_length {
+        for _ in 0..burnchain.pox_constants.prepare_length {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             assert_latest_was_burn(&mut peer);
         }
     }
 
     info!("Checking STX unlocked after {lock_period} cycles");
-    for _i in 0..burnchain.pox_constants.reward_cycle_length {
+    for _ in 0..burnchain.pox_constants.reward_cycle_length {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         assert_latest_was_burn(&mut peer);
     }
@@ -3578,27 +3581,153 @@ fn pox_3_fails() {
     let reward_blocks =
         burnchain.pox_constants.reward_cycle_length - burnchain.pox_constants.prepare_length;
 
-    // Check 2 reward cycles
-    for c in 0..lock_period {
-        info!("Checking no stackers this cycle, iteration {}", c + 1);
-        for i in 0..reward_blocks {
+    // Check next 3 reward cycles
+    for _ in 0..=lock_period {
+        let tip = get_tip(peer.sortdb.as_ref());
+        let cycle = burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap();
+        info!("Checking no stackers for cycle {cycle}");
+        for _ in 0..burnchain.pox_constants.reward_cycle_length {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             // Should all be burn because no stackers
             assert_latest_was_burn(&mut peer);
         }
+    }
+}
+
+/// Test that we can lock STX for a couple cycles after pox4 starts,
+/// and that it unlocks after the desired number of cycles
+#[test]
+fn pox_3_unlocks() {
+    // Config for this test
+    // We are going to try locking for 4 reward cycles (20 blocks)
+    let lock_period = 4;
+    let (epochs, pox_constants) = make_test_epochs_pox();
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let (mut peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
+
+    assert_eq!(burnchain.pox_constants.reward_slots(), 6);
+    let mut coinbase_nonce = 0;
+    let mut latest_block;
+
+    // Advance to a few blocks before pox 3 unlock
+    let target_height = burnchain.pox_constants.v3_unlock_height - 14;
+    // produce blocks until the first reward phase that everyone should be in
+    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        // if we reach epoch 2.1, perform the check
+        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+            assert_latest_was_burn(&mut peer);
+        }
+    }
+
+    info!( "Block height: {}", get_tip(peer.sortdb.as_ref()).block_height);
+
+    let mut txs = vec![];
+    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let stackers: Vec<_> = keys
+        .iter()
+        .zip([
+            AddressHashMode::SerializeP2PKH,
+            AddressHashMode::SerializeP2SH,
+            AddressHashMode::SerializeP2WPKH,
+            AddressHashMode::SerializeP2WSH,
+        ])
+        .map(|(key, hash_mode)| {
+            let pox_addr = PoxAddress::from_legacy(hash_mode, key_to_stacks_addr(key).bytes);
+            txs.push(make_pox_3_lockup(
+                key,
+                0,
+                1024 * POX_THRESHOLD_STEPS_USTX,
+                pox_addr.clone(),
+                lock_period,
+                tip_height,
+            ));
+            pox_addr
+        })
+        .collect();
+
+    info!("Submitting stacking txs");
+    latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    // Advance a couple more blocks
+    for _ in 0..3 {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    // now we should be in the reward phase, produce the reward blocks
+    let reward_blocks =
+        burnchain.pox_constants.reward_cycle_length - burnchain.pox_constants.prepare_length;
+    let mut rewarded = HashSet::new();
+
+    // Check that STX are locked for 2 reward cycles
+    for _ in 0..2 {
+        let tip = get_tip(peer.sortdb.as_ref());
+        let cycle = burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap();
+        info!("Checking STX locked for cycle {cycle}");
+        for i in 0..reward_blocks {
+            latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+            // only the first 2 reward blocks contain pox outputs, because there are 6 slots and only 4 are occuppied
+            if i < 2 {
+                assert_latest_was_pox(&mut peer)
+                    .into_iter()
+                    .filter(|addr| !addr.is_burn())
+                    .for_each(|addr| {
+                        rewarded.insert(addr);
+                    });
+            } else {
+                assert_latest_was_burn(&mut peer);
+            }
+        }
+
+        assert_eq!(rewarded.len(), 4);
+        for stacker in stackers.iter() {
+            assert!(
+                rewarded.contains(stacker),
+                "Reward cycle should include {stacker}"
+            );
+        }
 
         // now we should be back in a prepare phase
         info!("Checking we are in prepare phase");
-        for _i in 0..burnchain.pox_constants.prepare_length {
+        for _ in 0..burnchain.pox_constants.prepare_length {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             assert_latest_was_burn(&mut peer);
         }
     }
 
-    info!("Checking STX unlocked after {lock_period} cycles");
-    for _i in 0..burnchain.pox_constants.reward_cycle_length {
+    // Advance to v3 unlock
+    let target_height = burnchain.pox_constants.v3_unlock_height;
+    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        assert_latest_was_burn(&mut peer);
+    }
+
+    info!(
+        "Block height: {}",
+        get_tip(peer.sortdb.as_ref()).block_height
+    );
+
+    // Check that STX are not locked for 3 reward cycles after pox4 starts
+    for _ in 0..3 {
+        let tip = get_tip(peer.sortdb.as_ref());
+        let cycle = burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap();
+        info!("Checking no stackers for cycle {cycle}");
+        for _ in 0..burnchain.pox_constants.reward_cycle_length {
+            latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+            assert_latest_was_burn(&mut peer);
+        }
     }
 }
 
@@ -4353,7 +4482,8 @@ fn pox_3_delegate_stx_addr_validation() {
     );
 }
 
-fn assert_latest_was_burn(peer: &mut TestPeer) {
+
+fn assert_latest_was_burn (peer: &mut TestPeer) {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
@@ -4386,7 +4516,7 @@ fn assert_latest_was_burn(peer: &mut TestPeer) {
     }
 }
 
-fn assert_latest_was_pox(peer: &mut TestPeer) -> Vec<PoxAddress> {
+fn assert_latest_was_pox (peer: &mut TestPeer) -> Vec<PoxAddress> {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
