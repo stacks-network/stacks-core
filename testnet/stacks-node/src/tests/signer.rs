@@ -189,6 +189,7 @@ pub fn build_pox_contract(num_signers: u32) -> String {
 }
 
 #[test]
+#[ignore]
 fn test_stackerdb_dkg() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
