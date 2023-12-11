@@ -54,7 +54,8 @@ use crate::chainstate::burn::db::sortdb::{
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp, StackStxOp, TransferStxOp, UserBurnSupportOp,
+    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
