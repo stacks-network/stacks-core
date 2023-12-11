@@ -9012,9 +9012,10 @@ pub mod tests {
                 stacks_block_accepted: false,
                 stacks_block_height: 0,
                 arrival_index: 0,
-                canonical_stacks_tip_height: 0,
-                canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
-                canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                canonical_stacks_tip_height: last_snapshot.canonical_stacks_tip_height,
+                canonical_stacks_tip_hash: last_snapshot.canonical_stacks_tip_hash,
+                canonical_stacks_tip_consensus_hash: last_snapshot
+                    .canonical_stacks_tip_consensus_hash,
                 miner_pk_hash: None,
             };
             new_snapshots.push(snapshot.clone());
