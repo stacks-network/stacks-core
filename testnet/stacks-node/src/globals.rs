@@ -35,7 +35,9 @@ pub enum RelayerDirective {
     Exit,
 }
 
-/// Inter-thread communication structure, shared between threads
+/// Inter-thread communication structure, shared between threads. This
+/// is generic over the relayer communication channel: nakamoto and
+/// neon nodes use different relayer directives.
 pub struct Globals<T> {
     /// Last sortition processed
     last_sortition: Arc<Mutex<Option<BlockSnapshot>>>,
@@ -98,6 +100,12 @@ impl<T> Globals<T> {
                 LeaderKeyRegistrationState::Inactive,
             )),
         }
+    }
+
+    /// Does the inventory sync watcher think we still need to
+    /// catch up to the chain tip?
+    pub fn in_initial_block_download(&self) -> bool {
+        self.sync_comms.get_ibd()
     }
 
     /// Get the last sortition processed by the relayer thread

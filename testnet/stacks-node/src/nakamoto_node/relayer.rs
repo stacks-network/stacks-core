@@ -1,3 +1,4 @@
+use core::fmt;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
@@ -38,8 +39,6 @@ use stacks::core::mempool::MemPoolDB;
 use stacks::core::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER,
 };
-use stacks::cost_estimates::metrics::UnitMetric;
-use stacks::cost_estimates::UnitEstimator;
 use stacks::monitoring::increment_stx_blocks_mined_counter;
 use stacks::net::db::LocalPeer;
 use stacks::net::relay::Relayer;
@@ -82,10 +81,23 @@ pub enum RelayerDirective {
     Exit,
 }
 
+impl fmt::Display for RelayerDirective {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RelayerDirective::HandleNetResult(_) => write!(f, "HandleNetResult"),
+            RelayerDirective::ProcessedBurnBlock(_, _, _) => write!(f, "ProcessedBurnBlock"),
+            RelayerDirective::IssueBlockCommit(_, _) => write!(f, "IssueBlockCommit"),
+            RelayerDirective::RegisterKey(_) => write!(f, "RegisterKey"),
+            RelayerDirective::Exit => write!(f, "Exit"),
+        }
+    }
+}
+
 /// Relayer thread
 /// * accepts network results and stores blocks and microblocks
 /// * forwards new blocks, microblocks, and transactions to the p2p thread
-/// * processes burnchain state
+/// * issues (and re-issues) block commits to participate as a miner
+/// * processes burnchain state to determine if selected as a miner
 /// * if mining, runs the miner and broadcasts blocks (via a subordinate MinerThread)
 pub struct RelayerThread {
     /// Node config
@@ -148,14 +160,12 @@ pub struct RelayerThread {
 }
 
 impl RelayerThread {
-    /// Instantiate off of a StacksNode, a runloop, and a relayer.
+    /// Instantiate relayer thread.
+    /// Uses `runloop` to obtain globals, config, and `is_miner`` status
     pub fn new(runloop: &RunLoop, local_peer: LocalPeer, relayer: Relayer) -> RelayerThread {
         let config = runloop.config().clone();
         let globals = runloop.get_globals();
         let burn_db_path = config.get_burn_db_file_path();
-        let stacks_chainstate_path = config.get_chainstate_path_str();
-        let is_mainnet = config.is_mainnet();
-        let chain_id = config.burnchain.chain_id;
         let is_miner = runloop.is_miner();
 
         let sortdb = SortitionDB::open(&burn_db_path, true, runloop.get_burnchain().pox_constants)
@@ -164,21 +174,9 @@ impl RelayerThread {
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: failed to open chainstate DB");
 
-        let cost_estimator = config
-            .make_cost_estimator()
-            .unwrap_or_else(|| Box::new(UnitEstimator));
-        let metric = config
-            .make_cost_metric()
-            .unwrap_or_else(|| Box::new(UnitMetric));
-
-        let mempool = MemPoolDB::open(
-            is_mainnet,
-            chain_id,
-            &stacks_chainstate_path,
-            cost_estimator,
-            metric,
-        )
-        .expect("Database failure opening mempool");
+        let mempool = config
+            .connect_mempool_db()
+            .expect("Database failure opening mempool");
 
         let keychain = Keychain::default(config.node.seed.clone());
         let bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
@@ -215,7 +213,7 @@ impl RelayerThread {
 
     /// have we waited for the right conditions under which to start mining a block off of our
     /// chain tip?
-    pub fn has_waited_for_latest_blocks(&self) -> bool {
+    fn has_waited_for_latest_blocks(&self) -> bool {
         // a network download pass took place
         (self.min_network_download_passes <= self.last_network_download_passes
         // a network inv pass took place
@@ -224,21 +222,6 @@ impl RelayerThread {
         || self.last_network_block_height_ts + (self.config.node.wait_time_for_blocks as u128) < get_epoch_time_ms()
         // we're not supposed to wait at all
         || !self.config.miner.wait_for_block_download
-    }
-
-    /// Return debug string for waiting for latest blocks
-    pub fn debug_waited_for_latest_blocks(&self) -> String {
-        format!(
-            "({} <= {} && {} <= {}) || {} + {} < {} || {}",
-            self.min_network_download_passes,
-            self.last_network_download_passes,
-            self.min_network_inv_passes,
-            self.last_network_inv_passes,
-            self.last_network_block_height_ts,
-            self.config.node.wait_time_for_blocks,
-            get_epoch_time_ms(),
-            self.config.miner.wait_for_block_download
-        )
     }
 
     /// Handle a NetworkResult from the p2p/http state machine.  Usually this is the act of
@@ -503,7 +486,6 @@ impl RelayerThread {
 
         let parent_winning_vtxindex = parent_winning_tx.vtxindex;
 
-        // let burn_fee_cap = self.config.burnchain.burn_fee_cap;
         let burn_fee_cap = get_mining_spend_amount(self.globals.get_miner_status());
         let sunset_burn = self.burnchain.expected_sunset_burn(
             sort_tip.block_height + 1,
@@ -738,9 +720,6 @@ impl RelayerThread {
             return None;
         }
 
-        // TODO (nakamoto): the miner shouldn't issue either of these directives
-        //   if we're still in IBD!
-
         // do we need a VRF key registration?
         if matches!(
             self.globals.get_leader_key_registration_state(),
@@ -869,11 +848,10 @@ impl RelayerThread {
 
     /// Top-level dispatcher
     pub fn handle_directive(&mut self, directive: RelayerDirective) -> bool {
+        info!("Relayer: handling directive"; "directive" => %directive);
         let continue_running = match directive {
             RelayerDirective::HandleNetResult(net_result) => {
-                debug!("Relayer: directive Handle network result");
                 self.process_network_result(net_result);
-                debug!("Relayer: directive Handled network result");
                 true
             }
             // RegisterKey directives mean that the relayer should try to register a new VRF key.
@@ -882,10 +860,12 @@ impl RelayerThread {
                 if !self.is_miner {
                     return true;
                 }
-                debug!("Relayer: directive Register VRF key");
+                if self.globals.in_initial_block_download() {
+                    info!("In initial block download, will not submit VRF registration");
+                    return true;
+                }
                 self.rotate_vrf_and_register(&last_burn_block);
                 self.globals.counters.bump_blocks_processed();
-                debug!("Relayer: directive Registered VRF key");
                 true
             }
             // ProcessedBurnBlock directives correspond to a new sortition perhaps occurring.
@@ -895,30 +875,33 @@ impl RelayerThread {
                 if !self.is_miner {
                     return true;
                 }
-                info!("Relayer: directive Process tenures");
-                let res = self.handle_sortition(
+                if self.globals.in_initial_block_download() {
+                    debug!("In initial block download, will not check sortition for miner");
+                    return true;
+                }
+                self.handle_sortition(
                     consensus_hash,
                     burn_hash,
                     StacksBlockId(block_header_hash.0),
-                );
-                info!("Relayer: directive Processed tenures");
-                res
+                )
             }
             // These are triggered by the relayer waking up, seeing a new consensus hash *or* a new first tenure block
             RelayerDirective::IssueBlockCommit(consensus_hash, block_hash) => {
                 if !self.is_miner {
                     return true;
                 }
-                debug!("Relayer: Nakamoto Tenure Start");
+                if self.globals.in_initial_block_download() {
+                    debug!("In initial block download, will not issue block commit");
+                    return true;
+                }
                 if let Err(e) = self.issue_block_commit(consensus_hash, block_hash) {
                     warn!("Relayer failed to issue block commit"; "err" => ?e);
                 }
-                debug!("Relayer: Nakamoto Tenure Start");
                 true
             }
             RelayerDirective::Exit => false,
         };
-
+        debug!("Relayer: handled directive"; "continue_running" => continue_running);
         continue_running
     }
 }
