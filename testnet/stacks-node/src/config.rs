@@ -1150,7 +1150,11 @@ impl Config {
                     .as_ref()
                     .map(|x| Secp256k1PrivateKey::from_hex(x))
                     .transpose()?,
-                self_signing_key: None,
+                self_signing_key: miner
+                    .self_signing_seed
+                    .as_ref()
+                    .map(|x| SelfSigner::from_seed(*x))
+                    .or(miner_default_config.self_signing_key),
             },
             None => miner_default_config,
         };
@@ -2300,6 +2304,7 @@ pub struct MinerConfigFile {
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
     pub mining_key: Option<String>,
+    pub self_signing_seed: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

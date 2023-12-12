@@ -162,7 +162,12 @@ pub struct RelayerThread {
 impl RelayerThread {
     /// Instantiate relayer thread.
     /// Uses `runloop` to obtain globals, config, and `is_miner`` status
-    pub fn new(runloop: &RunLoop, local_peer: LocalPeer, relayer: Relayer) -> RelayerThread {
+    pub fn new(
+        runloop: &RunLoop,
+        local_peer: LocalPeer,
+        relayer: Relayer,
+        keychain: Keychain,
+    ) -> RelayerThread {
         let config = runloop.config().clone();
         let globals = runloop.get_globals();
         let burn_db_path = config.get_burn_db_file_path();
@@ -178,7 +183,6 @@ impl RelayerThread {
             .connect_mempool_db()
             .expect("Database failure opening mempool");
 
-        let keychain = Keychain::default(config.node.seed.clone());
         let bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
 
         RelayerThread {

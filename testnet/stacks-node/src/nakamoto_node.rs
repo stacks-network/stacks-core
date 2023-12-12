@@ -21,6 +21,7 @@ use std::thread::JoinHandle;
 use stacks::burnchains::{BurnchainSigner, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::BlockSnapshot;
+use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::monitoring;
 use stacks::monitoring::update_active_miners_count_gauge;
 use stacks::net::atlas::AtlasConfig;
@@ -88,6 +89,11 @@ pub enum Error {
     BurnchainSubmissionFailed,
     /// A new parent has been discovered since mining started
     NewParentDiscovered,
+    /// A failure occurred while constructing a VRF Proof
+    BadVrfConstruction,
+    CannotSelfSign,
+    MiningFailure(ChainstateError),
+    SigningError(&'static str),
     // The thread that we tried to send to has closed
     ChannelClosed,
 }
@@ -125,7 +131,10 @@ impl StacksNode {
         let is_miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
         let atlas_config = config.atlas.clone();
-        let keychain = Keychain::default(config.node.seed.clone());
+        let mut keychain = Keychain::default(config.node.seed.clone());
+        if let Some(mining_key) = config.miner.mining_key.clone() {
+            keychain.set_nakamoto_sk(mining_key);
+        }
 
         // we can call _open_ here rather than _connect_, since connect is first called in
         //   make_genesis_block
@@ -166,7 +175,8 @@ impl StacksNode {
         };
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);
 
-        let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
+        let relayer_thread =
+            RelayerThread::new(runloop, local_peer.clone(), relayer, keychain.clone());
 
         StacksNode::set_monitoring_miner_address(&keychain, &relayer_thread);
 
