@@ -33,16 +33,13 @@
 (define-constant POX_REJECTION_FRACTION u25)
 
 ;; Valid values for burnchain address versions.
-;; These first four correspond to address hash modes in Stacks 2.1,
-;; and are defined in pox-mainnet.clar and pox-testnet.clar (so they
-;; cannot be defined here again).
 ;; (define-constant ADDRESS_VERSION_P2PKH 0x00)
 ;; (define-constant ADDRESS_VERSION_P2SH 0x01)
 ;; (define-constant ADDRESS_VERSION_P2WPKH 0x02)
 ;; (define-constant ADDRESS_VERSION_P2WSH 0x03)
-(define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
-(define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
-(define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
 ;; Keep these constants in lock-step with the address version buffs above
 ;; Maximum value of an address version as a uint
 (define-constant MAX_ADDRESS_VERSION u6)
@@ -52,6 +49,21 @@
 ;; Maximum value of an address version that has a 32-byte hashbytes
 ;; (0x05 and 0x06 have 32-byte hashbytes)
 (define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
+
+;; PoX mainnet constants
+;; Min/max number of reward cycles uSTX can be locked for
+(define-constant MIN_POX_REWARD_CYCLES u1)
+(define-constant MAX_POX_REWARD_CYCLES u12)
+
+;; Default length of the PoX registration window, in burnchain blocks.
+(define-constant PREPARE_CYCLE_LENGTH (if is-in-mainnet u100 u50))
+
+;; Default length of the PoX reward cycle, in burnchain blocks.
+(define-constant REWARD_CYCLE_LENGTH (if is-in-mainnet u2100 u1050))
+
+;; Stacking thresholds
+(define-constant STACKING_THRESHOLD_25 (if is-in-mainnet u20000 u8000))
+(define-constant STACKING_THRESHOLD_100 (if is-in-mainnet u5000 u2000))
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
@@ -509,11 +521,13 @@
     (and (>= lock-period MIN_POX_REWARD_CYCLES)
          (<= lock-period MAX_POX_REWARD_CYCLES)))
 
-;; Is the current block height outside of the prepare phase?
-(define-read-only (check-not-prepare-phase)
-    (let ((cycle-length (var-get pox-reward-cycle-length))))
-    (< (mod (- burn-block-height (var-get first-burnchain-block-height)) cycle-length)
-      (- cycle-length (var-get pox-prepare-cycle-length))))
+;; Is the given burn block height in the prepare phase?
+;; This computes `((height - first-burnchain-block-height) + pox-prepare-cycle-length) % pox-reward-cycle-length) < pox-prepare-cycle-length`.
+(define-read-only (check-prepare-phase (height uint))
+    (let ((prepare-cycle-length (var-get pox-prepare-cycle-length)))
+        (< (mod (+ (- height (var-get first-burnchain-block-height)) prepare-cycle-length)
+            (var-get pox-reward-cycle-length))
+        prepare-cycle-length)))
 
 ;; Evaluate if a participant can stack an amount of STX for a given period.
 ;; This method is designed as a read-only method so that it can be used as
@@ -553,7 +567,7 @@
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
     ;; stacking must not happen during prepare phase
-    (asserts! (check-not-prepare-phase)
+    (asserts! (not (check-prepare-phase burn-block-height))
               (err ERR_STACKING_DURING_PREPARE_PHASE))
 
     ;; address version must be valid
@@ -1025,7 +1039,7 @@
                     stacker: tx-sender,
                     add-amount: increase-by })))
             (err ERR_STACKING_UNREACHABLE))
-      ;; NOTE: stacking-state map is unchanged: it does not track amount-stacked in pox-4
+      ;; NOTE: stacking-state map is unchanged: it does not track amount-stacked in PoX-4
       (ok { stacker: tx-sender, total-locked: (+ amount-stacked increase-by)})))
 
 ;; Extend an active Stacking lock.
