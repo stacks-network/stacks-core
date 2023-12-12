@@ -22,10 +22,11 @@ pub mod miner;
 pub mod tenure;
 
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
@@ -37,8 +38,8 @@ use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
 };
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, StacksPrivateKey,
-    StacksPublicKey, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
@@ -70,15 +71,18 @@ use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegister
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
+use crate::chainstate::stacks::boot::POX_4_NAME;
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
+use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
 use crate::monitoring;
 use crate::net::Error as net_error;
+use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
@@ -2533,6 +2537,92 @@ impl NakamotoChainState {
         Ok(lockup_events)
     }
 
+    /// (TESTNET ONLY) Set the aggregate public key for verifying stacker signatures.
+    /// Do not call in mainnet
+    pub(crate) fn set_aggregate_public_key(
+        clarity_tx: &mut ClarityTx,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+        parent_burn_header_height: u64,
+        burn_header_height: u64,
+    ) {
+        let mainnet = clarity_tx.config.mainnet;
+        let chain_id = clarity_tx.config.chain_id;
+
+        let parent_reward_cycle = pox_constants
+            .block_height_to_reward_cycle(
+                first_block_height,
+                parent_burn_header_height
+                    .try_into()
+                    .expect("Burn block height exceeded u32"),
+            )
+            .expect("FATAL: block height occurs before first block height");
+        let my_reward_cycle = pox_constants
+            .block_height_to_reward_cycle(
+                first_block_height,
+                burn_header_height
+                    .try_into()
+                    .expect("Burn block height exceeded u32"),
+            )
+            .expect("FATAL: block height occurs before first block height");
+        if parent_reward_cycle != my_reward_cycle {
+            // execute `set-aggregate-public-key` using `clarity-tx`
+            let aggregate_public_key = clarity_tx
+                .connection()
+                .with_readonly_clarity_env(
+                    false,
+                    chain_id,
+                    ClarityVersion::Clarity2,
+                    StacksAddress::burn_address(mainnet).into(),
+                    None,
+                    LimitedCostTracker::Free,
+                    |vm_env| {
+                        vm_env.execute_contract_allow_private(
+                            &boot_code_id(POX_4_NAME, mainnet),
+                            "get-aggregate-public-key",
+                            &vec![SymbolicExpression::atom_value(Value::UInt(u128::from(
+                                parent_reward_cycle,
+                            )))],
+                            true,
+                        )
+                    },
+                )
+                .ok()
+                .map(|agg_key_value| {
+                    Value::buff_from(agg_key_value.expect_buff(33))
+                        .expect("failed to reconstruct buffer")
+                })
+                .expect("get-aggregate-public-key returned None");
+
+            clarity_tx.connection().as_transaction(|tx| {
+                tx.with_abort_callback(
+                    |vm_env| {
+                        vm_env.execute_in_env(
+                            StacksAddress::burn_address(mainnet).into(),
+                            None,
+                            None,
+                            |vm_env| {
+                                vm_env.execute_contract_allow_private(
+                                    &boot_code_id(POX_4_NAME, mainnet),
+                                    "set-aggregate-public-key",
+                                    &vec![
+                                        SymbolicExpression::atom_value(Value::UInt(
+                                            u128::from(my_reward_cycle),
+                                        )),
+                                        SymbolicExpression::atom_value(aggregate_public_key),
+                                    ],
+                                    false,
+                                )
+                            },
+                        )
+                    },
+                    |_, _| false,
+                )
+                .expect("FATAL: failed to set aggregate public key")
+            });
+        }
+    }
+
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     pub fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
@@ -2556,6 +2646,7 @@ impl NakamotoChainState {
 
         let ast_rules = ASTRules::PrecheckSize;
         let next_block_height = block.header.chain_length;
+        let first_block_height = burn_dbconn.context.first_block_height;
 
         // check that this block attaches to the `parent_chain_tip`
         let (parent_ch, parent_block_hash) = if block.is_first_mined() {
@@ -2714,6 +2805,10 @@ impl NakamotoChainState {
             coinbase_height,
             tenure_extend,
         )?;
+
+        if !block.is_first_mined() && !clarity_tx.config.mainnet {
+            Self::set_aggregate_public_key(&mut clarity_tx, first_block_height, pox_constants, parent_chain_tip.burn_header_height.into(), burn_header_height);
+        }
 
         let starting_cost = clarity_tx.cost_so_far();
 

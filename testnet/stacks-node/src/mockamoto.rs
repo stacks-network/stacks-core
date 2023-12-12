@@ -852,12 +852,6 @@ impl MockamotoNode {
             TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
             tenure_change_tx_payload,
         );
-        tenure_tx.chain_id = chain_id;
-        tenure_tx.set_origin_nonce(miner_nonce);
-        let mut tenure_tx_signer = StacksTransactionSigner::new(&tenure_tx);
-        tenure_tx_signer.sign_origin(&self.miner_key).unwrap();
-        let tenure_tx = tenure_tx_signer.get_tx().unwrap();
-
         let pox_address = PoxAddress::Standard(
             StacksAddress::burn_address(false),
             Some(AddressHashMode::SerializeP2PKH),
