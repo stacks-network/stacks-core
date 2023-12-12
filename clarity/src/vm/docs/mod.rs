@@ -2001,7 +2001,7 @@ const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
 can implement a given trait and then have their contract identifier being passed as a function argument in order to be called
 dynamically with `contract-call?`.
 
-Traits are defined with a name, and a list functions, where each function is defined with a name, a list of argument types, and a return type.
+Traits are defined with a name, and a list of functions, where each function is defined with a name, a list of argument types, and a return type.
 
 In Clarity 1, a trait type can be used to specify the type of a function parameter. A parameter with a trait type can
 be used as the target of a dynamic `contract-call?`. A principal literal (e.g. `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo`)
