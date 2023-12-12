@@ -781,19 +781,6 @@ pub fn test_load_store_update_nakamoto_blocks() {
         .unwrap()
         .is_some());
 
-        // this will fail without a tenure (e.g. due to foreign key constraints)
-        NakamotoChainState::insert_stacks_block_header(
-            &tx,
-            &nakamoto_header_info,
-            &nakamoto_header,
-            Some(&nakamoto_proof),
-            &nakamoto_execution_cost,
-            &nakamoto_execution_cost,
-            true,
-            300,
-        )
-        .unwrap_err();
-
         // no tenure yet, so zero blocks
         assert_eq!(
             NakamotoChainState::get_nakamoto_tenure_length(

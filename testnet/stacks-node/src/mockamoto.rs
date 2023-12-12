@@ -832,6 +832,9 @@ impl MockamotoNode {
         let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
         let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
 
+        let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
+        let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
+
         // Add a tenure change transaction to the block:
         //  as of now every mockamoto block is a tenure-change.
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
