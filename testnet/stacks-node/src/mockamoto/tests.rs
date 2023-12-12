@@ -108,6 +108,10 @@ fn observe_100_blocks() {
 
     globals.signal_stop();
 
+    node_thread
+        .join()
+        .expect("Failed to join node thread to exit");
+
     let transfer_tx_included = test_observer::get_blocks()
         .into_iter()
         .find(|block_json| {
@@ -129,9 +133,6 @@ fn observe_100_blocks() {
         completed,
         "Mockamoto node failed to produce and announce 100 blocks before timeout"
     );
-    node_thread
-        .join()
-        .expect("Failed to join node thread to exit");
 }
 
 #[test]
@@ -367,6 +368,10 @@ fn mempool_rpc_submit() {
 
     globals.signal_stop();
 
+    node_thread
+        .join()
+        .expect("Failed to join node thread to exit");
+
     let transfer_tx_included = test_observer::get_blocks()
         .into_iter()
         .find(|block_json| {
@@ -388,7 +393,4 @@ fn mempool_rpc_submit() {
         completed,
         "Mockamoto node failed to produce and announce 100 blocks before timeout"
     );
-    node_thread
-        .join()
-        .expect("Failed to join node thread to exit");
 }
