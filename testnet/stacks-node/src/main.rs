@@ -1,13 +1,5 @@
-extern crate libc;
-extern crate rand;
-extern crate serde;
-
-#[macro_use]
-extern crate lazy_static;
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]
-extern crate serde_json;
 #[macro_use]
 extern crate stacks_common;
 
@@ -28,6 +20,7 @@ pub mod config;
 pub mod event_dispatcher;
 pub mod genesis_data;
 pub mod keychain;
+pub mod mockamoto;
 pub mod neon_node;
 pub mod node;
 pub mod operations;
@@ -50,6 +43,7 @@ pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
+use crate::mockamoto::MockamotoNode;
 
 fn main() {
     panic::set_hook(Box::new(|panic_info| {
@@ -105,6 +99,10 @@ fn main() {
         "mainnet" => {
             args.finish().unwrap();
             ConfigFile::mainnet()
+        }
+        "mockamoto" => {
+            args.finish().unwrap();
+            ConfigFile::mockamoto()
         }
         "check-config" => {
             let config_path: String = args.value_from_str("--config").unwrap();
@@ -188,6 +186,7 @@ fn main() {
             process::exit(1);
         }
     };
+
     debug!("node configuration {:?}", &conf.node);
     debug!("burnchain configuration {:?}", &conf.burnchain);
     debug!("connection configuration {:?}", &conf.connection_options);
@@ -207,6 +206,9 @@ fn main() {
     {
         let mut run_loop = neon::RunLoop::new(conf);
         run_loop.start(None, mine_start.unwrap_or(0));
+    } else if conf.burnchain.mode == "mockamoto" {
+        let mut mockamoto = MockamotoNode::new(&conf).unwrap();
+        mockamoto.run();
     } else {
         println!("Burnchain mode '{}' not supported", conf.burnchain.mode);
     }

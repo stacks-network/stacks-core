@@ -6,6 +6,7 @@ use clarity::vm::database::NULL_BURN_STATE_DB;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::Value;
+use lazy_static::lazy_static;
 use stacks::chainstate::stacks::db::blocks::MemPoolRejection;
 use stacks::chainstate::stacks::{
     Error as ChainstateError, StacksBlockHeader, StacksMicroblockHeader, StacksPrivateKey,
@@ -226,7 +227,11 @@ fn mempool_setup_chainstate() {
                 let consensus_hash = &block_header.consensus_hash;
                 let block_hash = &block_header.anchored_header.block_hash();
 
-                let micro_pubkh = &block_header.anchored_header.microblock_pubkey_hash;
+                let micro_pubkh = &block_header
+                    .anchored_header
+                    .as_stacks_epoch2()
+                    .unwrap()
+                    .microblock_pubkey_hash;
 
                 // let's throw some transactions at it.
                 // first a couple valid ones:

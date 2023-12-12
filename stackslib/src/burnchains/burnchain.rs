@@ -875,6 +875,7 @@ impl Burnchain {
                     None
                 }
             }
+
             _ => None,
         }
     }

@@ -235,6 +235,7 @@ pub fn special_stx_account(
         .canonical_balance_repr();
     let v1_unlock_ht = env.global_context.database.get_v1_unlock_height();
     let v2_unlock_ht = env.global_context.database.get_v2_unlock_height();
+    let v3_unlock_ht = env.global_context.database.get_v3_unlock_height();
 
     TupleData::from_data(vec![
         (
@@ -247,7 +248,11 @@ pub fn special_stx_account(
         ),
         (
             "unlock-height".try_into().unwrap(),
-            Value::UInt(stx_balance.effective_unlock_height(v1_unlock_ht, v2_unlock_ht) as u128),
+            Value::UInt(u128::from(stx_balance.effective_unlock_height(
+                v1_unlock_ht,
+                v2_unlock_ht,
+                v3_unlock_ht,
+            ))),
         ),
     ])
     .map(Value::Tuple)

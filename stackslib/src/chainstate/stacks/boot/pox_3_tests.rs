@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
@@ -68,7 +84,7 @@ fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
 
 fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     let EMPTY_SORTITIONS = 25;
-    let EPOCH_2_1_HEIGHT = 11; // 36
+    let EPOCH_2_1_HEIGHT = EMPTY_SORTITIONS + 11; // 36
     let EPOCH_2_2_HEIGHT = EPOCH_2_1_HEIGHT + 14; // 50
     let EPOCH_2_3_HEIGHT = EPOCH_2_2_HEIGHT + 2; // 52
                                                  // epoch-2.4 will start at the first block of cycle 11!
@@ -95,34 +111,34 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 0,
-            end_height: EMPTY_SORTITIONS + EPOCH_2_1_HEIGHT,
+            end_height: EPOCH_2_1_HEIGHT,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
-            start_height: EMPTY_SORTITIONS + EPOCH_2_1_HEIGHT,
-            end_height: EMPTY_SORTITIONS + EPOCH_2_2_HEIGHT,
+            start_height: EPOCH_2_1_HEIGHT,
+            end_height: EPOCH_2_2_HEIGHT,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
-            start_height: EMPTY_SORTITIONS + EPOCH_2_2_HEIGHT,
-            end_height: EMPTY_SORTITIONS + EPOCH_2_3_HEIGHT,
+            start_height: EPOCH_2_2_HEIGHT,
+            end_height: EPOCH_2_3_HEIGHT,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
-            start_height: EMPTY_SORTITIONS + EPOCH_2_3_HEIGHT,
-            end_height: EMPTY_SORTITIONS + EPOCH_2_4_HEIGHT,
+            start_height: EPOCH_2_3_HEIGHT,
+            end_height: EPOCH_2_4_HEIGHT,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
-            start_height: EMPTY_SORTITIONS + EPOCH_2_4_HEIGHT,
+            start_height: EPOCH_2_4_HEIGHT,
             end_height: STACKS_EPOCH_MAX,
             block_limit: ExecutionCost::max_value(),
             network_epoch: PEER_VERSION_EPOCH_2_4,
@@ -133,9 +149,11 @@ fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     pox_constants.reward_cycle_length = 5;
     pox_constants.prepare_length = 2;
     pox_constants.anchor_threshold = 1;
-    pox_constants.v1_unlock_height = (EMPTY_SORTITIONS + EPOCH_2_1_HEIGHT + 1) as u32;
-    pox_constants.v2_unlock_height = (EMPTY_SORTITIONS + EPOCH_2_2_HEIGHT + 1) as u32;
-    pox_constants.pox_3_activation_height = (EMPTY_SORTITIONS + EPOCH_2_4_HEIGHT + 1) as u32;
+    pox_constants.v1_unlock_height = (EPOCH_2_1_HEIGHT + 1) as u32;
+    pox_constants.v2_unlock_height = (EPOCH_2_2_HEIGHT + 1) as u32;
+    pox_constants.v3_unlock_height = u32::MAX;
+    pox_constants.pox_3_activation_height = (EPOCH_2_4_HEIGHT + 1) as u32;
+    pox_constants.pox_4_activation_height = u32::MAX;
 
     (epochs, pox_constants)
 }
@@ -181,7 +199,6 @@ fn simple_pox_lockup_transition_pox_2() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7104,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -583,7 +600,6 @@ fn pox_auto_unlock(alice_first: bool) {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         &format!("{}-{}", function_name!(), alice_first),
-        7102 + if alice_first { 0 } else { 20 },
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1009,7 +1025,6 @@ fn delegate_stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7103,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -1629,7 +1644,6 @@ fn stack_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7105,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -2057,7 +2071,6 @@ fn pox_extend_transition() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7110,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -2570,7 +2583,6 @@ fn delegate_extend_pox_3() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7114,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -3056,7 +3068,6 @@ fn pox_3_getters() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7115,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -3388,13 +3399,8 @@ fn get_pox_addrs() {
         .unwrap()
         + 1;
 
-    let (mut peer, keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        function_name!(),
-        7142,
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
@@ -3600,13 +3606,8 @@ fn stack_with_segwit() {
         .unwrap()
         + 1;
 
-    let (mut peer, keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        function_name!(),
-        7120,
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
     peer.config.check_pox_invariants = Some((first_v3_cycle, first_v3_cycle + 10));
 
@@ -3818,7 +3819,6 @@ fn stack_aggregation_increase() {
     let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
         &burnchain,
         function_name!(),
-        7117,
         Some(epochs.clone()),
         Some(&observer),
     );
@@ -4253,13 +4253,8 @@ fn pox_3_delegate_stx_addr_validation() {
         .unwrap()
         + 1;
 
-    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
-        &burnchain,
-        function_name!(),
-        7100,
-        Some(epochs.clone()),
-        None,
-    );
+    let (mut peer, mut keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
     peer.config.check_pox_invariants = Some((first_v3_cycle, first_v3_cycle + 10));
 

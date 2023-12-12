@@ -290,7 +290,7 @@ impl<'a> TestRPC<'a> {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None, None),
         );
         tx_coinbase.chain_id = 0x80000000;
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
@@ -645,7 +645,7 @@ impl<'a> TestRPC<'a> {
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             TransactionAuth::from_p2pkh(&privk1).unwrap(),
-            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None),
+            TransactionPayload::Coinbase(CoinbasePayload([0x00; 32]), None, None),
         );
         tx_coinbase.chain_id = 0x80000000;
         tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;

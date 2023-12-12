@@ -1762,6 +1762,8 @@ impl PeerNetwork {
 
         // affirmation maps are compatible, so just resume scanning off of wherever we are at the
         // tip.
+        // NOTE: This code path only works in Stacks 2.x, but that's okay because this whole state
+        // machine is only used in Stacks 2.x
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 
@@ -3091,6 +3093,8 @@ mod test {
             u32::MAX,
             u32::MAX,
             u32::MAX,
+            u32::MAX,
+            u32::MAX,
         );
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
@@ -3117,6 +3121,8 @@ mod test {
             5,
             u64::MAX,
             u64::MAX,
+            u32::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

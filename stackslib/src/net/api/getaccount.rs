@@ -149,6 +149,7 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                             clarity_db.get_current_burnchain_block_height() as u64;
                         let v1_unlock_height = clarity_db.get_v1_unlock_height();
                         let v2_unlock_height = clarity_db.get_v2_unlock_height();
+                        let v3_unlock_height = clarity_db.get_v3_unlock_height();
                         let (balance, balance_proof) = if with_proof {
                             clarity_db
                                 .get_with_proof::<STXBalance>(&key)
@@ -178,11 +179,13 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                             burn_block_height,
                             v1_unlock_height,
                             v2_unlock_height,
+                            v3_unlock_height,
                         );
                         let (locked, unlock_height) = balance.get_locked_balance_at_burn_block(
                             burn_block_height,
                             v1_unlock_height,
                             v2_unlock_height,
+                            v3_unlock_height,
                         );
 
                         let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));

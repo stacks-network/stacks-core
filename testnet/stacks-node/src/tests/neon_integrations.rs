@@ -9,10 +9,11 @@ use std::{cmp, env, fs, thread};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
 use rand::Rng;
 use rusqlite::types::ToSql;
+use serde_json::json;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
@@ -23,6 +24,7 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
@@ -53,6 +55,7 @@ use stacks::net::atlas::{
 };
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
+use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -177,10 +180,13 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
+    use lazy_static::lazy_static;
     use warp::Filter;
     use {tokio, warp};
 
-    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, StackerDBChunksEvent};
+    use crate::event_dispatcher::{
+        MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent, StackerDBChunksEvent,
+    };
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
@@ -188,6 +194,8 @@ pub mod test_observer {
         pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
         pub static ref MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
+        pub static ref MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> =
+            Mutex::new(Vec::new());
         pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
         pub static ref NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> =
             Mutex::new(Vec::new());
@@ -275,6 +283,43 @@ pub mod test_observer {
     ) -> Result<impl warp::Reply, Infallible> {
         let mut mined_txs = MINED_MICROBLOCKS.lock().unwrap();
         mined_txs.push(serde_json::from_value(tx_event).unwrap());
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_mined_nakamoto_block(
+        block: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let mut mined_blocks = MINED_NAKAMOTO_BLOCKS.lock().unwrap();
+        // assert that the mined transaction events have string-y txids
+        block
+            .as_object()
+            .expect("Expected JSON object for mined nakamoto block event")
+            .get("tx_events")
+            .expect("Expected tx_events key in mined nakamoto block event")
+            .as_array()
+            .expect("Expected tx_events key to be an array in mined nakamoto block event")
+            .iter()
+            .for_each(|txevent| {
+                let txevent_obj = txevent.as_object().expect("TransactionEvent should be object");
+                let inner_obj = if let Some(inner_obj) = txevent_obj.get("Success") {
+                    inner_obj
+                } else if let Some(inner_obj) = txevent_obj.get("ProcessingError") {
+                    inner_obj
+                } else if let Some(inner_obj) = txevent_obj.get("Skipped") {
+                    inner_obj
+                } else {
+                    panic!("TransactionEvent object should have one of Success, ProcessingError, or Skipped")
+                };
+                inner_obj
+                    .as_object()
+                    .expect("TransactionEvent should be an object")
+                    .get("txid")
+                    .expect("Should have txid key")
+                    .as_str()
+                    .expect("Expected txid to be a string");
+            });
+
+        mined_blocks.push(serde_json::from_value(block).unwrap());
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -387,6 +432,10 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_mined_block);
+        let mined_nakamoto_blocks = warp::path!("mined_nakamoto_block")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_mined_nakamoto_block);
         let mined_microblocks = warp::path!("mined_microblock")
             .and(warp::post())
             .and(warp::body::json())
@@ -406,6 +455,7 @@ pub mod test_observer {
                 .or(new_microblocks)
                 .or(mined_blocks)
                 .or(mined_microblocks)
+                .or(mined_nakamoto_blocks)
                 .or(new_stackerdb_chunks),
         )
         .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
@@ -1836,6 +1886,8 @@ fn stx_delegate_btc_integration_test() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -5862,6 +5914,8 @@ fn pox_integration_test() {
         15,
         (16 * reward_cycle_len - 1).into(),
         (17 * reward_cycle_len).into(),
+        u32::MAX,
+        u32::MAX,
         u32::MAX,
         u32::MAX,
         u32::MAX,
@@ -10570,6 +10624,8 @@ fn test_competing_miners_build_on_same_chain(
             15,
             (16 * reward_cycle_len - 1).into(),
             (17 * reward_cycle_len).into(),
+            u32::MAX,
+            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,

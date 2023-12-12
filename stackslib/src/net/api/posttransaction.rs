@@ -230,7 +230,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
                 chainstate,
                 sortdb,
                 &stacks_tip.consensus_hash,
-                &stacks_tip.anchored_block_hash,
+                &stacks_tip.anchored_header.block_hash(),
                 &tx,
                 event_observer,
                 &stacks_epoch.block_limit,

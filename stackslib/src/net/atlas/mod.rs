@@ -19,6 +19,7 @@ use std::convert::TryFrom;
 use std::hash::{Hash, Hasher};
 
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData, TupleData, Value};
+use lazy_static::lazy_static;
 use regex::Regex;
 use serde::de::{Deserialize, Error as de_Error};
 use serde::ser::Serialize;
