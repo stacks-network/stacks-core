@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::cell::RefCell;
-
 // is this machine big-endian?
 pub fn is_big_endian() -> bool {
     u32::from_be(0x1Au32) == 0x1Au32
