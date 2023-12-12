@@ -29,7 +29,7 @@ use clarity::vm::database::{
     BurnStateDB, HeadersDB, RollbackWrapper, RollbackWrapperPersistedLog,
     STXBalance, SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use clarity::vm::database::v2::{ClarityDb, ClarityDB, ClarityDbAnalysis};
+use clarity::vm::database::v2::{ClarityDb, ClarityDB, ClarityDbAnalysis, ClarityDbKvStore};
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{
@@ -90,11 +90,11 @@ use crate::util_lib::strings::StacksString;
 ///   `TransactionConnection` trait, which contains auto implementations for the typical transaction
 ///   types in a Clarity-based blockchain.
 ///
-pub struct ClarityInstance<Conn> 
+pub struct ClarityInstance<KvDB> 
 where
-    Conn: TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
-    datastore: MarfedKV<Conn>,
+    datastore: MarfedKV<KvDB>,
     mainnet: bool,
     chain_id: u32,
 }
@@ -144,11 +144,11 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     epoch: StacksEpochId,
 }
 
-pub struct ClarityReadOnlyConnection<'a, Conn> 
+pub struct ClarityReadOnlyConnection<'a, KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
-    datastore: ReadOnlyMarfStore<'a, Conn>,
+    datastore: ReadOnlyMarfStore<'a, KvDB>,
     header_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
     epoch: StacksEpochId,
@@ -234,11 +234,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     }
 }
 
-impl<Conn> ClarityInstance<Conn> 
+impl<KvDB> ClarityInstance<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
-    pub fn new(mainnet: bool, chain_id: u32, datastore: MarfedKV<Conn>) -> ClarityInstance<Conn> {
+    pub fn new(mainnet: bool, chain_id: u32, datastore: MarfedKV<KvDB>) -> ClarityInstance<KvDB> {
         ClarityInstance {
             datastore,
             mainnet,
@@ -248,7 +248,7 @@ where
 
     pub fn with_marf<F, R>(&mut self, f: F) -> R
     where
-        F: FnOnce(&mut MARF<StacksBlockId, Conn>) -> R,
+        F: FnOnce(&mut MARF<StacksBlockId, KvDB>) -> R,
     {
         f(self.datastore.get_marf())
     }
@@ -578,7 +578,7 @@ where
         at_block: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
-    ) -> ClarityReadOnlyConnection<'a, Conn> {
+    ) -> ClarityReadOnlyConnection<'a, KvDB> {
         self.read_only_connection_checked(at_block, header_db, burn_state_db)
             .expect(&format!("BUG: failed to open block {}", at_block))
     }
@@ -590,7 +590,7 @@ where
         at_block: &StacksBlockId,
         header_db: &'a dyn HeadersDB,
         burn_state_db: &'a dyn BurnStateDB,
-    ) -> Result<ClarityReadOnlyConnection<'a, Conn>, Error> {
+    ) -> Result<ClarityReadOnlyConnection<'a, KvDB>, Error> {
         let mut datastore = self.datastore.begin_read_only_checked(Some(at_block))?;
         let epoch = {
             let mut db = datastore.as_clarity_db(header_db, burn_state_db);
@@ -639,7 +639,7 @@ where
             .map_err(Error::from)
     }
 
-    pub fn destroy(self) -> MarfedKV<Conn> {
+    pub fn destroy(self) -> MarfedKV<KvDB> {
         self.datastore
     }
 }

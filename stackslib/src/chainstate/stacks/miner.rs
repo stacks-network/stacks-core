@@ -26,6 +26,7 @@ use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::database::v2::ClarityDbKvStore;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
 use serde::Deserialize;
@@ -41,6 +42,7 @@ use stacks_common::util::vrf::*;
 
 use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
@@ -65,6 +67,7 @@ use crate::monitoring::{
 use crate::net::relay::Relayer;
 use crate::net::Error as net_error;
 
+use super::db::v2::stacks_chainstate_db::ChainStateDb;
 use super::index::db::DbConnection;
 use super::index::trie_db::TrieDb;
 
@@ -214,12 +217,12 @@ pub enum BlockLimitFunction {
     LIMIT_REACHED,
 }
 
-pub struct MinerEpochInfo<'a, Conn> 
+pub struct MinerEpochInfo<'a, KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
     pub chainstate_tx: ChainstateTx<'a>,
-    pub clarity_instance: &'a mut ClarityInstance<Conn>,
+    pub clarity_instance: &'a mut ClarityInstance<KvDB>,
     pub burn_tip: BurnchainHeaderHash,
     /// This is the expected burn tip height (i.e., the current burnchain tip + 1)
     ///  of the mined block
@@ -229,11 +232,11 @@ where
     pub ast_rules: ASTRules,
 }
 
-impl<Conn> From<&UnconfirmedState<Conn>> for MicroblockMinerRuntime 
+impl<ChainDB> From<&UnconfirmedState<ChainDB>> for MicroblockMinerRuntime 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
-    fn from(unconfirmed: &UnconfirmedState<Conn>) -> MicroblockMinerRuntime {
+    fn from(unconfirmed: &UnconfirmedState<ChainDB>) -> MicroblockMinerRuntime {
         let considered = unconfirmed
             .mined_txs
             .iter()
@@ -649,14 +652,14 @@ pub trait BlockBuilder {
 ///     StacksMicroblockBuilder holds a mutable reference to the provided chainstate in the
 ///       new function. This is required for the `clarity_tx` -- basically, to append transactions
 ///       as new microblocks, the builder _needs_ to be able to keep the current clarity_tx "open"
-pub struct StacksMicroblockBuilder<'a, Conn> 
+pub struct StacksMicroblockBuilder<'a, ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     anchor_block: BlockHeaderHash,
     anchor_block_consensus_hash: ConsensusHash,
     anchor_block_height: u64,
-    header_reader: StacksChainState<Conn>,
+    header_reader: ChainDB,
     clarity_tx: Option<ClarityTx<'a, 'a>>,
     unconfirmed: bool,
     runtime: MicroblockMinerRuntime,
@@ -664,17 +667,17 @@ where
     ast_rules: ASTRules,
 }
 
-impl<'a, Conn> StacksMicroblockBuilder<'a, Conn> 
+impl<'a, ChainDB> StacksMicroblockBuilder<'a, ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     pub fn new(
         anchor_block: BlockHeaderHash,
         anchor_block_consensus_hash: ConsensusHash,
-        chainstate: &'a mut StacksChainState<Conn>,
+        chainstate: &'a mut StacksChainState<ChainDB>,
         burn_dbconn: &'a dyn BurnStateDB,
         settings: BlockBuilderSettings,
-    ) -> Result<StacksMicroblockBuilder<'a, Conn>, Error> {
+    ) -> Result<StacksMicroblockBuilder<'a, ChainDB>, Error> {
         let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
             MicroblockMinerRuntime::from(unconfirmed_state)
         } else {
@@ -743,11 +746,11 @@ where
     /// Create a microblock miner off of the _unconfirmed_ chaintip, i.e., resuming construction of
     /// a microblock stream.
     pub fn resume_unconfirmed(
-        chainstate: &'a mut StacksChainState<Conn>,
+        chainstate: &'a mut StacksChainState<ChainDB>,
         burn_dbconn: &'a dyn BurnStateDB,
         cost_so_far: &ExecutionCost,
         settings: BlockBuilderSettings,
-    ) -> Result<StacksMicroblockBuilder<'a, Conn>, Error> {
+    ) -> Result<StacksMicroblockBuilder<'a, ChainDB>, Error> {
         let runtime = if let Some(unconfirmed_state) = chainstate.unconfirmed_state.as_ref() {
             MicroblockMinerRuntime::from(unconfirmed_state)
         } else {
@@ -1393,9 +1396,9 @@ where
     }
 }
 
-impl<'a, Conn> Drop for StacksMicroblockBuilder<'a, Conn> 
+impl<'a, ChainDB> Drop for StacksMicroblockBuilder<'a, ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     fn drop(&mut self) {
         debug!(
@@ -1751,14 +1754,14 @@ impl StacksBlockBuilder {
         Ok(microblock)
     }
 
-    fn load_parent_microblocks<Conn>(
+    fn load_parent_microblocks<ChainDB>(
         &mut self,
-        chainstate: &mut StacksChainState<Conn>,
+        chainstate: &mut StacksChainState<ChainDB>,
         parent_consensus_hash: &ConsensusHash,
         parent_header_hash: &BlockHeaderHash,
     ) -> Result<Vec<StacksMicroblock>, Error> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         if let Some(microblock_parent_hash) = self.parent_microblock_hash.as_ref() {
             // load up a microblock fork
@@ -1812,13 +1815,14 @@ impl StacksBlockBuilder {
     /// of the burn tip, burn tip height + 1, the parent microblock stream,
     /// the parent consensus hash, the parent header hash, and a bool
     /// representing whether the network is mainnet or not.
-    pub fn pre_epoch_begin<'a, Conn>(
+    pub fn pre_epoch_begin<'a, SortDB, ChainDB>(
         &mut self,
-        chainstate: &'a mut StacksChainState<Conn>,
-        burn_dbconn: &'a SortitionDBConn<Conn>,
-    ) -> Result<MinerEpochInfo<'a, Conn>, Error> 
+        chainstate: &mut StacksChainState<ChainDB>,
+        burn_dbconn: &SortDB,
+    ) -> Result<MinerEpochInfo<'a, ChainDB>, Error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb + ClarityDbKvStore
     {
         debug!(
             "Miner epoch begin";
@@ -1927,7 +1931,7 @@ impl StacksBlockBuilder {
         info: &'b mut MinerEpochInfo<'a, Conn>,
     ) -> Result<(ClarityTx<'b, 'b>, ExecutionCost), Error> 
     where
-        Conn: DbConnection + TrieDb
+        Conn: TrieDb + ClarityDbKvStore
     {
         let SetupBlockResult {
             clarity_tx,
@@ -2404,9 +2408,9 @@ impl StacksBlockBuilder {
 
     /// Given access to the mempool, mine an anchored block with no more than the given execution cost.
     ///   returns the assembled block, and the consumed execution budget.
-    pub fn build_anchored_block<Conn>(
-        chainstate_handle: &StacksChainState<Conn>, // not directly used; used as a handle to open other chainstates
-        burn_dbconn: &SortitionDBConn<Conn>,
+    pub fn build_anchored_block<SortDB, ChainDB>(
+        chainstate_handle: &StacksChainState<ChainDB>, // not directly used; used as a handle to open other chainstates
+        burn_dbconn: &SortDB,
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
@@ -2417,7 +2421,8 @@ impl StacksBlockBuilder {
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(StacksBlock, ExecutionCost, u64), Error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         if let TransactionPayload::Coinbase(..) = coinbase_tx.payload {
         } else {

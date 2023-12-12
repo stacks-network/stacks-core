@@ -66,7 +66,7 @@ impl Default for ProcessedUnconfirmedState {
 
 pub struct UnconfirmedState<DB> 
 where
-    DB: TrieDb
+    DB: ChainStateDb
 {
     pub confirmed_chain_tip: StacksBlockId,
     pub unconfirmed_chain_tip: StacksBlockId,
@@ -95,7 +95,7 @@ where
 
 impl<DB> UnconfirmedState<DB>
 where
-    DB: TrieDb
+    DB: ChainStateDb
 {
     /// Make a new unconfirmed state, but don't do anything with it yet.  Caller should immediately
     /// call .refresh() to instatiate and store the underlying state trie.
@@ -175,10 +175,13 @@ where
     }
 
     /// Make a new unconfirmed state, but don't do anything with it yet, and deny refreshes.
-    fn new_readonly(
-        chainstate: &StacksChainState<DB>,
+    fn new_readonly<ChainDB>(
+        chainstate: &StacksChainState<ChainDB>,
         tip: StacksBlockId,
-    ) -> Result<UnconfirmedState<DB>, Error> {
+    ) -> Result<UnconfirmedState<DB>, Error> 
+    where
+        ChainDB: ChainStateDb
+    {
         let marf = MarfedKV::open_unconfirmed(
             &chainstate.clarity_state_index_root,
             None,
@@ -490,12 +493,12 @@ where
     }
 }
 
-impl<Conn> StacksChainState<Conn> 
+impl<ChainDB> StacksChainState<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     /// Clear the current unconfirmed state
-    fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState<Conn>) {
+    fn drop_unconfirmed_state(&mut self, mut unconfirmed: UnconfirmedState<ChainDB>) {
         if !unconfirmed.have_state {
             debug!(
                 "Dropping empty unconfirmed state off of {} ({})",
@@ -524,7 +527,7 @@ where
         &self,
         burn_dbconn: &dyn BurnStateDB,
         anchored_block_id: StacksBlockId,
-    ) -> Result<(UnconfirmedState<Conn>, ProcessedUnconfirmedState), Error> {
+    ) -> Result<(UnconfirmedState<ChainDB>, ProcessedUnconfirmedState), Error> {
         debug!("Make new unconfirmed state off of {}", &anchored_block_id);
         let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id)?;
         let processed_unconfirmed_state = unconfirmed_state.refresh(self, burn_dbconn)?;

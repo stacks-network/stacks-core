@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
+use clarity::vm::database::v2::ClarityDbKvStore;
 use clarity::vm::database::{
     BurnStateDB, HeadersDB, SpecialCaseHandler,
     SqliteConnection,
@@ -30,23 +31,23 @@ use crate::util_lib::db::{Error as DatabaseError, IndexDBConn};
 ///   loop will need to invoke these two methods (begin + commit) outside of the context of the VM.
 ///   NOTE: Clarity will panic if you try to execute it from a non-initialized MarfedKV context.
 ///   (See: vm::tests::with_marfed_environment())
-pub struct MarfedKV<Conn> 
+pub struct MarfedKV<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
     chain_tip: StacksBlockId,
-    marf: MARF<StacksBlockId, Conn>,
+    marf: MARF<StacksBlockId, KvDB>,
 }
 
-impl<Conn> MarfedKV<Conn> 
+impl<KvDB> MarfedKV<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
     fn setup_db(
         path_str: &str,
         unconfirmed: bool,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MARF<StacksBlockId, Conn>> {
+    ) -> InterpreterResult<MARF<StacksBlockId, KvDB>> {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
@@ -61,7 +62,7 @@ where
         let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
         marf_opts.external_blobs = true;
 
-        let mut marf: MARF<StacksBlockId, Conn> = if unconfirmed {
+        let mut marf: MARF<StacksBlockId, KvDB> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path, marf_opts)
                 .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
         } else {
@@ -89,7 +90,7 @@ where
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MarfedKV<Conn>> {
+    ) -> InterpreterResult<MarfedKV<KvDB>> {
         let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -103,7 +104,7 @@ where
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MarfedKV<Conn>> {
+    ) -> InterpreterResult<MarfedKV<KvDB>> {
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -114,7 +115,7 @@ where
     }
 
     // used by benchmarks
-    pub fn temporary() -> MarfedKV<Conn> {
+    pub fn temporary() -> MarfedKV<KvDB> {
         use std::env;
 
         use rand::Rng;
@@ -147,7 +148,7 @@ where
     pub fn begin_read_only<'a>(
         &'a mut self,
         at_block: Option<&StacksBlockId>,
-    ) -> ReadOnlyMarfStore<'a, Conn> {
+    ) -> ReadOnlyMarfStore<'a, KvDB> {
         let chain_tip = if let Some(at_block) = at_block {
             self.marf.open_block(at_block).unwrap_or_else(|e| {
                 error!(
@@ -169,7 +170,7 @@ where
     pub fn begin_read_only_checked<'a>(
         &'a mut self,
         at_block: Option<&StacksBlockId>,
-    ) -> InterpreterResult<ReadOnlyMarfStore<'a, Conn>> {
+    ) -> InterpreterResult<ReadOnlyMarfStore<'a, KvDB>> {
         let chain_tip = if let Some(at_block) = at_block {
             self.marf.open_block(at_block).map_err(|e| {
                 debug!(
@@ -247,11 +248,11 @@ where
         &self.chain_tip
     }
 
-    pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId, Conn> {
+    pub fn get_marf(&mut self) -> &mut MARF<StacksBlockId, KvDB> {
         &mut self.marf
     }
 
-    #[cfg(test)]
+    /*#[cfg(test)]
     pub fn sql_conn(&self) -> &Connection {
         self.marf.sqlite_conn()
     }
@@ -261,7 +262,7 @@ where
             index: &self.marf,
             context,
         }
-    }
+    }*/
 }
 
 pub struct WritableMarfStore<'a> {
@@ -269,17 +270,17 @@ pub struct WritableMarfStore<'a> {
     marf: MarfTransaction<'a, StacksBlockId>,
 }
 
-pub struct ReadOnlyMarfStore<'a, Conn> 
+pub struct ReadOnlyMarfStore<'a, TrieDB> 
 where
-    Conn: DbConnection + TrieDb
+    TrieDB: TrieDb
 {
     chain_tip: StacksBlockId,
-    marf: &'a mut MARF<StacksBlockId, Conn>,
+    marf: &'a mut MARF<StacksBlockId, TrieDB>,
 }
 
-impl<'a, Conn> ReadOnlyMarfStore<'a, Conn> 
+impl<'a, TrieDB> ReadOnlyMarfStore<'a, TrieDB> 
 where
-    Conn: DbConnection + TrieDb
+    TrieDB: TrieDb
 {
     pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, DatabaseError> {
         self.marf.with_conn(|conn| match conn.has_block(bhh) {

@@ -110,7 +110,7 @@ pub struct NakamotoBlockBuilder {
 
 pub struct MinerTenureInfo<'a, Conn> 
 where
-    Conn: TrieDb
+    Conn: ChainStateDb
 {
     pub chainstate_tx: ChainstateTx<'a>,
     pub clarity_instance: &'a mut ClarityInstance<Conn>,
@@ -293,7 +293,7 @@ impl NakamotoBlockBuilder {
         chainstate: &'a mut StacksChainState<ChainDB>,
         burn_dbconn: &'a SortDB,
         tenure_start: bool,
-    ) -> Result<MinerTenureInfo<'a, SortDB>, Error> 
+    ) -> Result<MinerTenureInfo<'a, ChainDB>, Error> 
     where
         SortDB: SortitionDb,
         ChainDB: ChainStateDb
@@ -401,13 +401,13 @@ impl NakamotoBlockBuilder {
     /// NOTE: even though we don't yet know the block hash, the Clarity VM ensures that a
     /// transaction can't query information about the _current_ block (i.e. information that is not
     /// yet known).
-    pub fn tenure_begin<'a, 'b, Conn>(
+    pub fn tenure_begin<Conn>(
         &mut self,
-        burn_dbconn: &'a SortitionDBConn<Conn>,
-        info: &'b mut MinerTenureInfo<'a, Conn>,
-    ) -> Result<ClarityTx<'b, 'b>, Error> 
+        burn_dbconn: &SortitionDBConn<Conn>,
+        info: &MinerTenureInfo<Conn>,
+    ) -> Result<ClarityTx, Error> 
     where
-        Conn: DbConnection + TrieDb
+        Conn: ChainStateDb
     {
         let SetupBlockResult {
             clarity_tx,

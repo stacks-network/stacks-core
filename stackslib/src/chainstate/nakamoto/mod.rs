@@ -49,7 +49,7 @@ use super::burn::db::v2::{SortitionDbTransaction, SortitionDb};
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
-use super::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
+use super::stacks::db::v2::stacks_chainstate_db::{ChainStateDb, ChainStateDbTransaction};
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
@@ -2167,10 +2167,10 @@ impl NakamotoChainState {
     /// microblock fees, microblock burns, list of microblock tx receipts,
     /// miner rewards tuples, the stacks epoch id, and a boolean that
     /// represents whether the epoch transition has been applied.
-    pub fn setup_block<'a, 'b, Conn>(
-        chainstate_tx: &'b mut ChainstateTx,
-        clarity_instance: &'a mut ClarityInstance<Conn>,
-        sortition_dbconn: &'b dyn SortitionDBRef,
+    pub fn setup_block<'a, 'b, SortDB, ChainDB, ChainTX>(
+        chainstate_tx: &ChainTX,
+        clarity_instance: &ClarityInstance<ChainDB>,
+        sortition_dbconn: &SortDB,
         pox_constants: &PoxConstants,
         parent_consensus_hash: ConsensusHash,
         parent_header_hash: BlockHeaderHash,
@@ -2183,7 +2183,9 @@ impl NakamotoChainState {
         tenure_height: u64,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        ChainTX: ChainStateDbTransaction<ChainDB>
     {
         let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
         let parent_sortition_id = sortition_dbconn
@@ -2252,7 +2254,7 @@ impl NakamotoChainState {
                 burn_header_height.into(),
             )?;
 
-        let mut clarity_tx = StacksChainState::chainstate_block_begin(
+        let mut clarity_tx = chainstate_tx.chainstate_block_begin(
             chainstate_tx,
             clarity_instance,
             sortition_dbconn.as_burn_state_db(),
@@ -2389,10 +2391,10 @@ impl NakamotoChainState {
     }
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
-    pub fn append_block<'a, Conn>(
-        chainstate_tx: &mut ChainstateTx,
-        clarity_instance: &'a mut ClarityInstance<Conn>,
-        burn_dbconn: &mut SortitionHandleTx,
+    pub fn append_block<'a, SortDB, ChainDB, ChainTX>(
+        chainstate_tx: &mut ChainTX,
+        clarity_instance: &'a mut ClarityInstance<ChainDB>,
+        burn_dbconn: &mut SortDB,
         pox_constants: &PoxConstants,
         parent_chain_tip: &StacksHeaderInfo,
         chain_tip_burn_header_hash: &BurnchainHeaderHash,
@@ -2404,7 +2406,9 @@ impl NakamotoChainState {
         burnchain_sortition_burn: u64,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), ChainstateError> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        ChainTX: ChainStateDbTransaction<ChainDB>
     {
         debug!(
             "Process block {:?} with {} transactions",

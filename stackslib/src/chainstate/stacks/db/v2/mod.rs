@@ -2,14 +2,14 @@
 
 use clarity::vm::{
     ast::ASTRules, 
-    tests::BurnStateDB
+    tests::BurnStateDB, database::v2::ClarityDbKvStore
 };
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash, ConsensusHash, BlockHeaderHash};
 
 use crate::{
     chainstate::stacks::{
             events::StacksTransactionReceipt, StacksTransaction, index::{
-                db::DbConnection, trie_db::TrieDb, marf::MARF
+            trie_db::TrieDb, marf::MARF
             }
     }, 
     clarity_vm::clarity::{
@@ -35,20 +35,20 @@ pub enum ChainStateError {}
 
 pub type Result<T> = std::result::Result<T, ChainStateError>;
 
-pub struct StacksChainStateImpl<Conn>
+pub struct StacksChainStateImpl<KvDB>
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
-    conn: Conn,
+    conn: KvDB,
     is_mainnet: bool,
     chain_id: u32,
-    clarity_state: ClarityInstance<Conn>,
-    state_index: MARF<StacksBlockId, Conn>,
+    clarity_state: ClarityInstance<KvDB>,
+    state_index: MARF<StacksBlockId, KvDB>,
 }
 
-impl<Conn> StacksChainStateImpl<Conn> 
+impl<KvDB> StacksChainStateImpl<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
     /// Retrieves this instance's configuration as a [`DBConfig`] struct.
     fn config(&self) -> DBConfig {
@@ -60,9 +60,9 @@ where
     }
 }
 
-impl<Conn> StacksChainState for StacksChainStateImpl<Conn> 
+impl<KvDB> StacksChainState for StacksChainStateImpl<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
     fn get_genesis_root_hash(&self) -> Result<TrieHash> {
         Self::get_genesis_root_hash(self)

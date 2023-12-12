@@ -1592,13 +1592,16 @@ where
     /// now be valid.  In particular, this applies to a Stacks block that got mined in two PoX
     /// forks.  This can happen at most once between the two forks, but we need to ensure that the
     /// block can be re-processed in that event.
-    fn undo_stacks_block_orphaning(
+    fn undo_stacks_block_orphaning<ChainTX>(
         burnchain_conn: &BurnDB,
         ic: &SortDB,
-        chainstate_db_tx: &mut impl ChainStateDbTransaction,
+        chainstate_db_tx: &mut ChainTX,
         first_invalidate_start_block: u64,
         last_invalidate_start_block: u64,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error> 
+    where
+        ChainTX: ChainStateDbTransaction<ChainDB>
+    {
         debug!(
             "Clear all orphans in burn range {} - {}",
             first_invalidate_start_block, last_invalidate_start_block

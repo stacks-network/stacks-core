@@ -28,6 +28,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::AssetMap;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::LimitedCostTracker;
+use clarity::vm::database::v2::ClarityDbKvStore;
 use clarity::vm::database::{BurnStateDB, NULL_BURN_STATE_DB};
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -437,7 +438,7 @@ impl StagingMicroblock {
 
 impl<ChainDB> StacksChainState<ChainDB> 
 where
-    ChainDB: ChainStateDb
+    ChainDB: ChainStateDb + ClarityDbKvStore
 {
     fn get_index_block_pathbuf(blocks_dir: &str, index_block_hash: &StacksBlockId) -> PathBuf {
         let block_hash_bytes = index_block_hash.as_bytes();
@@ -6191,9 +6192,8 @@ where
     ) -> Result<Vec<(Option<StacksEpochReceipt>, Option<TransactionPayload>)>, Error> 
     where
         SortDB: SortitionDb,
-        BurnDB: BurnChainDb,
+        BurnDB: crate::burnchains::db::v2::BurnChainDb
     {
-        use crate::burnchains::db::v2::BurnChainDb;
 
         let tx = sort_db.tx_begin_at_tip();
         let null_event_dispatcher: Option<&DummyEventDispatcher> = None;

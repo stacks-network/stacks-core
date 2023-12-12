@@ -2,17 +2,15 @@ use clarity::vm::{
     types::{PrincipalData, BuffData, StacksAddressExtensions, QualifiedContractIdentifier}, 
     ast::{ASTRules, errors::ParseErrors}, 
     Value, errors::{CheckErrors, InterpreterError}, clarity::TransactionConnection, contexts::AssetMap, ClarityVersion,
-    errors::Error as clarity_error
+    errors::Error as clarity_error, database::v2::ClarityDbKvStore
 };
 use stacks_common::types::StacksEpochId;
 
 use crate::{
     chainstate::stacks::{
             Error, events::StacksTransactionReceipt, TransactionPayload, 
-            StacksTransaction, index::{
-                db::DbConnection, trie_db::TrieDb
-            },
-            db::v2::Result
+            StacksTransaction,
+            db::v2::Result, index::trie_db::TrieDb
     }, 
     util_lib::strings::VecDisplay, 
     clarity_vm::clarity::{
@@ -26,9 +24,9 @@ use super::{
     StacksChainStateImpl
 };
 
-impl<Conn> StacksChainStateImpl<Conn>
+impl<KvDB> StacksChainStateImpl<KvDB>
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
     /// Process the transaction's payload, and run the post-conditions against the resulting state.
     ///

@@ -1,15 +1,13 @@
 
 
 
-use clarity::vm::tests::BurnStateDB;
+use clarity::vm::{tests::BurnStateDB, database::v2::ClarityDbKvStore};
 use stacks_common::types::chainstate::{TrieHash, ConsensusHash, BlockHeaderHash};
 
 use crate::{
     chainstate::stacks::{
             Error, StacksBlockHeader, 
-            index::{
-                db::DbConnection, trie_db::TrieDb
-            }
+            index::trie_db::TrieDb
     }, 
     core::{
         FIRST_BURNCHAIN_CONSENSUS_HASH, 
@@ -25,7 +23,7 @@ use super::{
 
 impl<Conn> StacksChainStateImpl<Conn>
 where
-    Conn: DbConnection + TrieDb
+    Conn: TrieDb + ClarityDbKvStore
 {
     /// Retrieves the root hash of the genesis block.
     pub fn get_genesis_root_hash(&self) -> Result<TrieHash, Error> {

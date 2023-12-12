@@ -26,7 +26,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::v2::{ClarityDB, ClarityDbAnalysis};
+use clarity::vm::database::v2::{ClarityDB, ClarityDbAnalysis, ClarityDbKvStore};
 use clarity::vm::database::{
     BurnStateDB, HeadersDB, STXBalance, SqliteConnection, NULL_BURN_STATE_DB,
 };
@@ -115,7 +115,7 @@ impl StacksChainStateFaults {
 
 pub struct StacksChainState<DB> 
 where
-    DB: ChainStateDb
+    DB: ChainStateDb + ClarityDbKvStore
 {
     pub mainnet: bool,
     pub chain_id: u32,
