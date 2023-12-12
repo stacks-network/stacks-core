@@ -283,9 +283,8 @@ fn test_simple_nakamoto_coordinator_bootup() {
 #[test]
 fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let mut test_signers = TestSigners::default();
-    //let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
-    //let private_key = peer.config.private_key.clone();
-    let private_key = StacksPrivateKey::new();
+    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
+    let private_key = peer.config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -293,12 +292,6 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
-
-    let mut peer = boot_nakamoto(
-        function_name!(),
-        vec![(addr.into(), 10_000)],
-        test_signers.aggregate_public_key,
-    );
 
     let (burn_ops, tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -391,9 +384,8 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
 #[test]
 fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
     let mut test_signers = TestSigners::default();
-    //let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
-    //let private_key = peer.config.private_key.clone();
-    let private_key = StacksPrivateKey::new();
+    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
+    let private_key = peer.config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
