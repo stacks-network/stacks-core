@@ -284,9 +284,12 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
                     unlock_height,
                 }
             }
-        } else if bytes.len() == STXBalance::v2_and_v3_size {
+        } else if bytes.len() == STXBalance::v2_to_v4_size {
             let version = &bytes[0];
-            if version != &STXBalance::pox_2_version && version != &STXBalance::pox_3_version {
+            if version != &STXBalance::pox_2_version
+                && version != &STXBalance::pox_3_version
+                && version != &STXBalance::pox_4_version
+            {
                 panic!(
                     "Bad version byte in STX Balance serialization = {}",
                     version
@@ -331,7 +334,9 @@ impl ClarityDeserializable<STXBalance> for STXBalance {
                     unlock_height,
                 }
             } else {
-                unreachable!("Version is checked for pox_3 or pox_2 version compliance above");
+                unreachable!(
+                    "Version is checked for pox_4, pox_3 or pox_2 version compliance above"
+                );
             }
         } else {
             panic!("Bad STX Balance serialization size = {}", bytes.len());
@@ -902,7 +907,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 // NOTE: do _not_ add mutation methods to this struct. Put them in STXBalanceSnapshot!
 impl STXBalance {
     pub const unlocked_and_v1_size: usize = 40;
-    pub const v2_and_v3_size: usize = 41;
+    pub const v2_to_v4_size: usize = 41;
     pub const pox_2_version: u8 = 0;
     pub const pox_3_version: u8 = 1;
     pub const pox_4_version: u8 = 2;

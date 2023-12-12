@@ -26,7 +26,7 @@ use clarity::vm::{Environment, Value};
 use slog::{slog_debug, slog_error};
 use stacks_common::{debug, error};
 
-use crate::events::synthesize_pox_2_or_3_event_info;
+use crate::events::synthesize_pox_event_info;
 use crate::LockingError;
 
 /// is a PoX-2 function call read only?
@@ -478,7 +478,7 @@ pub fn handle_contract_call(
             // for some reason.
             // Failure to synthesize an event due to a bug is *NOT* an excuse to crash the whole
             // network!  Event capture is not consensus-critical.
-            let event_info_opt = match synthesize_pox_2_or_3_event_info(
+            let event_info_opt = match synthesize_pox_event_info(
                 global_context,
                 contract_id,
                 sender_opt,

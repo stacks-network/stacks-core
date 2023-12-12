@@ -290,9 +290,7 @@ fn test_simple_nakamoto_coordinator_bootup() {
 /// Mine a single Nakamoto tenure with 10 Nakamoto blocks
 #[test]
 fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
-    let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
-    let private_key = peer.config.private_key.clone();
+    let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -300,6 +298,13 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
+
+    let mut test_signers = TestSigners::default();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![(addr.into(), 10_000)],
+        test_signers.aggregate_public_key,
+    );
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -891,9 +896,7 @@ fn test_nakamoto_chainstate_getters() {
 /// Checks the matured mining rewards as well.
 #[test]
 fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
-    let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
-    let private_key = peer.config.private_key.clone();
+    let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -901,6 +904,13 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
+
+    let mut test_signers = TestSigners::default();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![(addr.into(), 11_000)],
+        test_signers.aggregate_public_key,
+    );
 
     let mut all_blocks = vec![];
     let mut all_burn_ops = vec![];
