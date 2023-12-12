@@ -960,14 +960,11 @@ fn pox_3_defunct() {
     assert_eq!(balances[0].amount_locked(), 0);
     assert_eq!(balances[1].amount_locked(), 0);
 
-    info!("Checking tx receipts, all `pox3` calls should have returned `(err ...)`");
-    let last_observer_block = observer
-        .get_blocks()
-        .last()
-        .unwrap()
-        .clone();
+    info!("Checking tx receipts, all `pox3` calls should have returned `(err none)`");
+    let last_observer_block = observer.get_blocks().last().unwrap().clone();
 
-    let receipts = last_observer_block.receipts
+    let receipts = last_observer_block
+        .receipts
         .iter()
         .filter(|receipt| match &receipt.result {
             Value::Response(r) => !r.committed,
@@ -975,7 +972,11 @@ fn pox_3_defunct() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(receipts.len(), 4);
+    assert_eq!(receipts.len(), txs.len());
+    for r in receipts.iter() {
+        let err = r.result.clone().expect_result_err().expect_optional();
+        assert!(err.is_none());
+    }
 
     // Advance to start of rewards cycle stackers are participating in
     let target_height = burnchain.pox_constants.pox_4_activation_height + 5;
