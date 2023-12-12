@@ -783,7 +783,7 @@ impl MockamotoNode {
         let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
             tenure_consensus_hash: sortition_tip.consensus_hash.clone(),
             prev_tenure_consensus_hash: chain_tip_ch.clone(),
-            sortition_consensus_hash: sortition_tip.consensus_hash,
+            burn_view_consensus_hash: sortition_tip.consensus_hash,
             previous_tenure_end: parent_block_id,
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
