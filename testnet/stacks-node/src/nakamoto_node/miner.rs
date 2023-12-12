@@ -21,7 +21,7 @@ use clarity::vm::types::PrincipalData;
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureStart};
+use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
@@ -56,9 +56,8 @@ pub enum MinerDirective {
 }
 
 struct ParentTenureInfo {
-    #[allow(dead_code)]
-    parent_tenure_start: StacksBlockId,
     parent_tenure_blocks: u64,
+    parent_tenure_consensus_hash: ConsensusHash,
 }
 
 /// Metadata required for beginning a new tenure
@@ -167,12 +166,12 @@ impl BlockMinerThread {
             self.burnchain.pox_constants.clone(),
         )
         .expect("FATAL: could not open sortition DB");
-        let sortition_handle = sort_db.index_handle_at_tip();
+        let mut sortition_handle = sort_db.index_handle_at_tip();
         let staging_tx = chain_state.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
             block,
-            &sortition_handle,
+            &mut sortition_handle,
             &staging_tx,
             &signer.aggregate_public_key,
         )?;
@@ -194,6 +193,7 @@ impl BlockMinerThread {
         &mut self,
         nonce: u64,
         parent_block_id: StacksBlockId,
+        parent_tenure_consensus_hash: ConsensusHash,
         parent_tenure_blocks: u64,
         miner_pkh: Hash160,
     ) -> Option<StacksTransaction> {
@@ -203,17 +203,18 @@ impl BlockMinerThread {
         }
         let is_mainnet = self.config.is_mainnet();
         let chain_id = self.config.burnchain.chain_id;
-        let tenure_change_tx_payload = TransactionPayload::TenureChange(
-            TenureChangePayload {
-                previous_tenure_end: parent_block_id,
-                previous_tenure_blocks: u32::try_from(parent_tenure_blocks)
-                    .expect("FATAL: more than u32 blocks in a tenure"),
-                cause: TenureChangeCause::BlockFound,
-                pubkey_hash: miner_pkh,
-                signers: vec![],
-            },
-            ThresholdSignature::mock(),
-        );
+        let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
+            tenure_consensus_hash: self.burn_block.consensus_hash.clone(),
+            prev_tenure_consensus_hash: parent_tenure_consensus_hash,
+            burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
+            previous_tenure_end: parent_block_id,
+            previous_tenure_blocks: u32::try_from(parent_tenure_blocks)
+                .expect("FATAL: more than u32 blocks in a tenure"),
+            cause: TenureChangeCause::BlockFound,
+            pubkey_hash: miner_pkh,
+            signers: vec![],
+            signature: ThresholdSignature::mock(),
+        });
 
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
         tx_auth.set_origin_nonce(nonce);
@@ -297,7 +298,7 @@ impl BlockMinerThread {
 
             return Some(ParentStacksBlockInfo {
                 parent_tenure: Some(ParentTenureInfo {
-                    parent_tenure_start: chain_tip.metadata.index_block_hash(),
+                    parent_tenure_consensus_hash: chain_tip.metadata.consensus_hash,
                     parent_tenure_blocks: 0,
                 }),
                 stacks_parent_header: chain_tip.metadata,
@@ -404,6 +405,7 @@ impl BlockMinerThread {
             let tenure_change_tx = self.generate_tenure_change_tx(
                 current_miner_nonce,
                 parent_block_id,
+                par_tenure_info.parent_tenure_consensus_hash,
                 par_tenure_info.parent_tenure_blocks,
                 self.keychain.get_nakamoto_pkh(),
             )?;
@@ -412,16 +414,15 @@ impl BlockMinerThread {
                 target_epoch_id,
                 vrf_proof.clone(),
             );
-            Some(NakamotoTenureStart {
-                coinbase_tx,
-                // TODO (refactor): the nakamoto block builder doesn't use this VRF proof,
-                //  it has to be included in the coinbase tx, which is an arg to the builder.
-                //  we should probably just remove this from the nakamoto block builder.
-                vrf_proof: vrf_proof.clone(),
-                tenure_change_tx,
-            })
+            NakamotoTenureInfo {
+                coinbase_tx: Some(coinbase_tx),
+                tenure_change_tx: Some(tenure_change_tx),
+            }
         } else {
-            None
+            NakamotoTenureInfo {
+                coinbase_tx: None,
+                tenure_change_tx: None,
+            }
         };
 
         parent_block_info.stacks_parent_header.microblock_tail = None;
@@ -584,9 +585,10 @@ impl ParentStacksBlockInfo {
             } else {
                 1
             };
+            let parent_tenure_consensus_hash = parent_tenure_header.consensus_hash.clone();
             Some(ParentTenureInfo {
-                parent_tenure_start: parent_tenure_id.clone(),
                 parent_tenure_blocks,
+                parent_tenure_consensus_hash,
             })
         } else {
             None

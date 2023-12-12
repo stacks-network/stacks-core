@@ -570,9 +570,13 @@ impl NakamotoBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
-        let initial_txs: Vec<_> = 
-            [new_tenure_info.tenure_change_tx.cloned(),
-             new_tenure_info.coinbase_tx.cloned()].into_iter().filter_map(|x| x).collect();
+        let initial_txs: Vec<_> = [
+            tenure_info.tenure_change_tx.clone(),
+            tenure_info.coinbase_tx.clone(),
+        ]
+        .into_iter()
+        .filter_map(|x| x)
+        .collect();
         let (blocked, tx_events) = match StacksBlockBuilder::select_and_apply_transactions(
             &mut tenure_tx,
             &mut builder,
