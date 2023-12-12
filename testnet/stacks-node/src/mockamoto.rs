@@ -776,6 +776,9 @@ impl MockamotoNode {
         coinbase_tx_signer.sign_origin(&self.miner_key).unwrap();
         let coinbase_tx = coinbase_tx_signer.get_tx().unwrap();
 
+        let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
+        let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
+
         // Add a tenure change transaction to the block:
         //  as of now every mockamoto block is a tenure-change.
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
@@ -783,11 +786,11 @@ impl MockamotoNode {
         let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
             tenure_consensus_hash: sortition_tip.consensus_hash.clone(),
             prev_tenure_consensus_hash: chain_tip_ch.clone(),
-            sortition_consensus_hash: sortition_tip.consensus_hash,
+            burn_view_consensus_hash: sortition_tip.consensus_hash,
             previous_tenure_end: parent_block_id,
             previous_tenure_blocks: 1,
             cause: TenureChangeCause::BlockFound,
-            pubkey_hash: Hash160([0; 20]),
+            pubkey_hash: miner_pk_hash,
             signature: ThresholdSignature::mock(),
             signers: vec![],
         });

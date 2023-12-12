@@ -22,7 +22,7 @@ fn observe_100_blocks() {
 
     let submitter_sk = StacksPrivateKey::from_seed(&[1]);
     let submitter_addr = to_addr(&submitter_sk);
-    conf.add_initial_balance(submitter_addr.to_string(), 1_000);
+    conf.add_initial_balance(submitter_addr.to_string(), 1_000_000);
     let recipient_addr = StacksAddress::burn_address(false).into();
 
     test_observer::spawn();
@@ -54,8 +54,10 @@ fn observe_100_blocks() {
         .expect("FATAL: failed to start mockamoto main thread");
 
     // make a transfer tx to test that the mockamoto miner picks up txs from the mempool
-    let transfer_tx = make_stacks_transfer(&submitter_sk, 0, 10, &recipient_addr, 100);
+    let transfer_tx = make_stacks_transfer(&submitter_sk, 0, 300, &recipient_addr, 100);
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
+
+    let mut sent_tx = false;
 
     // complete within 2 minutes or abort
     let completed = loop {
@@ -71,7 +73,7 @@ fn observe_100_blocks() {
         let stacks_block_height = latest_block.get("block_height").unwrap().as_u64().unwrap();
         info!("Block height observed: {stacks_block_height}");
 
-        if stacks_block_height == 1 {
+        if stacks_block_height >= 1 && !sent_tx {
             let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
                 .unwrap()
                 .unwrap();
@@ -87,6 +89,8 @@ fn observe_100_blocks() {
                     &StacksEpochId::Epoch30,
                 )
                 .unwrap();
+
+            sent_tx = true;
         }
 
         if stacks_block_height >= 100 {
@@ -156,6 +160,8 @@ fn mempool_rpc_submit() {
     let transfer_tx = make_stacks_transfer(&submitter_sk, 0, tx_fee, &recipient_addr, 100);
     let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
 
+    let mut sent_tx = false;
+
     // complete within 2 minutes or abort
     let completed = loop {
         if Instant::now().duration_since(start) > Duration::from_secs(120) {
@@ -170,9 +176,10 @@ fn mempool_rpc_submit() {
         let stacks_block_height = latest_block.get("block_height").unwrap().as_u64().unwrap();
         info!("Block height observed: {stacks_block_height}");
 
-        if stacks_block_height == 1 {
+        if stacks_block_height >= 1 && !sent_tx {
             // Enforce admission checks by utilizing the RPC endpoint
             submit_tx(&http_origin, &transfer_tx);
+            sent_tx = true;
         }
 
         if stacks_block_height >= 100 {

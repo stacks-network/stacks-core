@@ -302,7 +302,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let mut test_signers = TestSigners::default();
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 10_000)],
+        vec![(addr.into(), 100_000_000)],
         test_signers.aggregate_public_key,
     );
 
@@ -412,9 +412,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
 /// * check_tenure_continuity
 #[test]
 fn test_nakamoto_chainstate_getters() {
-    let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
-    let private_key = peer.config.private_key.clone();
+    let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -422,6 +420,12 @@ fn test_nakamoto_chainstate_getters() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
+    let mut test_signers = TestSigners::default();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![(addr.into(), 100_000_000)],
+        test_signers.aggregate_public_key,
+    );
 
     let sort_tip = {
         let sort_db = peer.sortdb.as_ref().unwrap();
@@ -908,7 +912,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
     let mut test_signers = TestSigners::default();
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 11_000)],
+        vec![(addr.into(), 100_000_000)],
         test_signers.aggregate_public_key,
     );
 
@@ -1225,9 +1229,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
 /// 20 blocks in the first tenure (10 before the second sortiton, and 10 after)
 #[test]
 fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
-    let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
-    let private_key = peer.config.private_key.clone();
+    let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -1235,6 +1237,12 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
+    let mut test_signers = TestSigners::default();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![(addr.into(), 100_000_000)],
+        test_signers.aggregate_public_key,
+    );
 
     let mut rc_burn_ops = vec![];
     let mut all_blocks = vec![];
@@ -1549,9 +1557,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
 /// Mine a 10 Nakamoto tenures with 10 Nakamoto blocks, but do a tenure-extend in each block
 #[test]
 fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
-    let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
-    let private_key = peer.config.private_key.clone();
+    let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -1559,6 +1565,12 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
         &vec![StacksPublicKey::from_private(&private_key)],
     )
     .unwrap();
+    let mut test_signers = TestSigners::default();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![(addr.into(), 100_000_000)],
+        test_signers.aggregate_public_key,
+    );
 
     let mut all_blocks = vec![];
     let mut all_burn_ops = vec![];
