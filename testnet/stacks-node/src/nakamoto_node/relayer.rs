@@ -1,4 +1,3 @@
-use core::fmt;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
@@ -14,6 +13,7 @@ use core::fmt;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use core::fmt;
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
@@ -261,7 +261,7 @@ impl RelayerThread {
             )
             .expect("BUG: failure processing network results");
 
-        if net_receipts.num_new_blocks > 0 || net_receipts.num_new_confirmed_microblocks > 0 {
+        if net_receipts.num_new_blocks > 0 {
             // if we received any new block data that could invalidate our view of the chain tip,
             // then stop mining until we process it
             debug!("Relayer: block mining to process newly-arrived blocks or microblocks");
@@ -274,28 +274,11 @@ impl RelayerThread {
                 .process_new_mempool_txs(net_receipts.mempool_txs_added);
         }
 
-        let num_unconfirmed_microblock_tx_receipts =
-            net_receipts.processed_unconfirmed_state.receipts.len();
-        if num_unconfirmed_microblock_tx_receipts > 0 {
-            if let Some(unconfirmed_state) = self.chainstate.unconfirmed_state.as_ref() {
-                let canonical_tip = unconfirmed_state.confirmed_chain_tip.clone();
-                self.event_dispatcher.process_new_microblocks(
-                    canonical_tip,
-                    net_receipts.processed_unconfirmed_state,
-                );
-            } else {
-                warn!("Relayer: oops, unconfirmed state is uninitialized but there are microblock events");
-            }
-        }
-
         // Dispatch retrieved attachments, if any.
         if net_result.has_attachments() {
             self.event_dispatcher
                 .process_new_attachments(&net_result.attachments);
         }
-
-        // synchronize unconfirmed tx index to p2p thread
-        self.globals.send_unconfirmed_txs(&self.chainstate);
 
         // resume mining if we blocked it, and if we've done the requisite download
         // passes
