@@ -624,6 +624,31 @@ impl Config {
             );
             burnchain.pox_constants.sunset_end = sunset_end.into();
         }
+
+        // check if the Epoch 3.0 burnchain settings as configured are going to be valid.
+        let epochs = StacksEpoch::get_epochs(
+            self.burnchain.get_bitcoin_network().1,
+            self.burnchain.epochs.as_ref(),
+        );
+        let Some(epoch_30) = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30)
+            .map(|epoch_ix| epochs[epoch_ix].clone())
+        else {
+            // no Epoch 3.0, so just return
+            return;
+        };
+        if burnchain.pox_constants.prepare_length < 3 {
+            panic!(
+                "FATAL: Nakamoto rules require a prepare length >= 3. Prepare length set to {}",
+                burnchain.pox_constants.prepare_length
+            );
+        }
+        if burnchain.is_in_prepare_phase(epoch_30.start_height) {
+            panic!(
+                "FATAL: Epoch 3.0 must start *during* a reward phase, not a prepare phase. Epoch 3.0 start set to: {}. PoX Parameters: {:?}",
+                epoch_30.start_height,
+                &burnchain.pox_constants
+            );
+        }
     }
 
     /// Load up a Burnchain and apply config settings to it.

@@ -105,13 +105,13 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 6,
-            end_height: 220,
+            end_height: 221,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: 220,
+            start_height: 221,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
@@ -226,7 +226,7 @@ fn next_block_and_mine_commit(
                 return Ok(true);
             }
             if commits_sent >= commits_before + 1
-                && block_processed_time.elapsed() > Duration::from_secs(10)
+                && block_processed_time.elapsed() > Duration::from_secs(6)
             {
                 return Ok(true);
             }
