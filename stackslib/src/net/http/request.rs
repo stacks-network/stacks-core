@@ -612,7 +612,7 @@ impl HttpRequestContents {
     }
 
     /// Get a query argument
-    pub fn get_query_arg(&self, key: &String) -> Option<&String> {
+    pub fn get_query_arg(&self, key: &str) -> Option<&String> {
         self.query_args.get(key)
     }
 
