@@ -654,7 +654,7 @@ impl Relayer {
     /// Return Ok(true) if we stored it, Ok(false) if we didn't
     pub fn process_new_nakamoto_block(
         sortdb: &SortitionDB,
-        sort_handle: &SortitionHandleConn,
+        sort_handle: &mut SortitionHandleConn,
         chainstate: &mut StacksChainState,
         block: NakamotoBlock,
     ) -> Result<bool, chainstate_error> {
@@ -712,6 +712,11 @@ impl Relayer {
             &block.header.consensus_hash,
             &block.header.block_hash()
         );
+        let reject_msg = format!(
+            "Rejected incoming Nakamoto block {}/{}",
+            &block.header.consensus_hash,
+            &block.header.block_hash()
+        );
 
         // TODO: https://github.com/stacks-network/stacks-core/issues/4109
         // Update this to retrieve the last block in the last reward cycle rather than chain tip
@@ -756,7 +761,10 @@ impl Relayer {
 
         if accepted {
             debug!("{}", &accept_msg);
+        } else {
+            debug!("{}", &reject_msg);
         }
+
         Ok(accepted)
     }
 

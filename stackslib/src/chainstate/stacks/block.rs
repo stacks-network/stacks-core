@@ -1782,16 +1782,20 @@ mod test {
         );
 
         let tenure_change_payload = TenureChangePayload {
+            tenure_consensus_hash: ConsensusHash([0x01; 20]),
+            prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
+            burn_view_consensus_hash: ConsensusHash([0x03; 20]),
             previous_tenure_end: StacksBlockId([0x00; 32]),
             previous_tenure_blocks: 0,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0x00; 20]),
+            signature: ThresholdSignature::mock(),
             signers: vec![],
         };
         let tx_tenure_change = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::TenureChange(tenure_change_payload, ThresholdSignature::mock()),
+            TransactionPayload::TenureChange(tenure_change_payload),
         );
 
         let dup_txs = vec![
