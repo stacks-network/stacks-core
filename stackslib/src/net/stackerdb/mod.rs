@@ -127,6 +127,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::neighbors::NeighborComms;
@@ -290,9 +291,9 @@ pub trait StackerDBEventDispatcher {
     );
 }
 
-impl<Conn> PeerNetwork<Conn> 
+impl<SortDB> PeerNetwork<SortDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
     /// Run all stacker DB sync state-machines.
     /// Return a list of sync results on success, to be incorporated into the NetworkResult.

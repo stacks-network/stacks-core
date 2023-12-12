@@ -3257,8 +3257,8 @@ where
     /// Returns None if not valid
     /// * consensus_hash is the PoX history hash of the burnchain block whose sortition
     /// (ostensibly) selected this block for inclusion.
-    fn validate_anchored_block_burnchain<SortDB, SortTX>(
-        blocks_conn: &DBConn,
+    fn validate_anchored_block_burnchain<SortTX>(
+        blocks_conn: &ChainDB,
         db_handle: &SortTX,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
@@ -3266,8 +3266,7 @@ where
         chain_id: u32,
     ) -> Result<Option<(u64, u64)>, Error> 
     where
-        SortDB: SortitionDb,
-        SortTX: SortitionDbTransaction<SortDB>
+        SortTX: SortitionDbTransaction
     {
         // sortition-winning block commit for this block?
         let block_hash = block.block_hash();

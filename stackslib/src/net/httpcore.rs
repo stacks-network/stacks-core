@@ -38,7 +38,9 @@ use url::Url;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -342,36 +344,36 @@ impl HttpRequestContentsExtensions for HttpRequestContents {
 }
 
 /// Work around Clone blanket implementations not being object-safe
-pub trait RPCRequestHandlerClone<Conn> 
+pub trait RPCRequestHandlerClone<SortDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
-    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler<Conn>>;
+    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler<SortDB>>;
 }
 
-impl<Conn, T> RPCRequestHandlerClone<Conn> for T
+impl<SortDB, T> RPCRequestHandlerClone<SortDB> for T
 where
-    Conn: DbConnection + TrieDb,
-    T: 'static + RPCRequestHandler<Conn> + Clone,
+    SortDB: SortitionDb,
+    T: 'static + RPCRequestHandler<SortDB> + Clone,
 {
-    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler<Conn>> {
+    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler<SortDB>> {
         Box::new(self.clone())
     }
 }
 
-impl<Conn> Clone for Box<dyn RPCRequestHandler<Conn>> 
+impl<SortDB> Clone for Box<dyn RPCRequestHandler<SortDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
-    fn clone(&self) -> Box<dyn RPCRequestHandler<Conn>> {
+    fn clone(&self) -> Box<dyn RPCRequestHandler<SortDB>> {
         self.clone_rpc_handler_box()
     }
 }
 
 /// Trait that every HTTP round-trip request type must implement.
-pub trait RPCRequestHandler<Conn>: HttpRequest + HttpResponse + RPCRequestHandlerClone <Conn>
+pub trait RPCRequestHandler<SortDB>: HttpRequest + HttpResponse + RPCRequestHandlerClone<SortDB>
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
     /// Reset the RPC handler.  This clears any internal state this handler stored between calls to
     /// `try_handle_request()`
@@ -381,16 +383,16 @@ where
         &mut self,
         request_preamble: HttpRequestPreamble,
         request_body: HttpRequestContents,
-        state: &mut StacksNodeState<Conn>,
+        state: &mut StacksNodeState<SortDB>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError>;
 
     /// Helper to get the canonical sortition tip
     fn get_canonical_burn_chain_tip(
         &self,
         preamble: &HttpRequestPreamble,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
     ) -> Result<BlockSnapshot, StacksHttpResponse> {
-        SortitionDB::<Conn>::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
+        SortitionDB::<SortDB>::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
             StacksHttpResponse::new_error(
                 &preamble,
                 &HttpServerError::new(format!("Failed to load canonical burnchain tip: {:?}", &e)),
@@ -402,10 +404,10 @@ where
     fn get_stacks_epoch(
         &self,
         preamble: &HttpRequestPreamble,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortitionDB<SortDB>,
         block_height: u64,
     ) -> Result<StacksEpoch, StacksHttpResponse> {
-        SortitionDB::<Conn>::get_stacks_epoch(sortdb.conn(), block_height)
+        SortitionDB::<SortDB>::get_stacks_epoch(sortdb.conn(), block_height)
             .map_err(|e| {
                 StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))
             })?
@@ -420,12 +422,16 @@ where
     }
 
     /// Helper to get the Stacks tip
-    fn get_stacks_chain_tip(
+    fn get_stacks_chain_tip<ChainDB>(
         &self,
         preamble: &HttpRequestPreamble,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
-    ) -> Result<StacksHeaderInfo, StacksHttpResponse> {
+        sortdb: &SortitionDB<SortDB>,
+        chainstate: &StacksChainState<ChainDB>,
+    ) -> Result<StacksHeaderInfo, StacksHttpResponse> 
+    where
+        ChainDB: ChainStateDb,
+        Self: Sized
+    {
         NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
             .map_err(|e| {
                 let msg = format!("Failed to load stacks chain tip header: {:?}", &e);
@@ -840,7 +846,7 @@ struct StacksHttpReplyData {
 #[derive(Clone)]
 pub struct StacksHttp<Conn> 
 where
-    Conn: DbConnection + TrieDb
+    Conn: TrieDb
 {
     /// Address of peer
     peer_addr: SocketAddr,
@@ -868,11 +874,11 @@ where
     pub read_only_call_limit: ExecutionCost,
 }
 
-impl<Conn> StacksHttp<Conn> 
+impl<SortDB> StacksHttp<SortDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
-    pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp<Conn> {
+    pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp<SortDB> {
         let mut http = StacksHttp {
             peer_addr,
             body_start: None,
@@ -890,7 +896,7 @@ where
     }
 
     /// Register an API RPC endpoint
-    pub fn register_rpc_endpoint<Handler: RPCRequestHandler<Conn> + 'static>(
+    pub fn register_rpc_endpoint<Handler: RPCRequestHandler<SortDB> + 'static>(
         &mut self,
         handler: Handler,
     ) {
@@ -935,7 +941,7 @@ where
     #[cfg(test)]
     pub fn handle_try_parse_request(
         &self,
-        handler: &mut dyn RPCRequestHandler<Conn>,
+        handler: &mut dyn RPCRequestHandler<SortDB>,
         preamble: &HttpRequestPreamble,
         body: &[u8],
     ) -> Result<StacksHttpRequest, NetError> {
@@ -1078,7 +1084,7 @@ where
     pub fn try_handle_request(
         &mut self,
         request: StacksHttpRequest,
-        node: &mut StacksNodeState<Conn>,
+        node: &mut StacksNodeState<SortDB>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let (decoded_path, _) = decode_request_path(&request.preamble().path_and_query_str)?;
         let response_handler_index =
@@ -1566,9 +1572,9 @@ where
     }
 }
 
-impl<Conn> PeerNetwork<Conn> 
+impl<SortDB> PeerNetwork<SortDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
     /// Send a (non-blocking) HTTP request to a remote peer.
     /// Returns the event ID on success.

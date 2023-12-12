@@ -34,6 +34,7 @@ use crate::chainstate::burn::db::sortdb::{
 };
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHashExtensions};
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::asn::ASEntry4;
 use crate::net::chat::ConversationP2P;
@@ -715,13 +716,13 @@ impl NeighborBlockStats {
 
     /// Determine whether or not a received PoxInv is less certain than the local PoX
     /// inventory.  Return the lowest reward cycle where the remote node is less certain than us.
-    pub fn check_remote_pox_inv_uncertainty<Conn>(
-        network: &mut PeerNetwork<Conn>,
+    pub fn check_remote_pox_inv_uncertainty<SortDB>(
+        network: &mut PeerNetwork<SortDB>,
         target_pox_reward_cycle: u64,
         poxinv_data: &PoxInvData,
     ) -> u64 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let mut bit = target_pox_reward_cycle;
         while bit < (network.pox_id.len() as u64) - 1
@@ -742,13 +743,13 @@ impl NeighborBlockStats {
     /// Determine whether or not a received PoxInv is more certain as the local PoX
     /// inventory.  Return the loewst reward cycle where the local nodes is less certain than the
     /// remote node.
-    pub fn check_local_pox_inv_uncertainty<Conn>(
-        network: &mut PeerNetwork<Conn>,
+    pub fn check_local_pox_inv_uncertainty<SortDB>(
+        network: &mut PeerNetwork<SortDB>,
         target_pox_reward_cycle: u64,
         poxinv_data: &PoxInvData,
     ) -> u64 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let mut bit = target_pox_reward_cycle;
         while bit < (network.pox_id.len() as u64) - 1
@@ -770,12 +771,12 @@ impl NeighborBlockStats {
     /// Return true if this method is done -- i.e. all requests have been handled.
     /// Return false if we're not done.
     /// Return Err(..) on irrecoverable error.
-    pub fn getpoxinv_try_finish<Conn>(
+    pub fn getpoxinv_try_finish<SortDB>(
         &mut self, 
-        network: &mut PeerNetwork<Conn>
+        network: &mut PeerNetwork<SortDB>
     ) -> Result<bool, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         assert!(!self.done);
         assert_eq!(self.state, InvWorkState::GetPoxInvFinish);
@@ -870,12 +871,12 @@ impl NeighborBlockStats {
     /// Try to finish getting all BlocksInvData requests.
     /// Return true if this method is done -- i.e. all requests have been handled.
     /// Return false if we're not done.
-    pub fn getblocksinv_try_finish<Conn>(
+    pub fn getblocksinv_try_finish<SortDB>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork<SortDB>,
     ) -> Result<bool, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         assert!(!self.done);
         assert_eq!(self.state, InvWorkState::GetBlocksInvFinish);
@@ -1194,18 +1195,18 @@ impl InvState {
     /// None if its bit was already set).
     /// Returns NotFoundError if the consensus hash is not recognized, but may be recognized in the
     /// future
-    fn set_data_available<Conn>(
+    fn set_data_available<SortDB>(
         &mut self,
         burnchain: &Burnchain,
         neighbor_key: &NeighborKey,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         consensus_hash: &ConsensusHash,
         microblocks: bool,
     ) -> Result<Option<u64>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
-        let sn = match SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)? {
+        let sn = match sortdb.get_block_snapshot_consensus(&consensus_hash)? {
             Some(sn) => {
                 if !sn.pox_valid {
                     debug!(
@@ -1288,28 +1289,28 @@ impl InvState {
         }
     }
 
-    pub fn set_block_available<Conn>(
+    pub fn set_block_available<SortDB>(
         &mut self,
         burnchain: &Burnchain,
         neighbor_key: &NeighborKey,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<u64>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, false)
     }
 
-    pub fn set_microblocks_available<Conn>(
+    pub fn set_microblocks_available<SortDB>(
         &mut self,
         burnchain: &Burnchain,
         neighbor_key: &NeighborKey,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<u64>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         self.set_data_available(burnchain, neighbor_key, sortdb, consensus_hash, true)
     }
@@ -1331,16 +1332,16 @@ impl InvState {
     }
 }
 
-impl<Conn> PeerNetwork<Conn>
+impl<SortDB> PeerNetwork<SortDB>
 where
-    Conn: DbConnection + TrieDb 
+    SortDB: SortitionDb
 {
     /// Get our current tip snapshot, accounting for PoX invalidation
     fn get_tip_sortition_snapshot(
         &self, 
-        sortdb: &SortitionDB<Conn>
+        sortdb: &SortDB
     ) -> Result<BlockSnapshot, net_error> {
-        match SortitionDB::<Conn>::get_block_snapshot(sortdb.conn(), &self.tip_sort_id)? {
+        match sortdb.get_block_snapshot(&self.tip_sort_id)? {
             Some(sn) => {
                 if !sn.pox_valid {
                     // our sortition ID tip got invalidated
@@ -1355,7 +1356,7 @@ where
     /// Get an ancestor snapshot, accounting for PoX invalidation
     pub fn get_ancestor_sortition_snapshot(
         &self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         height: u64,
     ) -> Result<BlockSnapshot, net_error> {
         let sn = self.get_tip_sortition_snapshot(sortdb)?;
@@ -1384,7 +1385,7 @@ where
     /// Return Ok(None) if we don't have this snapshot
     fn get_peer_sortition_snapshot(
         &self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<BlockSnapshot>, net_error> {
         let ic = sortdb.index_conn();
@@ -1407,7 +1408,7 @@ where
     /// The target_pox_reward_cycle will be the _lowest_ reward cycle requested.
     fn make_getpoxinv(
         &self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         nk: &NeighborKey,
         target_pox_reward_cycle: u64,
     ) -> Result<Option<GetPoxInv>, net_error> {
@@ -1523,7 +1524,7 @@ where
     /// or may not agree on our PoX view.
     fn get_getblocksinv_num_blocks(
         &self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         target_block_reward_cycle: u64,
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
@@ -1629,7 +1630,7 @@ where
     /// caught up with target_block_reward_cycle).
     fn make_getblocksinv(
         &self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
         target_block_reward_cycle: u64,
@@ -1735,7 +1736,7 @@ where
     /// inventory for this node.
     fn make_next_getpoxinv(
         &self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
     ) -> Result<Option<(u64, GetPoxInv)>, net_error> {
@@ -1768,7 +1769,7 @@ where
     /// Make the next GetBlocksInv for a peer
     fn make_next_getblocksinv(
         &self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
     ) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
@@ -1786,7 +1787,7 @@ where
     /// Determine at which reward cycle to begin scanning inventories
     fn get_block_scan_start(
         &self, 
-        sortdb: &SortitionDB<Conn>, 
+        sortdb: &SortDB, 
         highest_remote_reward_cycle: u64
     ) -> u64 {
         // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
@@ -1799,11 +1800,11 @@ where
         // tip.
         // NOTE: This code path only works in Stacks 2.x, but that's okay because this whole state
         // machine is only used in Stacks 2.x
-        let (consensus_hash, _) = SortitionDB::<Conn>::get_canonical_stacks_chain_tip_hash(sortdb.conn())
+        let (consensus_hash, _) = sortdb.get_canonical_stacks_chain_tip_hash()
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 
         let stacks_tip_burn_block_height =
-            match SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash) {
+            match sortdb.get_block_snapshot_consensus(&consensus_hash) {
                 Err(_) => self.burnchain.first_block_height,
                 Ok(x) => x
                     .map(|sn| sn.block_height)
@@ -1835,7 +1836,7 @@ where
     /// Start requesting the next batch of PoX inventories
     fn inv_getpoxinv_begin(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
@@ -1876,7 +1877,7 @@ where
     /// Return true if done.
     fn inv_getpoxinv_try_finish(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         ibd: bool,
@@ -2037,7 +2038,7 @@ where
     /// Start requesting the next batch of block inventories
     fn inv_getblocksinv_begin(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
@@ -2163,7 +2164,7 @@ where
     /// Run a single state-machine to completion
     fn inv_sync_run(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
@@ -2205,7 +2206,8 @@ where
     /// about a new reward cycle.
     /// Call right after PeerNetwork::refresh_burnchain_view()
     pub fn refresh_sortition_view(
-        &mut self, sortdb: &SortitionDB<Conn>
+        &mut self, 
+        sortdb: &SortDB
     ) -> Result<(), net_error> {
         if self.inv_state.is_none() {
             self.init_inv_sync(sortdb);
@@ -2276,7 +2278,7 @@ where
     /// returns (done?, throttled?, peers-to-disconnect, peers-that-are-dead)
     pub fn sync_inventories(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         ibd: bool,
     ) -> (bool, bool, Vec<NeighborKey>, Vec<NeighborKey>) {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
@@ -2513,9 +2515,12 @@ where
         .expect("FATAL: network not connected")
     }
 
-    pub fn with_inv_state<F, R>(network: &mut PeerNetwork<Conn>, handler: F) -> Result<R, net_error>
+    pub fn with_inv_state<F, R>(
+        network: &mut PeerNetwork<SortDB>, 
+        handler: F
+    ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<Conn>, &mut InvState) -> R,
+        F: FnOnce(&mut PeerNetwork<SortDB>, &mut InvState) -> R,
     {
         let mut inv_state = network.inv_state.take();
         let res = match inv_state {
@@ -2571,7 +2576,7 @@ where
     /// Initialize inv state
     pub fn init_inv_sync(
         &mut self, 
-        sortdb: &SortitionDB<Conn>
+        sortdb: &SortDB
     ) -> () {
         // find out who we'll be synchronizing with for the duration of this inv sync
         debug!(
@@ -2592,7 +2597,7 @@ where
         func: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<Conn>, &mut NeighborBlockStats) -> R,
+        F: FnOnce(&mut PeerNetwork<SortDB>, &mut NeighborBlockStats) -> R,
     {
         match PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
@@ -2608,12 +2613,15 @@ where
     }
 
     /// Get the local block inventory for a reward cycle
-    pub fn get_local_blocks_inv(
+    pub fn get_local_blocks_inv<ChainDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortDB,
+        chainstate: &StacksChainState<ChainDB>,
         reward_cycle: u64,
-    ) -> Result<BlocksInvData, net_error> {
+    ) -> Result<BlocksInvData, net_error> 
+    where
+        ChainDB: ChainStateDb
+    {
         let target_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
 
         // if this succeeds, then we should be able to make a BlocksInv
@@ -3284,7 +3292,7 @@ mod test {
         let num_blocks = 5;
         let first_stacks_block_height = {
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+                peer_1.sortdb.get_canonical_burn_chain_tip()
                     .unwrap();
             sn.block_height
         };
@@ -3497,7 +3505,7 @@ mod test {
                 let height = network.burnchain.reward_cycle_to_block_height(1);
                 let sn = {
                     let ic = sortdb.index_conn();
-                    let sn = SortitionDB::get_ancestor_snapshot(&ic, height, &tip.sortition_id)
+                    let sn = sortdb.get_ancestor_snapshot(&ic, height, &tip.sortition_id)
                         .unwrap()
                         .unwrap();
                     sn

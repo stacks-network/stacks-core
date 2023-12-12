@@ -1,4 +1,5 @@
 pub mod utils;
+pub mod test_helpers;
 
 use std::{ops::Deref, path::PathBuf};
 
@@ -52,6 +53,8 @@ where
     ) -> Result<Self>
     where
         Self: Sized;
+
+    fn transaction(&mut self) -> Result<&SortitionDbTransactionImpl<Self>> where Self: Sized;
 
     /// Get a block commit by its content-addressed location in a specific sortition.
     fn get_block_commit(
@@ -560,10 +563,26 @@ where
     ) -> Result<BlockSnapshot>;
 }
 
-pub trait SortitionDbTransaction<DB>
+pub struct SortitionDbTransactionImpl<'a, DB>
 where
     DB: SortitionDb,
-    Self: Deref<Target = DB>,
+    Self: Deref<Target = DB> 
+{
+    conn: &'a DB
+}
+
+impl<SortDB> Deref for SortitionDbTransactionImpl<'_, SortDB> 
+where
+    SortDB: SortitionDb
+{
+    type Target = SortDB;
+
+    fn deref(&self) -> &Self::Target {
+        self.conn
+    }
+}
+
+pub trait SortitionDbTransaction
 {
     fn commit() -> Result<()>;
     fn rollback() -> Result<()>;

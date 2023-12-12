@@ -35,6 +35,7 @@ use crate::chainstate::burn::db::sortdb;
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::{StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3};
 use crate::monitoring;
@@ -1191,14 +1192,14 @@ impl ConversationP2P {
     /// or if it is signed by the current public key.
     /// Returns a reply (either an accept or reject) if appropriate
     /// Panics if this message is not a handshake (caller should check)
-    fn handle_handshake<Conn>(
+    fn handle_handshake<SortDB>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork<SortDB>,
         message: &mut StacksMessage,
         authenticated: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         if !authenticated && self.connection.options.disable_inbound_handshakes {
             debug!("{:?}: blocking inbound unauthenticated handshake", &self);
@@ -1394,13 +1395,13 @@ impl ConversationP2P {
     }
 
     /// Handle an inbound GetNeighbors request.
-    fn handle_getneighbors<Conn>(
+    fn handle_getneighbors<SortDB>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork<SortDB>,
         preamble: &Preamble,
     ) -> Result<ReplyHandleP2P, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         monitoring::increment_msg_counter("p2p_get_neighbors".to_string());
 
@@ -1462,14 +1463,15 @@ impl ConversationP2P {
     /// Handle an inbound GetBlocksInv request.
     /// Returns a reply handle to the generated message (possibly a nack)
     /// Only returns up to $reward_cycle_length bits
-    pub fn make_getblocksinv_response<Conn>(
-        network: &mut PeerNetwork<Conn>,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+    pub fn make_getblocksinv_response<SortDB, ChainDB>(
+        network: &mut PeerNetwork<SortDB>,
+        sortdb: &SortDB,
+        chainstate: &StacksChainState<ChainDB>,
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<StacksMessageType, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let _local_peer = network.get_local_peer();
 
@@ -1484,7 +1486,7 @@ impl ConversationP2P {
         }
 
         // request must correspond to valid PoX fork and must be aligned to reward cycle
-        let base_snapshot = match SortitionDB::<Conn>::get_block_snapshot_consensus(
+        let base_snapshot = match SortitionDB::<SortDB>::get_block_snapshot_consensus(
             sortdb.conn(),
             &get_blocks_inv.consensus_hash,
         )? {
@@ -1529,7 +1531,7 @@ impl ConversationP2P {
 
         // find the tail end of this range on the canonical fork.
         let tip_snapshot = {
-            let tip_sort_id = SortitionDB::<Conn>::get_canonical_sortition_tip(sortdb.conn())?;
+            let tip_sort_id = sortdb.get_canonical_sortition_tip()?;
             let ic = sortdb.index_conn();
             // NOTE: need the '- 1' here because get_stacks_header_hashes includes
             // tip_snapshot.consensus_hash at the end.
@@ -1584,7 +1586,7 @@ impl ConversationP2P {
         }?;
 
         // update cache
-        SortitionDB::<Conn>::merge_block_header_cache(network.get_header_cache_mut(), &block_hashes);
+        SortitionDB::<SortDB>::merge_block_header_cache(network.get_header_cache_mut(), &block_hashes);
 
         let reward_cycle = network
             .get_burnchain()
@@ -1616,16 +1618,17 @@ impl ConversationP2P {
 
     /// Handle an inbound GetBlocksInv request.
     /// Returns a reply handle to the generated message (possibly a nack)
-    fn handle_getblocksinv<Conn>(
+    fn handle_getblocksinv<SortDB, ChainDB>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        network: &mut PeerNetwork<SortDB>,
+        sortdb: &SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
         preamble: &Preamble,
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<ReplyHandleP2P, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         monitoring::increment_msg_counter("p2p_get_blocks_inv".to_string());
 
@@ -1669,13 +1672,13 @@ impl ConversationP2P {
 
     /// Create a response an inbound GetPoxInv request, but unsigned.
     /// Returns a reply handle to the generated message (possibly a nack)
-    pub fn make_getpoxinv_response<Conn>(
-        network: &PeerNetwork<Conn>,
-        sortdb: &SortitionDB<Conn>,
+    pub fn make_getpoxinv_response<SortDB>(
+        network: &PeerNetwork<SortDB>,
+        sortdb: &SortDB,
         getpoxinv: &GetPoxInv,
     ) -> Result<StacksMessageType, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let local_peer = network.get_local_peer();
         let burnchain = network.get_burnchain();
@@ -1689,7 +1692,7 @@ impl ConversationP2P {
             )));
         }
         // consensus hash in getpoxinv must exist on the canonical chain tip
-        match SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), &getpoxinv.consensus_hash) {
+        match SortitionDB::<SortDB>::get_block_snapshot_consensus(sortdb.conn(), &getpoxinv.consensus_hash) {
             Ok(Some(sn)) => {
                 if !sn.pox_valid {
                     // invalid consensus hash
@@ -1767,15 +1770,15 @@ impl ConversationP2P {
 
     /// Handle an inbound GetPoxInv request.
     /// Returns a reply handle to the generated message (possibly a nack)
-    fn handle_getpoxinv<Conn>(
+    fn handle_getpoxinv<SortDB>(
         &mut self,
-        network: &PeerNetwork<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        network: &PeerNetwork<SortDB>,
+        sortdb: &SortDB,
         preamble: &Preamble,
         getpoxinv: &GetPoxInv,
     ) -> Result<ReplyHandleP2P, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let response = ConversationP2P::make_getpoxinv_response(network, sortdb, getpoxinv)?;
         self.sign_and_reply(
@@ -1789,12 +1792,12 @@ impl ConversationP2P {
     /// Handle an inbound StackerDBGetChunkInv request.
     /// Generates a StackerDBChunkInv response from the target database table, if we have it.
     /// Generates a Nack if we don't have this DB, or if the request's consensus hash is invalid.
-    fn make_stacker_db_getchunkinv_response<Conn>(
-        network: &PeerNetwork<Conn>,
+    fn make_stacker_db_getchunkinv_response<SortDB>(
+        network: &PeerNetwork<SortDB>,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<StacksMessageType, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let local_peer = network.get_local_peer();
         let burnchain_view = network.get_chain_view();
@@ -1814,14 +1817,14 @@ impl ConversationP2P {
 
     /// Handle an inbound StackerDBGetChunkInv request.
     /// Retrns a reply handle to the generated message (possibly a nack)
-    fn handle_stacker_db_getchunkinv<Conn>(
+    fn handle_stacker_db_getchunkinv<SortDB>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork<SortDB>,
         preamble: &Preamble,
         getchunkinv: &StackerDBGetChunkInvData,
     ) -> Result<ReplyHandleP2P, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let response = ConversationP2P::make_stacker_db_getchunkinv_response(network, getchunkinv)?;
         self.sign_and_reply(
@@ -1836,12 +1839,12 @@ impl ConversationP2P {
     /// Generates a StackerDBChunk response from the target database table, if we have it.
     /// Generates a NACK if we don't have this DB, or if the request's consensus hash or version
     /// are stale or invalid.
-    fn make_stacker_db_getchunk_response<Conn>(
-        network: &PeerNetwork<Conn>,
+    fn make_stacker_db_getchunk_response<SortDB>(
+        network: &PeerNetwork<SortDB>,
         getchunk: &StackerDBGetChunkData,
     ) -> Result<StacksMessageType, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let local_peer = network.get_local_peer();
         let burnchain_view = network.get_chain_view();
@@ -1887,14 +1890,14 @@ impl ConversationP2P {
 
     /// Handle an inbound StackerDBGetChunk request
     /// Returns a reply handle to the generated message (possibly a nack)
-    fn handle_stacker_db_getchunk<Conn>(
+    fn handle_stacker_db_getchunk<SortDB>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork<SortDB>,
         preamble: &Preamble,
         getchunk: &StackerDBGetChunkData,
     ) -> Result<ReplyHandleP2P, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let response = ConversationP2P::make_stacker_db_getchunk_response(network, getchunk)?;
         self.sign_and_reply(
@@ -1965,14 +1968,14 @@ impl ConversationP2P {
 
     /// Validate pushed blocks.
     /// Make sure the peer doesn't send us too much at once, though.
-    fn validate_blocks_push<Conn>(
+    fn validate_blocks_push<SortDB>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork<SortDB>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
@@ -2007,14 +2010,14 @@ impl ConversationP2P {
     /// Validate pushed microblocks.
     /// Not much we can do to see if they're semantically correct, but we can at least throttle a
     /// peer that sends us too many at once.
-    fn validate_microblocks_push<Conn>(
+    fn validate_microblocks_push<SortDB>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork<SortDB>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
 
@@ -2047,14 +2050,14 @@ impl ConversationP2P {
 
     /// Validate a pushed transaction.
     /// Update bandwidth accounting, but forward the transaction along.
-    fn validate_transaction_push<Conn>(
+    fn validate_transaction_push<SortDB>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork<SortDB>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
 
@@ -2088,14 +2091,14 @@ impl ConversationP2P {
     /// Validate a pushed stackerdb chunk.
     /// Update bandwidth accounting, but forward the stackerdb chunk along if we can accept it.
     /// Possibly return a reply handle for a NACK if we throttle the remote sender
-    fn validate_stackerdb_push<Conn>(
+    fn validate_stackerdb_push<SortDB>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork<SortDB>,
         preamble: &Preamble,
         relayers: Vec<RelayData>,
     ) -> Result<Option<ReplyHandleP2P>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         assert!(preamble.payload_len > 1); // don't count 1-byte type prefix
 
@@ -2129,15 +2132,16 @@ impl ConversationP2P {
 
     /// Handle an inbound authenticated p2p data-plane message.
     /// Return the message if not handled
-    fn handle_data_message<Conn>(
+    fn handle_data_message<SortDB, ChainDB>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        network: &mut PeerNetwork<SortDB>,
+        sortdb: &SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
         msg: StacksMessage,
     ) -> Result<Option<StacksMessage>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let res = match msg.payload {
             StacksMessageType::GetNeighbors => self.handle_getneighbors(network, &msg.preamble),
@@ -2357,13 +2361,13 @@ impl ConversationP2P {
 
     /// Handle an inbound authenticated p2p control-plane message
     /// Return true if we should consume it (i.e. it's not something to forward along), as well as the message we'll send as a reply (if any)
-    fn handle_authenticated_control_message<Conn>(
+    fn handle_authenticated_control_message<SortDB>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork<SortDB>,
         msg: &mut StacksMessage,
     ) -> Result<(Option<StacksMessage>, bool), net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let mut consume = false;
 
@@ -2435,13 +2439,13 @@ impl ConversationP2P {
     /// Handle an inbound unauthenticated p2p control-plane message.
     /// Return true if the message was also solicited, as well as the reply we generate to
     /// deal with it (if we do deal with it)
-    fn handle_unauthenticated_control_message<Conn>(
+    fn handle_unauthenticated_control_message<SortDB>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork<SortDB>,
         msg: &mut StacksMessage,
     ) -> Result<(Option<StacksMessage>, bool), net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         // only thing we'll take right now is a handshake, as well as handshake
         // accept/rejects, nacks, and NAT holepunches
@@ -2614,14 +2618,15 @@ impl ConversationP2P {
     /// Attempts to fulfill requests in other threads as a result of processing a message.
     /// Returns the list of unfulfilled Stacks messages we received -- messages not destined for
     /// any other thread in this program (i.e. "unsolicited messages").
-    pub fn chat<Conn>(
+    pub fn chat<SortDB, ChainDB>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        network: &mut PeerNetwork<SortDB>,
+        sortdb: &SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
     ) -> Result<Vec<StacksMessage>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} messages pending", &self, num_inbound);
@@ -2762,6 +2767,7 @@ mod test {
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::*;
+    use crate::chainstate::burn::db::v2::test_helpers::InMemorySortitionDb;
     use crate::chainstate::stacks::db::ChainStateBootData;
     use crate::chainstate::*;
     use crate::core::*;
@@ -2778,7 +2784,7 @@ mod test {
         | (ServiceFlags::RPC as u16)
         | (ServiceFlags::STACKERDB as u16);
 
-    fn make_test_chain_dbs<Conn>(
+    fn make_test_chain_dbs<SortDB, ChainDB>(
         testname: &str,
         burnchain: &Burnchain,
         network_id: u32,
@@ -2787,9 +2793,10 @@ mod test {
         asn4_entries: &Vec<ASEntry4>,
         initial_neighbors: &Vec<Neighbor>,
         services: u16,
-    ) -> (PeerDB, SortitionDB<Conn>, StackerDBs, PoxId, StacksChainState<Conn>) 
+    ) -> (PeerDB, SortDB, StackerDBs, PoxId, StacksChainState<ChainDB>) 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let test_path = format!("/tmp/stacks-test-databases-{}", testname);
         match fs::metadata(&test_path) {
@@ -3082,7 +3089,7 @@ mod test {
             );
 
             let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-                make_test_chain_dbs(
+                make_test_chain_dbs::<InMemorySortitionDb>(
                     &test_name_1,
                     &burnchain,
                     0x9abcdef0,
@@ -3093,7 +3100,7 @@ mod test {
                     peer_1_services,
                 );
             let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-                make_test_chain_dbs(
+                make_test_chain_dbs::<InMemorySortitionDb>(
                     &test_name_2,
                     &burnchain,
                     0x9abcdef0,
@@ -3408,7 +3415,7 @@ mod test {
             let test_name_2 = "convo_handshake_accept_2";
 
             let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-                make_test_chain_dbs(
+                make_test_chain_dbs::<InMemorySortitionDb>(
                     test_name_1,
                     &burnchain,
                     0x9abcdef0,
@@ -3419,7 +3426,7 @@ mod test {
                     DEFAULT_SERVICES,
                 );
             let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-                make_test_chain_dbs(
+                make_test_chain_dbs::<InMemorySortitionDb>(
                     test_name_2,
                     &burnchain,
                     0x9abcdef0,
@@ -3587,7 +3594,7 @@ mod test {
         let test_name_2 = "convo_handshake_reject_2";
 
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -3598,7 +3605,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -3731,7 +3738,7 @@ mod test {
         let test_name_2 = "convo_handshake_badsignature_2";
 
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -3742,7 +3749,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -3873,7 +3880,7 @@ mod test {
         let test_name_2 = "convo_handshake_badpeeraddress_2";
 
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -3884,7 +3891,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -4029,7 +4036,7 @@ mod test {
         let test_name_2 = "convo_handshake_update_key_2";
 
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -4040,7 +4047,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -4227,7 +4234,7 @@ mod test {
         let test_name_2 = "convo_handshake_self_2";
 
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -4238,7 +4245,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -4370,7 +4377,7 @@ mod test {
         let test_name_2 = "convo_ping_2";
 
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -4381,7 +4388,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -4545,7 +4552,7 @@ mod test {
         let test_name_2 = "convo_handshake_ping_loop_2";
 
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -4556,7 +4563,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -4771,7 +4778,7 @@ mod test {
         let test_name_2 = "convo_nack_unsolicited_2";
 
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -4782,7 +4789,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -4919,7 +4926,7 @@ mod test {
         let test_name_1 = "convo_ignore_unsolicited_handshake_1";
         let test_name_2 = "convo_ignore_unsolicited_handshake_2";
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -4930,7 +4937,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -5088,7 +5095,7 @@ mod test {
             let test_name_1 = "convo_handshake_getblocksinv_1";
             let test_name_2 = "convo_handshake_getblocksinv_2";
             let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-                make_test_chain_dbs(
+                make_test_chain_dbs::<InMemorySortitionDb>(
                     test_name_1,
                     &burnchain,
                     0x9abcdef0,
@@ -5099,7 +5106,7 @@ mod test {
                     DEFAULT_SERVICES,
                 );
             let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-                make_test_chain_dbs(
+                make_test_chain_dbs::<InMemorySortitionDb>(
                     test_name_2,
                     &burnchain,
                     0x9abcdef0,
@@ -5368,7 +5375,7 @@ mod test {
         let test_name_1 = "convo_natpunch_1";
         let test_name_2 = "convo_natpunch_2";
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, mut chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,
@@ -5379,7 +5386,7 @@ mod test {
                 DEFAULT_SERVICES,
             );
         let (mut peerdb_2, mut sortdb_2, stackerdbs_2, pox_id_2, mut chainstate_2) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_2,
                 &burnchain,
                 0x9abcdef0,
@@ -5503,7 +5510,7 @@ mod test {
 
         let test_name_1 = "convo_is_preamble_valid";
         let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, chainstate_1) =
-            make_test_chain_dbs(
+            make_test_chain_dbs::<InMemorySortitionDb>(
                 test_name_1,
                 &burnchain,
                 0x9abcdef0,

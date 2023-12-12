@@ -631,13 +631,14 @@ impl<'a> RPCHandlerArgs<'a> {
 }
 
 /// Wrapper around Stacks chainstate data that an HTTP request handler might need
-pub struct StacksNodeState<'a, DB> 
+pub struct StacksNodeState<'a, SortDB, ChainDB> 
 where
-    DB: TrieDb + SortitionDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb
 {
-    inner_network: Option<&'a mut PeerNetwork<DB>>,
-    inner_sortdb: Option<&'a SortitionDB<DB>>,
-    inner_chainstate: Option<&'a mut StacksChainState<DB>>,
+    inner_network: Option<&'a mut PeerNetwork<SortDB>>,
+    inner_sortdb: Option<&'a SortDB>,
+    inner_chainstate: Option<&'a mut StacksChainState<ChainDB>>,
     inner_mempool: Option<&'a mut MemPoolDB>,
     inner_rpc_args: Option<&'a RPCHandlerArgs<'a>>,
     relay_message: Option<StacksMessageType>,
@@ -1602,6 +1603,7 @@ pub mod test {
     use crate::burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
     use crate::burnchains::bitcoin::*;
     use crate::burnchains::burnchain::*;
+    use crate::burnchains::db::v2::BurnChainDb;
     use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
     use crate::burnchains::tests::*;
     use crate::burnchains::*;
@@ -1616,6 +1618,7 @@ pub mod test {
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
     use crate::chainstate::stacks::db::accounts::MinerReward;
+    use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
     use crate::chainstate::stacks::db::{StacksChainState, *};
     use crate::chainstate::stacks::events::{StacksBlockEventData, StacksTransactionReceipt};
     use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -2102,22 +2105,26 @@ pub mod test {
         thread_handle.join().unwrap();
     }
 
-    pub struct TestPeer<'a, DB>
+    pub struct TestPeer<'a, SortDB, ChainDB, BurnDB>
     where
-        DB: TrieDb + SortitionDb 
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         pub config: TestPeerConfig,
-        pub network: PeerNetwork<DB>,
-        pub sortdb: Option<SortitionDB<DB>>,
+        pub network: PeerNetwork<SortDB>,
+        pub sortdb: Option<SortDB>,
         pub miner: TestMiner,
-        pub stacks_node: Option<TestStacksNode<DB>>,
+        pub stacks_node: Option<TestStacksNode<ChainDB>>,
         pub relayer: Relayer,
         pub mempool: Option<MemPoolDB>,
         pub chainstate_path: String,
         pub indexer: Option<BitcoinIndexer>,
         pub coord: ChainsCoordinator<
             'a,
-            DB,
+            SortDB,
+            ChainDB,
+            BurnDB,
             TestEventObserver,
             (),
             OnChainRewardSetProvider,
@@ -2127,11 +2134,11 @@ pub mod test {
         >,
     }
 
-    impl<'a, Conn> TestPeer<'a, Conn> 
+    impl<'a, SortDB> TestPeer<'a, SortDB> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
-        pub fn new(config: TestPeerConfig) -> TestPeer<'a, Conn> {
+        pub fn new(config: TestPeerConfig) -> TestPeer<'a, SortDB> {
             TestPeer::new_with_observer(config, None)
         }
 

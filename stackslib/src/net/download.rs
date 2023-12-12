@@ -36,6 +36,7 @@ use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, Sortiti
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{Error as chainstate_error, StacksBlockHeader};
 use crate::core::{
@@ -432,12 +433,12 @@ impl BlockDownloader {
     /// Finish fetching blocks.  Return true once all reply handles have been fulfilled (either
     /// with data, or with an error).
     /// Store blocks as we get them.
-    pub fn getblocks_try_finish<Conn>(
+    pub fn getblocks_try_finish<SortDB>(
         &mut self, 
-        network: &mut PeerNetwork<Conn>
+        network: &mut PeerNetwork<SortDB>
     ) -> Result<bool, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksFinish);
 
@@ -564,12 +565,12 @@ impl BlockDownloader {
         self.state = BlockDownloaderState::GetMicroblocksFinish;
     }
 
-    pub fn getmicroblocks_try_finish<Conn>(
+    pub fn getmicroblocks_try_finish<SortDB>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork<SortDB>,
     ) -> Result<bool, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksFinish);
 
@@ -694,23 +695,23 @@ impl BlockDownloader {
     /// Get the availability of each block in the given sortition range, using the inv state.
     /// Return the local block headers, paired with the list of peers that can serve them.
     /// Possibly less than the given range request.
-    pub fn get_block_availability<Conn>(
+    pub fn get_block_availability<SortDB>(
         _local_peer: &LocalPeer,
         inv_state: &InvState,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         header_cache: &mut BlockHeaderCache,
         sortition_height_start: u64,
         mut sortition_height_end: u64,
     ) -> Result<Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let first_block_height = sortdb.first_block_height;
 
         // what blocks do we have in this range?
         let local_blocks = {
             let ic = sortdb.index_conn();
-            let tip = SortitionDB::<Conn>::get_canonical_burn_chain_tip(&ic)?;
+            let tip = sortdb.get_canonical_burn_chain_tip()?;
 
             if tip.block_height < first_block_height + sortition_height_start {
                 test_debug!(
@@ -781,7 +782,7 @@ impl BlockDownloader {
             debug!("End headers load ({} ms)", end_ts.saturating_sub(begin_ts));
 
             // update cache
-            SortitionDB::<Conn>::merge_block_header_cache(header_cache, &local_blocks);
+            sortdb.merge_block_header_cache(header_cache, &local_blocks);
 
             local_blocks
         };
@@ -849,17 +850,17 @@ impl BlockDownloader {
 
     /// Find out which neighbors can serve a confirmed microblock stream, given the
     /// burn/block-header-hashes of the sortition that _produced_ them.
-    fn get_microblock_stream_availability<Conn>(
+    fn get_microblock_stream_availability<SortDB>(
         _local_peer: &LocalPeer,
         inv_state: &InvState,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Vec<NeighborKey>, net_error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
-        let sn = SortitionDB::<Conn>::get_block_snapshot_consensus(sortdb.conn(), consensus_hash)?
+        let sn = sortdb.get_block_snapshot_consensus(consensus_hash)?
             .ok_or_else(|| net_error::DBError(db_error::NotFoundError))?;
 
         let block_height = sn.block_height;
@@ -1040,13 +1041,13 @@ impl BlockDownloader {
     }
 }
 
-impl<Conn> PeerNetwork<Conn> 
+impl<SortDB> PeerNetwork<SortDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
     pub fn with_downloader_state<F, R>(&mut self, handler: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<Conn>, &mut BlockDownloader) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork<SortDB>, &mut BlockDownloader) -> Result<R, net_error>,
     {
         let mut downloader = self.block_downloader.take();
         let res = match downloader {
@@ -1087,15 +1088,18 @@ where
 
     /// Do we need to download an anchored block?
     /// already have an anchored block?
-    fn need_anchored_block(
+    fn need_anchored_block<ChainDB>(
         _local_peer: &LocalPeer,
-        chainstate: &StacksChainState<Conn>,
+        chainstate: &StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
-    ) -> Result<bool, net_error> {
+    ) -> Result<bool, net_error> 
+    where
+        ChainDB: ChainStateDb
+    {
         // already in queue or already processed?
         let index_block_hash = StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash);
-        if StacksChainState::<Conn>::has_block_indexed(&chainstate.blocks_path, &index_block_hash)? {
+        if chainstate.has_block_indexed(&chainstate.blocks_path, &index_block_hash)? {
             test_debug!(
                 "{:?}: Block already stored to chunk store: {}/{} ({})",
                 _local_peer,
@@ -1109,18 +1113,20 @@ where
     }
 
     /// Are we able to download a microblock stream between two blocks at this time?
-    pub fn can_download_microblock_stream(
+    pub fn can_download_microblock_stream<ChainDB>(
         _local_peer: &LocalPeer,
-        chainstate: &StacksChainState<Conn>,
+        chainstate: &StacksChainState<ChainDB>,
         parent_consensus_hash: &ConsensusHash,
         parent_block_hash: &BlockHeaderHash,
         child_consensus_hash: &ConsensusHash,
         child_block_hash: &BlockHeaderHash,
-    ) -> Result<bool, net_error> {
+    ) -> Result<bool, net_error> 
+    where
+        ChainDB: ChainStateDb
+    {
         // if the child is processed, then we have all the microblocks we need.
         // this is the overwhelmingly likely case.
-        if let Ok(Some(true)) = StacksChainState::<Conn>::get_staging_block_status(
-            &chainstate.db(),
+        if let Ok(Some(true)) = chainstate.get_staging_block_status(
             &child_consensus_hash,
             &child_block_hash,
         ) {
@@ -1138,7 +1144,7 @@ where
         // block not processed for some reason.  Do we have the parent and child anchored blocks at
         // least?
 
-        let _parent_header = match StacksChainState::<Conn>::load_block_header(
+        let _parent_header = match chainstate.load_block_header(
             &chainstate.blocks_path,
             parent_consensus_hash,
             parent_block_hash,
@@ -1155,7 +1161,7 @@ where
             }
         };
 
-        let child_header = match StacksChainState::<Conn>::load_block_header(
+        let child_header = match chainstate.load_block_header(
             &chainstate.blocks_path,
             child_consensus_hash,
             child_block_hash,
@@ -1179,7 +1185,7 @@ where
 
         // try and load the connecting stream.  If we have it, then we're good to go.
         // SLOW
-        match StacksChainState::<Conn>::load_microblock_stream_fork(
+        match chainstate.load_microblock_stream_fork(
             &chainstate.db(),
             parent_consensus_hash,
             parent_block_hash,
@@ -1204,14 +1210,17 @@ where
 
     /// Create block request keys for a range of blocks that are available but that we don't have in a given range of
     /// sortitions.  The same keys can be used to fetch confirmed microblock streams.
-    fn make_requests(
+    fn make_requests<ChainDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &StacksChainState<Conn>,
+        sortdb: &SortDB,
+        chainstate: &StacksChainState<ChainDB>,
         downloader: &BlockDownloader,
         start_sortition_height: u64,
         microblocks: bool,
-    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> 
+    where
+        ChainDB: ChainStateDb
+    {
         let scan_batch_size = self.burnchain.pox_constants.reward_cycle_length as u64;
         let mut blocks_to_try: HashMap<u64, VecDeque<BlockRequestKey>> = HashMap::new();
 
@@ -1315,7 +1324,7 @@ where
                 (consensus_hash, block_hash)
             } else {
                 // asking for microblocks
-                let block_header = match StacksChainState::<Conn>::load_block_header(
+                let block_header = match chainstate.load_block_header(
                     &chainstate.blocks_path,
                     &consensus_hash,
                     &block_hash,
@@ -1352,7 +1361,7 @@ where
 
                 // does this anchor block _confirm_ a microblock stream that we don't know about?
                 let parent_header_opt = {
-                    let child_block_info = match StacksChainState::<Conn>::load_staging_block_info(
+                    let child_block_info = match chainstate.load_staging_block_info(
                         &chainstate.db(),
                         &index_block_hash,
                     )? {
@@ -1367,7 +1376,7 @@ where
                         }
                     };
 
-                    match StacksChainState::<Conn>::load_block_header(
+                    match chainstate.load_block_header(
                         &chainstate.blocks_path,
                         &child_block_info.parent_consensus_hash,
                         &child_block_info.parent_anchored_block_hash,
@@ -1549,13 +1558,16 @@ where
     }
 
     /// Make requests for missing anchored blocks
-    fn make_block_requests(
+    fn make_block_requests<ChainDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
         downloader: &BlockDownloader,
         start_sortition_height: u64,
-    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> 
+    where
+        ChainDB: ChainStateDb
+    {
         self.make_requests(
             sortdb,
             chainstate,
@@ -1566,13 +1578,16 @@ where
     }
 
     /// Make requests for missing confirmed microblocks
-    fn make_confirmed_microblock_requests(
+    fn make_confirmed_microblock_requests<ChainDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
         downloader: &BlockDownloader,
         start_sortition_height: u64,
-    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> {
+    ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> 
+    where
+        ChainDB: ChainStateDb
+    {
         self.make_requests(sortdb, chainstate, downloader, start_sortition_height, true)
     }
 
@@ -1587,12 +1602,15 @@ where
     }
 
     /// Go start resolving block URLs to their IP addresses
-    pub fn block_dns_lookups_begin(
+    pub fn block_dns_lookups_begin<ChainDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortitionDB<SortDB>,
+        chainstate: &mut StacksChainState<ChainDB>,
         dns_client: &mut DNSClient,
-    ) -> Result<(), net_error> {
+    ) -> Result<(), net_error> 
+    where
+        ChainDB: ChainStateDb
+    {
         test_debug!("{:?}: block_dns_lookups_begin", &self.local_peer);
         let (need_blocks, block_sortition_height, microblock_sortition_height) =
             match self.block_downloader {
@@ -1931,10 +1949,13 @@ where
     /// sends out a request via the HTTP peer.  Returns the event ID in the http peer that's
     /// handling the request.
     pub fn begin_request<T: Requestable>(
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork<SortDB>,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
-    ) -> Option<(T, usize)> {
+    ) -> Option<(T, usize)> 
+    where
+        T: Requestable
+    {
         loop {
             match requestables.pop_front() {
                 Some(requestable) => {
@@ -1996,7 +2017,7 @@ where
     pub fn block_getblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::<Conn>::prioritize_requests(&downloader.blocks_to_try);
+            let mut priority = self.prioritize_requests(&downloader.blocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.blocks_to_try.get_mut(&sortition_height) {
@@ -2034,7 +2055,7 @@ where
     pub fn block_getmicroblocks_begin(&mut self) -> Result<(), net_error> {
         test_debug!("{:?}: block_getmicroblocks_begin", &self.local_peer);
         PeerNetwork::with_downloader_state(self, |ref mut network, ref mut downloader| {
-            let mut priority = PeerNetwork::<Conn>::prioritize_requests(&downloader.microblocks_to_try);
+            let mut priority = self.prioritize_requests(&downloader.microblocks_to_try);
             let mut requests = HashMap::new();
             for sortition_height in priority.drain(..) {
                 match downloader.microblocks_to_try.get_mut(&sortition_height) {
@@ -2071,10 +2092,10 @@ where
     /// Process newly-fetched blocks and microblocks.
     /// Returns true if we've completed all requests.
     /// Returns (done?, at-chain-tip?, blocks-we-got, microblocks-we-got) on success
-    fn finish_downloads(
+    fn finish_downloads<ChainDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
     ) -> Result<
         (
             bool,
@@ -2084,7 +2105,10 @@ where
             Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>,
         ),
         net_error,
-    > {
+    > 
+    where
+        ChainDB: ChainStateDb
+    {
         let mut blocks = vec![];
         let mut microblocks = vec![];
         let mut done = false;
@@ -2125,7 +2149,7 @@ where
                 // NOTE: microblock streams are served in reverse order, since they're forks
                 microblock_stream.reverse();
 
-                let block_header = match StacksChainState::<Conn>::load_block_header(
+                let block_header = match chainstate.load_block_header(
                     &chainstate.blocks_path,
                     &request_key.consensus_hash,
                     &request_key.anchor_block_hash,
@@ -2153,7 +2177,7 @@ where
                 let parent_block_header = request_key.parent_block_header.unwrap();
                 let parent_consensus_hash = request_key.parent_consensus_hash.unwrap();
 
-                if StacksChainState::<Conn>::validate_parent_microblock_stream(
+                if chainstate.validate_parent_microblock_stream(
                     &parent_block_header,
                     &block_header,
                     &microblock_stream,
@@ -2355,10 +2379,10 @@ where
     /// * List of microblock streams we downloaded
     /// * List of broken HTTP event IDs to disconnect from
     /// * List of broken p2p neighbor keys to disconnect from
-    pub fn download_blocks(
+    pub fn download_blocks<ChainDB>(
         &mut self,
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
         dns_client: &mut DNSClient,
         ibd: bool,
     ) -> Result<
@@ -2372,7 +2396,10 @@ where
             Vec<NeighborKey>,
         ),
         net_error,
-    > {
+    > 
+    where
+        ChainDB: ChainStateDb
+    {
         if let Some(ref inv_state) = self.inv_state {
             if !inv_state.has_inv_data_for_downloader(ibd) {
                 debug!(

@@ -39,6 +39,7 @@ use stacks_common::util::hash::{to_hex, Sha256Sum};
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
 use crate::chainstate::stacks::index::db::DbConnection;
@@ -176,9 +177,9 @@ impl HttpRequest for RPCCallReadOnlyRequestHandler {
 }
 
 /// Handle the HTTP request
-impl<Conn> RPCRequestHandler<Conn> for RPCCallReadOnlyRequestHandler 
+impl<SortDB> RPCRequestHandler<SortDB> for RPCCallReadOnlyRequestHandler 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
     /// Reset internal state
     fn restart(&mut self) {
@@ -194,7 +195,7 @@ where
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
+        node: &mut StacksNodeState<SortDB>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,

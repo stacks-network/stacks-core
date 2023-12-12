@@ -23,7 +23,7 @@ use std::str::FromStr;
 use std::{env, fs, io, process};
 
 use clarity::vm::coverage::CoverageReporter;
-use clarity::vm::database::v2::ClarityDb;
+use clarity::vm::database::v2::{ClarityDb, ClarityDbKvStore};
 use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::types::ToSql;
@@ -152,11 +152,11 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
 
 pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch21;
 
-struct EvalInput<Conn> 
+struct EvalInput<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
-    marf_kv: MarfedKV<Conn>,
+    marf_kv: MarfedKV<KvDB>,
     contract_identifier: QualifiedContractIdentifier,
     content: String,
 }
@@ -380,13 +380,13 @@ fn get_cli_db_path(db_path: &str) -> String {
 
 // This function is pretty weird! But it helps cut down on
 //   repeating a lot of block initialization for the simulation commands.
-fn in_block<Conn, F, R>(
+fn in_block<KvDB, F, R>(
     mut headers_db: CLIHeadersDB,
-    mut marf_kv: MarfedKV<Conn>,
+    mut marf_kv: MarfedKV<KvDB>,
     f: F,
-) -> (CLIHeadersDB, MarfedKV<Conn>, R)
+) -> (CLIHeadersDB, MarfedKV<KvDB>, R)
 where
-    Conn: DbConnection + TrieDb,
+    KvDB: TrieDb + ClarityDbKvStore,
     F: FnOnce(CLIHeadersDB, WritableMarfStore) -> (CLIHeadersDB, WritableMarfStore, R),
 {
     // need to load the last block
@@ -402,13 +402,13 @@ where
 
 // like in_block, but does _not_ advance the chain tip.  Used for read-only queries against the
 // chain tip itself.
-fn at_chaintip<Conn, F, R>(
+fn at_chaintip<KvDB, F, R>(
     db_path: &str, 
-    mut marf_kv: MarfedKV<Conn>, 
+    mut marf_kv: MarfedKV<KvDB>, 
     f: F
 ) -> R
 where
-    Conn: DbConnection + TrieDb,
+    KvDB: TrieDb + ClarityDbKvStore,
     F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
@@ -423,13 +423,13 @@ where
     result
 }
 
-fn at_block<Conn, F, R>(
+fn at_block<KvDB, F, R>(
     blockhash: &str, 
-    mut marf_kv: MarfedKV<Conn>, 
+    mut marf_kv: MarfedKV<KvDB>, 
     f: F
 ) -> R
 where
-    Conn: DbConnection + TrieDb,
+    KvDB: TrieDb + ClarityDbKvStore,
     F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
@@ -773,12 +773,12 @@ impl HeadersDB for CLIHeadersDB {
     }
 }
 
-fn get_eval_input<Conn>(
+fn get_eval_input<KvDB>(
     invoked_by: &str, 
     args: &[String]
-) -> EvalInput<Conn>
+) -> EvalInput<KvDB>
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
     if args.len() < 3 || args.len() > 4 {
         eprintln!(

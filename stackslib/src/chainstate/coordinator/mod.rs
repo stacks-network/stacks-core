@@ -1133,15 +1133,17 @@ where
 
     /// Find the canonical Stacks tip at a given sortition, whose affirmation map is compatible
     /// with the heaviest affirmation map.
-    fn find_highest_stacks_block_with_compatible_affirmation_map<SortTx>(
+    fn find_highest_stacks_block_with_compatible_affirmation_map<SortTX>(
         heaviest_am: &AffirmationMap,
         sort_tip: &SortitionId,
-        burnchain_db: &BurnchainDB,
-        sort_tx: &mut SortitionDBTx,
-        chainstate_conn: &DBConn,
+        burnchain_db: &BurnDB,
+        sort_tx: &mut SortTX,
+        chainstate_conn: &ChainDB,
     ) -> Result<(ConsensusHash, BlockHeaderHash, u64), Error> 
     where
-        SortTx: SortitionDbTransaction<SortDB>
+        BurnDB: BurnChainDb,
+        ChainDB: ChainStateDb,
+        SortTX: SortitionDbTransaction
     {
         let mut search_height = StacksChainState::get_max_header_height(chainstate_conn)?;
         let last_2_05_rc = SortitionDB::static_get_last_epoch_2_05_reward_cycle(

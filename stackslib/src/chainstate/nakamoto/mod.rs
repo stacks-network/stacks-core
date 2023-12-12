@@ -1022,15 +1022,14 @@ impl NakamotoChainState {
     ///
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
     /// The caller should keep calling this until it gets Ok(None)
-    pub fn process_next_nakamoto_block<'a, SortDB, SortTX, ChainDB, T>(
+    pub fn process_next_nakamoto_block<'a, SortTX, ChainDB, T>(
         stacks_chain_state: &mut StacksChainState<ChainDB>,
         sort_tx: &mut SortTX,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> 
     where
-        SortDB: SortitionDb,
         ChainDB: ChainStateDb,
-        SortTX: SortitionDbTransaction<SortDB>,
+        SortTX: SortitionDbTransaction,
         T: BlockEventDispatcher
     {
         let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
@@ -1447,7 +1446,7 @@ impl NakamotoChainState {
     ) -> Result<Point, ChainstateError> 
     where
         SortDB: SortitionDb,
-        SortTX: SortitionDbTransaction<SortDB>,
+        SortTX: SortitionDbTransaction,
         ChainDB: ChainStateDb
     {
         // Get the current reward cycle

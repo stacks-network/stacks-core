@@ -44,9 +44,11 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::index::Error as MarfError;
@@ -316,15 +318,16 @@ impl MemPoolAdmitter {
         self.cur_consensus_hash = cur_consensus_hash.clone();
         self.cur_block = cur_block.clone();
     }
-    pub fn will_admit_tx<Conn>(
+    pub fn will_admit_tx<SortDB, ChainDB>(
         &mut self,
-        chainstate: &mut StacksChainState<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<ChainDB>,
+        sortdb: &SortDB,
         tx: &StacksTransaction,
         tx_size: u64,
     ) -> Result<(), MemPoolRejection> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb,
+        SortDB: SortitionDb
     {
         chainstate.will_admit_mempool_tx(
             &sortdb.index_conn(),
@@ -1933,15 +1936,15 @@ impl MemPoolDB
         query_row(conn, &sql, args)
     }
 
-    fn are_blocks_in_same_fork<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn are_blocks_in_same_fork<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         first_consensus_hash: &ConsensusHash,
         first_stacks_block: &BlockHeaderHash,
         second_consensus_hash: &ConsensusHash,
         second_stacks_block: &BlockHeaderHash,
     ) -> Result<bool, db_error> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let first_block = StacksBlockId::new(first_consensus_hash, first_stacks_block);
         let second_block = StacksBlockId::new(second_consensus_hash, second_stacks_block);
@@ -1972,9 +1975,9 @@ impl MemPoolDB
     /// Carry out the mempool admission test before adding.
     /// Don't call directly; use submit().
     /// This is `pub` only for testing.
-    pub fn try_add_tx<Conn>(
+    pub fn try_add_tx<ChainDB>(
         tx: &mut MemPoolTx,
-        chainstate: &mut StacksChainState<Conn>,
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         block_header_hash: &BlockHeaderHash,
         txid: Txid,
@@ -1988,7 +1991,7 @@ impl MemPoolDB
         event_observer: Option<&dyn MemPoolEventDispatcher>,
     ) -> Result<(), MemPoolRejection> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let length = tx_bytes.len() as u64;
 
@@ -2157,10 +2160,10 @@ impl MemPoolDB
     }
 
     /// Submit a transaction to the mempool at a particular chain tip.
-    fn tx_submit<Conn>(
+    fn tx_submit<SortDB, ChainDB>(
         mempool_tx: &mut MemPoolTx,
-        chainstate: &mut StacksChainState<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<ChainDB>,
+        sortdb: &SortDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -2169,7 +2172,8 @@ impl MemPoolDB
         fee_rate_estimate: Option<f64>,
     ) -> Result<(), MemPoolRejection> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         test_debug!(
             "Mempool submit {} at {}/{}",
@@ -2255,10 +2259,10 @@ impl MemPoolDB
     }
 
     /// One-shot submit
-    pub fn submit<Conn>(
+    pub fn submit<SortDB, ChainDB>(
         &mut self,
-        chainstate: &mut StacksChainState<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<ChainDB>,
+        sortdb: &SortDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -2267,7 +2271,8 @@ impl MemPoolDB
         stacks_epoch_id: &StacksEpochId,
     ) -> Result<(), MemPoolRejection> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         if self.is_tx_blacklisted(&tx.txid())? {
             // don't re-store this transaction
@@ -2312,10 +2317,10 @@ impl MemPoolDB
     }
 
     /// Miner-driven submit (e.g. for poison microblocks), where no checks are performed
-    pub fn miner_submit<Conn>(
+    pub fn miner_submit<SortDB, ChainDB>(
         &mut self,
-        chainstate: &mut StacksChainState<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<ChainDB>,
+        sortdb: &SortDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx: &StacksTransaction,
@@ -2323,7 +2328,8 @@ impl MemPoolDB
         miner_estimate: f64,
     ) -> Result<(), MemPoolRejection> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let mut mempool_tx = self.tx_begin().map_err(MemPoolRejection::DBError)?;
 
@@ -2347,10 +2353,10 @@ impl MemPoolDB
     /// Directly submit to the mempool, and don't do any admissions checks.
     /// This method is only used during testing, but because it is used by the
     ///  integration tests, it cannot be marked #[cfg(test)].
-    pub fn submit_raw<Conn>(
+    pub fn submit_raw<SortDB, ChainDB>(
         &mut self,
-        chainstate: &mut StacksChainState<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        chainstate: &mut StacksChainState<ChainDB>,
+        sortdb: &SortDB,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
         tx_bytes: Vec<u8>,
@@ -2358,7 +2364,8 @@ impl MemPoolDB
         stacks_epoch_id: &StacksEpochId,
     ) -> Result<(), MemPoolRejection> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..])
             .map_err(MemPoolRejection::DeserializationFailure)?;
