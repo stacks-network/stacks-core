@@ -1759,7 +1759,7 @@ impl NakamotoChainState {
         at_block_id: &StacksBlockId,
     ) -> Result<Point, ChainstateError> {
         // Get the current reward cycle
-        let Some(reward_cycle) = sort_handle.pox_constants().block_height_to_reward_cycle(
+        let Some(rc) = sort_handle.pox_constants().block_height_to_reward_cycle(
             sort_handle.first_burn_block_height(),
             for_burn_block_height,
         ) else {
@@ -1772,35 +1772,32 @@ impl NakamotoChainState {
             return Err(ChainstateError::InvalidStacksBlock(msg));
         };
 
-        // need to search back because the set-aggregate-public-key call only happens in nakamoto
-        // TODO: this will be removed once there's aggregate public key voting
-        for rc in (0..=reward_cycle).rev() {
-            debug!("get-aggregate-public-key {} {}", at_block_id, rc);
-            match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
-                Some(agg_key) => {
-                    return Ok(agg_key);
-                }
-                None => {
-                    debug!(
-                        "No aggregate public key set; trying in a lower cycle";
-                        "block_id" => %at_block_id,
-                        "reward_cycle" => rc,
-                    );
-                    continue;
-                }
+        debug!("get-aggregate-public-key {} {}", at_block_id, rc);
+        match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
+            Some(key) => Ok(key),
+            None => {
+                // if this is the first block in its reward cycle, it'll contain the effects of
+                // setting the aggregate public key for `rc`, but there will currently be no key
+                // for `rc`.  So, check `rc - 1`
+                chainstate
+                    .get_aggregate_public_key_pox_4(sortdb, at_block_id, rc.saturating_sub(1))?
+                    .ok_or_else(|| {
+                        warn!(
+                            "Failed to get aggregate public key";
+                            "block_id" => %at_block_id,
+                            "reward_cycle" => rc,
+                        );
+                        ChainstateError::InvalidStacksBlock(
+                            "Failed to get aggregate public key".into(),
+                        )
+                    })
             }
         }
-        warn!(
-            "Failed to get aggregate public key";
-            "block_id" => %at_block_id,
-            "reward_cycle" => reward_cycle,
-        );
-        Err(ChainstateError::InvalidStacksBlock(
-            "Failed to get aggregate public key".into(),
-        ))
     }
 
-    /// Get the aggregate public key for a block
+    /// Get the aggregate public key for a block.
+    /// TODO: The block at which the aggregate public key is queried needs to be better defined.
+    /// See https://github.com/stacks-network/stacks-core/issues/4109
     pub fn get_aggregate_public_key<SH: SortitionHandle>(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
@@ -2608,89 +2605,75 @@ impl NakamotoChainState {
             )
             .expect("FATAL: block height occurs before first block height");
 
-        for parent_reward_cycle in (0..=my_reward_cycle).rev() {
-            // carry forward the aggregate public key in the past reward cycle to the current
-            // reward cycle.  It may be several cycles back, such as in integration tests where
-            // nakamoto boots up several reward cycles after the initial aggregate public key was set.
-            // TODO: replace with signer voting
-            debug!(
-                "Try setting aggregate public key in reward cycle {}, parent {}",
-                my_reward_cycle, parent_reward_cycle
-            );
-            // execute `set-aggregate-public-key` using `clarity-tx`
-            let Some(aggregate_public_key) = clarity_tx
-                .connection()
-                .with_readonly_clarity_env(
-                    mainnet,
-                    chain_id,
-                    ClarityVersion::Clarity2,
-                    StacksAddress::burn_address(mainnet).into(),
-                    None,
-                    LimitedCostTracker::Free,
-                    |vm_env| {
-                        vm_env.execute_contract_allow_private(
-                            &boot_code_id(POX_4_NAME, mainnet),
-                            "get-aggregate-public-key",
-                            &vec![SymbolicExpression::atom_value(Value::UInt(u128::from(
-                                parent_reward_cycle,
-                            )))],
-                            true,
-                        )
-                    },
-                )
-                .ok()
-                .map(|agg_key_value| {
-                    let agg_key_opt = agg_key_value.expect_optional().map(|agg_key_buff| {
-                        Value::buff_from(agg_key_buff.expect_buff(33))
-                            .expect("failed to reconstruct buffer")
-                    });
-                    agg_key_opt
-                })
-                .flatten()
-            else {
-                debug!(
-                    "No aggregate public key in parent cycle {}",
-                    parent_reward_cycle
-                );
-                continue;
-            };
-
-            clarity_tx.connection().as_transaction(|tx| {
-                tx.with_abort_callback(
-                    |vm_env| {
-                        vm_env.execute_in_env(
-                            StacksAddress::burn_address(mainnet).into(),
-                            None,
-                            None,
-                            |vm_env| {
-                                vm_env.execute_contract_allow_private(
-                                    &boot_code_id(POX_4_NAME, mainnet),
-                                    "set-aggregate-public-key",
-                                    &vec![
-                                        SymbolicExpression::atom_value(Value::UInt(u128::from(
-                                            my_reward_cycle,
-                                        ))),
-                                        SymbolicExpression::atom_value(aggregate_public_key),
-                                    ],
-                                    false,
-                                )
-                            },
-                        )
-                    },
-                    |_, _| false,
-                )
-                .expect("FATAL: failed to set aggregate public key")
-            });
-
-            // success!
-            return;
-        }
-
-        // if we get here, then we didn't ever set the initial aggregate public key
-        panic!(
-            "FATAL: no aggregate public key in pox-4 in any reward cycle between 0 and {}",
-            my_reward_cycle
+        let parent_reward_cycle = my_reward_cycle.saturating_sub(1);
+        debug!(
+            "Try setting aggregate public key in reward cycle {}, parent {}",
+            my_reward_cycle, parent_reward_cycle
         );
+
+        // execute `set-aggregate-public-key` using `clarity-tx`
+        let Some(aggregate_public_key) = clarity_tx
+            .connection()
+            .with_readonly_clarity_env(
+                mainnet,
+                chain_id,
+                ClarityVersion::Clarity2,
+                StacksAddress::burn_address(mainnet).into(),
+                None,
+                LimitedCostTracker::Free,
+                |vm_env| {
+                    vm_env.execute_contract_allow_private(
+                        &boot_code_id(POX_4_NAME, mainnet),
+                        "get-aggregate-public-key",
+                        &vec![SymbolicExpression::atom_value(Value::UInt(u128::from(
+                            parent_reward_cycle,
+                        )))],
+                        true,
+                    )
+                },
+            )
+            .ok()
+            .map(|agg_key_value| {
+                let agg_key_opt = agg_key_value.expect_optional().map(|agg_key_buff| {
+                    Value::buff_from(agg_key_buff.expect_buff(33))
+                        .expect("failed to reconstruct buffer")
+                });
+                agg_key_opt
+            })
+            .flatten()
+        else {
+            panic!(
+                "No aggregate public key in parent cycle {}",
+                parent_reward_cycle
+            );
+        };
+
+        clarity_tx.connection().as_transaction(|tx| {
+            tx.with_abort_callback(
+                |vm_env| {
+                    vm_env.execute_in_env(
+                        StacksAddress::burn_address(mainnet).into(),
+                        None,
+                        None,
+                        |vm_env| {
+                            vm_env.execute_contract_allow_private(
+                                &boot_code_id(POX_4_NAME, mainnet),
+                                "set-aggregate-public-key",
+                                &vec![
+                                    SymbolicExpression::atom_value(Value::UInt(u128::from(
+                                        my_reward_cycle,
+                                    ))),
+                                    SymbolicExpression::atom_value(aggregate_public_key),
+                                ],
+                                false,
+                            )
+                        },
+                    )
+                },
+                |_, _| false,
+            )
+            .expect("FATAL: failed to set aggregate public key")
+        });
     }
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
