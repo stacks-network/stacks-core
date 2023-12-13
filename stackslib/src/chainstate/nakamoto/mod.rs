@@ -2588,7 +2588,7 @@ impl NakamotoChainState {
             )
             .expect("FATAL: block height occurs before first block height");
 
-        for parent_reward_cycle in (0..my_reward_cycle).rev() {
+        for parent_reward_cycle in (0..=my_reward_cycle).rev() {
             // carry forward the aggregate public key in the past reward cycle to the current
             // reward cycle.  It may be several cycles back, such as in integration tests where
             // nakamoto boots up several reward cycles after the initial aggregate public key was set.
