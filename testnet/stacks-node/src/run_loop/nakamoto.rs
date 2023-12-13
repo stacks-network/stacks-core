@@ -19,6 +19,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::{cmp, thread};
 
+use clarity::boot_util::boot_code_id;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::ClarityVersion;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -27,12 +31,15 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::stacks::boot::{
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
+};
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks_common::types::PublicKey;
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{to_hex, Hash160};
 use stx_genesis::GenesisData;
 
 use crate::burnchains::make_bitcoin_indexer;
@@ -218,13 +225,49 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        // TODO (nakamoto-neon): check if we're trying to setup a self-signing network
-        //  and set the right genesis data
+        let agg_pubkey_boot_callback = if let Some(self_signer) = self.config.self_signing() {
+            let agg_pub_key = to_hex(&self_signer.aggregate_public_key.compress().data);
+            info!("Mockamoto node setting agg public key"; "agg_pub_key" => &agg_pub_key);
+            let callback = Box::new(move |clarity_tx: &mut ClarityTx| {
+                let contract_content = format!(
+                    "(define-read-only ({}) 0x{})",
+                    BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key
+                );
+                // NOTE: this defaults to a testnet address to prevent it from ever working on
+                // mainnet
+                let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
+                clarity_tx.connection().as_transaction(|clarity| {
+                    let (ast, analysis) = clarity
+                        .analyze_smart_contract(
+                            &contract_id,
+                            ClarityVersion::Clarity2,
+                            &contract_content,
+                            ASTRules::PrecheckSize,
+                        )
+                        .unwrap();
+                    clarity
+                        .initialize_smart_contract(
+                            &contract_id,
+                            ClarityVersion::Clarity2,
+                            &ast,
+                            &contract_content,
+                            None,
+                            |_, _| false,
+                        )
+                        .unwrap();
+                    clarity.save_analysis(&contract_id, &analysis).unwrap();
+                })
+            }) as Box<dyn FnOnce(&mut ClarityTx)>;
+            Some(callback)
+        } else {
+            warn!("Self-signing is not supported yet");
+            None
+        };
 
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback: None,
+            post_flight_callback: agg_pubkey_boot_callback,
             first_burnchain_block_hash: burnchain_config.first_block_hash,
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,
