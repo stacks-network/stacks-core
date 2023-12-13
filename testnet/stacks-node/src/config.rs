@@ -316,7 +316,7 @@ impl ConfigFile {
             password: Some("blockstacksystem".into()),
             magic_bytes: Some("M3".into()),
             epochs: Some(epochs),
-            pox_prepare_length: Some(2),
+            pox_prepare_length: Some(3),
             pox_reward_length: Some(36),
             ..BurnchainConfigFile::default()
         };
