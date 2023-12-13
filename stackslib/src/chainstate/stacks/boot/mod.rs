@@ -990,14 +990,6 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
-            debug!(
-                "PoX was voted disabled in block {} (reward cycle {})",
-                block_id, reward_cycle
-            );
-            return Ok(vec![]);
-        }
-
         // how many in this cycle?
         let num_addrs = self
             .eval_boot_code_read_only(
@@ -1140,14 +1132,6 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Option<Point>, Error> {
-        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
-            debug!(
-                "PoX was voted disabled in block {} (reward cycle {})",
-                block_id, reward_cycle
-            );
-            return Ok(None);
-        }
-
         let aggregate_public_key = self
             .eval_boot_code_read_only(
                 sortdb,
