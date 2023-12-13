@@ -30,6 +30,7 @@ use stacks::chainstate::stacks::{
     TransactionPayload, TransactionVersion,
 };
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks::util_lib::db::Error as DBError;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::Hash160;
@@ -167,13 +168,35 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not open sortition DB");
         let mut sortition_handle = sort_db.index_handle_at_tip();
+        let aggregate_public_key = if block.header.chain_length <= 1 {
+            signer.aggregate_public_key.clone()
+        } else {
+            let block_sn = SortitionDB::get_block_snapshot_consensus(
+                sortition_handle.conn(),
+                &block.header.consensus_hash,
+            )?
+            .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
+            let aggregate_key_block_header =
+                NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)?
+                    .unwrap();
+
+            let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
+                &sort_db,
+                &sortition_handle,
+                &mut chain_state,
+                block_sn.block_height.saturating_sub(1),
+                &aggregate_key_block_header.index_block_hash(),
+            )?;
+            aggregate_public_key
+        };
+
         let staging_tx = chain_state.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
             block,
             &mut sortition_handle,
             &staging_tx,
-            &signer.aggregate_public_key,
+            &aggregate_public_key,
         )?;
         staging_tx.commit()?;
         Ok(())
