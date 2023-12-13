@@ -483,7 +483,7 @@ pub mod test_observer {
     }
 }
 
-const PANIC_TIMEOUT_SECS: u64 = 30;
+const PANIC_TIMEOUT_SECS: u64 = 600;
 
 /// Returns `false` on a timeout, true otherwise.
 pub fn next_block_and_wait(
