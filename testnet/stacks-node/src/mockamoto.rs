@@ -1,3 +1,18 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -69,10 +84,9 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 use self::signer::SelfSigner;
+use crate::globals::{NeonGlobals as Globals, RelayerDirective};
 use crate::neon::Counters;
-use crate::neon_node::{
-    Globals, PeerThread, RelayerDirective, StacksNode, BLOCK_PROCESSOR_STACK_SIZE,
-};
+use crate::neon_node::{PeerThread, StacksNode, BLOCK_PROCESSOR_STACK_SIZE};
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::{Config, EventDispatcher};
 
@@ -894,8 +908,7 @@ impl MockamotoNode {
             &mut builder,
             &mut self.mempool,
             parent_chain_length,
-            None,
-            None,
+            &[],
             BlockBuilderSettings {
                 max_miner_time_ms: 15_000,
                 mempool_settings: MemPoolWalkSettings::default(),

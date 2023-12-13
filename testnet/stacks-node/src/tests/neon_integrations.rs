@@ -9,7 +9,7 @@ use std::{cmp, env, fs, thread};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
 use rand::Rng;
 use rusqlite::types::ToSql;
@@ -24,7 +24,6 @@ use stacks::chainstate::burn::operations::{
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
@@ -55,7 +54,6 @@ use stacks::net::atlas::{
 };
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
-use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -403,7 +401,7 @@ pub mod test_observer {
     }
 
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
-    async fn serve() {
+    async fn serve(port: u16) {
         let new_blocks = warp::path!("new_block")
             .and(warp::post())
             .and(warp::body::json())
@@ -458,7 +456,7 @@ pub mod test_observer {
                 .or(mined_nakamoto_blocks)
                 .or(new_stackerdb_chunks),
         )
-        .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
+        .run(([127, 0, 0, 1], port))
         .await
     }
 
@@ -466,7 +464,15 @@ pub mod test_observer {
         clear();
         thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-            rt.block_on(serve());
+            rt.block_on(serve(EVENT_OBSERVER_PORT));
+        });
+    }
+
+    pub fn spawn_at(port: u16) {
+        clear();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
+            rt.block_on(serve(port));
         });
     }
 
@@ -556,7 +562,7 @@ pub fn next_block_and_iterate(
 /// reaches *exactly* `target_height`.
 ///
 /// Returns `false` if `next_block_and_wait` times out.
-fn run_until_burnchain_height(
+pub fn run_until_burnchain_height(
     btc_regtest_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
     target_height: u64,

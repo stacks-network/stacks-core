@@ -31,8 +31,9 @@ use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
 use crate::burnchains::make_bitcoin_indexer;
+use crate::globals::NeonGlobals as Globals;
 use crate::monitoring::start_serving_monitoring_metrics;
-use crate::neon_node::{Globals, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
+use crate::neon_node::{StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
     use_test_genesis_chainstate,
@@ -63,6 +64,10 @@ pub struct Counters {
     pub missed_tenures: RunLoopCounter,
     pub missed_microblock_tenures: RunLoopCounter,
     pub cancelled_commits: RunLoopCounter,
+
+    pub naka_submitted_vrfs: RunLoopCounter,
+    pub naka_submitted_commits: RunLoopCounter,
+    pub naka_mined_blocks: RunLoopCounter,
 }
 
 impl Counters {
@@ -74,6 +79,9 @@ impl Counters {
             missed_tenures: RunLoopCounter::new(AtomicU64::new(0)),
             missed_microblock_tenures: RunLoopCounter::new(AtomicU64::new(0)),
             cancelled_commits: RunLoopCounter::new(AtomicU64::new(0)),
+            naka_submitted_vrfs: RunLoopCounter::new(AtomicU64::new(0)),
+            naka_submitted_commits: RunLoopCounter::new(AtomicU64::new(0)),
+            naka_mined_blocks: RunLoopCounter::new(AtomicU64::new(0)),
         }
     }
 
@@ -85,6 +93,9 @@ impl Counters {
             missed_tenures: (),
             missed_microblock_tenures: (),
             cancelled_commits: (),
+            naka_submitted_vrfs: (),
+            naka_submitted_commits: (),
+            naka_mined_blocks: (),
         }
     }
 
@@ -122,6 +133,18 @@ impl Counters {
 
     pub fn bump_cancelled_commits(&self) {
         Counters::inc(&self.cancelled_commits);
+    }
+
+    pub fn bump_naka_submitted_vrfs(&self) {
+        Counters::inc(&self.naka_submitted_vrfs);
+    }
+
+    pub fn bump_naka_submitted_commits(&self) {
+        Counters::inc(&self.naka_submitted_commits);
+    }
+
+    pub fn bump_naka_mined_blocks(&self) {
+        Counters::inc(&self.naka_mined_blocks);
     }
 
     pub fn set_microblocks_processed(&self, value: u64) {
@@ -251,7 +274,7 @@ impl RunLoop {
     }
 
     pub fn get_termination_switch(&self) -> Arc<AtomicBool> {
-        self.get_globals().should_keep_running.clone()
+        self.should_keep_running.clone()
     }
 
     pub fn get_burnchain(&self) -> Burnchain {
@@ -272,8 +295,7 @@ impl RunLoop {
 
     /// Set up termination handler.  Have a signal set the `should_keep_running` atomic bool to
     /// false.  Panics of called more than once.
-    fn setup_termination_handler(&self) {
-        let keep_running_writer = self.should_keep_running.clone();
+    pub fn setup_termination_handler(keep_running_writer: Arc<AtomicBool>, allow_err: bool) {
         let install = termination::set_handler(move |sig_id| match sig_id {
             SignalId::Bus => {
                 let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
@@ -291,7 +313,8 @@ impl RunLoop {
 
         if let Err(e) = install {
             // integration tests can do this
-            if cfg!(test) {
+            if cfg!(test) || allow_err {
+                info!("Error setting up signal handler, may have already been set");
             } else {
                 panic!("FATAL: error setting termination handler - {}", e);
             }
@@ -355,17 +378,18 @@ impl RunLoop {
     /// Instantiate the burnchain client and databases.
     /// Fetches headers and instantiates the burnchain.
     /// Panics on failure.
-    fn instantiate_burnchain_state(
-        &mut self,
+    pub fn instantiate_burnchain_state(
+        config: &Config,
+        should_keep_running: Arc<AtomicBool>,
         burnchain_opt: Option<Burnchain>,
         coordinator_senders: CoordinatorChannels,
     ) -> BitcoinRegtestController {
         // Initialize and start the burnchain.
         let mut burnchain_controller = BitcoinRegtestController::with_burnchain(
-            self.config.clone(),
+            config.clone(),
             Some(coordinator_senders),
             burnchain_opt,
-            Some(self.should_keep_running.clone()),
+            Some(should_keep_running.clone()),
         );
 
         let burnchain = burnchain_controller.get_burnchain();
@@ -377,9 +401,9 @@ impl RunLoop {
         // Upgrade chainstate databases if they exist already
         match migrate_chainstate_dbs(
             &epochs,
-            &self.config.get_burn_db_file_path(),
-            &self.config.get_chainstate_path_str(),
-            Some(self.config.node.get_marf_opts()),
+            &config.get_burn_db_file_path(),
+            &config.get_chainstate_path_str(),
+            Some(config.node.get_marf_opts()),
         ) {
             Ok(_) => {}
             Err(coord_error::DBError(db_error::TooOldForEpoch)) => {
@@ -951,9 +975,13 @@ impl RunLoop {
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
-        self.setup_termination_handler();
-        let mut burnchain =
-            self.instantiate_burnchain_state(burnchain_opt, coordinator_senders.clone());
+        Self::setup_termination_handler(self.should_keep_running.clone(), false);
+        let mut burnchain = Self::instantiate_burnchain_state(
+            &self.config,
+            self.should_keep_running.clone(),
+            burnchain_opt,
+            coordinator_senders.clone(),
+        );
 
         let burnchain_config = burnchain.get_burnchain();
         self.burnchain = Some(burnchain_config.clone());
