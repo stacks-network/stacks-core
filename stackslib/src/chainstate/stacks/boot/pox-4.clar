@@ -56,20 +56,19 @@
 (define-data-var pox-reward-cycle-length uint REWARD_CYCLE_LENGTH)
 (define-data-var first-burnchain-block-height uint u0)
 (define-data-var configured bool false)
-(define-data-var first-2-1-reward-cycle uint u0)
+(define-data-var first-pox-4-reward-cycle uint u0)
 
 ;; This function can only be called once, when it boots up
 (define-public (set-burnchain-parameters (first-burn-height uint)
                                          (prepare-cycle-length uint)
                                          (reward-cycle-length uint)
-                                         (rejection-fraction uint)
-                                         (begin-2-1-reward-cycle uint))
+                                         (begin-pox-4-reward-cycle uint))
     (begin
         (asserts! (not (var-get configured)) (err ERR_NOT_ALLOWED))
         (var-set first-burnchain-block-height first-burn-height)
         (var-set pox-prepare-cycle-length prepare-cycle-length)
         (var-set pox-reward-cycle-length reward-cycle-length)
-        (var-set first-2-1-reward-cycle begin-2-1-reward-cycle)
+        (var-set first-pox-4-reward-cycle begin-pox-4-reward-cycle)
         (var-set configured true)
         (ok true))
 )
@@ -188,17 +187,6 @@
 ;; The stackers' aggregate public key
 ;;   for the given reward cycle
 (define-map aggregate-public-keys uint (buff 33))
-
-;; Getter for stacking-rejectors
-;; always return none for backwards compatibility
-(define-read-only (get-pox-rejection (stacker principal) (reward-cycle uint))
-    none)
-
-;; Has PoX not been rejected in the given reward cycle?
-;; always return true for backwards compatibility
-(define-read-only (is-pox-active (reward-cycle uint))
-    true
-)
 
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
@@ -1244,17 +1232,6 @@
 ;; *New in Stacks 2.1*
 (define-read-only (get-partial-stacked-by-cycle (pox-addr { version: (buff 1), hashbytes: (buff 32) }) (reward-cycle uint) (sender principal))
     (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, reward-cycle: reward-cycle, sender: sender })
-)
-
-;; How many uSTX have voted to reject PoX in a given reward cycle?
-;; *New in Stacks 2.1*
-;; always return 0 for backwards compatibility
-(define-read-only (get-total-pox-rejection (reward-cycle uint))
-        u0
-        u0
-    )
-    u0
-    )
 )
 
 ;; What is the given reward cycle's stackers' aggregate public key?

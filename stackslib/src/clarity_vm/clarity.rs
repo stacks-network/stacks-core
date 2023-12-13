@@ -1387,7 +1387,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     Value::UInt(u128::from(first_block_height)),
                     Value::UInt(u128::from(pox_prepare_length)),
                     Value::UInt(u128::from(pox_reward_cycle_length)),
-                    Value::UInt(u128::from(pox_rejection_fraction)),
                     Value::UInt(u128::from(pox_4_first_cycle)),
                 ];
 
