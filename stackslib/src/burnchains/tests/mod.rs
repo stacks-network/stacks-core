@@ -390,9 +390,9 @@ impl TestBurnchainBlock {
         txop
     }
 
-    pub(crate) fn inner_add_block_commit<Conn>(
+    pub(crate) fn inner_add_block_commit<SortDB>(
         &mut self,
-        ic: &SortitionDBConn<Conn>,
+        sortdb: &SortDB,
         miner: &mut TestMiner,
         block_hash: &BlockHeaderHash,
         burn_fee: u64,
@@ -403,7 +403,7 @@ impl TestBurnchainBlock {
         epoch_marker: u8,
     ) -> LeaderBlockCommitOp 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb
     {
         let input = (Txid([0; 32]), 0);
         let pubks = miner
@@ -416,12 +416,12 @@ impl TestBurnchainBlock {
 
         let last_snapshot = match fork_snapshot {
             Some(sn) => sn.clone(),
-            None => SortitionDB::get_canonical_burn_chain_tip(ic).unwrap(),
+            None => sortdb.get_canonical_burn_chain_tip().unwrap(),
         };
 
         let last_snapshot_with_sortition = match parent_block_snapshot {
             Some(sn) => sn.clone(),
-            None => SortitionDB::get_first_block_snapshot(ic).unwrap(),
+            None => sortdb.get_first_block_snapshot().unwrap(),
         };
 
         let new_seed = new_seed.unwrap_or_else(|| {
@@ -436,8 +436,7 @@ impl TestBurnchainBlock {
             VRFSeed::from_proof(&proof)
         });
 
-        let get_commit_res = SortitionDB::get_block_commit(
-            ic.conn(),
+        let get_commit_res = sortdb.get_block_commit(
             &last_snapshot_with_sortition.winning_block_txid,
             &last_snapshot_with_sortition.sortition_id,
         )

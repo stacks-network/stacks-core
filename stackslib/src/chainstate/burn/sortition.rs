@@ -38,6 +38,8 @@ use crate::chainstate::burn::{
     SortitionHash,
 };
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::{ChainStateDb, ChainStateDbTransaction};
+use crate::chainstate::stacks::db::v2::utils::ChainStateUtils;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::index::{ClarityMarfTrieId, MarfTrieId, TrieHashExtension};
@@ -166,12 +168,15 @@ impl BlockSnapshot {
     /// Note that the VRF seed is not guaranteed to be the hash of a valid VRF
     /// proof.  Miners would only build off of leader block commits for which they
     /// (1) have the associated block data and (2) the proof in that block is valid.
-    fn select_winning_block(
-        sort_tx: &mut impl SortitionDbTransaction,
+    fn select_winning_block<SortDB>(
+        sort_tx: &mut impl SortitionDbTransaction<SortDB>,
         block_header: &BurnchainBlockHeader,
         sortition_hash: &SortitionHash,
         burn_dist: &[BurnSamplePoint],
-    ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    ) -> Result<Option<LeaderBlockCommitOp>, db_error> 
+    where
+        SortDB: SortitionDb
+    {
         let burn_block_height = block_header.block_height;
 
         // get the last winner's VRF seed in this block's fork
@@ -208,8 +213,8 @@ impl BlockSnapshot {
     }
 
     /// Make the snapshot struct for the case where _no sortition_ takes place
-    fn make_snapshot_no_sortition(
-        sort_tx: &mut impl SortitionDbTransaction,
+    fn make_snapshot_no_sortition<SortDB>(
+        sort_tx: &mut impl SortitionDbTransaction<SortDB>,
         sortition_id: &SortitionId,
         pox_id: &PoxId,
         parent_snapshot: &BlockSnapshot,
@@ -219,7 +224,10 @@ impl BlockSnapshot {
         sortition_hash: &SortitionHash,
         txids: &Vec<Txid>,
         accumulated_coinbase_ustx: u128,
-    ) -> Result<BlockSnapshot, db_error> {
+    ) -> Result<BlockSnapshot, db_error> 
+    where
+        SortDB: SortitionDb
+    {
         let block_height = block_header.block_height;
         let block_hash = block_header.block_hash.clone();
         let parent_block_hash = block_header.parent_block_hash.clone();
@@ -280,8 +288,8 @@ impl BlockSnapshot {
     /// All of this is rolled into the BlockSnapshot struct.
     ///
     /// Call this *after* you store all of the block's transactions to the burn db.
-    pub fn make_snapshot(
-        sort_tx: &mut impl SortitionDbTransaction,
+    pub fn make_snapshot<SortDB>(
+        sort_tx: &mut impl SortitionDbTransaction<SortDB>,
         burnchain: &Burnchain,
         my_sortition_id: &SortitionId,
         my_pox_id: &PoxId,
@@ -291,7 +299,10 @@ impl BlockSnapshot {
         txids: &Vec<Txid>,
         block_burn_total: Option<u64>,
         initial_mining_bonus_ustx: u128,
-    ) -> Result<BlockSnapshot, db_error> {
+    ) -> Result<BlockSnapshot, db_error> 
+    where
+        SortDB: SortitionDb
+    {
         assert_eq!(
             parent_snapshot.burn_header_hash,
             block_header.parent_block_hash
@@ -311,7 +322,7 @@ impl BlockSnapshot {
         } else if parent_snapshot.sortition {
             initial_mining_bonus_ustx
         } else {
-            let missed_coinbase = sort_tx.get_coinbase_reward(
+            let missed_coinbase = ChainStateUtils::get_coinbase_reward(
                 parent_snapshot.block_height,
                 first_block_height,
             );

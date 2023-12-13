@@ -401,6 +401,7 @@ where
         sortdb: &SortDB,
     ) -> Result<BlockSnapshot, StacksHttpResponse> 
     where
+        Self: Sized,
         SortDB: SortitionDb
     {
         sortdb.get_canonical_burn_chain_tip().map_err(|e| {
@@ -417,7 +418,10 @@ where
         preamble: &HttpRequestPreamble,
         sortdb: &SortDB,
         block_height: u64,
-    ) -> Result<StacksEpoch, StacksHttpResponse> {
+    ) -> Result<StacksEpoch, StacksHttpResponse> 
+    where
+        Self: Sized
+    {
         sortdb.get_stacks_epoch(block_height)
             .map_err(|e| {
                 StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))

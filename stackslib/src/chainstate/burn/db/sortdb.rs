@@ -1169,28 +1169,23 @@ impl db_keys {
 pub trait SortitionHandle {
     /// Returns a connection to the SQLite db. If this handle is wrapping
     ///  a transaction, this should point to the open transaction.
-    fn sqlite(&self) -> &Connection;
+    //fn sqlite(&self) -> &Connection;
 
     /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
     /// Returns None if there is no block at this height.
-    fn get_block_snapshot_by_height<Conn>(
+    fn get_block_snapshot_by_height(
         &mut self,
         block_height: u64,
-    ) -> Result<Option<BlockSnapshot>, db_error>
-    where
-        Conn: DbConnection + TrieDb;
+    ) -> Result<Option<BlockSnapshot>, db_error>;
 
     /// is the given block a descendant of `potential_ancestor`?
     ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
     ///  * potential_ancestor: the stacks block hash of the potential ancestor
-    fn descended_from<Conn>(
+    fn descended_from(
         &mut self,
         block_at_burn_height: u64,
         potential_ancestor: &BlockHeaderHash,
-    ) -> Result<bool, db_error> 
-    where
-        Conn: DbConnection + TrieDb
-    {
+    ) -> Result<bool, db_error> {
         let earliest_block_height_opt = self.sqlite().query_row(
             "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
             &[potential_ancestor],

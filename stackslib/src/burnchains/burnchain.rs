@@ -1061,15 +1061,15 @@ impl Burnchain {
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition
     ///   *only* to be used by legacy stacks node interfaces, like the Helium node
-    pub fn process_block_and_sortition_deprecated<DB, B>(
-        db: &mut DB,
+    pub fn process_block_and_sortition_deprecated<SortDB, B>(
+        sortdb: &mut SortDB,
         burnchain_db: &mut BurnchainDB,
         burnchain: &Burnchain,
         indexer: &B,
         block: &BurnchainBlock,
     ) -> Result<(BlockSnapshot, BurnchainStateTransition), burnchain_error> 
     where
-        DB: TrieDb + SortitionDb,
+        SortDB: SortitionDb,
         B: BurnchainHeaderReader,
     {
         debug!(
@@ -1079,7 +1079,7 @@ impl Burnchain {
         );
 
         let cur_epoch =
-            db.get_stacks_epoch(block.block_height())?.expect(&format!(
+            sortdb.get_stacks_epoch(block.block_height())?.expect(&format!(
                 "FATAL: no epoch for burn block height {}",
                 block.block_height()
             ));
@@ -1092,13 +1092,13 @@ impl Burnchain {
             cur_epoch.epoch_id,
         )?;
 
-        let sortition_tip = SortitionDB::get_canonical_sortition_tip(db.conn())?;
+        let sortition_tip = sortdb.get_canonical_sortition_tip()?;
 
         // extract block-commit metadata
         // Do not emit sortition/burn block events to event observer in this method, because this
         // method is deprecated and only used in defunct helium nodes
 
-        db.evaluate_sortition(
+        sortdb.evaluate_sortition(
             &header,
             blockstack_txs,
             burnchain,

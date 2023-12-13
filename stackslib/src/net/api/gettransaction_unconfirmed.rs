@@ -116,6 +116,7 @@ impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
         node: &mut StacksNodeState<SortDB, ChainDB>,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb
     {
         let txid = self

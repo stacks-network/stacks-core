@@ -3055,7 +3055,11 @@ impl PeerNetwork {
         &mut self, 
         sortdb: &SortDB, 
         chainstate: &StacksChainState<ChainDB>
-    ) {
+    ) 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         if self.antientropy_last_push_ts + self.connection_opts.antientropy_retry
             >= get_epoch_time_secs()
         {
@@ -5446,7 +5450,11 @@ impl PeerNetwork {
         download_backpressure: bool,
         ibd: bool,
         mut poll_state: NetworkPollState,
-    ) {
+    ) 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         if self.network.is_none() {
             warn!("{:?}: network not connected", &self.local_peer);
             return;

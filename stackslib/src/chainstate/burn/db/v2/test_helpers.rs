@@ -1,6 +1,8 @@
 use std::ops::Deref;
 
-use crate::chainstate::stacks::index::trie_db::TrieDb;
+use stacks_common::types::chainstate::SortitionId;
+
+use crate::{chainstate::stacks::index::trie_db::TrieDb, burnchains::PoxConstants};
 
 use super::{SortitionDb, SortitionDbTransaction};
 
@@ -8,7 +10,43 @@ pub struct InMemorySortitionDb {
 
 }
 
-impl SortitionDbTransaction for InMemorySortitionDb {
+pub struct InMemorySortitionDbTransaction<'a, State> {
+    conn: &'a InMemorySortitionDb,
+    state: State
+}
+
+impl InMemorySortitionDbTransaction<'_, ()> {
+    pub fn new(conn: &InMemorySortitionDb) -> InMemorySortitionDbTransaction<'_, ()> {
+        InMemorySortitionDbTransaction {
+            conn,
+            state: ()
+        }
+    }
+}
+
+impl InMemorySortitionDbTransaction<'_, ScopedSortition> {
+    pub fn new_with_handle(conn: &InMemorySortitionDb, handle: ScopedSortition) -> InMemorySortitionDbTransaction<'_, ScopedSortition> {
+        InMemorySortitionDbTransaction {
+            conn,
+            state: handle
+        }
+    }
+}
+
+impl<State> Deref for InMemorySortitionDbTransaction<'_, State> {
+    type Target = InMemorySortitionDb;
+
+    fn deref(&self) -> &Self::Target {
+        self.conn
+    }
+}
+
+pub struct SortitionTransactionContext {
+    pub chain_tip: SortitionId,
+    pub pox_constants: PoxConstants
+}
+
+impl<State> SortitionDbTransaction<InMemorySortitionDb, State> for InMemorySortitionDbTransaction<'_, State> {
     fn commit() -> super::Result<()> {
         todo!()
     }
@@ -253,6 +291,33 @@ impl SortitionDbTransaction for InMemorySortitionDb {
     ) -> super::Result<(crate::chainstate::burn::BlockSnapshot, crate::burnchains::BurnchainStateTransition)> {
         todo!()
     }
+
+    fn descended_from(
+        &mut self,
+        block_at_burn_height: u64,
+        potential_ancestor: &stacks_common::types::chainstate::BlockHeaderHash,
+    ) -> super::Result<bool> {
+        todo!()
+    }
+
+    fn expects_stacks_block_in_fork<Conn>(
+        &mut self,
+        block_hash: &stacks_common::types::chainstate::BlockHeaderHash,
+    ) -> super::Result<bool> {
+        todo!()
+    }
+
+    fn get_state(&self) -> &State {
+        todo!()
+    }
+
+    fn get_ancestor_block_hash(
+        &mut self,
+        block_height: u64,
+        tip_block_hash: &SortitionId,
+    ) -> super::Result<Option<SortitionId>> {
+        todo!()
+    }
 }
 
 impl TrieDb for InMemorySortitionDb {
@@ -467,6 +532,8 @@ impl TrieDb for InMemorySortitionDb {
 
 
 impl SortitionDb for InMemorySortitionDb {
+    type TxType<'a, State> = InMemorySortitionDbTransaction<'a, State>;
+
     fn connect(
         path: &str,
         first_block_height: u64,
@@ -1005,7 +1072,16 @@ impl SortitionDb for InMemorySortitionDb {
         todo!()
     }
 
-    fn transaction(&mut self) -> super::Result<super::SortitionDbTransactionImpl<Self>> {
+    fn transaction(&mut self) -> super::Result<&Self::TxType<'_, ()>> {
+        todo!()
+    }
+
+    fn transaction_with_state<State>(
+        &mut self, 
+        state: State
+    ) -> super::Result<&Self::TxType<'_, State>> 
+    where 
+        Self: Sized {
         todo!()
     }
 }

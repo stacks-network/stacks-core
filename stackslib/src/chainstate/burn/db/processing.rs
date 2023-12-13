@@ -24,11 +24,13 @@ use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, Error as BurnchainError,
 };
 use crate::chainstate::burn::db::sortdb::{InitialMiningBonus, SortitionDB, SortitionHandleTx};
+use crate::chainstate::burn::db::v2::utils::{make_next_pox_id, make_next_sortition_id};
 use crate::chainstate::burn::operations::leader_block_commit::{MissedBlockCommit, RewardSetInfo};
 use crate::chainstate::burn::operations::{BlockstackOperationType, Error as OpError};
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::RewardCycleInfo;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::utils::ChainStateUtils;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::marf::MARF;
 use crate::chainstate::stacks::index::storage::TrieFileStorage;
@@ -177,8 +179,8 @@ impl<'a> SortitionHandleTx<'a> {
             .map(|ref op| op.txid())
             .collect();
 
-        let next_pox = SortitionDB::make_next_pox_id(parent_pox.clone(), next_pox_info.as_ref());
-        let next_sortition_id = SortitionDB::make_next_sortition_id(
+        let next_pox = make_next_pox_id(parent_pox.clone(), next_pox_info.as_ref());
+        let next_sortition_id = make_next_sortition_id(
             parent_pox.clone(),
             &this_block_hash,
             next_pox_info.as_ref(),
@@ -212,7 +214,7 @@ impl<'a> SortitionHandleTx<'a> {
                 snapshot.block_height - burnchain.initial_reward_start_block;
             let mut total_reward = 0;
             for burn_block_height in burnchain.initial_reward_start_block..snapshot.block_height {
-                total_reward += StacksChainState::get_coinbase_reward(
+                total_reward += ChainStateUtils::get_coinbase_reward(
                     burn_block_height,
                     self.context.first_block_height,
                 );

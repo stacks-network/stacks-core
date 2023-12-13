@@ -17,6 +17,7 @@
 use std::convert::TryInto;
 use std::fmt;
 use std::io::Write;
+use std::ops::Deref;
 
 use rand::seq::index::sample;
 use rand::{Rng, SeedableRng};
@@ -269,23 +270,27 @@ pub trait ConsensusHashExtensions {
 
     /// Get the previous consensus hashes that must be hashed to find
     /// the *next* consensus hash at a particular block.
-    fn get_prev_consensus_hashes(
-        sort_tx: &mut impl SortitionDbTransaction,
+    fn get_prev_consensus_hashes<SortDB>(
+        sort_tx: &mut impl SortitionDbTransaction<SortDB>,
         block_height: u64,
         first_block_height: u64,
     ) -> Result<Vec<ConsensusHash>, db_error>
+    where
+        SortDB: SortitionDb
     ;
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    fn from_parent_block_data<DB>(
-        sort_tx: &mut impl SortitionDbTransaction,
+    fn from_parent_block_data<SortDB>(
+        sort_tx: &mut impl SortitionDbTransaction<SortDB>,
         opshash: &OpsHash,
         parent_block_height: u64,
         first_block_height: u64,
         this_block_hash: &BurnchainHeaderHash,
         total_burn: u64,
         pox_id: &PoxId,
-    ) -> Result<ConsensusHash, db_error>;
+    ) -> Result<ConsensusHash, db_error>
+    where
+        SortDB: SortitionDb;
 
     /// raw consensus hash
     fn from_data(bytes: &[u8]) -> ConsensusHash;
@@ -356,11 +361,14 @@ impl ConsensusHashExtensions for ConsensusHash {
 
     /// Get the previous consensus hashes that must be hashed to find
     /// the *next* consensus hash at a particular block.
-    fn get_prev_consensus_hashes(
-        sort_tx: &mut impl SortitionDbTransaction,
+    fn get_prev_consensus_hashes<SortDB>(
+        sort_tx: &mut impl SortitionDbTransaction<SortDB>,
         block_height: u64,
         first_block_height: u64,
-    ) -> Result<Vec<ConsensusHash>, db_error> {
+    ) -> Result<Vec<ConsensusHash>, db_error> 
+    where   
+        SortDB: SortitionDb,
+    {
         let mut i = 0;
         let mut prev_chs = vec![];
         while i < 64 && block_height - (((1 as u64) << i) - 1) >= first_block_height {
@@ -390,8 +398,8 @@ impl ConsensusHashExtensions for ConsensusHash {
     }
 
     /// Make a new consensus hash, given the ops hash and parent block data
-    fn from_parent_block_data(
-        sort_tx: &mut impl SortitionDbTransaction,
+    fn from_parent_block_data<SortDB>(
+        sort_tx: &mut impl SortitionDbTransaction<SortDB>,
         opshash: &OpsHash,
         parent_block_height: u64,
         first_block_height: u64,
@@ -399,6 +407,8 @@ impl ConsensusHashExtensions for ConsensusHash {
         total_burn: u64,
         pox_id: &PoxId,
     ) -> Result<ConsensusHash, db_error>
+    where
+        SortDB: SortitionDb
     {
         let prev_consensus_hashes = ConsensusHash::get_prev_consensus_hashes(
             sort_tx,

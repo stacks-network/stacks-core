@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use clarity::vm::{
     types::{PrincipalData, QualifiedContractIdentifier, AssetIdentifier, StandardPrincipalData}, 
-    Value, errors::{CheckErrors, InterpreterError}, contexts::{AssetMap, AssetMapEntry}
+    Value, errors::CheckErrors, contexts::{AssetMap, AssetMapEntry}
 };
 use stacks_common::{
     types::{chainstate::{StacksAddress, StacksBlockId, ConsensusHash, BlockHeaderHash}, Address}, 
@@ -21,7 +21,7 @@ use crate::{
     }, 
     core::{
         BOOT_BLOCK_HASH, FIRST_BURNCHAIN_CONSENSUS_HASH, 
-        FIRST_STACKS_BLOCK_HASH
+        FIRST_STACKS_BLOCK_HASH, MICROSTACKS_PER_STACKS
     },
 };
 
@@ -51,8 +51,9 @@ impl ChainStateUtils {
         }
     }
 
-    pub fn handle_clarity_runtime_error(error: clarity::vm::errors::Error) -> ClarityRuntimeTxError {
-        use clarity::vm::errors::Error as clarity_error;
+    pub fn handle_clarity_runtime_error(error: clarity::vm::clarity::Error) -> ClarityRuntimeTxError {
+        use clarity::vm::clarity::Error as clarity_error;
+        use clarity::vm::errors::Error as InterpreterError;
 
         match error {
             // runtime errors are okay
@@ -301,5 +302,43 @@ impl ChainStateUtils {
         };
         let principal: PrincipalData = stacks_address.into();
         return principal;
+    }
+
+    /// Get the coinbase at this burn block height, in microSTX
+    pub fn get_coinbase_reward(burn_block_height: u64, first_burn_block_height: u64) -> u128 {
+        /*
+        From https://forum.stacks.org/t/pox-consensus-and-stx-future-supply
+
+        """
+
+        1000 STX for years 0-4
+        500 STX for years 4-8
+        250 STX for years 8-12
+        125 STX in perpetuity
+
+
+        From the Token Whitepaper:
+
+        We expect that once native mining goes live, approximately 4383 blocks will be pro-
+        cessed per month, or approximately 52,596 blocks will be processed per year.
+
+        """
+        */
+        // this is saturating subtraction for the initial reward calculation
+        //   where we are computing the coinbase reward for blocks that occur *before*
+        //   the `first_burn_block_height`
+        let effective_ht = burn_block_height.saturating_sub(first_burn_block_height);
+        let blocks_per_year = 52596;
+        let stx_reward = if effective_ht < blocks_per_year * 4 {
+            1000
+        } else if effective_ht < blocks_per_year * 8 {
+            500
+        } else if effective_ht < blocks_per_year * 12 {
+            250
+        } else {
+            125
+        };
+
+        stx_reward * (u128::from(MICROSTACKS_PER_STACKS))
     }
 }

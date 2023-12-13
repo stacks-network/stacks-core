@@ -40,8 +40,12 @@ pub type Result<T> = std::result::Result<T, SortitionError>;
 
 pub trait SortitionDb 
 where
-    Self: TrieDb
+    Self: TrieDb + Sized
 {
+    type TxType<'a, State>: SortitionDbTransaction<Self, State> + Sized 
+    where 
+        Self: 'a;
+
     fn connect(
         path: &str,
         first_block_height: u64,
@@ -54,7 +58,18 @@ where
     where
         Self: Sized;
 
-    fn transaction(&mut self) -> Result<&SortitionDbTransactionImpl<Self>> where Self: Sized;
+    fn transaction(
+        &mut self
+    ) -> Result<&Self::TxType<'_, ()>> 
+    where 
+        Self: Sized;
+
+    fn transaction_with_state<State>(
+        &mut self, 
+        state: State
+    ) -> Result<&Self::TxType<'_, State>> 
+    where 
+        Self: Sized;
 
     /// Get a block commit by its content-addressed location in a specific sortition.
     fn get_block_commit(
@@ -563,31 +578,40 @@ where
     ) -> Result<BlockSnapshot>;
 }
 
-pub struct SortitionDbTransactionImpl<'a, DB>
+pub trait SortitionDbTransaction<SortDB, State = ()>
 where
-    DB: SortitionDb,
-    Self: Deref<Target = DB> 
-{
-    conn: &'a DB
-}
-
-impl<SortDB> Deref for SortitionDbTransactionImpl<'_, SortDB> 
-where
-    SortDB: SortitionDb
-{
-    type Target = SortDB;
-
-    fn deref(&self) -> &Self::Target {
-        self.conn
-    }
-}
-
-pub trait SortitionDbTransaction
+    SortDB: SortitionDb,
+    Self: Deref<Target = SortDB>,
 {
     fn commit() -> Result<()>;
     fn rollback() -> Result<()>;
 
     fn get_chain_tip(&self) -> Result<SortitionId>;
+
+    fn get_state(&self) -> &State;
+
+    /// Get the ancestor block hash of a block of a given height, given a descendent block hash.
+    fn get_ancestor_block_hash(
+        &mut self,
+        block_height: u64,
+        tip_block_hash: &SortitionId,
+    ) -> Result<Option<SortitionId>>;
+
+    /// is the given block a descendant of `potential_ancestor`?
+    ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
+    ///  * potential_ancestor: the stacks block hash of the potential ancestor
+    fn descended_from(
+        &mut self,
+        block_at_burn_height: u64,
+        potential_ancestor: &BlockHeaderHash,
+    ) -> Result<bool>;
+
+    /// Do we expect a stacks block in this particular fork?
+    /// i.e. is this block hash part of the fork history identified by tip_block_hash?
+    fn expects_stacks_block_in_fork<Conn>(
+        &mut self,
+        block_hash: &BlockHeaderHash,
+    ) -> Result<bool>;
 
     /// Store a pre-processed reward set.
     /// `sortition_id` is the first sortition ID of the prepare phase

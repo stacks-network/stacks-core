@@ -31,6 +31,8 @@ use crate::burnchains::{
     BurnchainTransaction, PoxConstants, PublicKey, Txid,
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
+use crate::chainstate::burn::db::v2::test_helpers::SortitionTransactionContext;
+use crate::chainstate::burn::db::v2::{SortitionDbTransaction, SortitionDb};
 use crate::chainstate::burn::operations::{
     parse_u16_from_be, parse_u32_from_be, BlockstackOperationType, Error as op_error,
     LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
@@ -558,13 +560,16 @@ impl LeaderBlockCommitOp {
     /// If `reward_set_info` is not None, then *only* the addresses in .recipients are used.  The u16
     /// indexes are *ignored* (and *must be* ignored, since this method gets called by
     /// `check_intneded_sortition()`, which does not have this information).
-    fn check_pox(
+    fn check_pox<SortDB>(
         &self,
         epoch_id: StacksEpochId,
         burnchain: &Burnchain,
-        tx: &mut SortitionHandleTx,
+        tx: &mut impl SortitionDbTransaction<SortDB>,
         reward_set_info: Option<&RewardSetInfo>,
-    ) -> Result<(), op_error> {
+    ) -> Result<(), op_error> 
+    where
+        SortDB: SortitionDb
+    {
         let parent_block_height = u64::from(self.parent_block_ptr);
 
         if PoxConstants::has_pox_sunset(epoch_id) {
@@ -779,14 +784,17 @@ impl LeaderBlockCommitOp {
 
     /// Verify that a missed block-commit would have been valid if it was not missed.
     /// This contains epoch-specific checks.
-    fn check_intended_sortition(
+    fn check_intended_sortition<SortDB>(
         &self,
         epoch_id: StacksEpochId,
         burnchain: &Burnchain,
-        tx: &mut SortitionHandleTx,
+        tx: &mut impl SortitionDbTransaction<SortDB, SortitionTransactionContext>,
         miss_distance: u64,
-    ) -> Result<SortitionId, op_error> {
-        let tx_tip = tx.context.chain_tip.clone();
+    ) -> Result<SortitionId, op_error> 
+    where
+        SortDB: SortitionDb
+    {
+        let tx_tip = tx.get_state().chain_tip.clone();
         let intended_sortition = match epoch_id {
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
@@ -854,22 +862,25 @@ impl LeaderBlockCommitOp {
 
     /// Perform the block-commit checks that are the same in both PoX and PoB, and common to both
     /// on-time and late block-commits
-    fn check_common(
+    fn check_common<SortDB>(
         &self,
         epoch_id: StacksEpochId,
-        tx: &mut SortitionHandleTx,
-    ) -> Result<(), op_error> {
+        tx: &mut impl SortitionDbTransaction<SortDB, SortitionTransactionContext>,
+    ) -> Result<(), op_error> 
+    where
+        SortDB: SortitionDb
+    {
         let leader_key_block_height = u64::from(self.key_block_ptr);
         let parent_block_height = u64::from(self.parent_block_ptr);
 
-        let tx_tip = tx.context.chain_tip.clone();
+        let tx_tip = tx.get_state().chain_tip.clone();
         let apparent_sender_repr = format!("{}", &self.apparent_sender);
 
         /////////////////////////////////////////////////////////////////////////////////////
         // This tx must occur after the start of the network
         /////////////////////////////////////////////////////////////////////////////////////
 
-        let first_block_snapshot = SortitionDB::get_first_block_snapshot(tx.tx())?;
+        let first_block_snapshot = tx.get_first_block_snapshot()?;
 
         if self.block_height < first_block_snapshot.block_height {
             warn!(

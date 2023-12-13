@@ -565,7 +565,11 @@ impl HttpPeer {
         &mut self,
         poll_state: &mut NetworkPollState,
         node_state: &mut StacksNodeState<SortDB, ChainDB>,
-    ) -> (Vec<StacksMessageType>, Vec<usize>) {
+    ) -> (Vec<StacksMessageType>, Vec<usize>) 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let mut to_remove = vec![];
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
