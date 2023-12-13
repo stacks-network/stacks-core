@@ -436,6 +436,7 @@ impl NakamotoBlockBuilder {
             &mut info.chainstate_tx,
             info.clarity_instance,
             burn_dbconn,
+            burn_dbconn.context.first_block_height,
             &burn_dbconn.context.pox_constants,
             info.parent_consensus_hash,
             info.parent_header_hash,
