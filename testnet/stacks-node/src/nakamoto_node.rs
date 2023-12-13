@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::mpsc::Receiver;
 use std::thread;
 use std::thread::JoinHandle;
@@ -48,7 +48,7 @@ const VRF_MOCK_MINER_KEY: u64 = 1;
 
 pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
 
-pub type BlockCommits = HashMap<Txid, ()>;
+pub type BlockCommits = HashSet<Txid>;
 
 /// Node implementation for both miners and followers.
 /// This struct is used to set up the node proper and launch the p2p thread and relayer thread.
