@@ -551,3 +551,47 @@ paths:
             type: string
           description: The Stacks chain tip to query from. If tip == latest, the query will be run from the latest
             known tip (includes unconfirmed state).
+
+  /v2/block_proposal:
+    post:
+      summary: Validate a proposed Stacks block
+      tags:
+        - Mining
+      #operationId: ???
+      description: |
+        Used by miner to validate a proposed Stacks block.
+        Can accept either JSON or binary encoding.
+        
+        **This endpoint will only accept requests over the local loopback network interface.**
+      responses:
+        202:
+          description: Block proposal is valid
+        400:
+          description: Bad request
+        403:
+          description: Request not over loopback interface
+        429:
+          description: Too many requests
+      parameters:
+        - name: block
+          in: query
+          required: true
+          description: Proposed Block. Must match Rust struct `NakamotoBlock`
+        - name: tenure_start_block
+          in: query
+          required: true
+          description: `StacksBlockId` for block at the start of current mining tenure
+          schema:
+            type: string
+        - name: chain_id
+          in: query
+          required: true
+          description: Identifies which chain block is for (Mainnet, Testnet, etc.)
+          schema:
+            type: integer
+        - name: total_burn
+          in: query
+          required: true
+          description: Total BTC burn so far
+          schema:
+            type: integer

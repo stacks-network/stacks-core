@@ -489,13 +489,6 @@ pub struct NakamotoBlockProposal {
     // the data we committed to in the block-commit).  If this is an epoch 2.x parent, then
     // this is just the index block hash of the parent Stacks block.
     pub tenure_start_block: StacksBlockId,
-    /// Most recent burnchain block hash
-    pub burn_tip: BurnchainHeaderHash,
-    /// This refers to the burn block that was the current tip
-    ///  at the time this proposal was constructed. In most cases,
-    ///  if this proposal is accepted, it will be "mined" in the next
-    ///  burn block.
-    pub burn_tip_height: u32,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
     /// total BTC burn so far
