@@ -828,7 +828,7 @@ impl MockamotoNode {
         let mut coinbase_tx_signer = StacksTransactionSigner::new(&coinbase_tx);
         coinbase_tx_signer.sign_origin(&self.miner_key).unwrap();
         let coinbase_tx = coinbase_tx_signer.get_tx().unwrap();
-        
+
         let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
         let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
 
@@ -855,6 +855,12 @@ impl MockamotoNode {
             TransactionAuth::from_p2pkh(&self.miner_key).unwrap(),
             tenure_change_tx_payload,
         );
+        tenure_tx.chain_id = chain_id;
+        tenure_tx.set_origin_nonce(miner_nonce);
+        let mut tenure_tx_signer = StacksTransactionSigner::new(&tenure_tx);
+        tenure_tx_signer.sign_origin(&self.miner_key).unwrap();
+        let tenure_tx = tenure_tx_signer.get_tx().unwrap();
+
         let pox_address = PoxAddress::Standard(
             StacksAddress::burn_address(false),
             Some(AddressHashMode::SerializeP2PKH),
@@ -905,6 +911,7 @@ impl MockamotoNode {
             &mut chainstate_tx,
             clarity_instance,
             &sortdb_handle,
+            self.sortdb.first_block_height,
             &self.sortdb.pox_constants,
             chain_tip_ch.clone(),
             chain_tip_bh.clone(),
@@ -918,7 +925,7 @@ impl MockamotoNode {
             parent_chain_length + 1,
             false,
         )?;
-        
+
         let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx];
 
         let _ = match StacksChainState::process_block_transactions(
@@ -1021,16 +1028,15 @@ impl MockamotoNode {
                 &block.header.consensus_hash,
             )?
             .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
-            // TODO: https://github.com/stacks-network/stacks-core/issues/4109
-            // Update this to retrieve the last block in the last reward cycle rather than chain tip
             let aggregate_key_block_header =
                 NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)?
                     .unwrap();
+
             let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
                 &self.sortdb,
                 &sortition_handle,
                 &mut self.chainstate,
-                block_sn.block_height,
+                block_sn.block_height.saturating_sub(1),
                 &aggregate_key_block_header.index_block_hash(),
             )?;
             aggregate_public_key
@@ -1048,4 +1054,3 @@ impl MockamotoNode {
         Ok(chain_length)
     }
 }
-
