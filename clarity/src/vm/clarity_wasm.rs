@@ -591,7 +591,7 @@ pub const PRINCIPAL_HASH_BYTES: usize = 20;
 // Standard principal version + hash
 pub const PRINCIPAL_BYTES: usize = PRINCIPAL_VERSION_BYTES + PRINCIPAL_HASH_BYTES;
 // Number of bytes used to store the length of the contract name
-pub const CONTRACT_NAME_LENGTH_BYTES: usize = 4;
+pub const CONTRACT_NAME_LENGTH_BYTES: usize = 1;
 // 1 byte for version, 20 bytes for hash, 4 bytes for contract name length (0)
 pub const STANDARD_PRINCIPAL_BYTES: usize = PRINCIPAL_BYTES + CONTRACT_NAME_LENGTH_BYTES;
 // Max length of a contract name
@@ -880,7 +880,7 @@ fn read_from_wasm(
                 .read(&mut store, current_offset, &mut contract_length_buf)
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
             current_offset += CONTRACT_NAME_LENGTH_BYTES;
-            let contract_length = u32::from_le_bytes(contract_length_buf);
+            let contract_length = contract_length_buf[0];
             if contract_length == 0 {
                 Ok(Value::Principal(principal.into()))
             } else {
@@ -1347,7 +1347,7 @@ fn write_to_wasm(
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             in_mem_written += standard.1.len() as i32;
             if !contract_name.is_empty() {
-                let len_buffer = (contract_name.len() as i32).to_le_bytes();
+                let len_buffer = [contract_name.len() as u8];
                 memory
                     .write(
                         &mut store,
@@ -1355,14 +1355,14 @@ fn write_to_wasm(
                         &len_buffer,
                     )
                     .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-                in_mem_written += 4;
+                in_mem_written += 1;
                 let bytes = contract_name.as_bytes();
                 memory
                     .write(&mut store, (in_mem_offset + in_mem_written) as usize, bytes)
                     .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 in_mem_written += bytes.len() as i32;
             } else {
-                let len_buffer = (0i32).to_le_bytes();
+                let len_buffer = [0u8];
                 memory
                     .write(
                         &mut store,
@@ -1370,7 +1370,7 @@ fn write_to_wasm(
                         &len_buffer,
                     )
                     .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-                in_mem_written += 4;
+                in_mem_written += 1;
             }
 
             if include_repr {
@@ -1770,14 +1770,14 @@ fn wasm_to_clarity_value(
                 .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
             let standard =
                 StandardPrincipalData(principal_bytes[0], principal_bytes[1..].try_into().unwrap());
-            let contract_name_length = i32::from_le_bytes(buffer);
+            let contract_name_length = buffer[0] as usize;
             if contract_name_length == 0 {
                 Ok((
                     Some(Value::Principal(PrincipalData::Standard(standard))),
                     STANDARD_PRINCIPAL_BYTES,
                 ))
             } else {
-                let mut contract_name: Vec<u8> = vec![0; contract_name_length as usize];
+                let mut contract_name: Vec<u8> = vec![0; contract_name_length];
                 memory
                     .read(
                         store,
@@ -1796,7 +1796,7 @@ fn wasm_to_clarity_value(
                             )?,
                         },
                     ))),
-                    STANDARD_PRINCIPAL_BYTES + contract_name_length as usize,
+                    STANDARD_PRINCIPAL_BYTES + contract_name_length,
                 ))
             }
         }
