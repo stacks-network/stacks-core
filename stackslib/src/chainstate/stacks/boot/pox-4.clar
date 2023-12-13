@@ -219,12 +219,12 @@
 (define-map aggregate-public-keys uint (buff 33))
 
 ;; Data var used to track signer set for current cycle
-(define-data-var current-signer-set (list 4000 (buff 33)) (list ))
+(define-data-var current-signer-set (list 4096 (buff 33)) (list ))
 
 ;; Map that tracks the signing-key & cycle to a list of key-ids
 (define-map reward-cycle-signing-key-ids 
     {cycle: uint, signer: (buff 33)}
-    {key-ids: (list 4000 uint)})
+    {key-ids: (list 4096 uint)})
 
 ;; Getter for stacking-rejectors
 (define-read-only (get-pox-rejection (stacker principal) (reward-cycle uint))
@@ -1317,8 +1317,8 @@
       (ok { stacker: stacker,
             unlock-burn-height: new-unlock-ht }))))
 
-;; This funciton allows a node to register a new 'current-signer-set' during the prepare phase
-(define-private (update-current-signer-set (new-signer-set (list 4000 (buff 33))))
+;; This function allows a node to register a new 'current-signer-set' during the prepare phase
+(define-private (update-current-signer-set (new-signer-set (list 4000 {signer: (buff 33)})))
     (let 
         (
             (current-signers (var-get current-signer-set))
@@ -1338,16 +1338,12 @@
                 (err ERR_NOT_IN_PREPARE_PHASE))
 
         ;; Updates new signer-set
+        (ok true)
     )
 )
 
-;; Data var used to track signer set for current cycle
-(define-data-var current-signer-set (list 4000 (buff 33)) (list ))
-
-;; Map that tracks the signing-key & cycle to a list of key-ids
-(define-map reward-cycle-signing-key-ids 
-    {cycle: uint, signer: (buff 33)}
-    {key-ids: (list 4000 uint)})
+;; This function allows a node to register a list of key-ids to the current-signer-set
+;; (define-private (update-current-signer (signer (buff 33)) (key-ids (list 4096 uint))))
 
 ;; Gets the signer-set for a given reward cycle
 
