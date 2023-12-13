@@ -54,6 +54,7 @@ use super::burn::db::sortdb::{
     SortitionHandleConn, SortitionHandleTx,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
+use super::stacks::boot::{BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
@@ -1749,23 +1750,19 @@ impl NakamotoChainState {
         Ok(true)
     }
 
-    /// Get the aggregate public key for the given block.
-    pub fn get_aggregate_public_key(
+    /// Get the aggregate public key for the given block from the pox-4 contract
+    fn load_aggregate_public_key<SH: SortitionHandle>(
         sortdb: &SortitionDB,
-        sort_handle: &SortitionHandleConn,
+        sort_handle: &SH,
         chainstate: &mut StacksChainState,
         for_burn_block_height: u64,
         at_block_id: &StacksBlockId,
     ) -> Result<Point, ChainstateError> {
         // Get the current reward cycle
-        let Some(reward_cycle) = sort_handle
-            .context
-            .pox_constants
-            .block_height_to_reward_cycle(
-                sort_handle.context.first_block_height,
-                for_burn_block_height,
-            )
-        else {
+        let Some(reward_cycle) = sort_handle.pox_constants().block_height_to_reward_cycle(
+            sort_handle.first_burn_block_height(),
+            for_burn_block_height,
+        ) else {
             // This should be unreachable, but we'll return an error just in case.
             let msg = format!(
                 "BUG: Failed to determine reward cycle of burn block height: {}.",
@@ -1801,6 +1798,29 @@ impl NakamotoChainState {
         Err(ChainstateError::InvalidStacksBlock(
             "Failed to get aggregate public key".into(),
         ))
+    }
+
+    /// Get the aggregate public key for a block
+    pub fn get_aggregate_public_key<SH: SortitionHandle>(
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        sort_handle: &SH,
+        block: &NakamotoBlock,
+    ) -> Result<Point, ChainstateError> {
+        let block_sn =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &block.header.consensus_hash)?
+                .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
+        let aggregate_key_block_header =
+            Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
+
+        let aggregate_public_key = Self::load_aggregate_public_key(
+            sortdb,
+            sort_handle,
+            chainstate,
+            block_sn.block_height,
+            &aggregate_key_block_header.index_block_hash(),
+        )?;
+        Ok(aggregate_public_key)
     }
 
     /// Return the total ExecutionCost consumed during the tenure up to and including
@@ -3046,6 +3066,42 @@ impl NakamotoChainState {
         NakamotoChainState::set_block_processed(&chainstate_tx, &new_block_id)?;
 
         Ok((epoch_receipt, clarity_commit))
+    }
+
+    /// Boot code instantiation for the aggregate public key.
+    /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
+    /// public key
+    /// DO NOT USE IN MAINNET
+    pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: &Point) {
+        let agg_pub_key = to_hex(&apk.compress().data);
+        let contract_content = format!(
+            "(define-read-only ({}) 0x{})",
+            BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key
+        );
+        // NOTE: this defaults to a testnet address to prevent it from ever working on
+        // mainnet
+        let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
+        clarity_tx.connection().as_transaction(|clarity| {
+            let (ast, analysis) = clarity
+                .analyze_smart_contract(
+                    &contract_id,
+                    ClarityVersion::Clarity2,
+                    &contract_content,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity
+                .initialize_smart_contract(
+                    &contract_id,
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    &contract_content,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity.save_analysis(&contract_id, &analysis).unwrap();
+        })
     }
 }
 

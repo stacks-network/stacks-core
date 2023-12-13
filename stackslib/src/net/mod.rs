@@ -2258,44 +2258,18 @@ pub mod test {
             let atlasdb_path = format!("{}/atlas.sqlite", &test_path);
             let atlasdb = AtlasDB::connect(AtlasConfig::new(false), &atlasdb_path, true).unwrap();
 
-            let agg_pub_key_opt = config
-                .aggregate_public_key
-                .as_ref()
-                .map(|apk| to_hex(&apk.compress().data));
+            let agg_pub_key_opt = config.aggregate_public_key.clone();
 
             let conf = config.clone();
             let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
                 let mut receipts = vec![];
 
                 if let Some(agg_pub_key) = agg_pub_key_opt {
-                    debug!("Setting aggregate public key to {}", &agg_pub_key);
-                    // instantiate aggregate public key
-                    let contract_content = format!(
-                        "(define-read-only ({}) 0x{})",
-                        BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key
+                    debug!(
+                        "Setting aggregate public key to {}",
+                        &to_hex(&agg_pub_key.compress().data)
                     );
-                    let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
-                    clarity_tx.connection().as_transaction(|clarity| {
-                        let (ast, analysis) = clarity
-                            .analyze_smart_contract(
-                                &contract_id,
-                                ClarityVersion::Clarity2,
-                                &contract_content,
-                                ASTRules::PrecheckSize,
-                            )
-                            .unwrap();
-                        clarity
-                            .initialize_smart_contract(
-                                &contract_id,
-                                ClarityVersion::Clarity2,
-                                &ast,
-                                &contract_content,
-                                None,
-                                |_, _| false,
-                            )
-                            .unwrap();
-                        clarity.save_analysis(&contract_id, &analysis).unwrap();
-                    });
+                    NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key);
                 } else {
                     debug!("Not setting aggregate public key");
                 }

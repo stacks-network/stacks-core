@@ -427,35 +427,10 @@ impl MockamotoNode {
 
         // Create a boot contract to initialize the aggregate public key prior to Pox-4 activation
         let self_signer = SelfSigner::single_signer();
-        let agg_pub_key = to_hex(&self_signer.aggregate_public_key.compress().data);
-        info!("Mockamoto node setting agg public key"; "agg_pub_key" => &agg_pub_key);
+        let agg_pub_key = self_signer.aggregate_public_key.clone();
+        info!("Mockamoto node setting agg public key"; "agg_pub_key" => %to_hex(&self_signer.aggregate_public_key.compress().data));
         let callback = move |clarity_tx: &mut ClarityTx| {
-            let contract_content = format!(
-                "(define-read-only ({}) 0x{})",
-                BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key
-            );
-            let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
-            clarity_tx.connection().as_transaction(|clarity| {
-                let (ast, analysis) = clarity
-                    .analyze_smart_contract(
-                        &contract_id,
-                        ClarityVersion::Clarity2,
-                        &contract_content,
-                        ASTRules::PrecheckSize,
-                    )
-                    .unwrap();
-                clarity
-                    .initialize_smart_contract(
-                        &contract_id,
-                        ClarityVersion::Clarity2,
-                        &ast,
-                        &contract_content,
-                        None,
-                        |_, _| false,
-                    )
-                    .unwrap();
-                clarity.save_analysis(&contract_id, &analysis).unwrap();
-            })
+            NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key);
         };
         let mut boot_data =
             ChainStateBootData::new(&burnchain, initial_balances, Some(Box::new(callback)));
@@ -1023,21 +998,11 @@ impl MockamotoNode {
         let aggregate_public_key = if chain_length <= 1 {
             self.self_signer.aggregate_public_key
         } else {
-            let block_sn = SortitionDB::get_block_snapshot_consensus(
-                sortition_handle.conn(),
-                &block.header.consensus_hash,
-            )?
-            .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
-            let aggregate_key_block_header =
-                NakamotoChainState::get_canonical_block_header(self.chainstate.db(), &self.sortdb)?
-                    .unwrap();
-
             let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
+                &mut self.chainstate,
                 &self.sortdb,
                 &sortition_handle,
-                &mut self.chainstate,
-                block_sn.block_height,
-                &aggregate_key_block_header.index_block_hash(),
+                &block,
             )?;
             aggregate_public_key
         };

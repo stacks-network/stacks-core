@@ -21,9 +21,7 @@ use stacks::chainstate::coordinator::{
     static_get_heaviest_affirmation_map, static_get_stacks_tip_affirmation_map, ChainsCoordinator,
     ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
 };
-use stacks::chainstate::stacks::boot::{
-    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
-};
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
@@ -480,37 +478,10 @@ impl RunLoop {
 
         // TODO: delete this once aggregate public key voting is working
         let agg_pubkey_boot_callback = if let Some(self_signer) = self.config.self_signing() {
-            let agg_pub_key = to_hex(&self_signer.aggregate_public_key.compress().data);
-            info!("Mockamoto node setting agg public key"; "agg_pub_key" => &agg_pub_key);
+            let agg_pub_key = self_signer.aggregate_public_key.clone();
+            info!("Neon node setting agg public key"; "agg_pub_key" => %to_hex(&agg_pub_key.compress().data));
             let callback = Box::new(move |clarity_tx: &mut ClarityTx| {
-                let contract_content = format!(
-                    "(define-read-only ({}) 0x{})",
-                    BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key
-                );
-                // NOTE: this defaults to a testnet address to prevent it from ever working on
-                // mainnet
-                let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
-                clarity_tx.connection().as_transaction(|clarity| {
-                    let (ast, analysis) = clarity
-                        .analyze_smart_contract(
-                            &contract_id,
-                            ClarityVersion::Clarity2,
-                            &contract_content,
-                            ASTRules::PrecheckSize,
-                        )
-                        .unwrap();
-                    clarity
-                        .initialize_smart_contract(
-                            &contract_id,
-                            ClarityVersion::Clarity2,
-                            &ast,
-                            &contract_content,
-                            None,
-                            |_, _| false,
-                        )
-                        .unwrap();
-                    clarity.save_analysis(&contract_id, &analysis).unwrap();
-                })
+                NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key)
             }) as Box<dyn FnOnce(&mut ClarityTx)>;
             Some(callback)
         } else {

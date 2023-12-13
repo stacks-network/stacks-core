@@ -174,21 +174,11 @@ impl BlockMinerThread {
         let aggregate_public_key = if block.header.chain_length <= 1 {
             signer.aggregate_public_key.clone()
         } else {
-            let block_sn = SortitionDB::get_block_snapshot_consensus(
-                sortition_handle.conn(),
-                &block.header.consensus_hash,
-            )?
-            .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
-            let aggregate_key_block_header =
-                NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)?
-                    .unwrap();
-
             let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
+                &mut chain_state,
                 &sort_db,
                 &sortition_handle,
-                &mut chain_state,
-                block_sn.block_height,
-                &aggregate_key_block_header.index_block_hash(),
+                &block,
             )?;
             aggregate_public_key
         };
