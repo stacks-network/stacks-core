@@ -6,6 +6,7 @@ use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
 
 use super::MockamotoNode;
@@ -18,6 +19,12 @@ use crate::{Config, ConfigFile};
 #[test]
 fn observe_100_blocks() {
     let mut conf = Config::from_config_file(ConfigFile::mockamoto()).unwrap();
+    conf.node.working_dir = format!(
+        "/tmp/stacks-node-tests/mock_observe_100_blocks-{}",
+        get_epoch_time_secs()
+    );
+    conf.node.rpc_bind = "127.0.0.1:19343".into();
+    conf.node.p2p_bind = "127.0.0.1:19344".into();
     conf.node.mockamoto_time_ms = 10;
 
     let submitter_sk = StacksPrivateKey::from_seed(&[1]);
@@ -25,8 +32,8 @@ fn observe_100_blocks() {
     conf.add_initial_balance(submitter_addr.to_string(), 1_000_000);
     let recipient_addr = StacksAddress::burn_address(false).into();
 
-    test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    let observer_port = 19300;
+    test_observer::spawn_at(observer_port);
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
         events_keys: vec![EventKeyType::AnyEvent],
@@ -129,6 +136,12 @@ fn observe_100_blocks() {
 #[test]
 fn mempool_rpc_submit() {
     let mut conf = Config::from_config_file(ConfigFile::mockamoto()).unwrap();
+    conf.node.working_dir = format!(
+        "/tmp/stacks-node-tests/mempool_rpc_submit-{}",
+        get_epoch_time_secs()
+    );
+    conf.node.rpc_bind = "127.0.0.1:19743".into();
+    conf.node.p2p_bind = "127.0.0.1:19744".into();
     conf.node.mockamoto_time_ms = 10;
 
     let submitter_sk = StacksPrivateKey::from_seed(&[1]);
@@ -136,8 +149,8 @@ fn mempool_rpc_submit() {
     conf.add_initial_balance(submitter_addr.to_string(), 1_000);
     let recipient_addr = StacksAddress::burn_address(false).into();
 
-    test_observer::spawn();
-    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    let observer_port = 19800;
+    test_observer::spawn_at(observer_port);
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
         events_keys: vec![EventKeyType::AnyEvent],

@@ -498,7 +498,7 @@ impl NakamotoBlockBuilder {
             state_root_hash
         );
 
-        info!(
+        debug!(
             "Miner: mined Nakamoto block";
             "consensus_hash" => %block.header.consensus_hash,
             "block_hash" => %block.header.block_hash(),
@@ -570,13 +570,19 @@ impl NakamotoBlockBuilder {
             .block_limit()
             .expect("Failed to obtain block limit from miner's block connection");
 
+        let initial_txs: Vec<_> = [
+            tenure_info.tenure_change_tx.clone(),
+            tenure_info.coinbase_tx.clone(),
+        ]
+        .into_iter()
+        .filter_map(|x| x)
+        .collect();
         let (blocked, tx_events) = match StacksBlockBuilder::select_and_apply_transactions(
             &mut tenure_tx,
             &mut builder,
             mempool,
             parent_stacks_header.stacks_block_height,
-            tenure_info.tenure_change_tx(),
-            tenure_info.coinbase_tx(),
+            &initial_txs,
             settings,
             event_observer,
             ASTRules::PrecheckSize,

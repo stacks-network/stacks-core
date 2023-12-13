@@ -17,23 +17,26 @@ use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
 use stacks::core::{
-    StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
+    CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
-use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
-use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
+use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
+use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
 use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey};
+use stacks::util_lib::db::Error as DBError;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+
+use crate::mockamoto::signer::SelfSigner;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
@@ -313,7 +316,7 @@ impl ConfigFile {
             password: Some("blockstacksystem".into()),
             magic_bytes: Some("M3".into()),
             epochs: Some(epochs),
-            pox_prepare_length: Some(2),
+            pox_prepare_length: Some(3),
             pox_reward_length: Some(36),
             ..BurnchainConfigFile::default()
         };
@@ -491,6 +494,13 @@ lazy_static! {
 }
 
 impl Config {
+    pub fn self_signing(&self) -> Option<SelfSigner> {
+        if !(self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto") {
+            return None;
+        }
+        self.miner.self_signing_key.clone()
+    }
+
     /// get the up-to-date burnchain from the config
     pub fn get_burnchain_config(&self) -> Result<BurnchainConfig, String> {
         if let Some(path) = &self.config_path {
@@ -501,6 +511,26 @@ impl Config {
             Ok(self.burnchain.clone())
         }
     }
+
+    /// Connect to the MempoolDB using the configured cost estimation
+    pub fn connect_mempool_db(&self) -> Result<MemPoolDB, DBError> {
+        // create estimators, metric instances for RPC handler
+        let cost_estimator = self
+            .make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = self
+            .make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+
+        MemPoolDB::open(
+            self.is_mainnet(),
+            self.burnchain.chain_id,
+            &self.get_chainstate_path_str(),
+            cost_estimator,
+            metric,
+        )
+    }
+
     /// Apply any test settings to this burnchain config struct
     fn apply_test_settings(&self, burnchain: &mut Burnchain) {
         if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Mainnet {
@@ -593,6 +623,37 @@ impl Config {
                 burnchain.pox_constants.sunset_end, sunset_end
             );
             burnchain.pox_constants.sunset_end = sunset_end.into();
+        }
+
+        // check if the Epoch 3.0 burnchain settings as configured are going to be valid.
+        if self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto" {
+            self.check_nakamoto_config(&burnchain);
+        }
+    }
+
+    fn check_nakamoto_config(&self, burnchain: &Burnchain) {
+        let epochs = StacksEpoch::get_epochs(
+            self.burnchain.get_bitcoin_network().1,
+            self.burnchain.epochs.as_ref(),
+        );
+        let Some(epoch_30) = StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30)
+            .map(|epoch_ix| epochs[epoch_ix].clone())
+        else {
+            // no Epoch 3.0, so just return
+            return;
+        };
+        if burnchain.pox_constants.prepare_length < 3 {
+            panic!(
+                "FATAL: Nakamoto rules require a prepare length >= 3. Prepare length set to {}",
+                burnchain.pox_constants.prepare_length
+            );
+        }
+        if burnchain.is_in_prepare_phase(epoch_30.start_height) {
+            panic!(
+                "FATAL: Epoch 3.0 must start *during* a reward phase, not a prepare phase. Epoch 3.0 start set to: {}. PoX Parameters: {:?}",
+                epoch_30.start_height,
+                &burnchain.pox_constants
+            );
         }
     }
 
@@ -1095,6 +1156,11 @@ impl Config {
                     .as_ref()
                     .map(|x| Secp256k1PrivateKey::from_hex(x))
                     .transpose()?,
+                self_signing_key: miner
+                    .self_signing_seed
+                    .as_ref()
+                    .map(|x| SelfSigner::from_seed(*x))
+                    .or(miner_default_config.self_signing_key),
             },
             None => miner_default_config,
         };
@@ -1108,6 +1174,7 @@ impl Config {
             "xenon",
             "mainnet",
             "mockamoto",
+            "nakamoto-neon",
         ];
 
         if !supported_modes.contains(&burnchain.mode.as_str()) {
@@ -1629,10 +1696,10 @@ impl BurnchainConfig {
         match self.mode.as_str() {
             "mainnet" => ("mainnet".to_string(), BitcoinNetworkType::Mainnet),
             "xenon" => ("testnet".to_string(), BitcoinNetworkType::Testnet),
-            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "mockamoto" => {
+            "helium" | "neon" | "argon" | "krypton" | "mocknet" | "mockamoto" | "nakamoto-neon" => {
                 ("regtest".to_string(), BitcoinNetworkType::Regtest)
             }
-            _ => panic!("Invalid bitcoin mode -- expected mainnet, testnet, or regtest"),
+            other => panic!("Invalid stacks-node mode: {other}"),
         }
     }
 }
@@ -2116,6 +2183,7 @@ pub struct MinerConfig {
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
+    pub self_signing_key: Option<SelfSigner>,
 }
 
 impl MinerConfig {
@@ -2133,6 +2201,7 @@ impl MinerConfig {
             candidate_retry_cache_size: 10_000,
             unprocessed_block_deadline_secs: 30,
             mining_key: None,
+            self_signing_key: None,
         }
     }
 }
@@ -2241,6 +2310,7 @@ pub struct MinerConfigFile {
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
     pub mining_key: Option<String>,
+    pub self_signing_seed: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
