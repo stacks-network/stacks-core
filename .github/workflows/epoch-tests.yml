@@ -54,6 +54,7 @@ jobs:
           - tests::epoch_23::trait_invocation_behavior
           - tests::epoch_24::fix_to_pox_contract
           - tests::epoch_24::verify_auto_unlock_behavior
+          - tests::nakamoto_integrations::simple_neon_integration
     steps:
       ## Setup test environment
       - name: Setup Test Environment
