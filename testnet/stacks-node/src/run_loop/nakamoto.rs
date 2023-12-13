@@ -396,7 +396,8 @@ impl RunLoop {
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
-        neon::RunLoop::setup_termination_handler(self.should_keep_running.clone());
+        // setup the termination handler, allow it to error if a prior runloop already set it
+        neon::RunLoop::setup_termination_handler(self.should_keep_running.clone(), true);
         let mut burnchain = neon::RunLoop::instantiate_burnchain_state(
             &self.config,
             self.should_keep_running.clone(),

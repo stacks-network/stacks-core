@@ -302,7 +302,7 @@ impl RunLoop {
 
     /// Set up termination handler.  Have a signal set the `should_keep_running` atomic bool to
     /// false.  Panics of called more than once.
-    pub fn setup_termination_handler(keep_running_writer: Arc<AtomicBool>) {
+    pub fn setup_termination_handler(keep_running_writer: Arc<AtomicBool>, allow_err: bool) {
         let install = termination::set_handler(move |sig_id| match sig_id {
             SignalId::Bus => {
                 let msg = "Caught SIGBUS; crashing immediately and dumping core\n";
@@ -320,7 +320,8 @@ impl RunLoop {
 
         if let Err(e) = install {
             // integration tests can do this
-            if cfg!(test) {
+            if cfg!(test) || allow_err {
+                info!("Error setting up signal handler, may have already been set");
             } else {
                 panic!("FATAL: error setting termination handler - {}", e);
             }
@@ -1021,7 +1022,7 @@ impl RunLoop {
             .take()
             .expect("Run loop already started, can only start once after initialization.");
 
-        Self::setup_termination_handler(self.should_keep_running.clone());
+        Self::setup_termination_handler(self.should_keep_running.clone(), false);
         let mut burnchain = Self::instantiate_burnchain_state(
             &self.config,
             self.should_keep_running.clone(),

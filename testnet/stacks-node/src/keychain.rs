@@ -51,9 +51,14 @@ impl Keychain {
         Hash160::from_node_public_key(&pk)
     }
 
-    /// Get the secrete key of the nakamoto mining key
+    /// Get the secret key of the nakamoto mining key
     pub fn get_nakamoto_sk(&self) -> &Secp256k1PrivateKey {
         &self.nakamoto_mining_key
+    }
+
+    /// Set the secret key of the nakamoto mining key
+    pub fn set_nakamoto_sk(&mut self, mining_key: Secp256k1PrivateKey) {
+        self.nakamoto_mining_key = mining_key;
     }
 
     /// Create a default keychain from the seed, with a default nakamoto mining key derived

@@ -133,9 +133,12 @@ impl BlockMinerThread {
         }
 
         // now, actually run this tenure
-        let Some(new_block) = self.mine_block() else {
-            warn!("Failed to mine block");
-            return;
+        let new_block = match self.mine_block() {
+            Ok(x) => x,
+            Err(e) => {
+                warn!("Failed to mine block: {e:?}");
+                return;
+            }
         };
 
         if let Some(self_signer) = self.config.self_signing() {
@@ -219,10 +222,11 @@ impl BlockMinerThread {
         parent_tenure_consensus_hash: ConsensusHash,
         parent_tenure_blocks: u64,
         miner_pkh: Hash160,
-    ) -> Option<StacksTransaction> {
+    ) -> Result<StacksTransaction, NakamotoNodeError> {
         if self.config.self_signing().is_none() {
             // if we're not self-signing, then we can't generate a tenure change tx: it has to come from the signers.
-            return None;
+            warn!("Tried to generate a tenure change transaction, but we aren't self-signing");
+            return Err(NakamotoNodeError::CannotSelfSign);
         }
         let is_mainnet = self.config.is_mainnet();
         let chain_id = self.config.burnchain.chain_id;
@@ -255,7 +259,7 @@ impl BlockMinerThread {
         let mut tx_signer = StacksTransactionSigner::new(&tx);
         self.keychain.sign_as_origin(&mut tx_signer);
 
-        Some(tx_signer.get_tx().unwrap())
+        Ok(tx_signer.get_tx().unwrap())
     }
 
     /// Create a coinbase transaction.
@@ -302,7 +306,7 @@ impl BlockMinerThread {
         &self,
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
-    ) -> Option<ParentStacksBlockInfo> {
+    ) -> Result<ParentStacksBlockInfo, NakamotoNodeError> {
         let Some(stacks_tip) =
             NakamotoChainState::get_canonical_block_header(chain_state.db(), burn_db)
                 .expect("FATAL: could not query chain tip")
@@ -319,7 +323,7 @@ impl BlockMinerThread {
                 burnchain_params.first_block_timestamp.into(),
             );
 
-            return Some(ParentStacksBlockInfo {
+            return Ok(ParentStacksBlockInfo {
                 parent_tenure: Some(ParentTenureInfo {
                     parent_tenure_consensus_hash: chain_tip.metadata.consensus_hash,
                     parent_tenure_blocks: 0,
@@ -342,12 +346,12 @@ impl BlockMinerThread {
             &self.parent_tenure_id,
             stacks_tip,
         ) {
-            Ok(parent_info) => Some(parent_info),
+            Ok(parent_info) => Ok(parent_info),
             Err(NakamotoNodeError::BurnchainTipChanged) => {
                 self.globals.counters.bump_missed_tenures();
-                None
+                Err(NakamotoNodeError::BurnchainTipChanged)
             }
-            Err(..) => None,
+            Err(e) => Err(e),
         }
     }
 
@@ -384,7 +388,7 @@ impl BlockMinerThread {
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
     /// well as the microblock private key to use to produce microblocks.
     /// Return None if we couldn't build a block for whatever reason.
-    fn mine_block(&mut self) -> Option<NakamotoBlock> {
+    fn mine_block(&mut self) -> Result<NakamotoBlock, NakamotoNodeError> {
         debug!("block miner thread ID is {:?}", thread::current().id());
         neon_node::fault_injection_long_tenure();
 
@@ -406,18 +410,20 @@ impl BlockMinerThread {
 
         let target_epoch_id =
             SortitionDB::get_stacks_epoch(burn_db.conn(), self.burn_block.block_height + 1)
-                .ok()?
+                .map_err(|_| NakamotoNodeError::SnapshotNotFoundForChainTip)?
                 .expect("FATAL: no epoch defined")
                 .epoch_id;
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
-        let vrf_proof = self.make_vrf_proof()?;
+        let vrf_proof = self
+            .make_vrf_proof()
+            .ok_or_else(|| NakamotoNodeError::BadVrfConstruction)?;
 
         if self.last_mined_blocks.is_empty() {
             if parent_block_info.parent_tenure.is_none() {
                 warn!(
                     "Miner should be starting a new tenure, but failed to load parent tenure info"
                 );
-                return None;
+                return Err(NakamotoNodeError::ParentNotFound);
             }
         }
 
@@ -475,14 +481,20 @@ impl BlockMinerThread {
             Ok(block) => block,
             Err(e) => {
                 error!("Relayer: Failure mining anchored block: {}", e);
-                return None;
+                return Err(NakamotoNodeError::MiningFailure(e));
             }
         };
 
         let mining_key = self.keychain.get_nakamoto_sk();
         let miner_signature = mining_key
-            .sign(block.header.signature_hash().ok()?.as_bytes())
-            .ok()?;
+            .sign(
+                block
+                    .header
+                    .signature_hash()
+                    .map_err(|_| NakamotoNodeError::SigningError("Could not create sighash"))?
+                    .as_bytes(),
+            )
+            .map_err(NakamotoNodeError::SigningError)?;
         block.header.miner_signature = miner_signature;
 
         info!(
@@ -506,10 +518,10 @@ impl BlockMinerThread {
         if cur_burn_chain_tip.consensus_hash != block.header.consensus_hash {
             info!("Miner: Cancel block assembly; burnchain tip has changed");
             self.globals.counters.bump_missed_tenures();
-            return None;
+            return Err(NakamotoNodeError::BurnchainTipChanged);
         }
 
-        Some(block)
+        Ok(block)
     }
 }
 

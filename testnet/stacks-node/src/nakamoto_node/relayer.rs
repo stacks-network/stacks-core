@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use core::fmt;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -162,7 +162,12 @@ pub struct RelayerThread {
 impl RelayerThread {
     /// Instantiate relayer thread.
     /// Uses `runloop` to obtain globals, config, and `is_miner`` status
-    pub fn new(runloop: &RunLoop, local_peer: LocalPeer, relayer: Relayer) -> RelayerThread {
+    pub fn new(
+        runloop: &RunLoop,
+        local_peer: LocalPeer,
+        relayer: Relayer,
+        keychain: Keychain,
+    ) -> RelayerThread {
         let config = runloop.config().clone();
         let globals = runloop.get_globals();
         let burn_db_path = config.get_burn_db_file_path();
@@ -178,7 +183,6 @@ impl RelayerThread {
             .connect_mempool_db()
             .expect("Database failure opening mempool");
 
-        let keychain = Keychain::default(config.node.seed.clone());
         let bitcoin_controller = BitcoinRegtestController::new_dummy(config.clone());
 
         RelayerThread {
@@ -190,7 +194,7 @@ impl RelayerThread {
             keychain,
             burnchain: runloop.get_burnchain(),
             last_vrf_key_burn_height: None,
-            last_commits: HashMap::new(),
+            last_commits: HashSet::new(),
             bitcoin_controller,
             event_dispatcher: runloop.get_event_dispatcher(),
             local_peer,
@@ -305,8 +309,7 @@ impl RelayerThread {
 
         self.globals.set_last_sortition(sn.clone());
 
-        let won_sortition =
-            sn.sortition && self.last_commits.remove(&sn.winning_block_txid).is_some();
+        let won_sortition = sn.sortition && self.last_commits.remove(&sn.winning_block_txid);
 
         info!(
             "Relayer: Process sortition";
@@ -688,7 +691,7 @@ impl RelayerThread {
             "txid" => %txid,
         );
 
-        self.last_commits.insert(txid, ());
+        self.last_commits.insert(txid);
         self.last_committed = Some((
             last_committed_at,
             StacksBlockId::new(&tenure_start_ch, &tenure_start_bh),
