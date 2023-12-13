@@ -29,6 +29,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use super::{AtlasDB, Attachment, AttachmentInstance, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::atlas::{GetAttachmentResponse, GetAttachmentsInvResponse, MAX_RETRY_DELAY};
@@ -95,14 +96,11 @@ impl AttachmentsDownloader {
 
     /// This function executes `AttachmentsBatchStateMachine` for one step.
     /// It handles initializing and setting the batch to be processed by the machine.
-    pub fn run<Conn>(
+    pub fn run(
         &mut self,
         dns_client: &mut DNSClient,
-        network: &mut PeerNetwork<Conn>,
-    ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> 
-    where
-        Conn: DbConnection + TrieDb
-    {
+        network: &mut PeerNetwork,
+    ) -> Result<(Vec<(AttachmentInstance, Attachment)>, Vec<usize>), net_error> {
         let mut resolved_attachments = vec![];
         let mut events_to_deregister = vec![];
 
@@ -608,14 +606,11 @@ impl AttachmentsBatchStateMachine {
     /// Runs the state machine one step. The machine transitions through the states sequentially:
     /// `Initialized`, `DNSLookup` (which invokes a sub state machine, `BatchedDNSLookupsState`),
     /// `DownloadingAttachmentsInv`, `DownloadingAttachment`, and `Done`.
-    fn try_proceed<Conn>(
+    fn try_proceed(
         fsm: AttachmentsBatchStateMachine,
         dns_client: &mut DNSClient,
-        network: &mut PeerNetwork<Conn>,
-    ) -> AttachmentsBatchStateMachine 
-    where
-        Conn: DbConnection + TrieDb
-    {
+        network: &mut PeerNetwork,
+    ) -> AttachmentsBatchStateMachine {
         match fsm {
             AttachmentsBatchStateMachine::Initialized(context) => {
                 let sub_state = BatchedDNSLookupsState::new(context.get_peers_urls());
@@ -846,15 +841,12 @@ impl<T> BatchedRequestsState<T>
 where
     T: Ord + Requestable + fmt::Display + std::hash::Hash
 {
-    fn try_proceed<Conn>(
+    fn try_proceed(
         fsm: BatchedRequestsState<T>,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         connection_options: &ConnectionOptions,
-    ) -> BatchedRequestsState<T> 
-    where
-        Conn: DbConnection + TrieDb
-    {
+    ) -> BatchedRequestsState<T> {
         let mut fsm = fsm;
 
         match fsm {

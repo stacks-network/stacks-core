@@ -28,8 +28,10 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum}
 
 use super::test::*;
 use super::RawRewardSetEntry;
+use crate::burnchains::db::v2::BurnChainDb;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
@@ -42,6 +44,7 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
     POX_3_NAME,
 };
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
@@ -64,13 +67,13 @@ const USTX_PER_HOLDER: u128 = 1_000_000;
 
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
-fn get_tip<Conn>(
-    sortdb: Option<&SortitionDB<Conn>>
+fn get_tip<SortDB>(
+    sortdb: Option<&SortDB>
 ) -> BlockSnapshot
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
-    SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
+    sortdb.get_canonical_burn_chain_tip().unwrap()
 }
 
 fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
@@ -3317,11 +3320,13 @@ fn pox_3_getters() {
     assert_eq!(rejected, 0);
 }
 
-fn get_burn_pox_addr_info<Conn>(
-    peer: &mut TestPeer<Conn>
+fn get_burn_pox_addr_info<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>
 ) -> (Vec<PoxAddress>, u128)
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();

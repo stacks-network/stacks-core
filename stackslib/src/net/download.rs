@@ -433,13 +433,10 @@ impl BlockDownloader {
     /// Finish fetching blocks.  Return true once all reply handles have been fulfilled (either
     /// with data, or with an error).
     /// Store blocks as we get them.
-    pub fn getblocks_try_finish<SortDB>(
+    pub fn getblocks_try_finish(
         &mut self, 
-        network: &mut PeerNetwork<SortDB>
-    ) -> Result<bool, net_error> 
-    where
-        SortDB: SortitionDb
-    {
+        network: &mut PeerNetwork
+    ) -> Result<bool, net_error> {
         assert_eq!(self.state, BlockDownloaderState::GetBlocksFinish);
 
         // requests that are still pending
@@ -565,13 +562,10 @@ impl BlockDownloader {
         self.state = BlockDownloaderState::GetMicroblocksFinish;
     }
 
-    pub fn getmicroblocks_try_finish<SortDB>(
+    pub fn getmicroblocks_try_finish(
         &mut self,
-        network: &mut PeerNetwork<SortDB>,
-    ) -> Result<bool, net_error> 
-    where
-        SortDB: SortitionDb
-    {
+        network: &mut PeerNetwork,
+    ) -> Result<bool, net_error> {
         assert_eq!(self.state, BlockDownloaderState::GetMicroblocksFinish);
 
         // requests that are still pending
@@ -1041,13 +1035,10 @@ impl BlockDownloader {
     }
 }
 
-impl<SortDB> PeerNetwork<SortDB> 
-where
-    SortDB: SortitionDb
-{
+impl PeerNetwork {
     pub fn with_downloader_state<F, R>(&mut self, handler: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<SortDB>, &mut BlockDownloader) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork, &mut BlockDownloader) -> Result<R, net_error>,
     {
         let mut downloader = self.block_downloader.take();
         let res = match downloader {
@@ -1210,7 +1201,7 @@ where
 
     /// Create block request keys for a range of blocks that are available but that we don't have in a given range of
     /// sortitions.  The same keys can be used to fetch confirmed microblock streams.
-    fn make_requests<ChainDB>(
+    fn make_requests<SortDB, ChainDB>(
         &mut self,
         sortdb: &SortDB,
         chainstate: &StacksChainState<ChainDB>,
@@ -1219,6 +1210,7 @@ where
         microblocks: bool,
     ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb
     {
         let scan_batch_size = self.burnchain.pox_constants.reward_cycle_length as u64;
@@ -1558,7 +1550,7 @@ where
     }
 
     /// Make requests for missing anchored blocks
-    fn make_block_requests<ChainDB>(
+    fn make_block_requests<SortDB, ChainDB>(
         &mut self,
         sortdb: &SortDB,
         chainstate: &mut StacksChainState<ChainDB>,
@@ -1566,6 +1558,7 @@ where
         start_sortition_height: u64,
     ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb
     {
         self.make_requests(
@@ -1578,7 +1571,7 @@ where
     }
 
     /// Make requests for missing confirmed microblocks
-    fn make_confirmed_microblock_requests<ChainDB>(
+    fn make_confirmed_microblock_requests<SortDB, ChainDB>(
         &mut self,
         sortdb: &SortDB,
         chainstate: &mut StacksChainState<ChainDB>,
@@ -1586,6 +1579,7 @@ where
         start_sortition_height: u64,
     ) -> Result<HashMap<u64, VecDeque<BlockRequestKey>>, net_error> 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb
     {
         self.make_requests(sortdb, chainstate, downloader, start_sortition_height, true)
@@ -1602,13 +1596,14 @@ where
     }
 
     /// Go start resolving block URLs to their IP addresses
-    pub fn block_dns_lookups_begin<ChainDB>(
+    pub fn block_dns_lookups_begin<SortDB, ChainDB>(
         &mut self,
-        sortdb: &SortitionDB<SortDB>,
+        sortdb: &SortDB,
         chainstate: &mut StacksChainState<ChainDB>,
         dns_client: &mut DNSClient,
     ) -> Result<(), net_error> 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb
     {
         test_debug!("{:?}: block_dns_lookups_begin", &self.local_peer);
@@ -1949,7 +1944,7 @@ where
     /// sends out a request via the HTTP peer.  Returns the event ID in the http peer that's
     /// handling the request.
     pub fn begin_request<T: Requestable>(
-        network: &mut PeerNetwork<SortDB>,
+        network: &mut PeerNetwork,
         dns_lookups: &HashMap<UrlString, Option<Vec<SocketAddr>>>,
         requestables: &mut VecDeque<T>,
     ) -> Option<(T, usize)> 
@@ -2092,10 +2087,11 @@ where
     /// Process newly-fetched blocks and microblocks.
     /// Returns true if we've completed all requests.
     /// Returns (done?, at-chain-tip?, blocks-we-got, microblocks-we-got) on success
-    fn finish_downloads<ChainDB>(
+    fn finish_downloads<SortDB, ChainDB>(
         &mut self,
         sortdb: &SortDB,
         chainstate: &mut StacksChainState<ChainDB>,
+        // TODO: Create a return type instead
     ) -> Result<
         (
             bool,
@@ -2107,6 +2103,7 @@ where
         net_error,
     > 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb
     {
         let mut blocks = vec![];
@@ -2379,12 +2376,13 @@ where
     /// * List of microblock streams we downloaded
     /// * List of broken HTTP event IDs to disconnect from
     /// * List of broken p2p neighbor keys to disconnect from
-    pub fn download_blocks<ChainDB>(
+    pub fn download_blocks<SortDB, ChainDB>(
         &mut self,
         sortdb: &SortDB,
         chainstate: &mut StacksChainState<ChainDB>,
         dns_client: &mut DNSClient,
         ibd: bool,
+        // TODO: Create a return type instead
     ) -> Result<
         (
             bool,
@@ -2398,6 +2396,7 @@ where
         net_error,
     > 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb
     {
         if let Some(ref inv_state) = self.inv_state {
@@ -2565,6 +2564,7 @@ pub mod test {
     use stacks_common::util::vrf::VRFProof;
 
     use super::*;
+    use crate::burnchains::db::v2::BurnChainDb;
     use crate::burnchains::tests::TestMiner;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::*;
@@ -2581,13 +2581,15 @@ pub mod test {
     use crate::util_lib::strings::*;
     use crate::util_lib::test::*;
 
-    fn get_peer_availability<Conn>(
-        peer: &mut TestPeer<Conn>,
+    fn get_peer_availability<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
         start_height: u64,
         end_height: u64,
     ) -> Vec<(ConsensusHash, Option<BlockHeaderHash>, Vec<NeighborKey>)> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let inv_state = peer.network.inv_state.take().unwrap();
         let availability = peer
@@ -2761,13 +2763,15 @@ pub mod test {
         })
     }
 
-    fn get_blocks_inventory<Conn>(
-        peer: &mut TestPeer<Conn>,
+    fn get_blocks_inventory<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
         start_height: u64,
         end_height: u64,
     ) -> BlocksInvData 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let block_hashes = {
             let num_headers = end_height - start_height;
@@ -2791,7 +2795,7 @@ pub mod test {
         inv
     }
 
-    pub fn run_get_blocks_and_microblocks<Conn, T, F, P, C, D>(
+    pub fn run_get_blocks_and_microblocks<SortDB, ChainDB, BurnDB, T, F, P, C, D>(
         test_name: &str,
         port_base: u16,
         num_peers: usize,
@@ -2800,21 +2804,23 @@ pub mod test {
         mut peer_func: P,
         mut check_breakage: C,
         mut done_func: D,
-    ) -> Vec<TestPeer<Conn>>
+    ) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>>
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb,
         T: FnOnce(&mut Vec<TestPeerConfig>) -> (),
         F: FnOnce(
             usize,
-            &mut Vec<TestPeer<Conn>>,
+            &mut Vec<TestPeer<SortDB, ChainDB, BurnDB>>,
         ) -> Vec<(
             ConsensusHash,
             Option<StacksBlock>,
             Option<Vec<StacksMicroblock>>,
         )>,
-        P: FnMut(&mut Vec<TestPeer<Conn>>) -> (),
-        C: FnMut(&mut TestPeer<Conn>) -> bool,
-        D: FnMut(&mut Vec<TestPeer<Conn>>) -> bool,
+        P: FnMut(&mut Vec<TestPeer<SortDB, ChainDB, BurnDB>>) -> (),
+        C: FnMut(&mut TestPeer<SortDB, ChainDB, BurnDB>) -> bool,
+        D: FnMut(&mut Vec<TestPeer<SortDB, ChainDB, BurnDB>>) -> bool,
     {
         assert!(num_peers > 0);
         let first_sortition_height = 0;
@@ -3154,10 +3160,10 @@ pub mod test {
         })
     }
 
-    fn make_contract_call_transaction<Conn>(
+    fn make_contract_call_transaction<SortDB, ChainDB>(
         miner: &mut TestMiner,
-        sortdb: &mut SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+        sortdb: &mut SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
         spending_account: &mut TestMiner,
         contract_address: StacksAddress,
         contract_name: &str,
@@ -3168,7 +3174,8 @@ pub mod test {
         nonce_offset: u64,
     ) -> StacksTransaction 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let tx_cc = {
             let mut tx_cc = StacksTransaction::new(

@@ -344,11 +344,11 @@ impl HttpRequestContentsExtensions for HttpRequestContents {
 }
 
 /// Work around Clone blanket implementations not being object-safe
-pub trait RPCRequestHandlerClone<SortDB> 
+/*pub trait RPCRequestHandlerClone<SortDB> 
 where
     SortDB: SortitionDb
 {
-    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler<SortDB>>;
+    fn clone_rpc_handler_box(&self) -> Box<Self> where Self: Sized;
 }
 
 impl<SortDB, T> RPCRequestHandlerClone<SortDB> for T
@@ -356,43 +356,54 @@ where
     SortDB: SortitionDb,
     T: 'static + RPCRequestHandler<SortDB> + Clone,
 {
-    fn clone_rpc_handler_box(&self) -> Box<dyn RPCRequestHandler<SortDB>> {
+    fn clone_rpc_handler_box(&self) -> Box<Self> 
+    where
+        Self: Sized
+    {
         Box::new(self.clone())
     }
 }
 
 impl<SortDB> Clone for Box<dyn RPCRequestHandler<SortDB>> 
 where
-    SortDB: SortitionDb
+    SortDB: SortitionDb,
 {
-    fn clone(&self) -> Box<dyn RPCRequestHandler<SortDB>> {
+    fn clone(&self) -> Box<Self> {
         self.clone_rpc_handler_box()
     }
-}
+}*/
 
 /// Trait that every HTTP round-trip request type must implement.
-pub trait RPCRequestHandler<SortDB>: HttpRequest + HttpResponse + RPCRequestHandlerClone<SortDB>
+pub trait RPCRequestHandler
 where
-    SortDB: SortitionDb
+    Self: HttpRequest + HttpResponse
 {
     /// Reset the RPC handler.  This clears any internal state this handler stored between calls to
     /// `try_handle_request()`
     fn restart(&mut self);
+
     /// Instantiate the HTTP response headers and body from a request
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         request_preamble: HttpRequestPreamble,
         request_body: HttpRequestContents,
-        state: &mut StacksNodeState<SortDB>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError>;
+        state: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError>
+    where
+        Self: Sized,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb;
 
     /// Helper to get the canonical sortition tip
-    fn get_canonical_burn_chain_tip(
+    fn get_canonical_burn_chain_tip<SortDB>(
         &self,
         preamble: &HttpRequestPreamble,
         sortdb: &SortDB,
-    ) -> Result<BlockSnapshot, StacksHttpResponse> {
-        SortitionDB::<SortDB>::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
+    ) -> Result<BlockSnapshot, StacksHttpResponse> 
+    where
+        SortDB: SortitionDb
+    {
+        sortdb.get_canonical_burn_chain_tip().map_err(|e| {
             StacksHttpResponse::new_error(
                 &preamble,
                 &HttpServerError::new(format!("Failed to load canonical burnchain tip: {:?}", &e)),
@@ -401,13 +412,13 @@ where
     }
 
     /// Helper to get the current Stacks epoch
-    fn get_stacks_epoch(
+    fn get_stacks_epoch<SortDB>(
         &self,
         preamble: &HttpRequestPreamble,
-        sortdb: &SortitionDB<SortDB>,
+        sortdb: &SortDB,
         block_height: u64,
     ) -> Result<StacksEpoch, StacksHttpResponse> {
-        SortitionDB::<SortDB>::get_stacks_epoch(sortdb.conn(), block_height)
+        sortdb.get_stacks_epoch(block_height)
             .map_err(|e| {
                 StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Could not load Stacks epoch for canonical burn height: {:?}", &e)))
             })?
@@ -422,13 +433,14 @@ where
     }
 
     /// Helper to get the Stacks tip
-    fn get_stacks_chain_tip<ChainDB>(
+    fn get_stacks_chain_tip<SortDB, ChainDB>(
         &self,
         preamble: &HttpRequestPreamble,
-        sortdb: &SortitionDB<SortDB>,
+        sortdb: &SortDB,
         chainstate: &StacksChainState<ChainDB>,
     ) -> Result<StacksHeaderInfo, StacksHttpResponse> 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb,
         Self: Sized
     {
@@ -844,10 +856,7 @@ struct StacksHttpReplyData {
 /// and must receive a follow-up HTTP reply (or the state machine errors out).  A server receives
 /// an HTTP request, and sends an HTTP reply.
 #[derive(Clone)]
-pub struct StacksHttp<Conn> 
-where
-    Conn: TrieDb
-{
+pub struct StacksHttp {
     /// Address of peer
     peer_addr: SocketAddr,
     /// offset body after '\r\n\r\n' if known
@@ -867,18 +876,15 @@ where
     /// send a reply, it will be unused.
     request_handler_index: Option<usize>,
     /// HTTP request handlers (verb, regex, request-handler, response-handler)
-    request_handlers: Vec<(String, Regex, Box<dyn RPCRequestHandler<Conn>>)>,
+    request_handlers: Vec<(String, Regex, Box<dyn RPCRequestHandler>)>,
     /// Maximum size of call arguments
     pub maximum_call_argument_size: u32,
     /// Maximum execution budget of a read-only call
     pub read_only_call_limit: ExecutionCost,
 }
 
-impl<SortDB> StacksHttp<SortDB> 
-where
-    SortDB: SortitionDb
-{
-    pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp<SortDB> {
+impl StacksHttp {
+    pub fn new(peer_addr: SocketAddr, conn_opts: &ConnectionOptions) -> StacksHttp {
         let mut http = StacksHttp {
             peer_addr,
             body_start: None,
@@ -896,9 +902,9 @@ where
     }
 
     /// Register an API RPC endpoint
-    pub fn register_rpc_endpoint<Handler: RPCRequestHandler<SortDB> + 'static>(
+    pub fn register_rpc_endpoint(
         &mut self,
-        handler: Handler,
+        handler: impl RPCRequestHandler,
     ) {
         self.request_handlers.push((
             handler.verb().to_string(),
@@ -941,7 +947,7 @@ where
     #[cfg(test)]
     pub fn handle_try_parse_request(
         &self,
-        handler: &mut dyn RPCRequestHandler<SortDB>,
+        handler: &mut impl RPCRequestHandler,
         preamble: &HttpRequestPreamble,
         body: &[u8],
     ) -> Result<StacksHttpRequest, NetError> {
@@ -1081,11 +1087,15 @@ where
     /// Returns Ok((preamble, contents)) on success.  Note that this could be an HTTP error
     /// message.
     /// Returns Err(..) on failure to decode or generate the response.
-    pub fn try_handle_request(
+    pub fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         request: StacksHttpRequest,
-        node: &mut StacksNodeState<SortDB>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let (decoded_path, _) = decode_request_path(&request.preamble().path_and_query_str)?;
         let response_handler_index =
             if let Some(i) = self.find_response_handler(&request.preamble().verb, &decoded_path) {
@@ -1291,10 +1301,7 @@ where
     }
 }
 
-impl<Conn> ProtocolFamily for StacksHttp<Conn> 
-where
-    Conn: DbConnection + TrieDb
-{
+impl ProtocolFamily for StacksHttp {
     type Preamble = StacksHttpPreamble;
     type Message = StacksHttpMessage;
 
@@ -1572,10 +1579,7 @@ where
     }
 }
 
-impl<SortDB> PeerNetwork<SortDB> 
-where
-    SortDB: SortitionDb
-{
+impl PeerNetwork {
     /// Send a (non-blocking) HTTP request to a remote peer.
     /// Returns the event ID on success.
     pub fn connect_or_send_http_request(

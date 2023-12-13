@@ -716,14 +716,11 @@ impl NeighborBlockStats {
 
     /// Determine whether or not a received PoxInv is less certain than the local PoX
     /// inventory.  Return the lowest reward cycle where the remote node is less certain than us.
-    pub fn check_remote_pox_inv_uncertainty<SortDB>(
-        network: &mut PeerNetwork<SortDB>,
+    pub fn check_remote_pox_inv_uncertainty(
+        network: &mut PeerNetwork,
         target_pox_reward_cycle: u64,
         poxinv_data: &PoxInvData,
-    ) -> u64 
-    where
-        SortDB: SortitionDb
-    {
+    ) -> u64 {
         let mut bit = target_pox_reward_cycle;
         while bit < (network.pox_id.len() as u64) - 1
             && (bit - target_pox_reward_cycle) < poxinv_data.bitlen as u64
@@ -743,14 +740,11 @@ impl NeighborBlockStats {
     /// Determine whether or not a received PoxInv is more certain as the local PoX
     /// inventory.  Return the loewst reward cycle where the local nodes is less certain than the
     /// remote node.
-    pub fn check_local_pox_inv_uncertainty<SortDB>(
-        network: &mut PeerNetwork<SortDB>,
+    pub fn check_local_pox_inv_uncertainty(
+        network: &mut PeerNetwork,
         target_pox_reward_cycle: u64,
         poxinv_data: &PoxInvData,
-    ) -> u64 
-    where
-        SortDB: SortitionDb
-    {
+    ) -> u64 {
         let mut bit = target_pox_reward_cycle;
         while bit < (network.pox_id.len() as u64) - 1
             && (bit - target_pox_reward_cycle) < poxinv_data.bitlen as u64
@@ -771,13 +765,10 @@ impl NeighborBlockStats {
     /// Return true if this method is done -- i.e. all requests have been handled.
     /// Return false if we're not done.
     /// Return Err(..) on irrecoverable error.
-    pub fn getpoxinv_try_finish<SortDB>(
+    pub fn getpoxinv_try_finish(
         &mut self, 
-        network: &mut PeerNetwork<SortDB>
-    ) -> Result<bool, net_error> 
-    where
-        SortDB: SortitionDb
-    {
+        network: &mut PeerNetwork
+    ) -> Result<bool, net_error> {
         assert!(!self.done);
         assert_eq!(self.state, InvWorkState::GetPoxInvFinish);
 
@@ -871,13 +862,10 @@ impl NeighborBlockStats {
     /// Try to finish getting all BlocksInvData requests.
     /// Return true if this method is done -- i.e. all requests have been handled.
     /// Return false if we're not done.
-    pub fn getblocksinv_try_finish<SortDB>(
+    pub fn getblocksinv_try_finish(
         &mut self,
-        network: &mut PeerNetwork<SortDB>,
-    ) -> Result<bool, net_error> 
-    where
-        SortDB: SortitionDb
-    {
+        network: &mut PeerNetwork,
+    ) -> Result<bool, net_error> {
         assert!(!self.done);
         assert_eq!(self.state, InvWorkState::GetBlocksInvFinish);
 
@@ -1332,15 +1320,15 @@ impl InvState {
     }
 }
 
-impl<SortDB> PeerNetwork<SortDB>
-where
-    SortDB: SortitionDb
-{
+impl PeerNetwork {
     /// Get our current tip snapshot, accounting for PoX invalidation
-    fn get_tip_sortition_snapshot(
+    fn get_tip_sortition_snapshot<SortDB>(
         &self, 
         sortdb: &SortDB
-    ) -> Result<BlockSnapshot, net_error> {
+    ) -> Result<BlockSnapshot, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         match sortdb.get_block_snapshot(&self.tip_sort_id)? {
             Some(sn) => {
                 if !sn.pox_valid {
@@ -1354,11 +1342,14 @@ where
     }
 
     /// Get an ancestor snapshot, accounting for PoX invalidation
-    pub fn get_ancestor_sortition_snapshot(
+    pub fn get_ancestor_sortition_snapshot<SortDB>(
         &self,
         sortdb: &SortDB,
         height: u64,
-    ) -> Result<BlockSnapshot, net_error> {
+    ) -> Result<BlockSnapshot, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         let sn = self.get_tip_sortition_snapshot(sortdb)?;
         if sn.block_height < height {
             debug!(
@@ -1383,11 +1374,14 @@ where
 
     /// Get a snapshot that a peer claims to have.
     /// Return Ok(None) if we don't have this snapshot
-    fn get_peer_sortition_snapshot(
+    fn get_peer_sortition_snapshot<SortDB>(
         &self,
         sortdb: &SortDB,
         burn_header_hash: &BurnchainHeaderHash,
-    ) -> Result<Option<BlockSnapshot>, net_error> {
+    ) -> Result<Option<BlockSnapshot>, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         let ic = sortdb.index_conn();
         let sortdb_reader = SortitionHandleConn::open_reader(&ic, &self.tip_sort_id)?;
         match sortdb_reader.get_block_snapshot(burn_header_hash)? {
@@ -1406,12 +1400,15 @@ where
     /// The resulting GetPoxInv, if Some(..), will request a segment of the remote peer's PoX
     /// bitvector starting from target_pox_reward_cycle, and fetching up to GETPOXINV_MAX_BITLEN bits.
     /// The target_pox_reward_cycle will be the _lowest_ reward cycle requested.
-    fn make_getpoxinv(
+    fn make_getpoxinv<SortDB>(
         &self,
         sortdb: &SortDB,
         nk: &NeighborKey,
         target_pox_reward_cycle: u64,
-    ) -> Result<Option<GetPoxInv>, net_error> {
+    ) -> Result<Option<GetPoxInv>, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         if target_pox_reward_cycle >= self.pox_id.num_inventory_reward_cycles() as u64 {
             debug!("{:?}: target reward cycle for neighbor {:?} is {}, which is equal to or higher than our PoX bit vector length {}", &self.local_peer, nk, target_pox_reward_cycle, self.pox_id.num_inventory_reward_cycles());
             return Ok(None);
@@ -1522,14 +1519,17 @@ where
     /// Determine how many blocks to ask for in a GetBlocksInv request to a given neighbor.
     /// Possibly ask for no blocks -- for example, the neighbor may not have sync'ed the burnchain,
     /// or may not agree on our PoX view.
-    fn get_getblocksinv_num_blocks(
+    fn get_getblocksinv_num_blocks<SortDB>(
         &self,
         sortdb: &SortDB,
         target_block_reward_cycle: u64,
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
         convo: &ConversationP2P,
-    ) -> Result<u64, net_error> {
+    ) -> Result<u64, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         if target_block_reward_cycle >= (self.pox_id.num_inventory_reward_cycles() as u64) {
             debug!(
                 "{:?}: target reward cycle {} >= our max reward cycle {}",
@@ -1628,13 +1628,16 @@ where
     /// Returns Ok(None) if we cannot make a request at this reward cycle (either the remote peer
     /// is too far behind the burnchain tip, or their PoX inventory disagrees with us, or we're not
     /// caught up with target_block_reward_cycle).
-    fn make_getblocksinv(
+    fn make_getblocksinv<SortDB>(
         &self,
         sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
         target_block_reward_cycle: u64,
-    ) -> Result<Option<GetBlocksInv>, net_error> {
+    ) -> Result<Option<GetBlocksInv>, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         let target_block_height = self
             .burnchain
             .reward_cycle_to_block_height(target_block_reward_cycle);
@@ -1734,12 +1737,15 @@ where
     /// Make a possible GetPoxInv request for this neighbor.
     /// Returns Some((target-reward-cycle, getpoxinv-request)) if we are to request a PoX
     /// inventory for this node.
-    fn make_next_getpoxinv(
+    fn make_next_getpoxinv<SortDB>(
         &self,
         sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
-    ) -> Result<Option<(u64, GetPoxInv)>, net_error> {
+    ) -> Result<Option<(u64, GetPoxInv)>, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         if stats.inv.num_reward_cycles < self.pox_id.num_inventory_reward_cycles() as u64 {
             // We don't yet know all of the PoX bits for this node
             debug!("{:?}: PoX inventory not sync'ed with {:?} yet (target {} < our tip {}); make GetPoxInv based at {}", &self.local_peer, nk, stats.inv.num_reward_cycles, self.pox_id.num_inventory_reward_cycles(), stats.inv.num_reward_cycles);
@@ -1767,12 +1773,15 @@ where
     }
 
     /// Make the next GetBlocksInv for a peer
-    fn make_next_getblocksinv(
+    fn make_next_getblocksinv<SortDB>(
         &self,
         sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &NeighborBlockStats,
-    ) -> Result<Option<(u64, GetBlocksInv)>, net_error> {
+    ) -> Result<Option<(u64, GetBlocksInv)>, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         if stats.block_reward_cycle <= stats.inv.num_reward_cycles {
             self.make_getblocksinv(sortdb, nk, stats, stats.block_reward_cycle)
                 .and_then(|getblocksinv_opt| {
@@ -1785,11 +1794,14 @@ where
     }
 
     /// Determine at which reward cycle to begin scanning inventories
-    fn get_block_scan_start(
+    fn get_block_scan_start<SortDB>(
         &self, 
         sortdb: &SortDB, 
         highest_remote_reward_cycle: u64
-    ) -> u64 {
+    ) -> u64 
+    where
+        SortDB: SortitionDb
+    {
         // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
         // start scaning at the reward cycle just before that.
         let am_rescan_rc = self
@@ -1834,13 +1846,16 @@ where
     }
 
     /// Start requesting the next batch of PoX inventories
-    fn inv_getpoxinv_begin(
+    fn inv_getpoxinv_begin<SortDB>(
         &mut self,
         sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
-    ) -> Result<(), net_error> {
+    ) -> Result<(), net_error> 
+    where
+        SortDB: SortitionDb
+    {
         let (target_pox_reward_cycle, getpoxinv) = match self
             .make_next_getpoxinv(sortdb, nk, stats)?
         {
@@ -1875,13 +1890,16 @@ where
 
     /// Finish requesting the next batch of PoX inventories
     /// Return true if done.
-    fn inv_getpoxinv_try_finish(
+    fn inv_getpoxinv_try_finish<SortDB>(
         &mut self,
         sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         ibd: bool,
-    ) -> Result<bool, net_error> {
+    ) -> Result<bool, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         if stats.done {
             return Ok(true);
         }
@@ -2036,13 +2054,16 @@ where
     }
 
     /// Start requesting the next batch of block inventories
-    fn inv_getblocksinv_begin(
+    fn inv_getblocksinv_begin<SortDB>(
         &mut self,
         sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
-    ) -> Result<(), net_error> {
+    ) -> Result<(), net_error> 
+    where
+        SortDB: SortitionDb
+    {
         let (target_block_reward_cycle, getblocksinv) =
             match self.make_next_getblocksinv(sortdb, nk, stats)? {
                 Some(x) => x,
@@ -2162,14 +2183,17 @@ where
     }
 
     /// Run a single state-machine to completion
-    fn inv_sync_run(
+    fn inv_sync_run<SortDB>(
         &mut self,
         sortdb: &SortDB,
         nk: &NeighborKey,
         stats: &mut NeighborBlockStats,
         request_timeout: u64,
         ibd: bool,
-    ) -> Result<bool, net_error> {
+    ) -> Result<bool, net_error> 
+    where
+        SortDB: SortitionDb
+    {
         while !stats.done {
             if !stats.is_peer_online() {
                 debug!("{:?}: {:?} is not online", &self.local_peer, nk);
@@ -2205,10 +2229,13 @@ where
     /// Refresh our cached PoX bitvector, and invalidate any PoX state if we have since learned
     /// about a new reward cycle.
     /// Call right after PeerNetwork::refresh_burnchain_view()
-    pub fn refresh_sortition_view(
+    pub fn refresh_sortition_view<SortDB>(
         &mut self, 
         sortdb: &SortDB
-    ) -> Result<(), net_error> {
+    ) -> Result<(), net_error> 
+    where
+        SortDB: SortitionDb
+    {
         if self.inv_state.is_none() {
             self.init_inv_sync(sortdb);
         }
@@ -2276,11 +2303,15 @@ where
 
     /// Drive all state machines.
     /// returns (done?, throttled?, peers-to-disconnect, peers-that-are-dead)
-    pub fn sync_inventories(
+    pub fn sync_inventories<SortDB>(
         &mut self,
         sortdb: &SortDB,
         ibd: bool,
-    ) -> (bool, bool, Vec<NeighborKey>, Vec<NeighborKey>) {
+        // TODO: Use a return type
+    ) -> (bool, bool, Vec<NeighborKey>, Vec<NeighborKey>) 
+    where
+        SortDB: SortitionDb
+    {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             debug!(
                 "{:?}: Inventory state has {} block stats tracked",
@@ -2516,11 +2547,11 @@ where
     }
 
     pub fn with_inv_state<F, R>(
-        network: &mut PeerNetwork<SortDB>, 
+        network: &mut PeerNetwork, 
         handler: F
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<SortDB>, &mut InvState) -> R,
+        F: FnOnce(&mut PeerNetwork, &mut InvState) -> R,
     {
         let mut inv_state = network.inv_state.take();
         let res = match inv_state {
@@ -2574,10 +2605,13 @@ where
     }
 
     /// Initialize inv state
-    pub fn init_inv_sync(
+    pub fn init_inv_sync<SortDB>(
         &mut self, 
         sortdb: &SortDB
-    ) -> () {
+    ) -> () 
+    where
+        SortDB: SortitionDb
+    {
         // find out who we'll be synchronizing with for the duration of this inv sync
         debug!(
             "{:?}: Initializing peer block inventory state",
@@ -2597,7 +2631,7 @@ where
         func: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork<SortDB>, &mut NeighborBlockStats) -> R,
+        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> R,
     {
         match PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
@@ -2613,13 +2647,14 @@ where
     }
 
     /// Get the local block inventory for a reward cycle
-    pub fn get_local_blocks_inv<ChainDB>(
+    pub fn get_local_blocks_inv<SortDB, ChainDB>(
         &mut self,
         sortdb: &SortDB,
         chainstate: &StacksChainState<ChainDB>,
         reward_cycle: u64,
     ) -> Result<BlocksInvData, net_error> 
     where
+        SortDB: SortitionDb,
         ChainDB: ChainStateDb
     {
         let target_block_height = self.burnchain.reward_cycle_to_block_height(reward_cycle);
@@ -2687,6 +2722,7 @@ mod test {
     use crate::burnchains::db::BurnchainHeaderReader;
     use crate::burnchains::tests::BURNCHAIN_TEST_BLOCK_TIME;
     use crate::burnchains::{BurnchainBlockHeader, PoxConstants};
+    use crate::chainstate::burn::db::v2::test_helpers::InMemorySortitionDb;
     use crate::chainstate::coordinator::tests::get_burnchain;
     use crate::chainstate::stacks::*;
     use crate::net::test::*;
@@ -3464,11 +3500,12 @@ mod test {
 
         assert_eq!(reward_cycle_length, 5);
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
+        let mut peer_1 = 
+            TestPeer::new(peer_1_config);
 
         let first_stacks_block_height = {
             let sn =
-                SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
+                peer_1.get_canonical_burn_chain_tip()
                     .unwrap();
             sn.block_height
         };

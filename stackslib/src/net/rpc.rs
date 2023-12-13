@@ -54,10 +54,12 @@ use stacks_common::{types, util};
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Burnchain, BurnchainView, *};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::blocks::{CheckError, MINIMUM_TX_FEE_RATE_PER_BYTE};
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::{Error as chain_error, StacksBlockHeader, *};
@@ -84,12 +86,9 @@ use crate::{monitoring, version_string};
 
 pub const STREAM_CHUNK_SIZE: u64 = 4096;
 
-pub struct ConversationHttp<DB> 
-where
-    DB: TrieDb
-{
+pub struct ConversationHttp {
     /// send/receive buffering state-machine for interfacing with a non-blocking socket
-    connection: ConnectionHttp<DB>,
+    connection: ConnectionHttp,
     /// poll ID for this struct's associated socket
     conn_id: usize,
     /// time (in seconds) for how long an attempt to connect to a peer is allowed to take
@@ -115,9 +114,9 @@ where
     /// stacks canonical chain tip that this peer reported
     canonical_stacks_tip_height: Option<u32>,
     /// Ongoing replies
-    reply_streams: VecDeque<(ReplyHandleHttp<DB>, HttpResponseContents, bool)>,
+    reply_streams: VecDeque<(ReplyHandleHttp, HttpResponseContents, bool)>,
     /// outstanding request
-    pending_request: Option<ReplyHandleHttp<DB>>,
+    pending_request: Option<ReplyHandleHttp>,
     /// outstanding response
     pending_response: Option<StacksHttpResponse>,
     /// whether or not there's an error response pending
@@ -126,10 +125,7 @@ where
     socket_send_buffer_size: u32,
 }
 
-impl<Conn> fmt::Display for ConversationHttp<Conn> 
-where
-    Conn: DbConnection + TrieDb
-{
+impl fmt::Display for ConversationHttp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -141,10 +137,7 @@ where
     }
 }
 
-impl<Conn> fmt::Debug for ConversationHttp<Conn> 
-where
-    Conn: DbConnection + TrieDb
-{
+impl fmt::Debug for ConversationHttp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -156,10 +149,7 @@ where
     }
 }
 
-impl<DB> ConversationHttp<DB> 
-where
-    DB: TrieDb
-{
+impl ConversationHttp {
     pub fn new(
         peer_addr: SocketAddr,
         outbound_url: Option<UrlString>,
@@ -167,8 +157,8 @@ where
         conn_opts: &ConnectionOptions,
         conn_id: usize,
         socket_send_buffer_size: u32,
-    ) -> ConversationHttp<DB> {
-        let stacks_http = StacksHttp::<DB>::new(peer_addr.clone(), conn_opts);
+    ) -> ConversationHttp {
+        let stacks_http = StacksHttp::new(peer_addr.clone(), conn_opts);
         ConversationHttp {
             connection: ConnectionHttp::new(stacks_http, conn_opts, None),
             conn_id: conn_id,
@@ -213,7 +203,7 @@ where
 
     /// Start a HTTP request from this peer, and expect a response.
     /// Returns the request handle; does not set the handle into this connection.
-    fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp<DB>, net_error> {
+    fn start_request(&mut self, req: StacksHttpRequest) -> Result<ReplyHandleHttp, net_error> {
         test_debug!(
             "{:?},id={}: Start HTTP request {:?}",
             &self.peer_host,
@@ -290,11 +280,15 @@ where
     /// Handle an external HTTP request.
     /// Returns a StacksMessageType option -- it's Some(...) if we need to forward a message to the
     /// peer network (like a transaction or a block or microblock)
-    pub fn handle_request(
+    pub fn handle_request<SortDB, ChainDB>(
         &mut self,
         req: StacksHttpRequest,
-        node: &mut StacksNodeState<DB>,
-    ) -> Result<Option<StacksMessageType>, net_error> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<Option<StacksMessageType>, net_error> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         // NOTE: This may set node.relay_message
         let keep_alive = req.preamble().keep_alive;
         let (mut response_preamble, response_body) =
@@ -424,8 +418,8 @@ where
     /// If we are not done yet, then return Ok(reply-handle) if we can try again, or net_error if
     /// we cannot.
     fn try_send_recv_response(
-        req: ReplyHandleHttp<DB>,
-    ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp<DB>, net_error>> {
+        req: ReplyHandleHttp,
+    ) -> Result<StacksHttpResponse, Result<ReplyHandleHttp, net_error>> {
         match req.try_send_recv() {
             Ok(message) => match message {
                 StacksHttpMessage::Request(_) => {
@@ -532,10 +526,14 @@ where
 
     /// Make progress on in-flight requests and replies.
     /// Returns the list of messages we'll need to forward to the peer network
-    pub fn chat(
+    pub fn chat<SortDB, ChainDB>(
         &mut self,
-        node: &mut StacksNodeState<DB>,
-    ) -> Result<Vec<StacksMessageType>, net_error> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<Vec<StacksMessageType>, net_error> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         // if we have an in-flight error, then don't take any more requests.
         if self.pending_error_response {
             return Ok(vec![]);

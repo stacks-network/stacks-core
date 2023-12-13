@@ -29,7 +29,9 @@ use url::form_urlencoded;
 use {serde, serde_json};
 
 use crate::burnchains::Txid;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -250,10 +252,7 @@ impl HttpRequest for RPCMempoolQueryRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCMempoolQueryRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.mempool_query = None;
@@ -261,12 +260,16 @@ where
     }
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let mempool_query = self
             .mempool_query
             .take()

@@ -27,7 +27,9 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::retry::BoundReader;
 use {serde, serde_json};
 
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -73,13 +75,13 @@ pub struct StacksUnconfirmedMicroblockStream {
 }
 
 impl StacksUnconfirmedMicroblockStream {
-    pub fn new<Conn>(
-        chainstate: &StacksChainState<Conn>,
+    pub fn new<ChainDB>(
+        chainstate: &StacksChainState<ChainDB>,
         parent_block_id: &StacksBlockId,
         seq: u16,
     ) -> Result<Self, ChainError> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let mblock_info = StacksChainState::load_next_descendant_microblock(
             &chainstate.db(),
@@ -142,10 +144,7 @@ impl HttpRequest for RPCMicroblocksUnconfirmedRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCMicroblocksUnconfirmedRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCMicroblocksUnconfirmedRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.parent_block_id = None;
@@ -153,12 +152,16 @@ where
     }
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let block_id = self
             .parent_block_id
             .take()

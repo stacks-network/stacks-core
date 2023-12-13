@@ -35,6 +35,7 @@ use wsts::curve::point::Point;
 use wsts::traits::Aggregator;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::db::v2::BurnChainDb;
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
@@ -498,7 +499,7 @@ where
     /// Construct a full Nakamoto tenure with the given block builder.
     /// The first block will contain a coinbase and a tenure-change.
     /// Process the blocks via the chains coordinator as we produce them.
-    pub fn make_nakamoto_tenure_blocks<'a, SortDB, F>(
+    pub fn make_nakamoto_tenure_blocks<'a, SortDB, BurnDB, F>(
         chainstate: &mut StacksChainState<ChainDB>,
         sortdb: &SortDB,
         miner: &mut TestMiner,
@@ -509,7 +510,7 @@ where
             'a,
             SortDB,
             ChainDB,
-            (),
+            BurnDB,
             TestEventObserver,
             (),
             OnChainRewardSetProvider,
@@ -520,6 +521,8 @@ where
         mut block_builder: F,
     ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
     where
+        SortDB: SortitionDb,
+        BurnDB: BurnChainDb,
         F: FnMut(
             &mut TestMiner,
             &mut StacksChainState<ChainDB>,
@@ -624,17 +627,19 @@ where
     }
 }
 
-impl<'a, Conn> TestPeer<'a, Conn> 
+impl<'a, SortDB, ChainDB, BurnDB> TestPeer<'a, SortDB, ChainDB, BurnDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
     /// Stacks 2.x block.
     /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
     fn get_nakamoto_parent(
         miner: &TestMiner,
-        stacks_node: &TestStacksNode<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        stacks_node: &TestStacksNode<ChainDB>,
+        sortdb: &SortDB,
     ) -> (
         StacksBlockId,
         Option<StacksBlock>,
@@ -872,8 +877,8 @@ where
     where
         F: FnMut(
             &mut TestMiner,
-            &mut StacksChainState<Conn>,
-            &SortitionDB<Conn>,
+            &mut StacksChainState<ChainDB>,
+            &SortDB,
             usize,
         ) -> Vec<StacksTransaction>,
     {

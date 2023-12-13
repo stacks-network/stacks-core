@@ -21,6 +21,7 @@ use clarity::vm::contexts::{
 };
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::v2::ClarityDbKvStore;
 use clarity::vm::database::{NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use clarity::vm::functions::NativeFunctions;
@@ -46,13 +47,13 @@ use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::tests::costs::get_simple_test;
 use crate::clarity_vm::tests::simple_tests::with_marfed_environment;
 
-fn setup_tracked_cost_test<Conn>(
+fn setup_tracked_cost_test<KvDB>(
     use_mainnet: bool,
     epoch: StacksEpochId,
     version: ClarityVersion,
-) -> ClarityInstance<Conn> 
+) -> ClarityInstance<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
     let marf = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
@@ -184,15 +185,15 @@ where
     clarity_instance
 }
 
-fn test_tracked_costs<Conn>(
+fn test_tracked_costs<KvDB>(
     prog: &str,
     epoch: StacksEpochId,
     version: ClarityVersion,
     prog_id: usize,
-    clarity_instance: &mut ClarityInstance<Conn>,
+    clarity_instance: &mut ClarityInstance<KvDB>,
 ) -> ExecutionCost 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore,
 {
     let contract_self = format!(
         "(define-map map-foo {{ a: int }} {{ b: int }})

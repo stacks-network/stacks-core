@@ -34,10 +34,7 @@ use crate::net::Error as net_error;
 use crate::net::*;
 use crate::util_lib::db::{DBConn, Error as db_error};
 
-impl<Conn> PeerNetwork<Conn> 
-where
-    Conn: DbConnection + TrieDb
-{
+impl PeerNetwork {
     /// Find out which organizations have which of our outbound neighbors.
     /// Gives back a map from the organization ID to the list of (neighbor, neighbor-stats) tuples.
     /// Connections in `preserve` are not considered in the distribution.
@@ -178,7 +175,7 @@ where
         &mut self,
         preserve: &HashSet<usize>,
     ) -> Result<Vec<NeighborKey>, net_error> {
-        let num_outbound = PeerNetwork::<Conn>::count_outbound_conversations(&self.peers);
+        let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         if num_outbound <= self.connection_opts.soft_num_neighbors {
             return Ok(vec![]);
         }
@@ -203,7 +200,7 @@ where
                 None => {}
                 Some(ref mut neighbor_infos) => {
                     neighbor_infos.sort_by(|&(ref _nk1, ref stats1), &(ref _nk2, ref stats2)| {
-                        PeerNetwork::<Conn>::compare_neighbor_uptime_health(stats1, stats2)
+                        PeerNetwork::compare_neighbor_uptime_health(stats1, stats2)
                     });
                 }
             }
@@ -279,7 +276,7 @@ where
                 break;
             }
 
-            let prune_org = PeerNetwork::<Conn>::sample_org_by_neighbor_count(&weighted_sample);
+            let prune_org = PeerNetwork::sample_org_by_neighbor_count(&weighted_sample);
 
             match org_neighbors.get_mut(&prune_org) {
                 None => {
@@ -313,7 +310,7 @@ where
     /// Removes them in reverse order they are added
     fn prune_frontier_inbound_ip(&mut self, preserve: &HashSet<usize>) -> Vec<NeighborKey> {
         let num_inbound =
-            (self.num_peers() as u64) - PeerNetwork::<Conn>::count_outbound_conversations(&self.peers);
+            (self.num_peers() as u64) - PeerNetwork::count_outbound_conversations(&self.peers);
         if num_inbound <= self.connection_opts.soft_num_clients {
             return vec![];
         }
@@ -403,7 +400,7 @@ where
 
     /// Prune our frontier.  Ignore connections in the preserve set.
     pub fn prune_frontier(&mut self, preserve: &HashSet<usize>) -> () {
-        let num_outbound = PeerNetwork::<Conn>::count_outbound_conversations(&self.peers);
+        let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         let num_inbound = (self.peers.len() as u64).saturating_sub(num_outbound);
         debug!(
             "{:?}: Pruning frontier with {} inbound and {} outbound connection(s)",

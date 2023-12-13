@@ -22,6 +22,8 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Hash160;
 use url::form_urlencoded;
 
+use crate::chainstate::burn::db::v2::SortitionDb;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::atlas::{
@@ -92,21 +94,22 @@ impl HttpRequest for RPCGetAttachmentRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCGetAttachmentRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCGetAttachmentRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.attachment_hash = None;
     }
 
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let attachment_hash = self
             .attachment_hash
             .take()

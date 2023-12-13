@@ -27,9 +27,11 @@ use stacks_common::util::hash::Sha256Sum;
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME, POX_4_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
@@ -110,14 +112,15 @@ pub struct RPCPoxInfoData {
 }
 
 impl RPCPoxInfoData {
-    pub fn from_db<Conn>(
-        sortdb: &SortitionDB<Conn>,
-        chainstate: &mut StacksChainState<Conn>,
+    pub fn from_db<SortDB, ChainDB>(
+        sortdb: &SortDB,
+        chainstate: &mut StacksChainState<ChainDB>,
         tip: &StacksBlockId,
         burnchain: &Burnchain,
     ) -> Result<RPCPoxInfoData, NetError> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let mainnet = chainstate.mainnet;
         let chain_id = chainstate.chain_id;
@@ -423,20 +426,21 @@ impl HttpRequest for RPCPoxInfoRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCPoxInfoRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCPoxInfoRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {}
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let tip = match node.load_stacks_chain_tip(&preamble, &contents) {
             Ok(tip) => tip,
             Err(error_resp) => {

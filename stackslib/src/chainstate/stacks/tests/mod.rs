@@ -30,6 +30,7 @@ use stacks_common::types::chainstate::SortitionId;
 use stacks_common::util::sleep_ms;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
 
+use crate::burnchains::db::v2::BurnChainDb;
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
 use crate::chainstate::burn::db::sortdb::*;
@@ -195,24 +196,24 @@ impl TestMinerTracePoint {
     }
 }
 
-pub struct TestMinerTrace<Conn>
+pub struct TestMinerTrace<SortDB>
 where
-    Conn: DbConnection + TrieDb 
+    SortDB: SortitionDb
 {
     pub points: Vec<TestMinerTracePoint>,
-    pub burn_node: TestBurnchainNode<Conn>,
+    pub burn_node: TestBurnchainNode<SortDB>,
     pub miners: Vec<TestMiner>,
 }
 
-impl<Conn> TestMinerTrace<Conn> 
+impl<SortDB> TestMinerTrace<SortDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb
 {
     pub fn new(
-        burn_node: TestBurnchainNode<Conn>,
+        burn_node: TestBurnchainNode<SortDB>,
         miners: Vec<TestMiner>,
         points: Vec<TestMinerTracePoint>,
-    ) -> TestMinerTrace<Conn> {
+    ) -> TestMinerTrace<SortDB> {
         TestMinerTrace {
             points: points,
             burn_node: burn_node,
@@ -287,16 +288,16 @@ where
     forkable: bool,
 }
 
-impl<DB> TestStacksNode<DB> 
+impl<ChainDB> TestStacksNode<ChainDB> 
 where
-    DB: TrieDb + SortitionDb
+    ChainDB: ChainStateDb
 {
     pub fn new(
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
         mut initial_balance_recipients: Vec<StacksAddress>,
-    ) -> TestStacksNode<DB> {
+    ) -> TestStacksNode<ChainDB> {
         initial_balance_recipients.sort();
         let initial_balances = initial_balance_recipients
             .into_iter()
@@ -318,7 +319,7 @@ where
         }
     }
 
-    pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode<DB> {
+    pub fn open(mainnet: bool, chain_id: u32, test_name: &str) -> TestStacksNode<ChainDB> {
         let chainstate = open_chainstate(mainnet, chain_id, test_name);
         TestStacksNode {
             chainstate: chainstate,
@@ -334,7 +335,9 @@ where
         }
     }
 
-    pub fn from_chainstate(chainstate: StacksChainState<DB>) -> TestStacksNode<DB> {
+    pub fn from_chainstate(
+        chainstate: StacksChainState<ChainDB>
+    ) -> TestStacksNode<ChainDB> {
         TestStacksNode {
             chainstate: chainstate,
             prev_keys: vec![],
@@ -350,7 +353,7 @@ where
     }
 
     // NOTE: can't do this if instantiated via from_chainstate()
-    pub fn fork(&self, new_test_name: &str) -> TestStacksNode<DB> {
+    pub fn fork(&self, new_test_name: &str) -> TestStacksNode<ChainDB> {
         if !self.forkable {
             panic!("Tried to fork an unforkable chainstate instance");
         }
@@ -386,10 +389,13 @@ where
         }
     }
 
-    pub fn next_burn_block(
-        sortdb: &mut SortitionDB<DB>,
+    pub fn next_burn_block<SortDB>(
+        sortdb: &mut SortDB,
         fork: &mut TestBurnchainFork,
-    ) -> TestBurnchainBlock {
+    ) -> TestBurnchainBlock 
+    where
+        SortDB: SortitionDb
+    {
         let burn_block = {
             let ic = sortdb.index_conn();
             fork.next_block(&ic)
@@ -415,15 +421,18 @@ where
             .insert(op.public_key.clone(), self.prev_keys.len() - 1);
     }
 
-    pub fn add_block_commit(
-        sortdb: &SortitionDB<DB>,
+    pub fn add_block_commit<SortDB>(
+        sortdb: &SortitionDB<SortDB>,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         block_hash: &BlockHeaderHash,
         burn_amount: u64,
         key_op: &LeaderKeyRegisterOp,
         parent_block_snapshot: Option<&BlockSnapshot>,
-    ) -> LeaderBlockCommitOp {
+    ) -> LeaderBlockCommitOp 
+    where
+        SortDB: SortitionDb
+    {
         let block_commit_op = {
             let ic = sortdb.index_conn();
             let parent_snapshot = burn_block.parent_snapshot.clone();
@@ -458,11 +467,14 @@ where
         }
     }
 
-    pub fn get_last_accepted_anchored_block(
+    pub fn get_last_accepted_anchored_block<SortDB>(
         &self,
-        sortdb: &SortitionDB<DB>,
+        sortdb: &SortDB,
         miner: &TestMiner,
-    ) -> Option<StacksBlock> {
+    ) -> Option<StacksBlock> 
+    where
+        SortDB: SortitionDb
+    {
         for bc in miner.block_commits.iter().rev() {
             let consensus_hash = match SortitionDB::get_block_snapshot(
                 sortdb.conn(),
@@ -521,11 +533,14 @@ where
         }
     }
 
-    pub fn get_last_winning_snapshot(
-        ic: &SortitionDBConn<DB>,
+    pub fn get_last_winning_snapshot<SortDB>(
+        ic: &SortDB,
         fork_tip: &BlockSnapshot,
         miner: &TestMiner,
-    ) -> Option<BlockSnapshot> {
+    ) -> Option<BlockSnapshot> 
+    where
+        SortDB: SortitionDb
+    {
         for commit_op in miner.block_commits.iter().rev() {
             match SortitionDB::get_block_snapshot_for_winning_stacks_block(
                 ic,
@@ -550,9 +565,9 @@ where
         })
     }
 
-    pub fn make_tenure_commitment(
+    pub fn make_tenure_commitment<SortDB>(
         &mut self,
-        sortdb: &SortitionDB<DB>,
+        sortdb: &SortDB,
         burn_block: &mut TestBurnchainBlock,
         miner: &mut TestMiner,
         stacks_block: &StacksBlock,
@@ -560,7 +575,10 @@ where
         burn_amount: u64,
         miner_key: &LeaderKeyRegisterOp,
         parent_block_snapshot_opt: Option<&BlockSnapshot>,
-    ) -> LeaderBlockCommitOp {
+    ) -> LeaderBlockCommitOp 
+    where
+        SortDB: SortitionDb
+    {
         self.anchored_blocks.push(stacks_block.clone());
         self.microblocks.push(microblocks.clone());
 
@@ -599,9 +617,9 @@ where
 
     /// Mine a single Stacks block and a microblock stream.
     /// Produce its block-commit.
-    pub fn mine_stacks_block<F>(
+    pub fn mine_stacks_block<SortDB, F>(
         &mut self,
-        sortdb: &SortitionDB<DB>,
+        sortdb: &SortDB,
         miner: &mut TestMiner,
         burn_block: &mut TestBurnchainBlock,
         miner_key: &LeaderKeyRegisterOp,
@@ -613,7 +631,7 @@ where
         F: FnOnce(
             StacksBlockBuilder,
             &mut TestMiner,
-            &SortitionDB<DB>,
+            &SortDB,
         ) -> (StacksBlock, Vec<StacksMicroblock>),
     {
         let proof = miner
@@ -718,17 +736,18 @@ where
 
 /// Return Some(bool) to indicate whether or not the anchored block was accepted into the queue.
 /// Return None if the block was not submitted at all.
-pub fn preprocess_stacks_block_data<Conn>
+pub fn preprocess_stacks_block_data<SortDB, ChainDB>
 (
-    node: &mut TestStacksNode<Conn>,
-    burn_node: &mut TestBurnchainNode<Conn>,
+    node: &mut TestStacksNode<ChainDB>,
+    burn_node: &mut TestBurnchainNode<SortDB>,
     fork_snapshot: &BlockSnapshot,
     stacks_block: &StacksBlock,
     stacks_microblocks: &Vec<StacksMicroblock>,
     block_commit_op: &LeaderBlockCommitOp,
 ) -> Option<bool> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb
 {
     let block_hash = stacks_block.block_hash();
 
@@ -819,13 +838,13 @@ where
 }
 
 /// Verify that the stacks block's state root matches the state root in the chain state
-pub fn check_block_state_index_root<Conn>(
-    chainstate: &mut StacksChainState<Conn>,
+pub fn check_block_state_index_root<ChainDB>(
+    chainstate: &mut StacksChainState<ChainDB>,
     consensus_hash: &ConsensusHash,
     stacks_header: &StacksBlockHeader,
 ) -> bool 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     let index_block_hash =
         StacksBlockHeader::make_index_block_hash(consensus_hash, &stacks_header.block_hash());
@@ -981,13 +1000,13 @@ pub fn check_mining_reward(
     }
 }
 
-pub fn get_last_microblock_header<Conn>(
-    node: &TestStacksNode<Conn>,
+pub fn get_last_microblock_header<ChainDB>(
+    node: &TestStacksNode<ChainDB>,
     miner: &TestMiner,
     parent_block_opt: Option<&StacksBlock>,
 ) -> Option<StacksMicroblockHeader> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     let last_microblocks_opt = match parent_block_opt {
         Some(ref block) => node.get_microblock_stream(&miner, &block.block_hash()),
@@ -1009,13 +1028,13 @@ where
     last_microblock_header_opt
 }
 
-pub fn get_all_mining_rewards<Conn>(
-    chainstate: &mut StacksChainState<Conn>,
+pub fn get_all_mining_rewards<ChainDB>(
+    chainstate: &mut StacksChainState<ChainDB>,
     tip: &StacksHeaderInfo,
     block_height: u64,
 ) -> Vec<Vec<MinerPaymentSchedule>> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     let mut ret = vec![];
     let mut tx = chainstate.index_tx_begin().unwrap();
@@ -1321,12 +1340,14 @@ pub fn sign_standard_singlesig_tx(
     tx_signer.get_tx().unwrap()
 }
 
-pub fn get_stacks_account<DB>(
-    peer: &mut TestPeer<DB>, 
+pub fn get_stacks_account<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, 
     addr: &PrincipalData
 ) -> StacksAccount 
 where
-    DB: TrieDb + SortitionDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let account = peer
         .with_db_state(|ref mut sortdb, ref mut chainstate, _, _| {
@@ -1345,15 +1366,15 @@ where
     account
 }
 
-pub fn instantiate_and_exec<Conn>(
+pub fn instantiate_and_exec<ChainDB>(
     mainnet: bool,
     chain_id: u32,
     test_name: &str,
     balances: Vec<(StacksAddress, u64)>,
     post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx) -> ()>>,
-) -> StacksChainState<Conn> 
+) -> StacksChainState<ChainDB> 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     let path = chainstate_path(test_name);
     match fs::metadata(&path) {

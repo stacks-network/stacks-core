@@ -30,7 +30,9 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum}
 use super::test::*;
 use super::RawRewardSetEntry;
 use crate::burnchains::Burnchain;
+use crate::burnchains::db::v2::BurnChainDb;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
@@ -38,6 +40,7 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
     POX_3_NAME,
 };
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
@@ -60,23 +63,25 @@ const USTX_PER_HOLDER: u128 = 1_000_000;
 
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
-fn get_tip<Conn>(
-    sortdb: Option<&SortitionDB<Conn>>
+fn get_tip<SortDB>(
+    sortdb: Option<&SortDB>
 ) -> BlockSnapshot 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
 {
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
 }
 
 /// Get the reward set entries if evaluated at the given StacksBlock
-pub fn get_reward_set_entries_at<Conn>(
-    peer: &mut TestPeer<Conn>,
+pub fn get_reward_set_entries_at<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     tip: &StacksBlockId,
     at_burn_ht: u64,
 ) -> Vec<RawRewardSetEntry> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let burnchain = peer.config.burnchain.clone();
     with_sortdb(peer, |ref mut c, ref sortdb| {
@@ -86,13 +91,15 @@ where
 
 /// Get the reward set entries if evaluated at the given StacksBlock
 ///  in order of index in the reward-cycle-address-list map
-pub fn get_reward_set_entries_index_order_at<Conn>(
-    peer: &mut TestPeer<Conn>,
+pub fn get_reward_set_entries_index_order_at<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     tip: &StacksBlockId,
     at_burn_ht: u64,
 ) -> Vec<RawRewardSetEntry> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let burnchain = peer.config.burnchain.clone();
     with_sortdb(peer, |ref mut c, ref sortdb| {
@@ -102,13 +109,15 @@ where
 }
 
 /// Get the canonicalized STXBalance for `account` at the given chaintip
-pub fn get_stx_account_at<Conn>(
-    peer: &mut TestPeer<Conn>,
+pub fn get_stx_account_at<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     tip: &StacksBlockId,
     account: &PrincipalData,
 ) -> STXBalance 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     with_clarity_db_ro(peer, tip, |db| {
         db.get_stx_balance_snapshot(account)
@@ -117,14 +126,16 @@ where
 }
 
 /// get the stacking-state entry for an account at the chaintip
-pub fn get_stacking_state_pox<Conn>(
-    peer: &mut TestPeer<Conn>,
+pub fn get_stacking_state_pox<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     tip: &StacksBlockId,
     account: &PrincipalData,
     pox_contract: &str,
 ) -> Option<Value> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     with_clarity_db_ro(peer, tip, |db| {
         let lookup_tuple = Value::Tuple(
@@ -143,26 +154,30 @@ where
 }
 
 /// Get the pox-2 stacking-state entry for `account` at the given chaintip
-pub fn get_stacking_state_pox_2<Conn>(
-    peer: &mut TestPeer<Conn>,
+pub fn get_stacking_state_pox_2<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     tip: &StacksBlockId,
     account: &PrincipalData,
 ) -> Option<Value> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     get_stacking_state_pox(peer, tip, account, boot::POX_2_NAME)
 }
 
 /// Perform `check_stacker_link_invariants` on cycles [first_cycle_number, max_cycle_number]
-pub fn check_all_stacker_link_invariants<Conn>(
-    peer: &mut TestPeer<Conn>,
+pub fn check_all_stacker_link_invariants<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     tip: &StacksBlockId,
     first_cycle_number: u64,
     max_cycle_number: u64,
 ) 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     // if PoX-2 hasn't published yet, just return.
     let epoch = with_clarity_db_ro(peer, tip, |db| db.get_clarity_epoch_version());
@@ -314,15 +329,17 @@ pub struct StackingStateCheckData {
 
 /// Check the stacking-state invariants of `stacker`
 /// Mostly that all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
-pub fn check_stacking_state_invariants<Conn>(
-    peer: &mut TestPeer<Conn>,
+pub fn check_stacking_state_invariants<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     tip: &StacksBlockId,
     stacker: &PrincipalData,
     expect_indexes: bool,
     active_pox_contract: &str,
 ) -> StackingStateCheckData 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let account_state = with_clarity_db_ro(peer, tip, |db| {
         db.get_stx_balance_snapshot(stacker)
@@ -449,13 +466,15 @@ where
 ///  (3) all `stacking-state.reward-set-indexes` match the index of their reward cycle entries
 ///  (4) `reward-cycle-total-stacked` is equal to the sum of all entries
 ///  (5) `stacking-state.pox-addr` matches `reward-cycle-pox-address-list.pox-addr`
-pub fn check_stacker_link_invariants<Conn>(
-    peer: &mut TestPeer<Conn>, 
+pub fn check_stacker_link_invariants<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, 
     tip: &StacksBlockId, 
     cycle_number: u64
 )
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let current_burn_height = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
         peer.chainstate().db(),
@@ -585,13 +604,15 @@ where
 }
 
 /// Get the `cycle_number`'s total stacked amount at the given chaintip
-pub fn get_reward_cycle_total<Conn>(
-    peer: &mut TestPeer<Conn>, 
+pub fn get_reward_cycle_total<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, 
     tip: &StacksBlockId, 
     cycle_number: u64
 ) -> u128 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let active_pox_contract = peer.config.burnchain.pox_constants.active_pox_contract(
         peer.config
@@ -630,8 +651,8 @@ where
 }
 
 /// Get the `partial-stacked-by-cycle` entry at a given chain tip
-pub fn get_partial_stacked<Conn>(
-    peer: &mut TestPeer<Conn>,
+pub fn get_partial_stacked<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     tip: &StacksBlockId,
     pox_addr: &Value,
     cycle_number: u64,
@@ -639,7 +660,9 @@ pub fn get_partial_stacked<Conn>(
     pox_contract: &str,
 ) -> u128 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     with_clarity_db_ro(peer, tip, |db| {
         let key = TupleData::from_data(vec![
@@ -669,13 +692,15 @@ where
 }
 
 /// Allows you to do something read-only with the ClarityDB at the given chaintip
-pub fn with_clarity_db_ro<Conn, DB, F, R>(
-    peer: &mut TestPeer<Conn>, 
+pub fn with_clarity_db_ro<SortDB, ChainDB, BurnDB, DB, F, R>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, 
     tip: &StacksBlockId, 
     todo: F
 ) -> R
 where
-    Conn: DbConnection + TrieDb,
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb,
     DB: ClarityDB,
     F: FnOnce(&mut DB) -> R,
 {

@@ -1169,14 +1169,14 @@ mod test {
         }
     }
 
-    fn advance_tip<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn advance_tip<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         parent_header_info: &StacksHeaderInfo,
         block_reward: &mut MinerPaymentSchedule,
         user_burns: &mut Vec<StagingUserBurnSupport>,
     ) -> StacksHeaderInfo 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let mut new_tip = parent_header_info.clone();
 

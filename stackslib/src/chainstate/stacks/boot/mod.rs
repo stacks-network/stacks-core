@@ -1239,6 +1239,7 @@ pub mod test {
     use stacks_common::util::*;
 
     use super::*;
+    use crate::burnchains::db::v2::BurnChainDb;
     use crate::burnchains::{Address, PublicKey};
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::db::*;
@@ -1454,24 +1455,28 @@ pub mod test {
         .unwrap()
     }
 
-    pub fn instantiate_pox_peer<'a, Conn>(
+    pub fn instantiate_pox_peer<'a, SortDB, ChainDB, BurnDB>(
         burnchain: &Burnchain,
         test_name: &str,
-    ) -> (TestPeer<'a, Conn>, Vec<StacksPrivateKey>) 
+    ) -> (TestPeer<'a, SortDB, ChainDB, BurnDB>, Vec<StacksPrivateKey>) 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         instantiate_pox_peer_with_epoch(burnchain, test_name, None, None)
     }
 
-    pub fn instantiate_pox_peer_with_epoch<'a, Conn>(
+    pub fn instantiate_pox_peer_with_epoch<'a, SortDB, ChainDB, BurnDB>(
         burnchain: &Burnchain,
         test_name: &str,
         epochs: Option<Vec<StacksEpoch>>,
         observer: Option<&'a TestEventObserver>,
-    ) -> (TestPeer<'a, Conn>, Vec<StacksPrivateKey>)
+    ) -> (TestPeer<'a, SortDB, ChainDB, BurnDB>, Vec<StacksPrivateKey>)
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
         peer_config.burnchain = burnchain.clone();
@@ -1519,13 +1524,15 @@ pub mod test {
         (peer, keys.to_vec())
     }
 
-    pub fn eval_at_tip<Conn>(
-        peer: &mut TestPeer<Conn>, 
+    pub fn eval_at_tip<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, 
         boot_contract: &str, 
         expr: &str
     ) -> Value 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
@@ -1549,14 +1556,16 @@ pub mod test {
         )
     }
 
-    fn eval_contract_at_tip<Conn>(
-        peer: &mut TestPeer<Conn>,
+    fn eval_contract_at_tip<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
         addr: &StacksAddress,
         name: &str,
         expr: &str,
     ) -> Value 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let sortdb = peer.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
@@ -1573,11 +1582,13 @@ pub mod test {
         value
     }
 
-    pub fn get_liquid_ustx<Conn>(
-        peer: &mut TestPeer<Conn>,
+    pub fn get_liquid_ustx<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     ) -> u128 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let value = eval_at_tip(peer, "pox", "stx-liquid-supply");
         if let Value::UInt(inner_uint) = value {
@@ -1587,12 +1598,14 @@ pub mod test {
         }
     }
 
-    pub fn get_balance<Conn>(
-        peer: &mut TestPeer<Conn>, 
+    pub fn get_balance<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, 
         addr: &PrincipalData
     ) -> u128 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let value = eval_at_tip(
             peer,
@@ -1606,12 +1619,14 @@ pub mod test {
         }
     }
 
-    pub fn get_stacker_info<Conn>(
-        peer: &mut TestPeer<Conn>,
+    pub fn get_stacker_info<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
         addr: &PrincipalData,
     ) -> Option<(u128, PoxAddress, u128, u128)> 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let value_opt = eval_at_tip(
             peer,
@@ -1637,10 +1652,14 @@ pub mod test {
         Some((amount_ustx, pox_addr, lock_period, first_reward_cycle))
     }
 
-    pub fn with_sortdb<Conn, F, R>(peer: &mut TestPeer<Conn>, todo: F) -> R
+    pub fn with_sortdb<SortDB, ChainDB, BurnDB, F, R>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, todo: F
+    ) -> R
     where
-        F: FnOnce(&mut StacksChainState<Conn>, &SortitionDB<Conn>) -> R,
-        Conn: DbConnection + TrieDb,
+        F: FnOnce(&mut StacksChainState<ChainDB>, &SortDB) -> R,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let sortdb = peer.sortdb.take().unwrap();
         let r = todo(peer.chainstate(), &sortdb);
@@ -1648,12 +1667,14 @@ pub mod test {
         r
     }
 
-    pub fn get_account<Conn>(
-        peer: &mut TestPeer<Conn>, 
+    pub fn get_account<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, 
         addr: &PrincipalData
     ) -> StacksAccount 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let account = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
@@ -1668,12 +1689,14 @@ pub mod test {
         account
     }
 
-    fn get_contract<Conn>(
-        peer: &mut TestPeer<Conn>, 
+    fn get_contract<SortDB, ChainDB, BurnDB>(
+        peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, 
         addr: &QualifiedContractIdentifier
     ) -> Option<Contract> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb,
+        BurnDB: BurnChainDb
     {
         let contract_opt = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
             let (consensus_hash, block_bhh) =
@@ -2125,14 +2148,15 @@ pub mod test {
         make_pox_contract_call(key, nonce, "reject-pox", vec![])
     }
 
-    pub fn get_reward_addresses_with_par_tip<Conn>(
-        state: &mut StacksChainState<Conn>,
+    pub fn get_reward_addresses_with_par_tip<SortDB, ChainDB>(
+        state: &mut StacksChainState<ChainDB>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         block_id: &StacksBlockId,
     ) -> Result<Vec<(PoxAddress, u128)>, Error> 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let burn_block_height = get_par_burn_block_height(state, block_id);
         get_reward_set_entries_at_block(state, burnchain, sortdb, block_id, burn_block_height).map(
@@ -2145,15 +2169,16 @@ pub mod test {
         )
     }
 
-    pub fn get_reward_set_entries_at_block<Conn>(
-        state: &mut StacksChainState<Conn>,
+    pub fn get_reward_set_entries_at_block<SortDB, ChainDB>(
+        state: &mut StacksChainState<ChainDB>,
         burnchain: &Burnchain,
-        sortdb: &SortitionDB<Conn>,
+        sortdb: &SortDB,
         block_id: &StacksBlockId,
         burn_block_height: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> 
     where
-        Conn: DbConnection + TrieDb,
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         state
             .get_reward_addresses(burnchain, sortdb, burn_block_height, block_id)
@@ -2163,13 +2188,14 @@ pub mod test {
             })
     }
 
-    pub fn get_parent_tip<Conn>(
+    pub fn get_parent_tip<SortDB, ChainDB>(
         parent_opt: &Option<&StacksBlock>,
-        chainstate: &StacksChainState<Conn>,
-        sortdb: &SortitionDB<Conn>,
+        chainstate: &StacksChainState<ChainDB>,
+        sortdb: &SortDB,
     ) -> StacksHeaderInfo 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let parent_tip = match parent_opt {
@@ -2587,14 +2613,14 @@ pub mod test {
         }
     }
 
-    pub fn get_par_burn_block_height<Conn>(
-        state: &mut StacksChainState<Conn>,
+    pub fn get_par_burn_block_height<ChainDB>(
+        state: &mut StacksChainState<ChainDB>,
         block_id: &StacksBlockId,
     ) -> u64 
     where
-        Conn: DbConnection + TrieDb,
+        ChainDB: ChainStateDb
     {
-        let parent_block_id = StacksChainState::get_parent_block_id(state.db(), block_id)
+        let parent_block_id = state.get_parent_block_id(block_id)
             .unwrap()
             .unwrap();
 

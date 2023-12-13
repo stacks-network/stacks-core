@@ -34,8 +34,10 @@ use stacks_common::util::hash::{to_hex, Sha256Sum};
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as ChainError;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
@@ -116,10 +118,7 @@ impl HttpRequest for RPCGetDataVarRequestHandler {
 }
 
 /// Handle the HTTP request
-impl<Conn> RPCRequestHandler<Conn> for RPCGetDataVarRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCGetDataVarRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -127,12 +126,16 @@ where
     }
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let contract_identifier = self.contract_identifier.take().ok_or(NetError::SendError(
             "`contract_identifier` not set".to_string(),
         ))?;

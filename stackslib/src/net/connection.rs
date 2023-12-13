@@ -36,6 +36,7 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::{get_epoch_time_secs, log, sleep_ms};
 
 use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
@@ -51,6 +52,8 @@ use crate::net::neighbors::{
 use crate::net::{
     Error as net_error, MessageSequence, Preamble, ProtocolFamily, RelayData, StacksHttp, StacksP2P,
 };
+
+use super::httpcore::RPCRequestHandler;
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -1406,10 +1409,10 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
 pub type ConnectionP2P = NetworkConnection<StacksP2P>;
 pub type ReplyHandleP2P = NetworkReplyHandle<StacksP2P>;
 
-pub type ConnectionHttp<DB: TrieDb> = 
-    NetworkConnection<StacksHttp<DB>>;
-pub type ReplyHandleHttp<DB: TrieDb> = 
-    NetworkReplyHandle<StacksHttp<DB>>;
+pub type ConnectionHttp = 
+    NetworkConnection<StacksHttp>;
+pub type ReplyHandleHttp = 
+    NetworkReplyHandle<StacksHttp>;
 
 #[cfg(test)]
 mod test {

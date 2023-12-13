@@ -38,7 +38,9 @@ use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::MessageSignature;
 use {serde, serde_json};
 
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlock};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -145,10 +147,7 @@ impl StackerDBErrorCodes {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCPostStackerDBChunkRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.contract_identifier = None;
@@ -156,12 +155,16 @@ where
     }
 
     /// Make the response.
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let contract_identifier = self
             .contract_identifier
             .take()

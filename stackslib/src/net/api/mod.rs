@@ -21,6 +21,7 @@ use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 
 use crate::burnchains::Txid;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -34,6 +35,8 @@ use crate::net::http::{
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest, StacksHttpResponse};
 use crate::net::Error as NetError;
 use crate::stacks_common::codec::StacksMessageCodec;
+
+use super::httpcore::RPCRequestHandler;
 
 pub mod callreadonly;
 pub mod getaccount;
@@ -67,10 +70,7 @@ pub mod posttransaction;
 #[cfg(test)]
 mod tests;
 
-impl<Conn> StacksHttp<Conn> 
-where
-    Conn: DbConnection + TrieDb
-{
+impl StacksHttp {
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.
     pub fn register_rpc_methods(&mut self) {

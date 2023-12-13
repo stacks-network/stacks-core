@@ -43,6 +43,7 @@ use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::test::{
     chainstate_path, instantiate_chainstate, instantiate_chainstate_with_balances,
 };
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::index::db::DbConnection;
@@ -83,15 +84,15 @@ fn mempool_db_init() {
     let _mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 }
 
-pub fn make_block<Conn>(
-    chainstate: &mut StacksChainState<Conn>,
+pub fn make_block<ChainDB>(
+    chainstate: &mut StacksChainState<ChainDB>,
     block_consensus: ConsensusHash,
     parent: &(ConsensusHash, BlockHeaderHash),
     burn_height: u64,
     block_height: u64,
 ) -> (ConsensusHash, BlockHeaderHash) 
 where
-    Conn: DbConnection + TrieDb
+    ChainDB: ChainStateDb
 {
     let (mut chainstate_tx, clar_tx) = chainstate.chainstate_tx_begin().unwrap();
 

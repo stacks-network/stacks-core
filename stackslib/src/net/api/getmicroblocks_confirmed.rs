@@ -26,7 +26,9 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
 use {serde, serde_json};
 
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -56,12 +58,12 @@ impl RPCMicroblocksConfirmedRequestHandler {
 
 impl StacksIndexedMicroblockStream {
     /// Make a new indexed microblock streamer using the descendent Stacks anchored block
-    pub fn new_confirmed<Conn>(
-        chainstate: &StacksChainState<Conn>,
+    pub fn new_confirmed<ChainDB>(
+        chainstate: &StacksChainState<ChainDB>,
         child_block_id: &StacksBlockId,
     ) -> Result<Self, ChainError> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let tail_microblock_index_hash =
             if let Some(bhh) = chainstate.get_confirmed_microblock_index_hash(child_block_id)? {
@@ -106,22 +108,23 @@ impl HttpRequest for RPCMicroblocksConfirmedRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCMicroblocksConfirmedRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCMicroblocksConfirmedRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
     }
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let block_id = self
             .block_id
             .take()

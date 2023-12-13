@@ -22,6 +22,8 @@ use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
 use stacks_common::types::net::PeerHost;
 use url::form_urlencoded;
 
+use crate::chainstate::burn::db::v2::SortitionDb;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::atlas::{
@@ -128,22 +130,23 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCGetAttachmentsInvRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCGetAttachmentsInvRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.index_block_hash = None;
         self.page_indexes = None;
     }
 
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let index_block_hash = self
             .index_block_hash
             .take()

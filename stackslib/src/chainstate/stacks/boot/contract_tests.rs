@@ -9,7 +9,7 @@ use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
 use clarity::vm::costs::CostOverflowingMath;
 use clarity::vm::database::*;
-use clarity::vm::database::v2::ClarityDB;
+use clarity::vm::database::v2::{ClarityDB, ClarityDbKvStore};
 use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
@@ -85,11 +85,11 @@ lazy_static! {
     static ref MIN_THRESHOLD: u128 = *LIQUID_SUPPLY / super::test::TESTNET_STACKING_THRESHOLD_25;
 }
 
-pub struct ClarityTestSim<Conn> 
+pub struct ClarityTestSim<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
-    marf: MarfedKV<Conn>,
+    marf: MarfedKV<KvDB>,
     pub height: u64,
     fork: u64,
     /// This vec specifies the transitions for each epoch.
@@ -115,11 +115,11 @@ pub struct TestSimBurnStateDB {
     height: u32,
 }
 
-impl<Conn> ClarityTestSim<Conn> 
+impl<KvDB> ClarityTestSim<KvDB> 
 where
-    Conn: DbConnection + TrieDb
+    KvDB: TrieDb + ClarityDbKvStore
 {
-    pub fn new() -> ClarityTestSim<Conn> {
+    pub fn new() -> ClarityTestSim<KvDB> {
         let mut marf = MarfedKV::temporary();
         {
             let mut store = marf.begin(

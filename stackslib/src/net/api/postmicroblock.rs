@@ -30,8 +30,10 @@ use stacks_common::util::retry::BoundReader;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlockHeader, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
@@ -123,22 +125,23 @@ impl HttpRequest for RPCPostMicroblockRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCPostMicroblockRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.microblock = None;
     }
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let microblock = self
             .microblock
             .take()

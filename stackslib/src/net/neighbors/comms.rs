@@ -42,54 +42,49 @@ use crate::net::{
 /// algorithm.
 pub trait NeighborComms {
     /// Add a neighbor and its event ID as connecting
-    fn add_connecting<Conn, NK>(
+    fn add_connecting<NK>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         nk: &NK,
         event_id: usize,
     )
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey;
 
     /// Get a connecting neighbor's event ID
-    fn get_connecting<Conn, NK>(
+    fn get_connecting<NK>(
         &self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     ) -> Option<usize>
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey;
 
     /// Remove a neighbor from connecting state
-    fn remove_connecting<Conn, NK>(
+    fn remove_connecting<NK>(
         &mut self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     )
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey;
 
     /// Mark a neighbor as dead (inactive, unreachable, etc.)
-    fn add_dead<Conn, NK>(
+    fn add_dead<NK>(
         &mut self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     )
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey;
 
     /// Mark a neighbor as broken (in protocol violation)
     fn add_broken<Conn, NK>(
         &mut self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     )
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey;
 
     /// Pin a connection -- prevent it from getting pruned
@@ -118,12 +113,10 @@ pub trait NeighborComms {
     fn has_inflight(&self, naddr: &NeighborAddress) -> bool;
 
     /// Poll for any received messages.
-    fn collect_replies<Conn>(
+    fn collect_replies(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
-    ) -> Vec<(NeighborAddress, StacksMessage)>
-    where
-        Conn: DbConnection + TrieDb;
+        network: &mut PeerNetwork,
+    ) -> Vec<(NeighborAddress, StacksMessage)>;
 
     /// Take all dead neighbors
     fn take_dead_neighbors(&mut self) -> HashSet<NeighborKey>;
@@ -137,13 +130,12 @@ pub trait NeighborComms {
 
     /// Send off a handshake to a remote peer.
     /// Fails if not connected.
-    fn neighbor_handshake<Conn, NK>(
+    fn neighbor_handshake<NK>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         neighbor_addr: &NK,
     ) -> Result<ReplyHandleP2P, net_error> 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         let nk = neighbor_addr.to_neighbor_key(network);
@@ -187,13 +179,12 @@ pub trait NeighborComms {
     /// Returns Ok(Some(handle)) if the handshake is now sending
     /// Returns Ok(None) if we're still connecting. The caller should try again.
     /// Returns Err(..) if connection or sending failed for some reason.
-    fn neighbor_connect_and_handshake<Conn, NK>(
+    fn neighbor_connect_and_handshake<NK>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         neighbor_addr: &NK,
     ) -> Result<Option<ReplyHandleP2P>, net_error> 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         let nk = neighbor_addr.to_neighbor_key(network);
@@ -282,14 +273,13 @@ pub trait NeighborComms {
     /// Return Ok(Some(handle)) if we connected.
     /// Return Ok(None) if we're in the process of connecting, and should try again.
     /// Return Err(..) if we fail
-    fn neighbor_session_begin_only<Conn, NK>(
+    fn neighbor_session_begin_only<NK>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         neighbor_addr: &NK,
         neighbor_pubkh: &Hash160,
     ) -> Result<Option<ReplyHandleP2P>, net_error> 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         let nk = neighbor_addr.to_neighbor_key(network);
@@ -347,13 +337,11 @@ pub trait NeighborComms {
     ///
     /// Return Ok(true) if we connected.
     /// Return Ok(false) if we're in the process of connecting, and should try again.
-    fn neighbor_session_begin<Conn>(
+    fn neighbor_session_begin(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         neighbor_addr: &NeighborAddress,
-    ) -> Result<bool, net_error> 
-    where
-        Conn: DbConnection + TrieDb,
+    ) -> Result<bool, net_error>
     {
         let handle_opt = self.neighbor_session_begin_only(
             network,
@@ -375,13 +363,12 @@ pub trait NeighborComms {
     /// If successful, the caller usually calls `add_batch_request()`.  This
     /// is not carried out here because the caller may instead want to do a blocking wait
     /// with the given reply handle (or do its own batching).
-    fn neighbor_send_only<Conn, NK>(
-        network: &mut PeerNetwork<Conn>,
+    fn neighbor_send_only<NK>(
+        network: &mut PeerNetwork,
         neighbor_addr: &NK,
         msg_payload: StacksMessageType,
     ) -> Result<ReplyHandleP2P, net_error> 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         let nk = neighbor_addr.to_neighbor_key(network);
@@ -393,15 +380,12 @@ pub trait NeighborComms {
     /// If successful, the reply handle is then tracked via a follow-up call to
     /// `add_batch_request()`.
     /// Fails if the neighbor is not connected.
-    fn neighbor_send<Conn>(
+    fn neighbor_send(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         neighbor_addr: &NeighborAddress,
         msg_payload: StacksMessageType,
-    ) -> Result<(), net_error> 
-    where
-        Conn: DbConnection + TrieDb,
-    {
+    ) -> Result<(), net_error> {
         let handle = Self::neighbor_send_only(network, neighbor_addr, msg_payload)?;
         self.add_batch_request(neighbor_addr.clone(), handle);
         Ok(())
@@ -411,14 +395,11 @@ pub trait NeighborComms {
     /// On success, consume the reply handle and return the StacksMessage.
     /// On error, either return the reply handle so we can try again, or return an error if we
     /// encounter an irrecoverable failure.
-    fn neighbor_try_recv<Conn>(
+    fn neighbor_try_recv(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         mut req: ReplyHandleP2P,
-    ) -> Result<StacksMessage, Result<ReplyHandleP2P, net_error>> 
-    where
-        Conn: DbConnection + TrieDb
-    {
+    ) -> Result<StacksMessage, Result<ReplyHandleP2P, net_error>> {
         if let Err(e) = network.saturate_p2p_socket(req.get_event_id(), &mut req) {
             return Err(Err(e));
         }
@@ -449,14 +430,13 @@ pub trait NeighborComms {
     /// preserve the reply handle in the given argument. The caller should try again later.
     /// If there was an error, then the reply handle option is set to None and an error is
     /// returned. The given NeighborKey is marked as dead.
-    fn poll_next_reply<Conn, NK>(
+    fn poll_next_reply<NK>(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         req_nk: &NK,
         req: &mut Option<ReplyHandleP2P>,
     ) -> Result<Option<StacksMessage>, net_error> 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         match req.take() {
@@ -476,13 +456,12 @@ pub trait NeighborComms {
     }
 
     /// Are we connected already to a neighbor?
-    fn has_neighbor_session<Conn, NK>(
+    fn has_neighbor_session<NK>(
         &self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     ) -> bool 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         network
@@ -527,14 +506,13 @@ impl PeerNetworkComms {
 }
 
 impl NeighborComms for PeerNetworkComms {
-    fn add_connecting<Conn, NK>(
+    fn add_connecting<NK>(
         &mut self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         nk: &NK,
         event_id: usize,
     ) 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         self.connecting
@@ -542,13 +520,12 @@ impl NeighborComms for PeerNetworkComms {
         self.pin_connection(event_id);
     }
 
-    fn get_connecting<Conn, NK>(
+    fn get_connecting<NK>(
         &self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     ) -> Option<usize> 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         self.connecting
@@ -556,13 +533,12 @@ impl NeighborComms for PeerNetworkComms {
             .map(|event_ref| *event_ref)
     }
 
-    fn remove_connecting<Conn, NK>(
+    fn remove_connecting<NK>(
         &mut self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     ) 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         let event_id_opt = self.connecting.remove(&nk.to_neighbor_key(network));
@@ -571,25 +547,23 @@ impl NeighborComms for PeerNetworkComms {
         }
     }
 
-    fn add_dead<Conn, NK>(
+    fn add_dead<NK>(
         &mut self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     ) 
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey
     {
         self.dead_connections.insert(nk.to_neighbor_key(network));
     }
 
-    fn add_broken<Conn, NK>(
+    fn add_broken<NK>(
         &mut self, 
-        network: &PeerNetwork<Conn>, 
+        network: &PeerNetwork, 
         nk: &NK
     )
     where
-        Conn: DbConnection + TrieDb,
         NK: ToNeighborKey 
     {
         self.broken_connections.insert(nk.to_neighbor_key(network));
@@ -640,13 +614,10 @@ impl NeighborComms for PeerNetworkComms {
             .unwrap_or(false)
     }
 
-    fn collect_replies<Conn>(
+    fn collect_replies(
         &mut self,
-        network: &mut PeerNetwork<Conn>,
-    ) -> Vec<(NeighborAddress, StacksMessage)> 
-    where
-        Conn: DbConnection + TrieDb
-    {
+        network: &mut PeerNetwork,
+    ) -> Vec<(NeighborAddress, StacksMessage)> {
         let mut ret = vec![];
         let mut clear = false;
         let mut ongoing_batch_request = self.ongoing_batch_request.take();
@@ -682,34 +653,26 @@ impl NeighborComms for PeerNetworkComms {
 /// This is a helper trait to ensure that a given struct can be turned into a NeighborKey for the
 /// purposes of maintaining the active peer set
 pub trait ToNeighborKey {
-    fn to_neighbor_key<Conn>(
+    fn to_neighbor_key(
         &self, 
-        network: &PeerNetwork<Conn>
-    ) -> NeighborKey
-    where
-        Conn: DbConnection + TrieDb;
+        network: &PeerNetwork
+    ) -> NeighborKey;
 }
 
 impl ToNeighborKey for NeighborKey {
-    fn to_neighbor_key<Conn>(
+    fn to_neighbor_key(
         &self, 
-        _network: &PeerNetwork<Conn>
-    ) -> NeighborKey 
-    where
-        Conn: DbConnection + TrieDb
-    {
+        _network: &PeerNetwork
+    ) -> NeighborKey {
         self.clone()
     }
 }
 
 impl ToNeighborKey for NeighborAddress {
-    fn to_neighbor_key<Conn>(
+    fn to_neighbor_key(
         &self, 
-        network: &PeerNetwork<Conn>
-    ) -> NeighborKey 
-    where
-        Conn: DbConnection + TrieDb
-    {
+        network: &PeerNetwork
+    ) -> NeighborKey {
         // NOTE: PartialEq and Hash for NeighborKey ignore the low bits of peer version
         // and ignore network ID, and the ConversationP2P ensures that we never even connect
         // to a node with the wrong network ID or wrong peer version bits anyway, so
@@ -732,20 +695,18 @@ pub struct NeighborCommsRequest {
 
 /// This struct represents everything we need to iterate through a set of ongoing requests, in
 /// order to pull out completed replies.
-pub struct NeighborCommsMessageIterator<'a, Conn, NS> 
+pub struct NeighborCommsMessageIterator<'a, NS> 
 where
-    Conn: DbConnection + TrieDb,
     NS: NeighborComms
 {
-    network: &'a mut PeerNetwork<Conn>,
+    network: &'a mut PeerNetwork,
     state: &'a mut HashMap<NeighborAddress, ReplyHandleP2P>,
     neighbor_set: &'a mut NS,
 }
 
 /// This is an iterator over completed requests
-impl<Conn, NS> Iterator for NeighborCommsMessageIterator<'_, Conn, NS> 
+impl<NS> Iterator for NeighborCommsMessageIterator<'_, NS> 
 where
-    Conn: DbConnection + TrieDb,
     NS: NeighborComms
 {
     type Item = (NeighborAddress, StacksMessage);
@@ -817,13 +778,12 @@ impl NeighborCommsRequest {
     }
 
     /// Iterate over all in-flight requests
-    pub fn new_replies<'a, Conn, NS>(
+    pub fn new_replies<'a, NS>(
         &'a mut self,
         neighbor_set: &'a mut NS,
-        network: &'a mut PeerNetwork<Conn>,
-    ) -> NeighborCommsMessageIterator<Conn, NS> 
+        network: &'a mut PeerNetwork,
+    ) -> NeighborCommsMessageIterator<NS> 
     where
-        Conn: DbConnection + TrieDb,
         NS: NeighborComms
     {
         NeighborCommsMessageIterator {

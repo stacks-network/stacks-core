@@ -1989,14 +1989,15 @@ impl StacksBlockBuilder {
     /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
     #[cfg(test)]
-    pub fn make_anchored_block_from_txs<Conn>(
+    pub fn make_anchored_block_from_txs<SortDB, ChainDB>(
         builder: StacksBlockBuilder,
-        chainstate_handle: &StacksChainState<Conn>,
-        burn_dbconn: &SortitionDBConn<Conn>,
+        chainstate_handle: &StacksChainState<ChainDB>,
+        burn_dbconn: &SortDB,
         txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost), Error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         Self::make_anchored_block_and_microblock_from_txs(
             builder,
@@ -2011,15 +2012,16 @@ impl StacksBlockBuilder {
     /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
     #[cfg(test)]
-    pub fn make_anchored_block_and_microblock_from_txs<Conn>(
+    pub fn make_anchored_block_and_microblock_from_txs<SortDB, ChainDB>(
         mut builder: StacksBlockBuilder,
-        chainstate_handle: &StacksChainState<Conn>,
-        burn_dbconn: &SortitionDBConn<Conn>,
+        chainstate_handle: &StacksChainState<ChainDB>,
+        burn_dbconn: &SortDB,
         mut txs: Vec<StacksTransaction>,
         mut mblock_txs: Vec<StacksTransaction>,
     ) -> Result<(StacksBlock, u64, ExecutionCost, Option<StacksMicroblock>), Error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         debug!("Build anchored block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;

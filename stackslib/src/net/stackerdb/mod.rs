@@ -291,10 +291,7 @@ pub trait StackerDBEventDispatcher {
     );
 }
 
-impl<SortDB> PeerNetwork<SortDB> 
-where
-    SortDB: SortitionDb
-{
+impl PeerNetwork {
     /// Run all stacker DB sync state-machines.
     /// Return a list of sync results on success, to be incorporated into the NetworkResult.
     /// Return an error on unrecoverable DB or network error

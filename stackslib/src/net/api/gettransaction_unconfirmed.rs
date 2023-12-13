@@ -28,7 +28,9 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::mempool::MemPoolDB;
@@ -100,22 +102,22 @@ impl HttpRequest for RPCGetTransactionUnconfirmedRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCGetTransactionUnconfirmedRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCGetTransactionUnconfirmedRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.txid = None;
     }
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        ChainDB: ChainStateDb
+    {
         let txid = self
             .txid
             .take()

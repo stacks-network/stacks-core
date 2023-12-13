@@ -35,12 +35,14 @@ use stx_genesis::GenesisData;
 
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::tests::{
     get_burnchain, get_burnchain_db, get_chainstate, get_rw_sortdb, get_sortition_db, p2pkh_from,
     pox_addr_from, setup_states_with_epochs,
 };
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
     ChainstateBNSNamespace, StacksAccount, StacksBlockHeaderTypes, StacksChainState,
@@ -58,13 +60,14 @@ use crate::core::StacksEpochExtension;
 use crate::net::codec::test::check_codec_and_corruption;
 
 /// Get an address's account
-pub fn get_account<Conn>(
-    chainstate: &mut StacksChainState<Conn>,
-    sortdb: &SortitionDB<Conn>,
+pub fn get_account<SortDB, ChainDB>(
+    chainstate: &mut StacksChainState<ChainDB>,
+    sortdb: &SortDB,
     addr: &StacksAddress,
 ) -> StacksAccount 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb
 {
     let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
         .unwrap()

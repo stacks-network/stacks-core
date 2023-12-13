@@ -53,9 +53,11 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
@@ -158,14 +160,14 @@ impl StackerDBConfig
     }
 
     /// Evaluate the contract to get its signer slots
-    fn eval_signer_slots<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn eval_signer_slots<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
     ) -> Result<Vec<(StacksAddress, u32)>, NetError> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let value = chainstate.eval_read_only(
             burn_dbconn,
@@ -260,15 +262,15 @@ impl StackerDBConfig
     }
 
     /// Evaluate the contract to get its config
-    fn eval_config<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn eval_config<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         burn_dbconn: &dyn BurnStateDB,
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
         signers: Vec<(StacksAddress, u32)>,
     ) -> Result<StackerDBConfig, NetError> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let value =
             chainstate.eval_read_only(burn_dbconn, tip, contract_id, "(stackerdb-get-config)")?;
@@ -448,13 +450,14 @@ impl StackerDBConfig
 
     /// Load up the DB config from the controlling smart contract as of the current Stacks chain
     /// tip
-    pub fn from_smart_contract<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
-        sortition_db: &SortitionDB<Conn>,
+    pub fn from_smart_contract<SortDB, ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
+        sortition_db: &SortDB,
         contract_id: &QualifiedContractIdentifier,
     ) -> Result<StackerDBConfig, NetError> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         let chain_tip =
             NakamotoChainState::get_canonical_block_header(chainstate.db(), sortition_db)?

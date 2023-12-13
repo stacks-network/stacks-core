@@ -20,6 +20,7 @@ use rand::thread_rng;
 use stacks_common::util::hash::*;
 use stacks_common::util::sleep_ms;
 
+use crate::burnchains::db::v2::BurnChainDb;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::core::{
     StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -1927,13 +1928,15 @@ fn test_walk_ring_15_org_biased() {
     })
 }
 
-fn test_walk_ring_ex<Conn>(
+fn test_walk_ring_ex<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     test_pingback: bool,
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     // arrange neighbors into a "ring" topology, where
     // neighbor N is connected to neighbor (N-1)%NUM_NEIGHBORS and (N+1)%NUM_NEIGHBORS.
@@ -1989,22 +1992,26 @@ where
     peers
 }
 
-fn test_walk_ring<Conn>(
+fn test_walk_ring<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>, 
     neighbor_count: usize
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     test_walk_ring_ex(peer_configs, neighbor_count, false)
 }
 
-fn test_walk_ring_pingback<Conn>(
+fn test_walk_ring_pingback<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     test_walk_ring_ex(peer_configs, neighbor_count, true)
 }
@@ -2142,36 +2149,42 @@ fn test_walk_line_15_pingback() {
     })
 }
 
-fn test_walk_line<Conn>(
+fn test_walk_line<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     tests: u64,
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     test_walk_line_ex(peer_configs, neighbor_count, tests, false)
 }
 
-fn test_walk_line_pingback<Conn>(
+fn test_walk_line_pingback<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     tests: u64,
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     test_walk_line_ex(peer_configs, neighbor_count, tests, true)
 }
 
-fn test_walk_line_ex<Conn>(
+fn test_walk_line_ex<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     tests: u64,
     pingback_test: bool,
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     // arrange neighbors into a "line" topology.
     // If pingback_test is true, then the topology is unidirectional:
@@ -2362,33 +2375,39 @@ fn test_walk_star_15_org_biased() {
     })
 }
 
-fn test_walk_star<Conn>(
+fn test_walk_star<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>, 
     neighbor_count: usize
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     test_walk_star_ex(peer_configs, neighbor_count, false)
 }
 
-fn test_walk_star_pingback<Conn>(
+fn test_walk_star_pingback<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     test_walk_star_ex(peer_configs, neighbor_count, true)
 }
 
-fn test_walk_star_ex<Conn>(
+fn test_walk_star_ex<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
     pingback_test: bool,
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     // arrange neighbors into a "star" topology.
     // If pingback_test is true, then initial connections are unidirectional -- each neighbor (except
@@ -2441,12 +2460,14 @@ where
     peers
 }
 
-fn test_walk_inbound_line<Conn>(
+fn test_walk_inbound_line<SortDB, ChainDB, BurnDB>(
     peer_configs: &mut Vec<TestPeerConfig>,
     neighbor_count: usize,
-) -> Vec<TestPeer<Conn>> 
+) -> Vec<TestPeer<SortDB, ChainDB, BurnDB>> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     // arrange neighbors into a two-tiered "line" topology, where even-numbered neighbors are
     // "NAT'ed" but connected to both the predecessor and successor odd neighbors.  Odd
@@ -2565,11 +2586,13 @@ fn test_walk_inbound_line_15() {
     })
 }
 
-fn dump_peers<Conn>(
-    peers: &Vec<TestPeer<Conn>>
+fn dump_peers<SortDB, ChainDB, BurnDB>(
+    peers: &Vec<TestPeer<SortDB, ChainDB, BurnDB>>
 ) -> () 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     test_debug!("\n=== PEER DUMP ===");
     for i in 0..peers.len() {
@@ -2600,11 +2623,13 @@ where
     test_debug!("\n");
 }
 
-fn dump_peer_histograms<Conn>(
-    peers: &Vec<TestPeer<Conn>>
+fn dump_peer_histograms<SortDB, ChainDB, BurnDB>(
+    peers: &Vec<TestPeer<SortDB, ChainDB, BurnDB>>
 ) -> () 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let mut outbound_hist: HashMap<usize, usize> = HashMap::new();
     let mut inbound_hist: HashMap<usize, usize> = HashMap::new();
@@ -2668,27 +2693,31 @@ where
     test_debug!("\n");
 }
 
-fn run_topology_test<Conn>(
-    peers: &mut Vec<TestPeer<Conn>>, 
+fn run_topology_test<SortDB, ChainDB, BurnDB>(
+    peers: &mut Vec<TestPeer<SortDB, ChainDB, BurnDB>>, 
     neighbor_count: usize, 
     test_bits: u64
 ) -> () 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     run_topology_test_ex(peers, neighbor_count, test_bits, |_| false, false)
 }
 
-fn run_topology_test_ex<Conn, F>(
-    peers: &mut Vec<TestPeer<Conn>>,
+fn run_topology_test_ex<SortDB, ChainDB, BurnDB, F>(
+    peers: &mut Vec<TestPeer<SortDB, ChainDB, BurnDB>>,
     neighbor_count: usize,
     test_bits: u64,
     mut finished_check: F,
     use_finished_check: bool,
 ) -> ()
 where
-    Conn: DbConnection + TrieDb,
-    F: FnMut(&Vec<TestPeer<Conn>>) -> bool,
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb,
+    F: FnMut(&Vec<TestPeer<SortDB, ChainDB, BurnDB>>) -> bool,
 {
     let PEER_COUNT = peers.len();
 

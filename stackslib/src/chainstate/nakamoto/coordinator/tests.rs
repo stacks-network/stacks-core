@@ -26,7 +26,9 @@ use stacks_common::types::{Address, StacksEpoch};
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
 
+use crate::burnchains::db::v2::BurnChainDb;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::coordinator::tests::p2pkh_from;
 use crate::chainstate::nakamoto::tests::get_account;
@@ -34,6 +36,7 @@ use crate::chainstate::nakamoto::tests::node::TestSigners;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{make_pox_4_aggregate_key, make_pox_4_lockup};
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -48,11 +51,13 @@ use crate::net::relay::Relayer;
 use crate::net::test::{TestPeer, TestPeerConfig};
 
 /// Bring a TestPeer into the Nakamoto Epoch
-fn advance_to_nakamoto<Conn>(
-    peer: &mut TestPeer<Conn>, aggregate_public_key: &Point
+fn advance_to_nakamoto<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>, aggregate_public_key: &Point
 ) 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
@@ -95,13 +100,15 @@ where
 
 /// Make a peer and transition it into the Nakamoto epoch.
 /// The node needs to be stacking; otherwise, Nakamoto won't activate.
-fn boot_nakamoto<Conn>(
+fn boot_nakamoto<SortDB, ChainDB, BurnDB>(
     test_name: &str,
     mut initial_balances: Vec<(PrincipalData, u64)>,
     aggregate_public_key: Point,
-) -> TestPeer<Conn> 
+) -> TestPeer<SortDB, ChainDB, BurnDB>
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
     let private_key = peer_config.private_key.clone();
@@ -131,12 +138,14 @@ where
 }
 
 /// Make a replay peer, used for replaying the blockchain
-fn make_replay_peer<'a, Conn>(
-    peer: &'a mut TestPeer<'a, Conn>, 
+fn make_replay_peer<'a, SortDB, ChainDB, BurnDB>(
+    peer: &'a mut TestPeer<SortDB, ChainDB, BurnDB>, 
     aggregate_public_key: &Point
-) -> TestPeer<'a, Conn> 
+) -> TestPeer<'a, SortDB, ChainDB, BurnDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     let mut replay_config = peer.config.clone();
     replay_config.test_name = format!("{}.replay", &peer.config.test_name);
@@ -171,9 +180,9 @@ where
 }
 
 /// Make a token-transfer from a private key
-fn make_token_transfer<Conn>(
-    chainstate: &mut StacksChainState<Conn>,
-    sortdb: &SortitionDB<Conn>,
+fn make_token_transfer<SortDB, ChainDB>(
+    chainstate: &mut StacksChainState<ChainDB>,
+    sortdb: &SortDB,
     private_key: &StacksPrivateKey,
     nonce: u64,
     amt: u64,
@@ -181,7 +190,8 @@ fn make_token_transfer<Conn>(
     recipient_addr: &StacksAddress,
 ) -> StacksTransaction 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb
 {
     let mut stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
@@ -207,13 +217,15 @@ where
 /// Given the blocks and block-commits for a reward cycle, replay the sortitions on the given
 /// TestPeer, always processing the first block of the reward cycle before processing all
 /// subsequent blocks in random order.
-fn replay_reward_cycle<Conn>(
-    peer: &mut TestPeer<Conn>,
+fn replay_reward_cycle<SortDB, ChainDB, BurnDB>(
+    peer: &mut TestPeer<SortDB, ChainDB, BurnDB>,
     burn_ops: &[Vec<BlockstackOperationType>],
     stacks_blocks: &[NakamotoBlock],
 ) 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     eprintln!("\n\n=============================================\nBegin replay\n==============================================\n");
     let reward_cycle_length = peer.config.burnchain.pox_constants.reward_cycle_length as usize;

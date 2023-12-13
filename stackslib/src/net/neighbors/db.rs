@@ -23,6 +23,7 @@ use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, log};
 
 use crate::burnchains::{Address, Burnchain, BurnchainView};
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::net::db::PeerDB;
@@ -84,10 +85,7 @@ impl NeighborReplacements {
 }
 
 /// Trait that captures all of the DB I/O that the neighbor walk state machine needs to do
-pub trait NeighborWalkDB<Conn> 
-where
-    Conn: DbConnection + TrieDb
-{
+pub trait NeighborWalkDB {
     /// Gets a list of random neighbors to crawl for the purposes of continuing a random neighbor
     /// walk that have been contacted no earlier than the given `last_contact_time`.
     ///
@@ -96,7 +94,7 @@ where
     /// Returns DBError if there's a problem reading the DB
     fn get_fresh_random_neighbors(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         num_neighbors: u64,
     ) -> Result<Vec<Neighbor>, net_error>;
 
@@ -104,7 +102,7 @@ where
     /// If we're in IBD, then we have to use the bootstrap nodes.
     fn get_initial_walk_neighbors(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         ibd: bool,
     ) -> Result<Vec<Neighbor>, net_error>;
 
@@ -114,7 +112,7 @@ where
     /// the reported NeighborAddress public key hash doesn't match our records.
     fn lookup_stale_neighbors(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         addrs: &Vec<NeighborAddress>,
     ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error>;
 
@@ -126,7 +124,7 @@ where
     /// Returns (was-new?, neighbor-record)
     fn add_or_schedule_replace_neighbor(
         &self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         preamble: &Preamble,
         handshake: &HandshakeData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -136,7 +134,7 @@ where
     /// Is a peer denied?
     fn check_neighbor_denied(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         nk: &NeighborKey,
     ) -> Result<(), net_error>;
 
@@ -144,7 +142,7 @@ where
     /// The network result will be updated with a list of replaced neighbors.
     fn replace_neighbors(
         &self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         replacements: &NeighborReplacements,
         result: &mut NeighborWalkResult,
     ) -> Result<(), net_error>;
@@ -153,7 +151,7 @@ where
     /// If any data for this neighbor exists in the DB already, then load that in as well.
     fn neighbor_from_handshake(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
     ) -> Result<Neighbor, net_error>;
@@ -162,7 +160,7 @@ where
     /// Returns the neighbor the handshake data represents.
     fn save_neighbor_from_handshake(
         &self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -172,21 +170,21 @@ where
     /// Returns the updated neighbor.
     fn update_neighbor(
         &self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         cur_neighbor: Neighbor,
         new_data: Option<&HandshakeAcceptData>,
         new_db_data: Option<&StackerDBHandshakeData>,
     ) -> Result<Neighbor, net_error>;
 
     /// Get the number of peers in a given AS
-    fn get_asn_count(&self, network: &PeerNetwork<Conn>, asn: u32) -> u64;
+    fn get_asn_count(&self, network: &PeerNetwork, asn: u32) -> u64;
 
     /// Get a random starting neighbor for an ongoing walk.
     /// Older but still fresh neighbors will be preferred -- a neighbor from the first 50th
     /// percentile of neighbors (by last contact time) will be selected at random.
     /// Returns the random neighbor on success
     /// Returns NoSuchNeighbor if there are no candidates
-    fn get_next_walk_neighbor(&self, network: &PeerNetwork<Conn>) -> Result<Neighbor, net_error> {
+    fn get_next_walk_neighbor(&self, network: &PeerNetwork) -> Result<Neighbor, net_error> {
         // pick a random neighbor as a walking point.
         // favor neighbors with older last-contact times
         let mut next_neighbors = self
@@ -245,13 +243,10 @@ impl PeerDBNeighborWalk {
     }
 }
 
-impl<Conn> NeighborWalkDB<Conn> for PeerDBNeighborWalk 
-where
-    Conn: DbConnection + TrieDb
-{
+impl NeighborWalkDB for PeerDBNeighborWalk {
     fn get_fresh_random_neighbors(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         num_neighbors: u64,
     ) -> Result<Vec<Neighbor>, net_error> {
         let block_height = network.get_chain_view().burn_block_height;
@@ -280,7 +275,7 @@ where
 
     fn lookup_stale_neighbors(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         addrs: &Vec<NeighborAddress>,
     ) -> Result<(HashMap<NeighborAddress, Neighbor>, Vec<NeighborAddress>), net_error> {
         let network_id = network.bound_neighbor_key().network_id;
@@ -332,7 +327,7 @@ where
 
     fn add_or_schedule_replace_neighbor(
         &self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         preamble: &Preamble,
         handshake: &HandshakeData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -392,7 +387,7 @@ where
 
     fn get_initial_walk_neighbors(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         ibd: bool,
     ) -> Result<Vec<Neighbor>, net_error> {
         let allowed_peers = if ibd {
@@ -413,7 +408,7 @@ where
 
     fn check_neighbor_denied(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         nk: &NeighborKey,
     ) -> Result<(), net_error> {
         // don't proceed if denied
@@ -435,7 +430,7 @@ where
 
     fn replace_neighbors(
         &self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         replacements: &NeighborReplacements,
         result: &mut NeighborWalkResult,
     ) -> Result<(), net_error> {
@@ -475,7 +470,7 @@ where
 
     fn neighbor_from_handshake(
         &self,
-        network: &PeerNetwork<Conn>,
+        network: &PeerNetwork,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
     ) -> Result<Neighbor, net_error> {
@@ -490,7 +485,7 @@ where
 
     fn save_neighbor_from_handshake(
         &self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         preamble: &Preamble,
         data: &HandshakeAcceptData,
         db_data: Option<&StackerDBHandshakeData>,
@@ -509,7 +504,7 @@ where
 
     fn update_neighbor(
         &self,
-        network: &mut PeerNetwork<Conn>,
+        network: &mut PeerNetwork,
         mut cur_neighbor: Neighbor,
         new_data: Option<&HandshakeAcceptData>,
         new_db_data: Option<&StackerDBHandshakeData>,
@@ -527,7 +522,7 @@ where
         Ok(cur_neighbor)
     }
 
-    fn get_asn_count(&self, network: &PeerNetwork<Conn>, asn: u32) -> u64 {
+    fn get_asn_count(&self, network: &PeerNetwork, asn: u32) -> u64 {
         PeerDB::asn_count(network.peerdb_conn(), asn).unwrap_or(1)
     }
 }

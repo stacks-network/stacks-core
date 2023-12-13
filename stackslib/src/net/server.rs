@@ -38,12 +38,9 @@ use crate::net::rpc::*;
 use crate::net::{Error as net_error, *};
 
 #[derive(Debug)]
-pub struct HttpPeer<DB> 
-where
-    DB: TrieDb
-{
+pub struct HttpPeer {
     /// ongoing http conversations (either they reached out to us, or we to them)
-    pub peers: HashMap<usize, ConversationHttp<DB>>,
+    pub peers: HashMap<usize, ConversationHttp>,
     pub sockets: HashMap<usize, mio_net::TcpStream>,
 
     /// outbound connections that are pending connection
@@ -67,15 +64,12 @@ where
     pub connection_opts: ConnectionOptions,
 }
 
-impl<DB> HttpPeer<DB> 
-where
-    DB: TrieDb
-{
+impl HttpPeer {
     pub fn new(
         conn_opts: ConnectionOptions,
         server_handle: usize,
         server_addr: SocketAddr,
-    ) -> HttpPeer<DB> {
+    ) -> HttpPeer {
         HttpPeer {
             peers: HashMap::new(),
             sockets: HashMap::new(),
@@ -106,7 +100,7 @@ where
     }
 
     /// Get a mut ref to a conversation
-    pub fn get_conversation(&mut self, event_id: usize) -> Option<&mut ConversationHttp<DB>> {
+    pub fn get_conversation(&mut self, event_id: usize) -> Option<&mut ConversationHttp> {
         self.peers.get_mut(&event_id)
     }
 
@@ -115,7 +109,7 @@ where
         &mut self,
         event_id: usize,
     ) -> (
-        Option<&mut ConversationHttp<DB>>,
+        Option<&mut ConversationHttp>,
         Option<&mut mio::net::TcpStream>,
     ) {
         (
@@ -131,7 +125,7 @@ where
     pub fn connect_http(
         &mut self,
         network_state: &mut NetworkState,
-        network: &PeerNetwork<DB>,
+        network: &PeerNetwork,
         data_url: UrlString,
         addr: SocketAddr,
         request: Option<StacksHttpRequest>,
@@ -215,15 +209,19 @@ where
     /// Low-level method to register a socket/event pair on the p2p network interface.
     /// Call only once the socket is connected (called once the socket triggers ready).
     /// Will destroy the socket if we can't register for whatever reason.
-    fn register_http(
+    fn register_http<SortDB, ChainDB>(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState<DB>,
+        node_state: &mut StacksNodeState<SortDB, ChainDB>,
         event_id: usize,
         mut socket: mio_net::TcpStream,
         outbound_url: Option<UrlString>,
         initial_request: Option<StacksHttpRequest>,
-    ) -> Result<(), net_error> {
+    ) -> Result<(), net_error> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let send_buffer_size = node_state
             .with_node_state(|network, _, _, _, _| network.connection_opts.socket_send_buffer_size);
 
@@ -347,7 +345,7 @@ where
     /// buffer.
     pub fn saturate_http_socket(
         client_sock: &mut mio::net::TcpStream,
-        convo: &mut ConversationHttp<DB>,
+        convo: &mut ConversationHttp,
     ) -> Result<(), net_error> {
         // saturate the socket
         loop {
@@ -370,12 +368,16 @@ where
 
     /// Process new inbound HTTP connections we just accepted.
     /// Returns the event IDs of sockets we need to register
-    fn process_new_sockets(
+    fn process_new_sockets<SortDB, ChainDB>(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState<DB>,
+        node_state: &mut StacksNodeState<SortDB, ChainDB>,
         poll_state: &mut NetworkPollState,
-    ) -> Vec<usize> {
+    ) -> Vec<usize> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let mut registered = vec![];
 
         for (hint_event_id, client_sock) in poll_state.new.drain() {
@@ -420,12 +422,16 @@ where
     /// Process network traffic on a HTTP conversation.
     /// Returns whether or not the convo is still alive, as well as any message(s) that need to be
     /// forwarded to the peer network.
-    fn process_http_conversation(
-        node_state: &mut StacksNodeState<DB>,
+    fn process_http_conversation<SortDB, ChainDB>(
+        node_state: &mut StacksNodeState<SortDB, ChainDB>,
         event_id: usize,
         client_sock: &mut mio_net::TcpStream,
-        convo: &mut ConversationHttp<DB>,
-    ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
+        convo: &mut ConversationHttp,
+    ) -> Result<(bool, Vec<StacksMessageType>), net_error> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
         let recv_res = convo.recv(client_sock);
@@ -517,12 +523,16 @@ where
     }
 
     /// Process newly-connected sockets
-    fn process_connecting_sockets(
+    fn process_connecting_sockets<SortDB, ChainDB>(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState<DB>,
+        node_state: &mut StacksNodeState<SortDB, ChainDB>,
         poll_state: &mut NetworkPollState,
-    ) -> () {
+    ) -> () 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         for event_id in poll_state.ready.iter() {
             if self.connecting.contains_key(event_id) {
                 let (socket, data_url, initial_request_opt, _) =
@@ -551,10 +561,10 @@ where
     /// Advance the state of all such conversations with remote peers.
     /// Return the list of events that correspond to failed conversations, as well as the list of
     /// peer network messages we'll need to forward
-    fn process_ready_sockets(
+    fn process_ready_sockets<SortDB, ChainDB>(
         &mut self,
         poll_state: &mut NetworkPollState,
-        node_state: &mut StacksNodeState<DB>,
+        node_state: &mut StacksNodeState<SortDB, ChainDB>,
     ) -> (Vec<StacksMessageType>, Vec<usize>) {
         let mut to_remove = vec![];
         let mut msgs = vec![];
@@ -633,12 +643,16 @@ where
     /// -- receive data on ready sockets
     /// -- clear out timed-out requests
     /// Returns the list of messages to forward along to the peer network.
-    pub fn run(
+    pub fn run<SortDB, ChainDB>(
         &mut self,
         network_state: &mut NetworkState,
-        node_state: &mut StacksNodeState<DB>,
+        node_state: &mut StacksNodeState<SortDB, ChainDB>,
         mut poll_state: NetworkPollState,
-    ) -> Vec<StacksMessageType> {
+    ) -> Vec<StacksMessageType> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         // set up new inbound conversations
         self.process_new_sockets(network_state, node_state, &mut poll_state);
 

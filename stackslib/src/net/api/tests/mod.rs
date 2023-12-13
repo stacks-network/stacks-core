@@ -29,8 +29,11 @@ use stacks_common::util::pipe::Pipe;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::Txid;
+use crate::burnchains::db::v2::BurnChainDb;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
@@ -141,9 +144,9 @@ const TEST_CONTRACT_UNCONFIRMED: &'static str = "
 ";
 
 /// This helper function drives I/O between a sender and receiver Http conversation.
-fn convo_send_recv<Conn>(
-    sender: &mut ConversationHttp<Conn>, 
-    receiver: &mut ConversationHttp<Conn>
+fn convo_send_recv(
+    sender: &mut ConversationHttp, 
+    receiver: &mut ConversationHttp
 ) -> () {
     let (mut pipe_read, mut pipe_write) = Pipe::new();
     pipe_read.set_nonblocking(true);
@@ -176,18 +179,21 @@ fn convo_send_recv<Conn>(
 }
 
 /// TestRPC state
-pub struct TestRPC<'a, Conn> 
+/// TODO: Remove TrieDB and use the correct DB type
+pub struct TestRPC<'a, SortDB, ChainDB, BurnDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
     pub privk1: StacksPrivateKey,
     pub privk2: StacksPrivateKey,
-    pub peer_1: TestPeer<'a, Conn>,
-    pub peer_2: TestPeer<'a, Conn>,
+    pub peer_1: TestPeer<'a, SortDB, ChainDB, BurnDB>,
+    pub peer_2: TestPeer<'a, SortDB, ChainDB, BurnDB>,
     pub peer_1_indexer: BitcoinIndexer,
     pub peer_2_indexer: BitcoinIndexer,
-    pub convo_1: ConversationHttp<Conn>,
-    pub convo_2: ConversationHttp<Conn>,
+    pub convo_1: ConversationHttp,
+    pub convo_2: ConversationHttp,
     /// hash of the chain tip
     pub canonical_tip: StacksBlockId,
     /// consensus hash of the chain tip
@@ -206,15 +212,17 @@ where
     pub sendable_txs: Vec<StacksTransaction>,
 }
 
-impl<'a, Conn> TestRPC<'a, Conn> 
+impl<'a, SortDB, ChainDB, BurnDB> TestRPC<'a, SortDB, ChainDB, BurnDB> 
 where
-    Conn: DbConnection + TrieDb
+    SortDB: SortitionDb,
+    ChainDB: ChainStateDb,
+    BurnDB: BurnChainDb
 {
-    pub fn setup(test_name: &str) -> TestRPC<'a, Conn> {
+    pub fn setup(test_name: &str) -> TestRPC<'a, SortDB, ChainDB, BurnDB> {
         Self::setup_ex(test_name, true)
     }
 
-    pub fn setup_ex(test_name: &str, process_microblock: bool) -> TestRPC<'a, Conn> {
+    pub fn setup_ex(test_name: &str, process_microblock: bool) -> TestRPC<'a, SortDB, ChainDB, BurnDB> {
         // ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R
         let privk1 = StacksPrivateKey::from_hex(
             "9f1f85a512a96a244e4c0d762788500687feb97481639572e3bffbd6860e6ab001",
@@ -292,8 +300,8 @@ where
         peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
         peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
 
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
+        let mut peer_1 = TestPeer::<SortDB, ChainDB, BurnDB>::new(peer_1_config);
+        let mut peer_2 = TestPeer::<SortDB, ChainDB, BurnDB>::new(peer_2_config);
 
         // mine one block with a contract in it
         // first the coinbase

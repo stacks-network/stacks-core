@@ -23,6 +23,8 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
 use {serde, serde_json};
 
+use crate::chainstate::burn::db::v2::SortitionDb;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::db::{ExtendedStacksHeader, StacksChainState};
 use crate::chainstate::stacks::Error as ChainError;
 use crate::chainstate::stacks::index::db::DbConnection;
@@ -71,13 +73,13 @@ pub struct StacksHeaderStream {
 }
 
 impl StacksHeaderStream {
-    pub fn new<Conn>(
-        chainstate: &StacksChainState<Conn>,
+    pub fn new<ChainDB>(
+        chainstate: &StacksChainState<ChainDB>,
         tip: &StacksBlockId,
         num_headers_requested: u32,
     ) -> Result<Self, ChainError> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let header_info = StacksChainState::load_staging_block_info(chainstate.db(), tip)?
             .ok_or(ChainError::NoSuchBlockError)?;
@@ -138,22 +140,23 @@ impl HttpRequest for RPCHeadersRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCHeadersRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCHeadersRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.quantity = None;
     }
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let quantity = self
             .quantity
             .take()

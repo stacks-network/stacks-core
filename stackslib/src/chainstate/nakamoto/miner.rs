@@ -617,14 +617,15 @@ impl NakamotoBlockBuilder {
     }
 
     #[cfg(test)]
-    pub fn make_nakamoto_block_from_txs<Conn>(
+    pub fn make_nakamoto_block_from_txs<SortDB, ChainDB>(
         mut self,
-        chainstate_handle: &StacksChainState<Conn>,
-        burn_dbconn: &SortitionDBConn<Conn>,
+        chainstate_handle: &StacksChainState<ChainDB>,
+        burn_dbconn: &SortDB,
         mut txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> 
     where
-        Conn: DbConnection + TrieDb
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
     {
         debug!("Build Nakamoto block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;

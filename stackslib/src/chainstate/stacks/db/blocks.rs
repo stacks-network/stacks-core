@@ -6992,13 +6992,13 @@ pub mod test {
         microblocks[l - 1].block_hash()
     }
 
-    fn assert_block_staging_not_processed<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn assert_block_staging_not_processed<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
     ) -> () 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         assert!(StacksChainState::load_staging_block_data(
             &chainstate.db(),
@@ -7038,13 +7038,13 @@ pub mod test {
         );
     }
 
-    fn assert_block_not_stored<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn assert_block_not_stored<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
     ) -> () 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         assert!(!StacksChainState::has_stored_block(
             &chainstate.db(),
@@ -7065,13 +7065,13 @@ pub mod test {
         );
     }
 
-    fn assert_block_stored_rejected<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn assert_block_stored_rejected<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
     ) -> () 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
@@ -7129,13 +7129,13 @@ pub mod test {
         );
     }
 
-    fn assert_block_stored_not_staging<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn assert_block_stored_not_staging<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
     ) -> () 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         assert!(StacksChainState::has_stored_block(
             &chainstate.db(),
@@ -7206,8 +7206,8 @@ pub mod test {
         );
     }
 
-    pub fn store_staging_block<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    pub fn store_staging_block<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         block: &StacksBlock,
         parent_consensus_hash: &ConsensusHash,
@@ -7215,7 +7215,7 @@ pub mod test {
         sortition_burn: u64,
     ) 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let blocks_path = chainstate.blocks_path.clone();
         let mut tx = chainstate.db_tx_begin().unwrap();
@@ -7240,14 +7240,14 @@ pub mod test {
         );
     }
 
-    pub fn store_staging_microblock<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    pub fn store_staging_microblock<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         parent_consensus_hash: &ConsensusHash,
         parent_anchored_block_hash: &BlockHeaderHash,
         microblock: &StacksMicroblock,
     ) 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let mut tx = chainstate.db_tx_begin().unwrap();
         StacksChainState::store_staging_microblock(
@@ -7268,14 +7268,14 @@ pub mod test {
             .unwrap());
     }
 
-    pub fn set_block_processed<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    pub fn set_block_processed<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         accept: bool,
     )
     where
-        Conn: DbConnection + TrieDb 
+        ChainDB: ChainStateDb
     {
         let index_block_hash =
             StacksBlockHeader::make_index_block_hash(consensus_hash, anchored_block_hash);
@@ -7303,13 +7303,13 @@ pub mod test {
         );
     }
 
-    pub fn set_block_orphaned<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    pub fn set_block_orphaned<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
     )
     where
-        Conn: DbConnection + TrieDb 
+        ChainDB: ChainStateDb
     {
         let blocks_path = chainstate.blocks_path.clone();
 
@@ -7324,14 +7324,14 @@ pub mod test {
         tx.commit().unwrap();
     }
 
-    pub fn set_microblocks_processed<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    pub fn set_microblocks_processed<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         child_consensus_hash: &ConsensusHash,
         child_anchored_block_hash: &BlockHeaderHash,
         tail_microblock_hash: &BlockHeaderHash,
     )
     where
-        Conn: DbConnection + TrieDb 
+        ChainDB: ChainStateDb
     {
         let child_index_block_hash = StacksBlockHeader::make_index_block_hash(
             child_consensus_hash,
@@ -7371,11 +7371,11 @@ pub mod test {
         .unwrap());
     }
 
-    fn process_next_orphaned_staging_block<Conn>(
-        chainstate: &mut StacksChainState<Conn>
+    fn process_next_orphaned_staging_block<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>
     ) -> bool 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         let blocks_path = chainstate.blocks_path.clone();
         let mut tx = chainstate.db_tx_begin().unwrap();
@@ -7385,14 +7385,14 @@ pub mod test {
         res
     }
 
-    fn drop_staging_microblocks<Conn>(
-        chainstate: &mut StacksChainState<Conn>,
+    fn drop_staging_microblocks<ChainDB>(
+        chainstate: &mut StacksChainState<ChainDB>,
         consensus_hash: &ConsensusHash,
         anchored_block_hash: &BlockHeaderHash,
         invalid_microblock: &BlockHeaderHash,
     )
     where
-        Conn: DbConnection + TrieDb 
+        ChainDB: ChainStateDb
     {
         let mut tx = chainstate.db_tx_begin().unwrap();
         StacksChainState::drop_staging_microblocks(

@@ -26,7 +26,9 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::to_hex;
 use {serde, serde_json};
 
+use crate::chainstate::burn::db::v2::SortitionDb;
 use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::db::v2::stacks_chainstate_db::ChainStateDb;
 use crate::chainstate::stacks::{Error as ChainError, StacksBlockHeader, StacksMicroblock};
 use crate::chainstate::stacks::index::db::DbConnection;
 use crate::chainstate::stacks::index::trie_db::TrieDb;
@@ -69,12 +71,12 @@ pub struct StacksIndexedMicroblockStream {
 }
 
 impl StacksIndexedMicroblockStream {
-    pub fn new<Conn>(
-        chainstate: &StacksChainState<Conn>,
+    pub fn new<ChainDB>(
+        chainstate: &StacksChainState<ChainDB>,
         tail_index_microblock_hash: &StacksBlockId,
     ) -> Result<Self, ChainError> 
     where
-        Conn: DbConnection + TrieDb
+        ChainDB: ChainStateDb
     {
         // look up parent
         let mblock_info = StacksChainState::load_staging_microblock_info_indexed(
@@ -140,22 +142,23 @@ impl HttpRequest for RPCMicroblocksIndexedRequestHandler {
     }
 }
 
-impl<Conn> RPCRequestHandler<Conn> for RPCMicroblocksIndexedRequestHandler 
-where
-    Conn: DbConnection + TrieDb
-{
+impl RPCRequestHandler for RPCMicroblocksIndexedRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.tail_microblock_id = None;
     }
 
     /// Make the response
-    fn try_handle_request(
+    fn try_handle_request<SortDB, ChainDB>(
         &mut self,
         preamble: HttpRequestPreamble,
         _contents: HttpRequestContents,
-        node: &mut StacksNodeState<Conn>,
-    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
+        node: &mut StacksNodeState<SortDB, ChainDB>,
+    ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> 
+    where
+        SortDB: SortitionDb,
+        ChainDB: ChainStateDb
+    {
         let tail_microblock_id = self
             .tail_microblock_id
             .take()

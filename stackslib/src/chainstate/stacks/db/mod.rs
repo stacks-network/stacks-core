@@ -113,19 +113,19 @@ impl StacksChainStateFaults {
     }
 }
 
-pub struct StacksChainState<DB> 
+pub struct StacksChainState<ChainDB> 
 where
-    DB: ChainStateDb + ClarityDbKvStore
+    ChainDB: ChainStateDb + ClarityDbKvStore
 {
     pub mainnet: bool,
     pub chain_id: u32,
-    pub clarity_state: ClarityInstance<DB>,
-    pub state_index: MARF<StacksBlockId, DB>,
+    pub clarity_state: ClarityInstance<ChainDB>,
+    pub state_index: MARF<StacksBlockId, ChainDB>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
     pub clarity_state_index_root: String, // path to dir containing clarity MARF and side-store
     pub root_path: String,
-    pub unconfirmed_state: Option<UnconfirmedState<DB>>,
+    pub unconfirmed_state: Option<UnconfirmedState<ChainDB>>,
     pub fault_injection: StacksChainStateFaults,
     marf_opts: Option<MARFOpenOpts>,
 }
