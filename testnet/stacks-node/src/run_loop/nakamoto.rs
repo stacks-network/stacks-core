@@ -225,49 +225,10 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        let agg_pubkey_boot_callback = if let Some(self_signer) = self.config.self_signing() {
-            let agg_pub_key = to_hex(&self_signer.aggregate_public_key.compress().data);
-            info!("Mockamoto node setting agg public key"; "agg_pub_key" => &agg_pub_key);
-            let callback = Box::new(move |clarity_tx: &mut ClarityTx| {
-                let contract_content = format!(
-                    "(define-read-only ({}) 0x{})",
-                    BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key
-                );
-                // NOTE: this defaults to a testnet address to prevent it from ever working on
-                // mainnet
-                let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
-                clarity_tx.connection().as_transaction(|clarity| {
-                    let (ast, analysis) = clarity
-                        .analyze_smart_contract(
-                            &contract_id,
-                            ClarityVersion::Clarity2,
-                            &contract_content,
-                            ASTRules::PrecheckSize,
-                        )
-                        .unwrap();
-                    clarity
-                        .initialize_smart_contract(
-                            &contract_id,
-                            ClarityVersion::Clarity2,
-                            &ast,
-                            &contract_content,
-                            None,
-                            |_, _| false,
-                        )
-                        .unwrap();
-                    clarity.save_analysis(&contract_id, &analysis).unwrap();
-                })
-            }) as Box<dyn FnOnce(&mut ClarityTx)>;
-            Some(callback)
-        } else {
-            warn!("Self-signing is not supported yet");
-            None
-        };
-
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback: agg_pubkey_boot_callback,
+            post_flight_callback: None,
             first_burnchain_block_hash: burnchain_config.first_block_hash,
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,

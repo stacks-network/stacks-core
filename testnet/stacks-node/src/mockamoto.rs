@@ -1036,7 +1036,7 @@ impl MockamotoNode {
                 &self.sortdb,
                 &sortition_handle,
                 &mut self.chainstate,
-                block_sn.block_height.saturating_sub(1),
+                block_sn.block_height,
                 &aggregate_key_block_header.index_block_hash(),
             )?;
             aggregate_public_key

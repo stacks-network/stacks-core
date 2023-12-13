@@ -184,7 +184,7 @@ impl BlockMinerThread {
                 &sort_db,
                 &sortition_handle,
                 &mut chain_state,
-                block_sn.block_height.saturating_sub(1),
+                block_sn.block_height,
                 &aggregate_key_block_header.index_block_hash(),
             )?;
             aggregate_public_key
