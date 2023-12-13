@@ -28,7 +28,9 @@ use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
 use clarity::vm::ClarityVersion;
-use rusqlite::Error as RusqliteError;
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
+use rusqlite::{Error as RusqliteError, ToSql};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha512_256};
 use stacks_common::address::AddressHashMode;
@@ -39,7 +41,9 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksWorkScore, TrieHash,
     TRIEHASH_ENCODED_SIZE,
 };
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE};
+use stacks_common::util::hash::{
+    hex_bytes, to_hex, Hash160, Sha512Trunc256Sum, HASH160_ENCODED_SIZE,
+};
 use stacks_common::util::secp256k1;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFProof;
@@ -627,10 +631,8 @@ impl_byte_array_serde!(TokenTransferMemo);
 pub enum TenureChangeCause {
     /// A valid winning block-commit
     BlockFound = 0,
-    /// No winning block-commits
-    NoBlockFound = 1,
-    /// A null miner won the block-commit
-    NullMiner = 2,
+    /// The next burnchain block is taking too long, so extend the runtime budget
+    Extended = 1,
 }
 
 impl TryFrom<u8> for TenureChangeCause {
@@ -639,10 +641,24 @@ impl TryFrom<u8> for TenureChangeCause {
     fn try_from(num: u8) -> Result<Self, Self::Error> {
         match num {
             0 => Ok(Self::BlockFound),
-            1 => Ok(Self::NoBlockFound),
-            2 => Ok(Self::NullMiner),
+            1 => Ok(Self::Extended),
             _ => Err(()),
         }
+    }
+}
+
+impl TenureChangeCause {
+    /// Does this tenure change cause require a sortition to be valid?
+    pub fn expects_sortition(&self) -> bool {
+        match self {
+            Self::BlockFound => true,
+            Self::Extended => false,
+        }
+    }
+
+    /// Convert to u8 representation
+    pub fn as_u8(&self) -> u8 {
+        *self as u8
     }
 }
 
@@ -659,20 +675,71 @@ pub enum TenureChangeError {
 /// Schnorr threshold signature using types from `wsts`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThresholdSignature(pub wsts::common::Signature);
+impl FromSql for ThresholdSignature {
+    fn column_result(value: ValueRef) -> FromSqlResult<ThresholdSignature> {
+        let hex_str = value.as_str()?;
+        let bytes = hex_bytes(&hex_str).map_err(|_| FromSqlError::InvalidType)?;
+        let ts = ThresholdSignature::consensus_deserialize(&mut &bytes[..])
+            .map_err(|_| FromSqlError::InvalidType)?;
+        Ok(ts)
+    }
+}
+
+impl ToSql for ThresholdSignature {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+        let bytes = self.serialize_to_vec();
+        let hex_str = to_hex(&bytes);
+        Ok(hex_str.into())
+    }
+}
 
 /// A transaction from Stackers to signal new mining tenure
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TenureChangePayload {
+    /// Consensus hash of this tenure.  Corresponds to the sortition in which the miner of this
+    /// block was chosen.  It may be the case that this miner's tenure gets _extended_ across
+    /// subsequent sortitions; if this happens, then this `consensus_hash` value _remains the same_
+    /// as the sortition in which the winning block-commit was mined.
+    pub tenure_consensus_hash: ConsensusHash,
+    /// Consensus hash of the previous tenure.  Corresponds to the sortition of the previous
+    /// winning block-commit.
+    pub prev_tenure_consensus_hash: ConsensusHash,
+    /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
+    /// sortition.
+    pub burn_view_consensus_hash: ConsensusHash,
     /// The StacksBlockId of the last block from the previous tenure
     pub previous_tenure_end: StacksBlockId,
-    /// The number of blocks produced in the previous tenure
+    /// The number of blocks produced since the last sortition-linked tenure
     pub previous_tenure_blocks: u32,
-    /// A flag to indicate which of the following triggered the tenure change
+    /// A flag to indicate the cause of this tenure change
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
+    /// The Stacker signature
+    pub signature: ThresholdSignature,
     /// A bitmap of which Stackers signed
     pub signers: Vec<u8>,
+}
+
+impl TenureChangePayload {
+    pub fn extend(
+        &self,
+        burn_view_consensus_hash: ConsensusHash,
+        last_tenure_block_id: StacksBlockId,
+        num_blocks_so_far: u32,
+    ) -> Self {
+        TenureChangePayload {
+            tenure_consensus_hash: self.tenure_consensus_hash.clone(),
+            prev_tenure_consensus_hash: self.tenure_consensus_hash.clone(),
+            burn_view_consensus_hash,
+            previous_tenure_end: last_tenure_block_id,
+            previous_tenure_blocks: num_blocks_so_far,
+            cause: TenureChangeCause::Extended,
+            pubkey_hash: self.pubkey_hash.clone(),
+            signature: ThresholdSignature::mock(),
+            signers: vec![],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -683,8 +750,7 @@ pub enum TransactionPayload {
     // the previous epoch leader sent two microblocks with the same sequence, and this is proof
     PoisonMicroblock(StacksMicroblockHeader, StacksMicroblockHeader),
     Coinbase(CoinbasePayload, Option<PrincipalData>, Option<VRFProof>),
-    /// Must contain a Schnorr threshold signature from at least 70% of the Stackers
-    TenureChange(TenureChangePayload, ThresholdSignature),
+    TenureChange(TenureChangePayload),
 }
 
 impl TransactionPayload {
@@ -1310,10 +1376,17 @@ pub mod test {
                 Some(proof.clone()),
             ),
             TransactionPayload::PoisonMicroblock(mblock_header_1, mblock_header_2),
-            TransactionPayload::TenureChange(
-                TenureChangePayload::mock(),
-                ThresholdSignature::mock(),
-            ),
+            TransactionPayload::TenureChange(TenureChangePayload {
+                tenure_consensus_hash: ConsensusHash([0x01; 20]),
+                prev_tenure_consensus_hash: ConsensusHash([0x02; 20]),
+                burn_view_consensus_hash: ConsensusHash([0x03; 20]),
+                previous_tenure_end: StacksBlockId([0x00; 32]),
+                previous_tenure_blocks: 0,
+                cause: TenureChangeCause::BlockFound,
+                pubkey_hash: Hash160([0x00; 20]),
+                signature: ThresholdSignature::mock(),
+                signers: vec![],
+            }),
         ];
 
         // create all kinds of transactions

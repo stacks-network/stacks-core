@@ -430,15 +430,30 @@ impl TestStacksNode {
     }
 
     pub fn get_last_anchored_block(&self, miner: &TestMiner) -> Option<StacksBlock> {
-        match miner.last_block_commit() {
-            None => None,
-            Some(block_commit_op) => {
-                match self.commit_ops.get(&block_commit_op.block_header_hash) {
-                    None => None,
-                    Some(idx) => Some(self.anchored_blocks[*idx].clone()),
+        let mut num_commits = miner.num_block_commits();
+        if num_commits == 0 {
+            return None;
+        }
+
+        while num_commits > 0 {
+            num_commits -= 1;
+            match miner.block_commit_at(num_commits) {
+                None => {
+                    continue;
+                }
+                Some(block_commit_op) => {
+                    match self.commit_ops.get(&block_commit_op.block_header_hash) {
+                        None => {
+                            continue;
+                        }
+                        Some(idx) => {
+                            return Some(self.anchored_blocks[*idx].clone());
+                        }
+                    }
                 }
             }
         }
+        None
     }
 
     pub fn get_last_accepted_anchored_block(
