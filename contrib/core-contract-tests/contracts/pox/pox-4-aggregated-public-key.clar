@@ -39,7 +39,7 @@
 (define-read-only (current-reward-cycle)
     u0)
 
-(define-public (vote-for-aggreated-public-key (key (buff 33)) (reward-cycle uint) (round uint) (tapleaves (list 4001 (buff 33))))
+(define-public (vote-for-aggregated-public-key (key (buff 33)) (reward-cycle uint) (round uint) (tapleaves (list 4001 (buff 33))))
     (let ((signer-public-key (unwrap! (get-signer-public-key tx-sender reward-cycle) err-not-allowed))
             ;; one slot, one vote
             (num-slots (get-signer-slots signer-public-key reward-cycle))
