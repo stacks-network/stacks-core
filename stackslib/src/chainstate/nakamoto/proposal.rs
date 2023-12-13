@@ -31,6 +31,7 @@ use crate::burnchains::{PrivateKey, PublicKey};
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionDBConn, SortitionHandleTx};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
+use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
@@ -129,8 +130,10 @@ impl From<DBError> for BlockValidateReject {
 pub struct NakamotoBlockProposal {
     /// Proposed block
     pub block: NakamotoBlock,
-    /// Identify the stacks/burnchain fork we are on
-    pub parent_consensus_hash: ConsensusHash,
+    // tenure ID -- this is the index block hash of the start block of the last tenure (i.e.
+    // the data we committed to in the block-commit).  If this is an epoch 2.x parent, then
+    // this is just the index block hash of the parent Stacks block.
+    pub tenure_start_block: StacksBlockId,
     /// Most recent burnchain block hash
     pub burn_tip: BurnchainHeaderHash,
     /// This refers to the burn block that was the current tip
@@ -140,36 +143,51 @@ pub struct NakamotoBlockProposal {
     pub burn_tip_height: u32,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
+    /// total BTC burn so far
+    pub total_burn: u64,
 }
 
 impl StacksMessageCodec for NakamotoBlockProposal {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.block)?;
-        write_next(fd, &self.parent_consensus_hash)?;
+        write_next(fd, &self.tenure_start_block)?;
         write_next(fd, &self.burn_tip)?;
         write_next(fd, &self.burn_tip_height)?;
-        write_next(fd, &self.chain_id)
+        write_next(fd, &self.chain_id)?;
+        write_next(fd, &self.total_burn)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         Ok(Self {
             block: read_next(fd)?,
-            parent_consensus_hash: read_next(fd)?,
+            tenure_start_block: read_next(fd)?,
             burn_tip: read_next(fd)?,
             burn_tip_height: read_next(fd)?,
             chain_id: read_next(fd)?,
+            total_burn: read_next(fd)?,
         })
     }
 }
 
 impl NakamotoBlockProposal {
     /// Test this block proposal against the current chain state and
-    /// either accept or reject the proposal.
+    /// either accept or reject the proposal
+    ///
+    /// This is done in 2 steps:
+    /// - Static validation of the block, which checks the following:
+    ///   - Block is well-formed
+    ///   - Transactions are well-formed
+    ///   - Miner signature is valid
+    /// - Validation of transactions by executing them agains current chainstate.
+    ///   This is resource intensive, and therefore done only if previous checks pass
     pub fn validate(
         &self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
     ) -> Result<BlockValidateOk, BlockValidateReject> {
+        // Time this function
+        let ts_start = get_epoch_time_ms();
+
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
             return Err(BlockValidateReject {
@@ -178,12 +196,16 @@ impl NakamotoBlockProposal {
             });
         }
 
+        let burn_dbconn = sortdb.index_conn();
         let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
         let mut db_handle = sortdb.index_handle(&sort_tip);
-        let (chainstate_tx, _clarity_instance) = chainstate.chainstate_tx_begin()?;
+        // Is this safe?
+        let mut _chainstate = chainstate.reopen()?.0;
+        let (chainstate_tx, _clarity_instance) = _chainstate.chainstate_tx_begin()?;
         let expected_burn =
             NakamotoChainState::get_expected_burns(&mut db_handle, &chainstate_tx, &self.block)?;
 
+        // Static validation checks
         NakamotoChainState::validate_nakamoto_block_burnchain(
             &db_handle,
             expected_burn,
@@ -192,12 +214,117 @@ impl NakamotoBlockProposal {
             self.chain_id,
         )?;
 
-        // TODO: Validate block txs against chainstate
+        // Validate block txs against chainstate
+        let parent_stacks_header = NakamotoChainState::get_block_header(
+            &chainstate_tx,
+            &self.block.header.parent_block_id,
+        )?
+        .ok_or_else(|| BlockValidateReject {
+            reason_code: ValidateRejectCode::InvalidBlock,
+            reason: "Invalid parent block".into(),
+        })?;
+        let tenure_change = self
+            .block
+            .txs
+            .iter()
+            .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
+        let coinbase = self
+            .block
+            .txs
+            .iter()
+            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
+        let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(tc.cause),
+            _ => None,
+        });
 
-        Ok(BlockValidateOk {
-            block: self.block.clone(),
-            cost: ExecutionCost::zero(),
-            size: 0, // TODO
-        })
+        let mut builder = NakamotoBlockBuilder::new_from_parent(
+            &self.tenure_start_block,
+            &parent_stacks_header,
+            &self.block.header.consensus_hash,
+            self.total_burn,
+            tenure_change,
+            coinbase,
+        )?;
+
+        let mut miner_tenure_info =
+            builder.load_tenure_info(chainstate, &burn_dbconn, tenure_cause)?;
+        let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
+
+        for (i, tx) in self.block.txs.iter().enumerate() {
+            let tx_len = tx.tx_len();
+            let tx_result = builder.try_mine_tx_with_len(
+                &mut tenure_tx,
+                &tx,
+                tx_len,
+                &BlockLimitFunction::NO_LIMIT_HIT,
+                ASTRules::PrecheckSize,
+            );
+            let err = match tx_result {
+                TransactionResult::Success(_) => Ok(()),
+                TransactionResult::Skipped(s) => Err(format!("tx {i} skipped: {}", s.error)),
+                TransactionResult::ProcessingError(e) => {
+                    Err(format!("Error processing tx {i}: {}", e.error))
+                }
+                TransactionResult::Problematic(p) => {
+                    Err(format!("Problematic tx {i}: {}", p.error))
+                }
+            };
+            if let Err(reason) = err {
+                warn!(
+                    "Rejected block proposal";
+                    "reason" => %reason,
+                    "tx" => ?tx,
+                );
+                return Err(BlockValidateReject {
+                    reason,
+                    reason_code: ValidateRejectCode::BadTransaction,
+                });
+            }
+        }
+
+        let mut block = builder.mine_nakamoto_block(&mut tenure_tx);
+        let size = builder.get_bytes_so_far();
+        let cost = builder.tenure_finish(tenure_tx);
+
+        // Clone signatures from block proposal
+        // These have already been validated by `validate_nakamoto_block_burnchain()``
+        block.header.miner_signature = self.block.header.miner_signature.clone();
+        block.header.signer_signature = self.block.header.signer_signature.clone();
+
+        // Assuming `tx_nerkle_root` has been checked we don't need to hash the whole block
+        let expected_block_header_hash = self.block.header.block_hash();
+        let computed_block_header_hash = block.header.block_hash();
+
+        if computed_block_header_hash != expected_block_header_hash {
+            warn!(
+                "Rejected block proposal";
+                "reason" => "Block hash is not as expected",
+                "expected_block_header_hash" => %expected_block_header_hash,
+                "computed_block_header_hash" => %computed_block_header_hash,
+            );
+            return Err(BlockValidateReject {
+                reason: "Block hash is not as expected".into(),
+                reason_code: ValidateRejectCode::BadBlockHash,
+            });
+        }
+
+        let ts_end = get_epoch_time_ms();
+
+        info!(
+            "Participant: validated anchored block";
+            "block_header_hash" => %computed_block_header_hash,
+            "height" => block.header.chain_length,
+            "tx_count" => block.txs.len(),
+            "parent_stacks_block_id" => %block.header.parent_block_id,
+            "block_size" => size,
+            "execution_cost" => %cost,
+            "validation_time_ms" => ts_end.saturating_sub(ts_start),
+            "tx_fees_microstacks" => block.txs.iter().fold(0, |agg: u64, tx| {
+                agg.saturating_add(tx.get_tx_fee())
+            })
+        );
+
+        Ok(BlockValidateOk { block, cost, size })
     }
 }
