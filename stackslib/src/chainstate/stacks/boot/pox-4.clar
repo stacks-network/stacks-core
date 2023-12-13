@@ -215,6 +215,14 @@
 ;;   for the given reward cycle
 (define-map aggregate-public-keys uint (buff 33))
 
+;; Data var used to track signer set for current cycle
+(define-data-var current-signer-set (list 4000 (buff 33)) (list ))
+
+;; Map that tracks the signing-key & cycle to a list of key-ids
+(define-map reward-cycle-signing-key-ids 
+    {cycle: uint, signer: (buff 33)}
+    {key-ids: (list 4000 uint)})
+
 ;; Getter for stacking-rejectors
 (define-read-only (get-pox-rejection (stacker principal) (reward-cycle uint))
     (map-get? stacking-rejectors { stacker: stacker, reward-cycle: reward-cycle }))
