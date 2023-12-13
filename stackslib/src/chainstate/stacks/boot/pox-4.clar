@@ -1364,7 +1364,16 @@
 )
 
 ;; Gets the signer-set for a given reward cycle
-
+(define-read-only (get-signer-set-by-reward-cycle (cycle uint))
+    (let 
+        (
+            (cycle-to-burn-height (reward-cycle-to-burn-height cycle))
+            (burn-height-to-id-header-hash (get-block-info? id-header-hash cycle-to-burn-height))
+            (signer-set (at-block burn-height-to-id-header-hash (var-get current-signer-set)))
+        )
+        signer-set
+    )
+)
 
 ;; Get the _current_ PoX stacking delegation information for a stacker.  If the information
 ;; is expired, or if there's never been such a stacker, then returns none.
