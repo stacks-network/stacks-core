@@ -1358,6 +1358,8 @@
         ;; Assert that signer key-ids haven't been set yet (map entry is empty)
         (asserts! (is-none (map-get? reward-cycle-signer-key-ids {cycle: next-reward-cycle, signer: signer})) (err ERR_KEY_IDS_ALREADY_SET))
 
+        ;; Q - do we need another check here that we're in the 100-block prepare phase?
+
         ;; Update map with new key-ids for signer
         (map-set reward-cycle-signing-key-ids {cycle: next-reward-cycle, signer: signer} {key-ids: key-idss})
     )
@@ -1365,15 +1367,14 @@
 
 ;; Gets the signer-set for a given reward cycle
 (define-read-only (get-signer-set-by-reward-cycle (cycle uint))
-    (let 
-        (
-            (cycle-to-burn-height (reward-cycle-to-burn-height cycle))
+    (let ((cycle-to-burn-height (reward-cycle-to-burn-height cycle))
             (burn-height-to-id-header-hash (get-block-info? id-header-hash cycle-to-burn-height))
-            (signer-set (at-block burn-height-to-id-header-hash (var-get current-signer-set)))
-        )
-        signer-set
-    )
-)
+            (signer-set (at-block burn-height-to-id-header-hash (var-get current-signer-set))))
+            signer-set))
+
+;; Gets the signer key-ids for a given signer & reward cycle
+(define-read-only (get-signer-key-ids-by-reward-cycle (signer (buff 33)) (cycle uint))
+    (map-get? reward-cycle-signing-key-ids {cycle: cycle, signer: signer}))
 
 ;; Get the _current_ PoX stacking delegation information for a stacker.  If the information
 ;; is expired, or if there's never been such a stacker, then returns none.
