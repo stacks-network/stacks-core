@@ -498,6 +498,10 @@ impl NakamotoBlockBuilder {
 
         Ok((block, consumed, size))
     }
+
+    pub fn get_bytes_so_far(&self) -> u64 {
+        self.bytes_so_far
+    }
 }
 
 impl BlockBuilder for NakamotoBlockBuilder {

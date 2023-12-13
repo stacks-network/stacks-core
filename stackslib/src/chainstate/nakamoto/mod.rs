@@ -1568,7 +1568,7 @@ impl NakamotoChainState {
                 "Invalid Nakamoto block, could not validate on burnchain";
                 "consensus_hash" => %consensus_hash,
                 "block_hash" => %block_hash,
-                "error" => format!("{:?}", &e)
+                "error" => ?e
             );
 
             return Err(e);
@@ -1700,7 +1700,7 @@ impl NakamotoChainState {
         ) {
             warn!("Unacceptable Nakamoto block; will not store";
                   "block_id" => %block.block_id(),
-                  "error" => format!("{:?}", &e)
+                  "error" => ?e
             );
             return Ok(false);
         };
