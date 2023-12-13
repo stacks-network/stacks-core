@@ -20,8 +20,7 @@ use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::{Address, Burnchain, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
-    TransferStxOp,
+    BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -54,7 +53,6 @@ use stacks::net::atlas::{
     AtlasConfig, AtlasDB, GetAttachmentResponse, GetAttachmentsInvResponse,
     MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
-use stacks::net::BurnchainOps;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
 use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
@@ -790,18 +788,6 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     (stacks_tip_consensus_hash, block)
 }
 
-fn get_peg_in_ops(conf: &Config, height: u64) -> BurnchainOps {
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, height);
-    let client = reqwest::blocking::Client::new();
-
-    let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
-
-    eprintln!("{}", response);
-
-    serde_json::from_value(response).unwrap()
-}
-
 fn find_microblock_privkey(
     conf: &Config,
     pubkey_hash: &Hash160,
@@ -841,7 +827,7 @@ fn bitcoind_integration_test() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1174,7 +1160,7 @@ fn deep_contract() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1278,7 +1264,7 @@ fn bad_microblock_pubkey() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1363,7 +1349,7 @@ fn liquid_ustx_integration() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1491,7 +1477,7 @@ fn lockup_integration() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1607,7 +1593,7 @@ fn stx_transfer_btc_integration_test() {
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1876,7 +1862,7 @@ fn stx_delegate_btc_integration_test() {
     conf.burnchain.pox_2_activation = Some(3);
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -2447,7 +2433,7 @@ fn microblock_fork_poison_integration_test() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -2678,7 +2664,7 @@ fn microblock_integration_test() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -3663,7 +3649,7 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -3860,7 +3846,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -4055,7 +4041,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -4196,7 +4182,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                     &format!("large-{}", ix),
                     &format!("
                         ;; a single one of these transactions consumes over half the runtime budget
-                        (define-constant BUFF_TO_BYTE (list 
+                        (define-constant BUFF_TO_BYTE (list
                            0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 0x09 0x0a 0x0b 0x0c 0x0d 0x0e 0x0f
                            0x10 0x11 0x12 0x13 0x14 0x15 0x16 0x17 0x18 0x19 0x1a 0x1b 0x1c 0x1d 0x1e 0x1f
                            0x20 0x21 0x22 0x23 0x24 0x25 0x26 0x27 0x28 0x29 0x2a 0x2b 0x2c 0x2d 0x2e 0x2f
@@ -4250,7 +4236,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
                         &format!("small-{}-{}", ix, i),
                         &format!("
                             ;; a single one of these transactions consumes over half the runtime budget
-                            (define-constant BUFF_TO_BYTE (list 
+                            (define-constant BUFF_TO_BYTE (list
                                0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 0x09 0x0a 0x0b 0x0c 0x0d 0x0e 0x0f
                                0x10 0x11 0x12 0x13 0x14 0x15 0x16 0x17 0x18 0x19 0x1a 0x1b 0x1c 0x1d 0x1e 0x1f
                                0x20 0x21 0x22 0x23 0x24 0x25 0x26 0x27 0x28 0x29 0x2a 0x2b 0x2c 0x2d 0x2e 0x2f
@@ -4322,7 +4308,7 @@ fn runtime_overflow_unconfirmed_microblocks_integration_test() {
     conf.burnchain.epochs = Some(epochs);
 
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -4495,7 +4481,7 @@ fn block_replay_integration_test() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -4627,7 +4613,7 @@ fn cost_voting_integration() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -4946,7 +4932,7 @@ fn mining_events_integration_test() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![
             EventKeyType::AnyEvent,
@@ -5110,7 +5096,7 @@ fn block_limit_hit_integration_test() {
 
     // 700 invocations
     let max_contract_src = format!(
-         "(define-private (work) (begin {} 1)) 
+         "(define-private (work) (begin {} 1))
          (define-private (times-100) (begin {} 1))
          (define-private (times-200) (begin (times-100) (times-100) 1))
          (define-private (times-500) (begin (times-200) (times-200) (times-100) 1))
@@ -5132,7 +5118,7 @@ fn block_limit_hit_integration_test() {
 
     // 2900 invocations
     let oversize_contract_src = format!(
-        "(define-private (work) (begin {} 1)) 
+        "(define-private (work) (begin {} 1))
          (define-private (times-100) (begin {} 1))
          (define-private (times-200) (begin (times-100) (times-100) 1))
          (define-private (times-500) (begin (times-200) (times-200) (times-100) 1))
@@ -5194,7 +5180,7 @@ fn block_limit_hit_integration_test() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -5300,7 +5286,7 @@ fn microblock_limit_hit_integration_test() {
     }
 
     let max_contract_src = format!(
-        "(define-private (work) (begin {} 1)) 
+        "(define-private (work) (begin {} 1))
          (define-private (times-100) (begin {} 1))
          (define-private (times-200) (begin (times-100) (times-100) 1))
          (define-private (times-500) (begin (times-200) (times-200) (times-100) 1))
@@ -5321,7 +5307,7 @@ fn microblock_limit_hit_integration_test() {
     );
 
     let oversize_contract_src = format!(
-        "(define-private (work) (begin {} 1)) 
+        "(define-private (work) (begin {} 1))
          (define-private (times-100) (begin {} 1))
          (define-private (times-200) (begin (times-100) (times-100) 1))
          (define-private (times-500) (begin (times-200) (times-200) (times-100) 1))
@@ -5450,7 +5436,7 @@ fn microblock_limit_hit_integration_test() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -5600,7 +5586,7 @@ fn block_large_tx_integration_test() {
     let (mut conf, miner_account) = neon_integration_test_conf();
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -5739,7 +5725,7 @@ fn microblock_large_tx_integration_test_FLAKY() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -5878,7 +5864,7 @@ fn pox_integration_test() {
     // required for testing post-sunset behavior
     conf.node.always_use_affirmation_maps = false;
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -6417,7 +6403,7 @@ fn atlas_integration_test() {
         .push(initial_balance_user_1.clone());
     conf_follower_node
         .events_observers
-        .push(EventObserverConfig {
+        .insert(EventObserverConfig {
             endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![EventKeyType::AnyEvent],
         });
@@ -6957,7 +6943,7 @@ fn antientropy_integration_test() {
         .push(initial_balance_user_1.clone());
     conf_follower_node
         .events_observers
-        .push(EventObserverConfig {
+        .insert(EventObserverConfig {
             endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
             events_keys: vec![EventKeyType::AnyEvent],
         });
@@ -7959,7 +7945,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
         amount: 10000000000,
     });
     test_observer::spawn();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -8139,7 +8125,7 @@ fn use_latest_tip_integration_test() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -8533,7 +8519,7 @@ fn test_problematic_txs_are_not_stored() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -8685,7 +8671,7 @@ fn spawn_follower_node(
         conf.burnchain.peer_version,
     );
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -8784,7 +8770,7 @@ fn test_problematic_blocks_are_not_mined() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -9142,7 +9128,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -9536,7 +9522,7 @@ fn test_problematic_microblocks_are_not_mined() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -9922,7 +9908,7 @@ fn test_problematic_microblocks_are_not_relayed_or_stored() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -10273,7 +10259,7 @@ fn push_boot_receipts() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -10321,7 +10307,7 @@ fn run_with_custom_wallet() {
     }
 
     let (mut conf, _) = neon_integration_test_conf();
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -10395,7 +10381,7 @@ fn make_runtime_sized_contract(num_index_of: usize, nonce: u64, addr_prefix: &st
 
     let code = format!(
         "
-        (define-constant BUFF_TO_BYTE (list 
+        (define-constant BUFF_TO_BYTE (list
            0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 0x09 0x0a 0x0b 0x0c 0x0d 0x0e 0x0f
            0x10 0x11 0x12 0x13 0x14 0x15 0x16 0x17 0x18 0x19 0x1a 0x1b 0x1c 0x1d 0x1e 0x1f
            0x20 0x21 0x22 0x23 0x24 0x25 0x26 0x27 0x28 0x29 0x2a 0x2b 0x2c 0x2d 0x2e 0x2f
@@ -10905,436 +10891,4 @@ fn microblock_miner_multiple_attempts() {
     }
 
     channel.stop_chains_coordinator();
-}
-
-#[test]
-#[ignore]
-fn test_submit_and_observe_sbtc_ops() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let recipient_stx_addr =
-        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0; 20]));
-    let receiver_contract_name = ContractName::from("awesome_contract");
-    let receiver_contract_principal: PrincipalData =
-        QualifiedContractIdentifier::new(recipient_stx_addr.into(), receiver_contract_name).into();
-    let receiver_standard_principal: PrincipalData =
-        StandardPrincipalData::from(recipient_stx_addr).into();
-
-    let peg_wallet_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-    let peg_wallet_address = PoxAddress::Standard(to_addr(&peg_wallet_sk), None);
-
-    let recipient_btc_addr = PoxAddress::Standard(recipient_stx_addr, None);
-
-    let (mut conf, _) = neon_integration_test_conf();
-
-    let epoch_2_05 = 210;
-    let epoch_2_1 = 215;
-
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-
-    conf.node.mine_microblocks = false;
-    conf.burnchain.max_rbf = 1000000;
-    conf.miner.first_attempt_time_ms = 5_000;
-    conf.miner.subsequent_attempt_time_ms = 10_000;
-    conf.miner.segwit = false;
-    conf.node.wait_time_for_blocks = 0;
-
-    conf.burnchain.epochs = Some(epochs);
-
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
-    let mut run_loop = neon::RunLoop::new(conf.clone());
-
-    btcd_controller
-        .start_bitcoind()
-        .ok()
-        .expect("Failed starting bitcoind");
-
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(216);
-
-    let blocks_processed = run_loop.get_blocks_processed_arc();
-    let run_loop_coordinator_channel = run_loop.get_coordinator_channel().unwrap();
-
-    thread::spawn(move || run_loop.start(None, 0));
-
-    // give the run loop some time to start up!
-    wait_for_runloop(&blocks_processed);
-
-    // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // Let's send some sBTC ops.
-    let peg_in_op_standard = PegInOp {
-        recipient: receiver_standard_principal,
-        peg_wallet_address: peg_wallet_address.clone(),
-        amount: 133700,
-        memo: Vec::new(),
-        // filled in later
-        txid: Txid([0u8; 32]),
-        vtxindex: 0,
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-    };
-
-    let peg_in_op_contract = PegInOp {
-        recipient: receiver_contract_principal,
-        peg_wallet_address: peg_wallet_address.clone(),
-        amount: 133700,
-        memo: Vec::new(),
-        // filled in later
-        txid: Txid([1u8; 32]),
-        vtxindex: 0,
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-    };
-
-    let peg_out_request_op = PegOutRequestOp {
-        recipient: recipient_btc_addr.clone(),
-        signature: MessageSignature([0; 65]),
-        amount: 133700,
-        peg_wallet_address,
-        fulfillment_fee: 1_000_000,
-        memo: Vec::new(),
-        // filled in later
-        txid: Txid([2u8; 32]),
-        vtxindex: 0,
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-    };
-
-    let peg_out_fulfill_op = PegOutFulfillOp {
-        chain_tip: StacksBlockId([0; 32]),
-        recipient: recipient_btc_addr,
-        amount: 133700,
-        request_ref: Txid([2u8; 32]),
-        memo: Vec::new(),
-        // filled in later
-        txid: Txid([3u8; 32]),
-        vtxindex: 0,
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-    };
-
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-    assert!(
-        btc_regtest_controller
-            .submit_operation(
-                StacksEpochId::Epoch21,
-                BlockstackOperationType::PegIn(peg_in_op_standard.clone()),
-                &mut miner_signer,
-                1
-            )
-            .is_some(),
-        "Peg-in operation should submit successfully"
-    );
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let parsed_peg_in_op_standard = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let mut ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
-            .expect("Failed to get peg in ops");
-        assert_eq!(ops.len(), 1);
-
-        ops.pop().unwrap()
-    };
-
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-    assert!(
-        btc_regtest_controller
-            .submit_operation(
-                StacksEpochId::Epoch21,
-                BlockstackOperationType::PegIn(peg_in_op_contract.clone()),
-                &mut miner_signer,
-                1
-            )
-            .is_some(),
-        "Peg-in operation should submit successfully"
-    );
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let parsed_peg_in_op_contract = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let mut ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
-            .expect("Failed to get peg in ops");
-        assert_eq!(ops.len(), 1);
-
-        ops.pop().unwrap()
-    };
-
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-
-    let peg_out_request_txid = btc_regtest_controller
-        .submit_operation(
-            StacksEpochId::Epoch21,
-            BlockstackOperationType::PegOutRequest(peg_out_request_op.clone()),
-            &mut miner_signer,
-            1,
-        )
-        .expect("Peg-out request operation should submit successfully");
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let parsed_peg_out_request_op = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let mut ops = SortitionDB::get_peg_out_request_ops(&sortdb.conn(), &tip.burn_header_hash)
-            .expect("Failed to get peg out request ops");
-        assert_eq!(ops.len(), 1);
-
-        ops.pop().unwrap()
-    };
-
-    let peg_out_request_tx = btc_regtest_controller.get_raw_transaction(&peg_out_request_txid);
-
-    // synthesize the UTXO for this txout, which will be consumed by the peg-out fulfillment tx
-    let peg_out_request_utxo = UTXO {
-        txid: peg_out_request_tx.txid(),
-        vout: 2,
-        script_pub_key: peg_out_request_tx.output[2].script_pubkey.clone(),
-        amount: peg_out_request_tx.output[2].value,
-        confirmations: 0,
-    };
-
-    let mut peg_wallet_signer = BurnchainOpSigner::new(peg_wallet_sk.clone(), false);
-
-    assert!(
-        btc_regtest_controller
-            .submit_manual(
-                StacksEpochId::Epoch21,
-                BlockstackOperationType::PegOutFulfill(peg_out_fulfill_op.clone()),
-                &mut peg_wallet_signer,
-                Some(peg_out_request_utxo),
-            )
-            .is_some(),
-        "Peg-out fulfill operation should submit successfully"
-    );
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let parsed_peg_out_fulfill_op = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let mut ops = SortitionDB::get_peg_out_fulfill_ops(&sortdb.conn(), &tip.burn_header_hash)
-            .expect("Failed to get peg out fulfill ops");
-        assert_eq!(ops.len(), 1);
-
-        ops.pop().unwrap()
-    };
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    assert_eq!(
-        parsed_peg_in_op_standard.recipient,
-        peg_in_op_standard.recipient
-    );
-    assert_eq!(parsed_peg_in_op_standard.amount, peg_in_op_standard.amount);
-    assert_eq!(
-        parsed_peg_in_op_standard.peg_wallet_address,
-        peg_in_op_standard.peg_wallet_address
-    );
-
-    assert_eq!(
-        parsed_peg_in_op_contract.recipient,
-        peg_in_op_contract.recipient
-    );
-    assert_eq!(parsed_peg_in_op_contract.amount, peg_in_op_contract.amount);
-    assert_eq!(
-        parsed_peg_in_op_contract.peg_wallet_address,
-        peg_in_op_contract.peg_wallet_address
-    );
-
-    // now test that the responses from the RPC endpoint match the data
-    //  from the DB
-
-    let query_height_op_contract = parsed_peg_in_op_contract.block_height;
-    let parsed_resp = get_peg_in_ops(&conf, query_height_op_contract);
-
-    let parsed_peg_in_op_contract = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Unexpected op"),
-    };
-
-    let query_height_op_standard = parsed_peg_in_op_standard.block_height;
-    let parsed_resp = get_peg_in_ops(&conf, query_height_op_standard);
-
-    let parsed_peg_in_op_standard = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Unexpected op"),
-    };
-
-    assert_eq!(
-        parsed_peg_in_op_standard.recipient,
-        peg_in_op_standard.recipient
-    );
-    assert_eq!(parsed_peg_in_op_standard.amount, peg_in_op_standard.amount);
-    assert_eq!(
-        parsed_peg_in_op_standard.peg_wallet_address,
-        peg_in_op_standard.peg_wallet_address
-    );
-
-    assert_eq!(
-        parsed_peg_in_op_contract.recipient,
-        peg_in_op_contract.recipient
-    );
-    assert_eq!(parsed_peg_in_op_contract.amount, peg_in_op_contract.amount);
-    assert_eq!(
-        parsed_peg_in_op_contract.peg_wallet_address,
-        peg_in_op_contract.peg_wallet_address
-    );
-
-    assert_eq!(
-        parsed_peg_out_request_op.recipient,
-        peg_out_request_op.recipient
-    );
-    assert_eq!(parsed_peg_out_request_op.amount, peg_out_request_op.amount);
-    assert_eq!(
-        parsed_peg_out_request_op.signature,
-        peg_out_request_op.signature
-    );
-    assert_eq!(
-        parsed_peg_out_request_op.peg_wallet_address,
-        peg_out_request_op.peg_wallet_address
-    );
-    assert_eq!(
-        parsed_peg_out_request_op.fulfillment_fee,
-        peg_out_request_op.fulfillment_fee
-    );
-
-    assert_eq!(
-        parsed_peg_out_fulfill_op.recipient,
-        peg_out_fulfill_op.recipient
-    );
-    assert_eq!(parsed_peg_out_fulfill_op.amount, peg_out_fulfill_op.amount);
-    assert_eq!(
-        parsed_peg_out_fulfill_op.chain_tip,
-        peg_out_fulfill_op.chain_tip
-    );
-
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let get_path =
-        |op, block_height| format!("{}/v2/burn_ops/{}/{}", &http_origin, block_height, op);
-    let client = reqwest::blocking::Client::new();
-
-    // Test peg in
-    let response: serde_json::Value = client
-        .get(&get_path("peg_in", parsed_peg_in_op_standard.block_height))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_in_op = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_in"),
-    };
-
-    // Test peg out request
-    let response: serde_json::Value = client
-        .get(&get_path(
-            "peg_out_request",
-            parsed_peg_out_request_op.block_height,
-        ))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_out_request_op = match parsed_resp {
-        BurnchainOps::PegOutRequest(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_out_request"),
-    };
-
-    // Test peg out fulfill
-    let response: serde_json::Value = client
-        .get(&get_path(
-            "peg_out_fulfill",
-            parsed_peg_out_fulfill_op.block_height,
-        ))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_out_fulfill_op = match parsed_resp {
-        BurnchainOps::PegOutFulfill(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_out_fulfill"),
-    };
-
-    assert_eq!(parsed_peg_in_op.recipient, peg_in_op_standard.recipient);
-    assert_eq!(parsed_peg_in_op.amount, peg_in_op_standard.amount);
-    assert_eq!(
-        parsed_peg_in_op.peg_wallet_address,
-        peg_in_op_standard.peg_wallet_address
-    );
-
-    assert_eq!(
-        parsed_peg_out_request_op.recipient,
-        peg_out_request_op.recipient
-    );
-    assert_eq!(parsed_peg_out_request_op.amount, peg_out_request_op.amount);
-    assert_eq!(
-        parsed_peg_out_request_op.signature,
-        peg_out_request_op.signature
-    );
-    assert_eq!(
-        parsed_peg_out_request_op.peg_wallet_address,
-        peg_out_request_op.peg_wallet_address
-    );
-    assert_eq!(
-        parsed_peg_out_request_op.fulfillment_fee,
-        peg_out_request_op.fulfillment_fee
-    );
-
-    assert_eq!(
-        parsed_peg_out_fulfill_op.recipient,
-        peg_out_fulfill_op.recipient
-    );
-    assert_eq!(parsed_peg_out_fulfill_op.amount, peg_out_fulfill_op.amount);
-    assert_eq!(
-        parsed_peg_out_fulfill_op.chain_tip,
-        peg_out_fulfill_op.chain_tip
-    );
-
-    run_loop_coordinator_channel.stop_chains_coordinator();
 }

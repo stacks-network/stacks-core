@@ -1422,7 +1422,7 @@ The function returns the result of evaluating `expr`.
     example: "
 (define-data-var data int 1)
 (at-block 0x0000000000000000000000000000000000000000000000000000000000000000 block-height) ;; Returns u0
-(at-block (get-block-info? id-header-hash 0) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
+(at-block (unwrap-panic (get-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
@@ -2082,7 +2082,8 @@ type defined using `define-fungible-token`. The increased token balance is _not_
 rather minted.  
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfuly mint, it
-returns `(ok true)`.
+returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in 
+`define-fungible-token`, then a `SupplyOverflow` runtime error is thrown.
 ",
     example: "
 (define-fungible-token stackaroo)

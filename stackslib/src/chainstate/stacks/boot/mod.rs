@@ -97,10 +97,8 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
-    pub static ref POX_4_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_4_BODY);
-    pub static ref POX_4_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_4_BODY);
+    pub static ref POX_4_MAINNET_CODE: String = format!("{}", POX_4_BODY);
+    pub static ref POX_4_TESTNET_CODE: String = format!("{}", POX_4_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -1081,9 +1079,9 @@ impl StacksChainState {
         let reward_cycle = burnchain
             .block_height_to_reward_cycle(current_burn_height)
             .ok_or(Error::PoxNoRewardCycle)?;
-
         self.get_reward_addresses_in_cycle(burnchain, sortdb, reward_cycle, block_id)
     }
+
     /// Get the sequence of reward addresses, as well as the PoX-specified hash mode (which gets
     /// lost in the conversion to StacksAddress)
     /// Each address will have at least (get-stacking-minimum) tokens.
@@ -1168,6 +1166,8 @@ pub mod contract_tests;
 pub mod pox_2_tests;
 #[cfg(test)]
 pub mod pox_3_tests;
+#[cfg(test)]
+pub mod pox_4_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -1441,7 +1441,7 @@ pub mod test {
             .unwrap(),
         ];
 
-        let addrs: Vec<StacksAddress> = keys.iter().map(|ref pk| key_to_stacks_addr(pk)).collect();
+        let addrs: Vec<StacksAddress> = keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
 
         let balances: Vec<(PrincipalData, u64)> = addrs
             .clone()
@@ -1772,6 +1772,24 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_3_NAME,
+            "stack-extend",
+            vec![Value::UInt(lock_period), addr_tuple],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        addr: PoxAddress,
+        lock_period: u128,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
             "stack-extend",
             vec![Value::UInt(lock_period), addr_tuple],
         )

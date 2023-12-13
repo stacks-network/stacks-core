@@ -43,7 +43,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::nakamoto::NakamotoBlock;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
@@ -1001,7 +1001,7 @@ impl NonceCache {
                         let should_store_again = match db_set_nonce(mempool_db, address, nonce) {
                             Ok(_) => false,
                             Err(e) => {
-                                warn!("error caching nonce to sqlite: {}", e);
+                                debug!("error caching nonce to sqlite: {}", e);
                                 true
                             }
                         };
@@ -2159,8 +2159,9 @@ impl MemPoolDB {
             block_hash
         );
 
-        let height = match chainstate.get_stacks_block_height(consensus_hash, block_hash) {
-            Ok(Some(h)) => h,
+        let block_id = StacksBlockId::new(consensus_hash, block_hash);
+        let height = match NakamotoChainState::get_block_header(chainstate.db(), &block_id) {
+            Ok(Some(header)) => header.stacks_block_height,
             Ok(None) => {
                 if *consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
                     0
