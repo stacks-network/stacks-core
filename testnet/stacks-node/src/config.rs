@@ -626,6 +626,12 @@ impl Config {
         }
 
         // check if the Epoch 3.0 burnchain settings as configured are going to be valid.
+        if self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto" {
+            self.check_nakamoto_config(&burnchain);
+        }
+    }
+
+    fn check_nakamoto_config(&self, burnchain: &Burnchain) {
         let epochs = StacksEpoch::get_epochs(
             self.burnchain.get_bitcoin_network().1,
             self.burnchain.epochs.as_ref(),
