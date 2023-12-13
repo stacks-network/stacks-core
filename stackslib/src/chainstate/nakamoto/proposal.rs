@@ -134,13 +134,6 @@ pub struct NakamotoBlockProposal {
     // the data we committed to in the block-commit).  If this is an epoch 2.x parent, then
     // this is just the index block hash of the parent Stacks block.
     pub tenure_start_block: StacksBlockId,
-    /// Most recent burnchain block hash
-    pub burn_tip: BurnchainHeaderHash,
-    /// This refers to the burn block that was the current tip
-    ///  at the time this proposal was constructed. In most cases,
-    ///  if this proposal is accepted, it will be "mined" in the next
-    ///  burn block.
-    pub burn_tip_height: u32,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
     /// total BTC burn so far
@@ -151,8 +144,6 @@ impl StacksMessageCodec for NakamotoBlockProposal {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.block)?;
         write_next(fd, &self.tenure_start_block)?;
-        write_next(fd, &self.burn_tip)?;
-        write_next(fd, &self.burn_tip_height)?;
         write_next(fd, &self.chain_id)?;
         write_next(fd, &self.total_burn)
     }
@@ -161,8 +152,6 @@ impl StacksMessageCodec for NakamotoBlockProposal {
         Ok(Self {
             block: read_next(fd)?,
             tenure_start_block: read_next(fd)?,
-            burn_tip: read_next(fd)?,
-            burn_tip_height: read_next(fd)?,
             chain_id: read_next(fd)?,
             total_burn: read_next(fd)?,
         })
