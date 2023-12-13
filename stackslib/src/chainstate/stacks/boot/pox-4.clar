@@ -27,6 +27,9 @@
 (define-constant ERR_DELEGATION_WRONG_REWARD_SLOT 29)
 (define-constant ERR_STACKING_IS_DELEGATED 30)
 (define-constant ERR_STACKING_NOT_DELEGATED 31)
+(define-constant ERR_STACK_EXTEND_NO_SIGNING_KEY 32)
+(define-constant ERR_NEXT_SIGNER_SET_ALREADY_REGISTERED 33)
+(define-constant ERR_NOT_IN_PREPARE_PHASE 34)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -1313,6 +1316,41 @@
       ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
             unlock-burn-height: new-unlock-ht }))))
+
+;; This funciton allows a node to register a new 'current-signer-set' during the prepare phase
+(define-private (update-current-signer-set (new-signer-set (list 4000 (buff 33))))
+    (let 
+        (
+            (current-signers (var-get current-signer-set))
+            (next-reward-cycle (+ u1 current-pox-reward-cycle))
+            (next-reward-cycle-burn-height (reward-cycle-to-burn-height next-reward-cycle))
+            (next-signer-set-map (map-get? reward-cycle-signing-key-ids next-reward-cycle))
+        )
+
+        ;; Assert not already set by checking for 'none' map entry
+        (asserts! (is-none next-signer-set-map) (err ERR_NEXT_SIGNER_SET_ALREADY_REGISTERED))
+
+        ;; Assert in prepare phase (in the last 100 blocks of the current cycle)
+        (asserts! 
+            (and 
+                (>= block-height (- next-reward-cycle-burn-height u100))
+                (< block-height next-reward-cycle-burn-height))
+                (err ERR_NOT_IN_PREPARE_PHASE))
+
+        ;; Updates new signer-set
+    )
+)
+
+;; Data var used to track signer set for current cycle
+(define-data-var current-signer-set (list 4000 (buff 33)) (list ))
+
+;; Map that tracks the signing-key & cycle to a list of key-ids
+(define-map reward-cycle-signing-key-ids 
+    {cycle: uint, signer: (buff 33)}
+    {key-ids: (list 4000 uint)})
+
+;; Gets the signer-set for a given reward cycle
+
 
 ;; Get the _current_ PoX stacking delegation information for a stacker.  If the information
 ;; is expired, or if there's never been such a stacker, then returns none.
