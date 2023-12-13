@@ -1320,7 +1320,7 @@
             unlock-burn-height: new-unlock-ht }))))
 
 ;; This function allows a node to register a new 'current-signer-set' during the prepare phase
-(define-private (update-current-signer-set (new-signer-set (list 4000 {signer: (buff 33)})))
+(define-private (update-current-signer-set (new-signer-set (list 4096 {signer: (buff 33)})))
     (let 
         (
             (next-reward-cycle (+ u1 current-pox-reward-cycle))
@@ -1345,7 +1345,7 @@
 
 ;; This function allows a node to register a list of key-ids to the current-signer-set
 ;; This work is done one-at-a-time by the node & could require up to 4096 individual writes
-(define-private (update-current-signer (signer (buff 33)) (key-ids (list 4000 uint)))
+(define-private (update-current-signer (signer (buff 33)) (key-ids (list 4096 uint)))
     (let 
         (
             (current-signers (var-get current-signer-set))
