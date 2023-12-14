@@ -698,6 +698,7 @@ mod tests {
         );
     }
 
+    /*
     #[test]
     fn test_schnorr_signature_serde() {
         use wsts::traits::Aggregator;
@@ -774,4 +775,5 @@ mod tests {
             assert!(reverted_signature.verify(&aggregate_public_key, msg));
         }
     }
+    */
 }

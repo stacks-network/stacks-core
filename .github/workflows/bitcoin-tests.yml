@@ -31,7 +31,7 @@ jobs:
         test-name:
           - tests::bitcoin_regtest::bitcoind_integration_test
           - tests::integrations::integration_test_get_info
-          - tests::neon_integrations::antientropy_integration_test
+          - tests::neon_integrations::antientropy_integration_test 
           - tests::neon_integrations::bad_microblock_pubkey
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::bitcoind_integration_test
@@ -69,12 +69,15 @@ jobs:
           - tests::neon_integrations::test_problematic_txs_are_not_stored
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::should_succeed_handling_malformed_and_valid_txs
+          - tests::nakamoto_integrations::simple_neon_integration
     steps:
       ## Setup test environment
       - name: Setup Test Environment
         id: setup_tests
         uses: stacks-network/actions/stacks-core/testenv@main
-
+        with:
+          btc-version: "25.0"
+          
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests

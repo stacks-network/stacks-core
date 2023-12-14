@@ -1360,7 +1360,7 @@ impl StacksChainState {
                 let receipt = StacksTransactionReceipt::from_coinbase(tx.clone());
                 Ok(receipt)
             }
-            TransactionPayload::TenureChange(ref payload, ref signature) => {
+            TransactionPayload::TenureChange(ref payload) => {
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -1370,7 +1370,18 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
-                // TODO: More checks before adding to block?
+                // what kind of tenure-change?
+                match payload.cause {
+                    TenureChangeCause::BlockFound => {
+                        // a sortition triggered this tenure change.
+                        // this is already processed, so it's a no-op here.
+                    }
+                    TenureChangeCause::Extended => {
+                        // the stackers granted a tenure extension.
+                        // reset the runtime cost
+                        debug!("TenureChange extends block tenure");
+                    }
+                }
 
                 let receipt = StacksTransactionReceipt::from_tenure_change(tx.clone());
                 Ok(receipt)

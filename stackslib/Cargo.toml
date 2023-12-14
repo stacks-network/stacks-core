@@ -55,7 +55,7 @@ pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 wsts = {workspace = true}
-rand_core = "0.6"
+rand_core = {workspace = true}
 p256k1 = "5.5.0"
 # clar2wasm = { package = "clar2wasm", path = "../../clar2wasm/." }
 clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git" }

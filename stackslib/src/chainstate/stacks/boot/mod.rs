@@ -81,6 +81,11 @@ const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
 pub const COSTS_3_NAME: &'static str = "costs-3";
+/// This contract name is used in testnet **only** to lookup an initial
+///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
+///  function called `aggregate-key` with zero arguments which returns a (buff 33)
+pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &'static str = "pox-4-agg-test-booter";
+pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &'static str = "aggregate-key";
 
 pub mod docs;
 
@@ -1168,6 +1173,8 @@ pub mod contract_tests;
 pub mod pox_2_tests;
 #[cfg(test)]
 pub mod pox_3_tests;
+#[cfg(test)]
+pub mod pox_4_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -1441,7 +1448,7 @@ pub mod test {
             .unwrap(),
         ];
 
-        let addrs: Vec<StacksAddress> = keys.iter().map(|ref pk| key_to_stacks_addr(pk)).collect();
+        let addrs: Vec<StacksAddress> = keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
 
         let balances: Vec<(PrincipalData, u64)> = addrs
             .clone()
@@ -1772,6 +1779,24 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_3_NAME,
+            "stack-extend",
+            vec![Value::UInt(lock_period), addr_tuple],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        addr: PoxAddress,
+        lock_period: u128,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
             "stack-extend",
             vec![Value::UInt(lock_period), addr_tuple],
         )
