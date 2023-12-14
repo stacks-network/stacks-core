@@ -615,7 +615,7 @@
 
 ;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
 ;; The STX will be locked for the given number of reward cycles (lock-period).
-;; This is the self-service interface.  tx-sender will be the Stacker. Stacker is responsible for provided a valid signing key.
+;; This is the self-service interface.  tx-sender will be the Stacker. Stacker is responsible for providing a valid signing key.
 ;;
 ;; * The given stacker cannot currently be stacking.
 ;; * You will need the minimum uSTX threshold.  This will be determined by (get-stacking-minimum)
@@ -1141,7 +1141,7 @@
               first-reward-cycle: first-reward-cycle,
               lock-period: lock-period,
               delegated-to: none,
-              signing-key: new-signing-key })
+              signing-key: next-signing-key })
 
         ;; return lock-up information
         (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
@@ -1326,7 +1326,7 @@
           first-reward-cycle: first-reward-cycle,
           lock-period: lock-period,
           delegated-to: (some tx-sender),
-          signing-key: new-signing-key })
+          signing-key: next-signing-key })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
