@@ -19,6 +19,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::{cmp, thread};
 
+use clarity::boot_util::boot_code_id;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::ClarityVersion;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -27,12 +31,12 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks_common::types::PublicKey;
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{to_hex, Hash160};
 use stx_genesis::GenesisData;
 
 use crate::burnchains::make_bitcoin_indexer;
@@ -217,9 +221,6 @@ impl RunLoop {
             .iter()
             .map(|e| (e.address.clone(), e.amount))
             .collect();
-
-        // TODO (nakamoto-neon): check if we're trying to setup a self-signing network
-        //  and set the right genesis data
 
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {

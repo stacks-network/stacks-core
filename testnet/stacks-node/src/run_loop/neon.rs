@@ -6,6 +6,10 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::{cmp, thread};
 
+use clarity::boot_util::boot_code_id;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::ClarityVersion;
 use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
@@ -17,7 +21,8 @@ use stacks::chainstate::coordinator::{
     static_get_heaviest_affirmation_map, static_get_stacks_tip_affirmation_map, ChainsCoordinator,
     ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
+use stacks::chainstate::nakamoto::NakamotoChainState;
+use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
@@ -25,7 +30,7 @@ use stacks::util_lib::db::Error as db_error;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 use stacks_common::types::PublicKey;
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{to_hex, Hash160};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
@@ -471,10 +476,23 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
+        // TODO: delete this once aggregate public key voting is working
+        let agg_pubkey_boot_callback = if let Some(self_signer) = self.config.self_signing() {
+            let agg_pub_key = self_signer.aggregate_public_key.clone();
+            info!("Neon node setting agg public key"; "agg_pub_key" => %to_hex(&agg_pub_key.compress().data));
+            let callback = Box::new(move |clarity_tx: &mut ClarityTx| {
+                NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key)
+            }) as Box<dyn FnOnce(&mut ClarityTx)>;
+            Some(callback)
+        } else {
+            warn!("Self-signing is not supported yet");
+            None
+        };
+
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback: None,
+            post_flight_callback: agg_pubkey_boot_callback,
             first_burnchain_block_hash: burnchain_config.first_block_hash,
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,

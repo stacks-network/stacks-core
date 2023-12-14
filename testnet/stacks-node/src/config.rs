@@ -599,7 +599,7 @@ impl Config {
                 .iter()
                 .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
             {
-                // Override pox_3_activation_height to the start_height of epoch2.5
+                // Override pox_4_activation_height to the start_height of epoch2.5
                 debug!(
                     "Override pox_4_activation_height from {} to {}",
                     burnchain.pox_constants.pox_4_activation_height, epoch.start_height
