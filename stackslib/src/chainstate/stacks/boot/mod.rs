@@ -81,6 +81,11 @@ const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
 pub const COSTS_3_NAME: &'static str = "costs-3";
+/// This contract name is used in testnet **only** to lookup an initial
+///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
+///  function called `aggregate-key` with zero arguments which returns a (buff 33)
+pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &'static str = "pox-4-agg-test-booter";
+pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &'static str = "aggregate-key";
 
 pub mod docs;
 

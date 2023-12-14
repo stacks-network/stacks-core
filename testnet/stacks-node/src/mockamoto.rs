@@ -20,8 +20,10 @@ use std::thread;
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
+use clarity::boot_util::boot_code_id;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::Value as ClarityValue;
+use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::{ClarityVersion, Value as ClarityValue};
 use lazy_static::lazy_static;
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
@@ -48,6 +50,9 @@ use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::boot::{
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, POX_4_NAME,
+};
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, MinerStatus, TransactionResult,
@@ -79,9 +84,10 @@ use stacks_common::types::chainstate::{
     StacksPrivateKey, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
+use wsts::curve::point::Point;
 
 use self::signer::SelfSigner;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
@@ -419,7 +425,15 @@ impl MockamotoNode {
 
         initial_balances.push((stacker.into(), 100_000_000_000_000));
 
-        let mut boot_data = ChainStateBootData::new(&burnchain, initial_balances, None);
+        // Create a boot contract to initialize the aggregate public key prior to Pox-4 activation
+        let self_signer = SelfSigner::single_signer();
+        let agg_pub_key = self_signer.aggregate_public_key.clone();
+        info!("Mockamoto node setting agg public key"; "agg_pub_key" => %to_hex(&self_signer.aggregate_public_key.compress().data));
+        let callback = move |clarity_tx: &mut ClarityTx| {
+            NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key);
+        };
+        let mut boot_data =
+            ChainStateBootData::new(&burnchain, initial_balances, Some(Box::new(callback)));
         let (chainstate, boot_receipts) = StacksChainState::open_and_exec(
             config.is_mainnet(),
             config.burnchain.chain_id,
@@ -460,7 +474,7 @@ impl MockamotoNode {
 
         Ok(MockamotoNode {
             sortdb,
-            self_signer: SelfSigner::single_signer(),
+            self_signer,
             chainstate,
             miner_key,
             vrf_key,
@@ -793,6 +807,9 @@ impl MockamotoNode {
         let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
         let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
 
+        let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
+        let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
+
         // Add a tenure change transaction to the block:
         //  as of now every mockamoto block is a tenure-change.
         // If mockamoto mode changes to support non-tenure-changing blocks, this will have
@@ -869,6 +886,7 @@ impl MockamotoNode {
             &mut chainstate_tx,
             clarity_instance,
             &sortdb_handle,
+            self.sortdb.first_block_height,
             &self.sortdb.pox_constants,
             chain_tip_ch.clone(),
             chain_tip_bh.clone(),
@@ -977,7 +995,17 @@ impl MockamotoNode {
         let config = self.chainstate.config();
         let chain_length = block.header.chain_length;
         let mut sortition_handle = self.sortdb.index_handle_at_tip();
-        let aggregate_public_key = self.self_signer.aggregate_public_key;
+        let aggregate_public_key = if chain_length <= 1 {
+            self.self_signer.aggregate_public_key
+        } else {
+            let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
+                &mut self.chainstate,
+                &self.sortdb,
+                &sortition_handle,
+                &block,
+            )?;
+            aggregate_public_key
+        };
         self.self_signer.sign_nakamoto_block(&mut block);
         let staging_tx = self.chainstate.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
