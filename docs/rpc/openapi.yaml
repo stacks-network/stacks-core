@@ -576,22 +576,22 @@ paths:
         - name: block
           in: query
           required: true
-          description: Proposed Block. Must match Rust struct `NakamotoBlock`
+          description: 'Proposed Block. Must match Rust struct `NakamotoBlock`'
         - name: tenure_start_block
           in: query
           required: true
-          description: `StacksBlockId` for block at the start of current mining tenure
+          description: '`StacksBlockId` for block at the start of current mining tenure'
           schema:
             type: string
         - name: chain_id
           in: query
           required: true
-          description: Identifies which chain block is for (Mainnet, Testnet, etc.)
+          description: 'Identifies which chain block is for (Mainnet, Testnet, etc.)'
           schema:
             type: integer
         - name: total_burn
           in: query
           required: true
-          description: Total BTC burn so far
+          description: 'Total BTC burn so far'
           schema:
             type: integer

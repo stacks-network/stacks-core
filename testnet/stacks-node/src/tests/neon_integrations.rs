@@ -66,14 +66,13 @@ use super::bitcoin_regtest::BitcoinCoreController;
 use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
-    SK_2,
+    SK_2, SK_3,
 };
 use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
 use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
-use crate::tests::SK_3;
 use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use crate::util::secp256k1::MessageSignature;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
@@ -742,39 +741,24 @@ pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBl
     }
 }
 
-pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
+pub fn get_chain_info_result(conf: &Config) -> Result<RPCPeerInfoData, reqwest::Error> {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
-
-    tip_info
+    let path = format!("{http_origin}/v2/info");
+    client.get(&path).send().unwrap().json::<RPCPeerInfoData>()
 }
 
 pub fn get_chain_info_opt(conf: &Config) -> Option<RPCPeerInfoData> {
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let client = reqwest::blocking::Client::new();
-
-    // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info_opt = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .ok();
-
-    tip_info_opt
+    get_chain_info_result(conf).ok()
 }
 
-fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
+pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
+    get_chain_info_result(conf).unwrap()
+}
+
+pub fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let tip_info = get_chain_info(conf);
 
     // get the canonical chain tip
