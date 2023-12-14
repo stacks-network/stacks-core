@@ -19,6 +19,7 @@ mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
 pub(crate) mod stacks_client;
 
+use std::fmt::Debug;
 use std::time::Duration;
 
 use clarity::vm::types::serialization::SerializationError;
@@ -81,13 +82,13 @@ pub enum ClientError {
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure
-pub fn retry_with_exponential_backoff<F, E, T>(request_fn: F) -> Result<T, ClientError>
+pub fn retry_with_exponential_backoff<F, E: Debug, T>(request_fn: F) -> Result<T, ClientError>
 where
     F: FnMut() -> Result<T, backoff::Error<E>>,
 {
-    let notify = |_err, dur| {
+    let notify = |err, dur| {
         debug!(
-            "Failed to connect to stacks-node. Next attempt in {:?}",
+            "Failed to connect to stacks-node. {err:?} Next attempt in {:?}",
             dur
         );
     };
