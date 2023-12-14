@@ -615,13 +615,14 @@
 
 ;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
 ;; The STX will be locked for the given number of reward cycles (lock-period).
-;; This is the self-service interface.  tx-sender will be the Stacker.
+;; This is the self-service interface.  tx-sender will be the Stacker. Stacker is responsible for provided a valid signing key.
 ;;
 ;; * The given stacker cannot currently be stacking.
 ;; * You will need the minimum uSTX threshold.  This will be determined by (get-stacking-minimum)
 ;; at the time this method is called.
 ;; * You may need to increase the amount of uSTX locked up later, since the minimum uSTX threshold
 ;; may increase between reward cycles.
+;; * You need to provide a signing-key used to allocate signature-weight to a valid signer
 ;; * The Stacker will receive rewards in the reward cycle following `start-burn-ht`.
 ;; Importantly, `start-burn-ht` may not be further into the future than the next reward cycle,
 ;; and in most cases should be set to the current burn block height.
@@ -865,6 +866,7 @@
           (ok true))))
 
 ;; As a delegate, stack the given principal's STX using partial-stacked-by-cycle
+;; As a delegate, you need to provide a signing-key used to allocate signature-weight to a valid signer
 ;; Once the delegate has stacked > minimum, the delegate should call stack-aggregation-commit
 (define-public (delegate-stack-stx (stacker principal)
                                    (amount-ustx uint)
@@ -1072,10 +1074,7 @@
          (stacker-state (unwrap! (get-stacker-info tx-sender) (err ERR_STACK_EXTEND_NOT_LOCKED)))
          (amount-ustx (get locked stacker-info))
          (unlock-height (get unlock-height stacker-info))
-         (current-signing-key (get signing-key stacker-state))
-         (new-signing-key (match updated-signing-key 
-            param-key param-key 
-            current-signing-key))
+         (next-signing-key (default-to (get signing-key stacker-state) updated-signing-key))
          (cur-cycle (current-pox-reward-cycle))
          ;; first-extend-cycle will be the cycle in which tx-sender *would have* unlocked
          (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
@@ -1250,10 +1249,7 @@
           (stacker-state (unwrap! (get-stacker-info stacker) (err ERR_STACK_EXTEND_NOT_LOCKED)))
           (amount-ustx (get locked stacker-info))
           (unlock-height (get unlock-height stacker-info))
-          (current-signing-key (get signing-key stacker-state))
-          (new-signing-key (match updated-signing-key 
-            param-key param-key 
-            current-signing-key))
+          (next-signing-key (default-to (get signing-key stacker-state) updated-signing-key))
           ;; first-extend-cycle will be the cycle in which tx-sender *would have* unlocked
           (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
           (cur-cycle (current-pox-reward-cycle))
