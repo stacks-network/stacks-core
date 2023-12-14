@@ -87,7 +87,6 @@ use crate::util_lib::db::{
 
 pub mod coordinator;
 pub mod miner;
-pub mod proposal;
 pub mod tenure;
 
 #[cfg(test)]
@@ -577,13 +576,9 @@ impl NakamotoBlock {
 
         // there is one coinbase.
         // go find it.
-        self.txs.iter().find(|tx| {
-            if let TransactionPayload::Coinbase(..) = &tx.payload {
-                true
-            } else {
-                false
-            }
-        })
+        self.txs
+            .iter()
+            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)))
     }
 
     /// Get the VRF proof from this block.
@@ -1051,7 +1046,7 @@ impl NakamotoBlock {
             .map_err(|e| {
                 warn!(
                     "Leader key did not contain a hash160 of the miner signing public key";
-                    "leader_key" => format!("{:?}", &leader_key),
+                    "leader_key" => ?leader_key,
                 );
                 e
             })?;
@@ -2165,7 +2160,7 @@ impl NakamotoChainState {
             total_tenure_cost,
             &tenure_tx_fees.to_string(),
             &header.parent_block_id,
-            if tenure_changed { &1i64 } else { &0 },
+            if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
         ];
 

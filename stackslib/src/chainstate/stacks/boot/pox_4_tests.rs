@@ -507,7 +507,7 @@ fn pox_extend_transition() {
     for cycle_number in first_v4_cycle..(first_v4_cycle + 4) {
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
-        info!("----- {cycle_number} -----");
+        //info!("----- {cycle_number} -----");
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),
@@ -607,6 +607,7 @@ fn pox_extend_transition() {
     for cycle_number in (first_v4_cycle + 4)..(first_v4_cycle + 10) {
         let cycle_start = burnchain.reward_cycle_to_block_height(cycle_number);
         let reward_set_entries = get_reward_set_entries_at(&mut peer, &latest_block, cycle_start);
+        info!("----- {cycle_number} -----");
         assert_eq!(reward_set_entries.len(), 1);
         assert_eq!(
             reward_set_entries[0].reward_address.bytes(),

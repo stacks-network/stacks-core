@@ -32,7 +32,7 @@ use stacks_common::util::retry::BoundReader;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::proposal::{BlockValidateResponse, NakamotoBlockProposal};
+use crate::chainstate::nakamoto::miner::{BlockValidateResponse, NakamotoBlockProposal};
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -42,7 +42,7 @@ use crate::chainstate::stacks::{
 use crate::core::mempool::MemPoolDB;
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
-    parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
+    http_reason, parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
     HttpRequestContents, HttpRequestPreamble, HttpResponse, HttpResponseContents,
     HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
@@ -162,14 +162,25 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             .take()
             .ok_or(NetError::SendError("`block_proposal` not set".into()))?;
 
-        let resp = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
+        let res = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
             block_proposal.validate(sortdb, chainstate)
         });
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
-        let body = HttpResponseContents::try_from_json(&resp)?;
-        Ok((preamble, body))
+        match res {
+            Ok(ok) => {
+                let mut preamble = HttpResponsePreamble::accepted_json(&preamble);
+                preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+                let body = HttpResponseContents::try_from_json(&ok)?;
+                Ok((preamble, body))
+            }
+            Err(err) => {
+                let code = 400;
+                let mut preamble = HttpResponsePreamble::error_json(code, http_reason(code));
+                preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+                let body = HttpResponseContents::try_from_json(&err)?;
+                Ok((preamble, body))
+            }
+        }
     }
 }
 

@@ -18,14 +18,19 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
+use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use lazy_static::lazy_static;
+//use stacks::burnchains::tests::TestMinerFactory;
 use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoBlockProposal};
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -33,21 +38,22 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
 use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
-use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
 use super::bitcoin_regtest::BitcoinCoreController;
-use crate::config::{EventKeyType, EventObserverConfig};
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::mockamoto::signer::SelfSigner;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::run_loop::boot_nakamoto;
-use crate::tests::make_stacks_transfer;
 use crate::tests::neon_integrations::{
     get_account, get_pox_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
     test_observer, wait_for_runloop,
 };
+use crate::tests::{make_stacks_transfer, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
@@ -121,9 +127,27 @@ lazy_static! {
     ];
 }
 
+pub fn add_initial_balances(conf: &mut Config, accounts: usize) -> Vec<StacksPrivateKey> {
+    (0..accounts)
+        .map(|i| {
+            let privk = StacksPrivateKey::from_seed(&[5, 5, 5, i as u8]);
+
+            conf.initial_balances.push(InitialBalance {
+                address: to_addr(&privk).into(),
+                amount: 100000,
+            });
+            privk
+        })
+        .collect()
+}
+
 /// Return a working nakamoto-neon config and the miner's bitcoin address to fund
-pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress) {
+pub fn naka_neon_integration_conf(
+    seed: Option<&[u8]>,
+) -> (Config, StacksAddress, Vec<StacksPrivateKey>) {
     let mut conf = super::new_test_conf();
+    let account_keys = add_initial_balances(&mut conf, 10);
+
     conf.burnchain.mode = "nakamoto-neon".into();
 
     // tests can override this, but these tests run with epoch 2.05 by default
@@ -138,7 +162,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     let mining_key = Secp256k1PrivateKey::from_seed(&[1]);
     conf.miner.mining_key = Some(mining_key);
-    conf.miner.self_signing_key = Some(SelfSigner::single_signer());
+    conf.miner.self_signing_key = Some(SelfSigner::from_seed(7));
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
@@ -180,7 +204,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.burnchain.pox_prepare_length = Some(5);
     conf.burnchain.pox_reward_length = Some(20);
 
-    (conf, miner_account)
+    (conf, miner_account, account_keys)
 }
 
 pub fn next_block_and<F>(
@@ -371,7 +395,7 @@ fn simple_neon_integration() {
         return;
     }
 
-    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let (mut naka_conf, _miner_account, _account_keys) = naka_neon_integration_conf(None);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
@@ -554,7 +578,7 @@ fn mine_multiple_per_tenure_integration() {
         return;
     }
 
-    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let (mut naka_conf, _miner_account, _account_keys) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -906,6 +930,237 @@ fn correct_burn_outs() {
         );
     }
 
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test `/v2/block_proposal` API endpoint
+///
+/// This endpoint allows miners to propose Nakamoto blocks to a node,
+/// and test if they would be accepted or rejected
+#[test]
+#[ignore]
+fn block_proposal_api_endpoint() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, _miner_account, account_keys) = naka_neon_integration_conf(None);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for a test stx transfer
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 100;
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        send_amt + send_fee,
+    );
+    let _recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &conf,
+        &blocks_processed,
+        stacker_sk,
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        conf.is_mainnet(),
+        conf.burnchain.chain_id,
+        &conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let _block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    info!("Nakamoto miner started...");
+
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    // Mine 15 nakamoto tenures
+    for _ in 0..15 {
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+    }
+
+    // TODO (hack) instantiate the sortdb in the burnchain
+    _ = btc_regtest_controller.sortdb_mut();
+
+    // Set up test signer
+    let signer = conf.miner.self_signing_key.as_mut().unwrap();
+
+    // ----- Setup boilerplate finished, test block proposal API endpoint -----
+
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    let privk = conf.miner.mining_key.unwrap().clone();
+    let parent_block_id = tip.index_block_hash();
+    // TODO
+    let total_burn = 640000;
+    let tenure_change = None;
+    let coinbase = None;
+
+    let tenure_cause = tenure_change.and_then(|tx: &StacksTransaction| match &tx.payload {
+        TransactionPayload::TenureChange(tc) => Some(tc.cause),
+        _ => None,
+    });
+
+    // Apply both miner/stacker signatures
+    let mut sign = |mut p: NakamotoBlockProposal| {
+        p.block
+            .header
+            .sign_miner(&privk)
+            .expect("Miner failed to sign");
+        signer.sign_nakamoto_block(&mut p.block);
+        p
+    };
+
+    // Put block builder in code block so any database locks expire at the end
+    let block = {
+        let mut builder = NakamotoBlockBuilder::new(
+            &tip,
+            &tip.consensus_hash,
+            total_burn,
+            tenure_change,
+            coinbase,
+        )
+        .expect("Failed to build Nakamoto block");
+
+        let burn_dbconn = btc_regtest_controller.sortdb_ref().index_conn();
+        let mut miner_tenure_info = builder
+            .load_tenure_info(&mut chainstate, &burn_dbconn, tenure_cause)
+            .unwrap();
+        let mut tenure_tx = builder
+            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+            .unwrap();
+
+        let tx = make_stacks_transfer(
+            &account_keys[0],
+            0,
+            100,
+            &to_addr(&account_keys[1]).into(),
+            10000,
+        );
+        let tx = StacksTransaction::consensus_deserialize(&mut &tx[..])
+            .expect("Failed to deserialize transaction");
+        let tx_len = tx.tx_len();
+
+        let res = builder.try_mine_tx_with_len(
+            &mut tenure_tx,
+            &tx,
+            tx_len,
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            ASTRules::PrecheckSize,
+        );
+        assert!(
+            matches!(res, TransactionResult::Success(..)),
+            "Transaction failed"
+        );
+        builder.mine_nakamoto_block(&mut tenure_tx)
+    };
+
+    // Construct a valid proposal. Make alterations to this to test failure cases
+    let proposal = NakamotoBlockProposal {
+        block,
+        tenure_start_block: parent_block_id,
+        chain_id: chainstate.chain_id,
+        total_burn,
+    };
+
+    const HTTP_ACCEPTED: u16 = 202;
+    const HTTP_BADREQUEST: u16 = 400;
+    let test_cases = [
+        ("No signature", proposal.clone(), HTTP_BADREQUEST),
+        ("Signed", sign(proposal.clone()), HTTP_ACCEPTED),
+    ];
+
+    // Build HTTP client
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .expect("Failed to build reqwest::Client");
+    // Build URL
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let path = format!("{http_origin}/v2/block_proposal");
+
+    for (test_description, block_proposal, expected_response) in test_cases {
+        eprintln!("test_block_proposal(): {test_description}");
+        eprintln!("{block_proposal:?}");
+
+        // Send POST request
+        let response = client
+            .post(&path)
+            .header("Content-Type", "application/json")
+            .json(&block_proposal)
+            .send()
+            .expect("Failed to POST");
+
+        eprintln!("{response:?}");
+        assert_eq!(response.status().as_u16(), expected_response);
+    }
+
+    // Clean up
     coord_channel
         .lock()
         .expect("Mutex poisoned")
