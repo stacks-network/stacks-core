@@ -8,7 +8,7 @@ use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
 use wsts::net::{Message, Packet, Signable};
-use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::coordinator::fire::Coordinator as FrostCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
 use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys};

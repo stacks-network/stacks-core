@@ -52,7 +52,7 @@ use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::coordinator::fire::Coordinator as FrostCoordinator;
 use wsts::state_machine::OperationResult;
 use wsts::v2;
 
