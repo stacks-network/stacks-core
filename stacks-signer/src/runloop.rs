@@ -56,7 +56,10 @@ pub enum RunLoopCommand {
         merkle_root: Option<MerkleRoot>,
     },
     /// Send this Command to the runlop to start an RTT broadcast.
-    Ping,
+    Ping {
+        /// Attach a payload of random bytes to the Ping/Pong messages.
+        payload_size: u32,
+    },
 }
 
 /// The RunLoop state
@@ -219,7 +222,7 @@ impl<C: Coordinator> RunLoop<C> {
                     }
                 }
             }
-            RunLoopCommand::Ping => true,
+            RunLoopCommand::Ping { payload_size } => true,
         }
     }
 

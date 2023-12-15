@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 
 use rand_core::{OsRng, RngCore};
 use serde_derive::{Deserialize, Serialize};
@@ -24,15 +24,17 @@ pub enum Packet {
     Pong(Pong),
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
 /// A ping in a slot means someone has requested you to push a Pong into your slot.
 pub struct Ping {
     id: u64,
+    payload: Vec<u8>,
 }
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Clone)]
 /// A pong in a slot means someone has responded to an RTT request.
 pub struct Pong {
     id: u64,
+    payload: Vec<u8>,
 }
 
 impl From<Pong> for Packet {
@@ -49,41 +51,65 @@ impl From<Ping> for Packet {
 
 impl Ping {
     /// Uniquely identify the RTT request
-    pub fn new() -> Self {
+    pub fn new(payload_size: usize) -> Self {
+        let mut payload = Vec::with_capacity(payload_size);
+        OsRng.fill_bytes(payload.as_mut_slice());
         Ping {
             id: OsRng.next_u64(),
+            payload,
         }
     }
 
-    /// Pongs receive their id from a ping.
-    pub fn pong(&self) -> Pong {
-        Pong { id: self.id }
+    /// Pong receives its fields from a ping.
+    pub fn pong(self) -> Pong {
+        Pong {
+            id: self.id,
+            payload: self.payload,
+        }
     }
 
-    ///
+    /// getter
     pub fn id(&self) -> u64 {
         self.id
     }
 }
 
 impl Pong {
-    ///
+    /// getter
     pub fn id(&self) -> u64 {
         self.id
     }
 }
 
+impl Debug for Ping {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Ping").field("id", &self.id).finish()
+    }
+}
+
+impl Debug for Pong {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Pong").field("id", &self.id).finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
     use crate::SignerMessage;
 
     #[test]
     fn same_slot_for_ping_pong() {
-        let ping_packet: SignerMessage = Ping::new().into();
+        let ping_packet: SignerMessage = Ping::new(0).into();
         assert_eq!(
             ping_packet.slot_id(1),
-            SignerMessage::from(Pong { id: 2 }).slot_id(1)
+            SignerMessage::from(Pong {
+                id: 2,
+                payload: vec![]
+            })
+            .slot_id(1)
         );
     }
 
@@ -94,5 +120,14 @@ mod tests {
         assert!(!is_ping_slot(SIGNER_SLOTS_PER_USER));
         assert!(is_ping_slot(SIGNER_SLOTS_PER_USER + PING_SLOT_ID));
         assert!(is_ping_slot(PING_SLOT_ID));
+    }
+
+    #[test]
+    fn debug_skips_load_field() {
+        let ping = Ping::new(1);
+        let ping_string = format!("{ping:?}");
+        let _p = &ping.payload;
+
+        assert!(!ping_string.contains("payload"));
     }
 }

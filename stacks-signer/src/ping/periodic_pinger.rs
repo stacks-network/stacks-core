@@ -23,15 +23,21 @@ pub struct PeriodicPinger {
     keep_running: Arc<AtomicBool>,
     wait_for: Duration,
     sender: Sender<RunLoopCommand>,
+    payload_size: u32,
 }
 
 impl PeriodicPinger {
     /// Spawn a new pinger thread
-    pub fn spawn(tx: Sender<RunLoopCommand>, wait_for: Duration) -> PingStopHandle {
+    pub fn spawn(
+        tx: Sender<RunLoopCommand>,
+        wait_for: Duration,
+        payload_size: u32,
+    ) -> PingStopHandle {
         let runner = Self {
             keep_running: Arc::new(AtomicBool::new(true)),
             wait_for,
             sender: tx,
+            payload_size,
         };
 
         PingStopHandle {
@@ -45,7 +51,9 @@ impl PeriodicPinger {
 
     fn run(self) {
         while self.keep_running() {
-            if let Err(e) = self.sender.send(RunLoopCommand::Ping) {
+            if let Err(e) = self.sender.send(RunLoopCommand::Ping {
+                payload_size: self.payload_size,
+            }) {
                 info!("Exit: Send channel closed: {e}");
                 break;
             }
@@ -78,11 +86,12 @@ mod tests {
     #[test]
     fn pinger_sends() {
         let (tx, rx) = channel();
-        let handle = PeriodicPinger::spawn(tx, Duration::from_millis(50));
+        let payload_size = 8;
+        let handle = PeriodicPinger::spawn(tx, Duration::from_millis(50), 8);
         thread::sleep(Duration::from_millis(200));
 
-        assert!(rx.recv().unwrap() == RunLoopCommand::Ping);
-        assert!(rx.recv().unwrap() == RunLoopCommand::Ping);
+        assert!(rx.recv().unwrap() == RunLoopCommand::Ping { payload_size });
+        assert!(rx.recv().unwrap() == RunLoopCommand::Ping { payload_size });
 
         handle.stop();
     }
