@@ -9,7 +9,7 @@ use std::{cmp, env, fs, thread};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
+use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
 use rand::Rng;
 use rusqlite::types::ToSql;
@@ -20,12 +20,10 @@ use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::{Address, Burnchain, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PegInOp, PegOutFulfillOp, PegOutRequestOp, PreStxOp,
-    TransferStxOp,
+    BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{
     signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
@@ -54,10 +52,8 @@ use stacks::net::atlas::{
     AtlasConfig, AtlasDB, GetAttachmentResponse, GetAttachmentsInvResponse,
     MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
-use stacks::net::BurnchainOps;
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
-use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
@@ -405,7 +401,7 @@ pub mod test_observer {
     }
 
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
-    async fn serve() {
+    async fn serve(port: u16) {
         let new_blocks = warp::path!("new_block")
             .and(warp::post())
             .and(warp::body::json())
@@ -460,7 +456,7 @@ pub mod test_observer {
                 .or(mined_nakamoto_blocks)
                 .or(new_stackerdb_chunks),
         )
-        .run(([127, 0, 0, 1], EVENT_OBSERVER_PORT))
+        .run(([127, 0, 0, 1], port))
         .await
     }
 
@@ -468,7 +464,15 @@ pub mod test_observer {
         clear();
         thread::spawn(|| {
             let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
-            rt.block_on(serve());
+            rt.block_on(serve(EVENT_OBSERVER_PORT));
+        });
+    }
+
+    pub fn spawn_at(port: u16) {
+        clear();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to initialize tokio");
+            rt.block_on(serve(port));
         });
     }
 
@@ -558,7 +562,7 @@ pub fn next_block_and_iterate(
 /// reaches *exactly* `target_height`.
 ///
 /// Returns `false` if `next_block_and_wait` times out.
-fn run_until_burnchain_height(
+pub fn run_until_burnchain_height(
     btc_regtest_controller: &mut BitcoinRegtestController,
     blocks_processed: &Arc<AtomicU64>,
     target_height: u64,
@@ -788,18 +792,6 @@ fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let block = StacksBlock::consensus_deserialize(&mut block_bytes.as_ref()).unwrap();
 
     (stacks_tip_consensus_hash, block)
-}
-
-fn get_peg_in_ops(conf: &Config, height: u64) -> BurnchainOps {
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let path = format!("{}/v2/burn_ops/{}/peg_in", &http_origin, height);
-    let client = reqwest::blocking::Client::new();
-
-    let response: serde_json::Value = client.get(&path).send().unwrap().json().unwrap();
-
-    eprintln!("{}", response);
-
-    serde_json::from_value(response).unwrap()
 }
 
 fn find_microblock_privkey(
@@ -10905,436 +10897,4 @@ fn microblock_miner_multiple_attempts() {
     }
 
     channel.stop_chains_coordinator();
-}
-
-#[test]
-#[ignore]
-fn test_submit_and_observe_sbtc_ops() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let recipient_stx_addr =
-        StacksAddress::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, Hash160([0; 20]));
-    let receiver_contract_name = ContractName::from("awesome_contract");
-    let receiver_contract_principal: PrincipalData =
-        QualifiedContractIdentifier::new(recipient_stx_addr.into(), receiver_contract_name).into();
-    let receiver_standard_principal: PrincipalData =
-        StandardPrincipalData::from(recipient_stx_addr).into();
-
-    let peg_wallet_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
-    let peg_wallet_address = PoxAddress::Standard(to_addr(&peg_wallet_sk), None);
-
-    let recipient_btc_addr = PoxAddress::Standard(recipient_stx_addr, None);
-
-    let (mut conf, _) = neon_integration_test_conf();
-
-    let epoch_2_05 = 210;
-    let epoch_2_1 = 215;
-
-    let mut epochs = core::STACKS_EPOCHS_REGTEST.to_vec();
-    epochs[1].end_height = epoch_2_05;
-    epochs[2].start_height = epoch_2_05;
-    epochs[2].end_height = epoch_2_1;
-    epochs[3].start_height = epoch_2_1;
-
-    conf.node.mine_microblocks = false;
-    conf.burnchain.max_rbf = 1000000;
-    conf.miner.first_attempt_time_ms = 5_000;
-    conf.miner.subsequent_attempt_time_ms = 10_000;
-    conf.miner.segwit = false;
-    conf.node.wait_time_for_blocks = 0;
-
-    conf.burnchain.epochs = Some(epochs);
-
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
-    let mut run_loop = neon::RunLoop::new(conf.clone());
-
-    btcd_controller
-        .start_bitcoind()
-        .ok()
-        .expect("Failed starting bitcoind");
-
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(216);
-
-    let blocks_processed = run_loop.get_blocks_processed_arc();
-    let run_loop_coordinator_channel = run_loop.get_coordinator_channel().unwrap();
-
-    thread::spawn(move || run_loop.start(None, 0));
-
-    // give the run loop some time to start up!
-    wait_for_runloop(&blocks_processed);
-
-    // first block wakes up the run loop
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // first block will hold our VRF registration
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // second block will be the first mined Stacks block
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // Let's send some sBTC ops.
-    let peg_in_op_standard = PegInOp {
-        recipient: receiver_standard_principal,
-        peg_wallet_address: peg_wallet_address.clone(),
-        amount: 133700,
-        memo: Vec::new(),
-        // filled in later
-        txid: Txid([0u8; 32]),
-        vtxindex: 0,
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-    };
-
-    let peg_in_op_contract = PegInOp {
-        recipient: receiver_contract_principal,
-        peg_wallet_address: peg_wallet_address.clone(),
-        amount: 133700,
-        memo: Vec::new(),
-        // filled in later
-        txid: Txid([1u8; 32]),
-        vtxindex: 0,
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-    };
-
-    let peg_out_request_op = PegOutRequestOp {
-        recipient: recipient_btc_addr.clone(),
-        signature: MessageSignature([0; 65]),
-        amount: 133700,
-        peg_wallet_address,
-        fulfillment_fee: 1_000_000,
-        memo: Vec::new(),
-        // filled in later
-        txid: Txid([2u8; 32]),
-        vtxindex: 0,
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-    };
-
-    let peg_out_fulfill_op = PegOutFulfillOp {
-        chain_tip: StacksBlockId([0; 32]),
-        recipient: recipient_btc_addr,
-        amount: 133700,
-        request_ref: Txid([2u8; 32]),
-        memo: Vec::new(),
-        // filled in later
-        txid: Txid([3u8; 32]),
-        vtxindex: 0,
-        block_height: 0,
-        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
-    };
-
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-    assert!(
-        btc_regtest_controller
-            .submit_operation(
-                StacksEpochId::Epoch21,
-                BlockstackOperationType::PegIn(peg_in_op_standard.clone()),
-                &mut miner_signer,
-                1
-            )
-            .is_some(),
-        "Peg-in operation should submit successfully"
-    );
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let parsed_peg_in_op_standard = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let mut ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
-            .expect("Failed to get peg in ops");
-        assert_eq!(ops.len(), 1);
-
-        ops.pop().unwrap()
-    };
-
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-    assert!(
-        btc_regtest_controller
-            .submit_operation(
-                StacksEpochId::Epoch21,
-                BlockstackOperationType::PegIn(peg_in_op_contract.clone()),
-                &mut miner_signer,
-                1
-            )
-            .is_some(),
-        "Peg-in operation should submit successfully"
-    );
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let parsed_peg_in_op_contract = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let mut ops = SortitionDB::get_peg_in_ops(&sortdb.conn(), &tip.burn_header_hash)
-            .expect("Failed to get peg in ops");
-        assert_eq!(ops.len(), 1);
-
-        ops.pop().unwrap()
-    };
-
-    let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
-
-    let peg_out_request_txid = btc_regtest_controller
-        .submit_operation(
-            StacksEpochId::Epoch21,
-            BlockstackOperationType::PegOutRequest(peg_out_request_op.clone()),
-            &mut miner_signer,
-            1,
-        )
-        .expect("Peg-out request operation should submit successfully");
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let parsed_peg_out_request_op = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let mut ops = SortitionDB::get_peg_out_request_ops(&sortdb.conn(), &tip.burn_header_hash)
-            .expect("Failed to get peg out request ops");
-        assert_eq!(ops.len(), 1);
-
-        ops.pop().unwrap()
-    };
-
-    let peg_out_request_tx = btc_regtest_controller.get_raw_transaction(&peg_out_request_txid);
-
-    // synthesize the UTXO for this txout, which will be consumed by the peg-out fulfillment tx
-    let peg_out_request_utxo = UTXO {
-        txid: peg_out_request_tx.txid(),
-        vout: 2,
-        script_pub_key: peg_out_request_tx.output[2].script_pubkey.clone(),
-        amount: peg_out_request_tx.output[2].value,
-        confirmations: 0,
-    };
-
-    let mut peg_wallet_signer = BurnchainOpSigner::new(peg_wallet_sk.clone(), false);
-
-    assert!(
-        btc_regtest_controller
-            .submit_manual(
-                StacksEpochId::Epoch21,
-                BlockstackOperationType::PegOutFulfill(peg_out_fulfill_op.clone()),
-                &mut peg_wallet_signer,
-                Some(peg_out_request_utxo),
-            )
-            .is_some(),
-        "Peg-out fulfill operation should submit successfully"
-    );
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    let parsed_peg_out_fulfill_op = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn()).unwrap();
-        let mut ops = SortitionDB::get_peg_out_fulfill_ops(&sortdb.conn(), &tip.burn_header_hash)
-            .expect("Failed to get peg out fulfill ops");
-        assert_eq!(ops.len(), 1);
-
-        ops.pop().unwrap()
-    };
-
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    assert_eq!(
-        parsed_peg_in_op_standard.recipient,
-        peg_in_op_standard.recipient
-    );
-    assert_eq!(parsed_peg_in_op_standard.amount, peg_in_op_standard.amount);
-    assert_eq!(
-        parsed_peg_in_op_standard.peg_wallet_address,
-        peg_in_op_standard.peg_wallet_address
-    );
-
-    assert_eq!(
-        parsed_peg_in_op_contract.recipient,
-        peg_in_op_contract.recipient
-    );
-    assert_eq!(parsed_peg_in_op_contract.amount, peg_in_op_contract.amount);
-    assert_eq!(
-        parsed_peg_in_op_contract.peg_wallet_address,
-        peg_in_op_contract.peg_wallet_address
-    );
-
-    // now test that the responses from the RPC endpoint match the data
-    //  from the DB
-
-    let query_height_op_contract = parsed_peg_in_op_contract.block_height;
-    let parsed_resp = get_peg_in_ops(&conf, query_height_op_contract);
-
-    let parsed_peg_in_op_contract = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Unexpected op"),
-    };
-
-    let query_height_op_standard = parsed_peg_in_op_standard.block_height;
-    let parsed_resp = get_peg_in_ops(&conf, query_height_op_standard);
-
-    let parsed_peg_in_op_standard = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Unexpected op"),
-    };
-
-    assert_eq!(
-        parsed_peg_in_op_standard.recipient,
-        peg_in_op_standard.recipient
-    );
-    assert_eq!(parsed_peg_in_op_standard.amount, peg_in_op_standard.amount);
-    assert_eq!(
-        parsed_peg_in_op_standard.peg_wallet_address,
-        peg_in_op_standard.peg_wallet_address
-    );
-
-    assert_eq!(
-        parsed_peg_in_op_contract.recipient,
-        peg_in_op_contract.recipient
-    );
-    assert_eq!(parsed_peg_in_op_contract.amount, peg_in_op_contract.amount);
-    assert_eq!(
-        parsed_peg_in_op_contract.peg_wallet_address,
-        peg_in_op_contract.peg_wallet_address
-    );
-
-    assert_eq!(
-        parsed_peg_out_request_op.recipient,
-        peg_out_request_op.recipient
-    );
-    assert_eq!(parsed_peg_out_request_op.amount, peg_out_request_op.amount);
-    assert_eq!(
-        parsed_peg_out_request_op.signature,
-        peg_out_request_op.signature
-    );
-    assert_eq!(
-        parsed_peg_out_request_op.peg_wallet_address,
-        peg_out_request_op.peg_wallet_address
-    );
-    assert_eq!(
-        parsed_peg_out_request_op.fulfillment_fee,
-        peg_out_request_op.fulfillment_fee
-    );
-
-    assert_eq!(
-        parsed_peg_out_fulfill_op.recipient,
-        peg_out_fulfill_op.recipient
-    );
-    assert_eq!(parsed_peg_out_fulfill_op.amount, peg_out_fulfill_op.amount);
-    assert_eq!(
-        parsed_peg_out_fulfill_op.chain_tip,
-        peg_out_fulfill_op.chain_tip
-    );
-
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let get_path =
-        |op, block_height| format!("{}/v2/burn_ops/{}/{}", &http_origin, block_height, op);
-    let client = reqwest::blocking::Client::new();
-
-    // Test peg in
-    let response: serde_json::Value = client
-        .get(&get_path("peg_in", parsed_peg_in_op_standard.block_height))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_in_op = match parsed_resp {
-        BurnchainOps::PegIn(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_in"),
-    };
-
-    // Test peg out request
-    let response: serde_json::Value = client
-        .get(&get_path(
-            "peg_out_request",
-            parsed_peg_out_request_op.block_height,
-        ))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_out_request_op = match parsed_resp {
-        BurnchainOps::PegOutRequest(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_out_request"),
-    };
-
-    // Test peg out fulfill
-    let response: serde_json::Value = client
-        .get(&get_path(
-            "peg_out_fulfill",
-            parsed_peg_out_fulfill_op.block_height,
-        ))
-        .send()
-        .unwrap()
-        .json()
-        .unwrap();
-    eprintln!("{}", response);
-
-    let parsed_resp: BurnchainOps = serde_json::from_value(response).unwrap();
-
-    let parsed_peg_out_fulfill_op = match parsed_resp {
-        BurnchainOps::PegOutFulfill(mut vec) => {
-            assert_eq!(vec.len(), 1);
-            vec.pop().unwrap()
-        }
-        _ => panic!("Op not peg_out_fulfill"),
-    };
-
-    assert_eq!(parsed_peg_in_op.recipient, peg_in_op_standard.recipient);
-    assert_eq!(parsed_peg_in_op.amount, peg_in_op_standard.amount);
-    assert_eq!(
-        parsed_peg_in_op.peg_wallet_address,
-        peg_in_op_standard.peg_wallet_address
-    );
-
-    assert_eq!(
-        parsed_peg_out_request_op.recipient,
-        peg_out_request_op.recipient
-    );
-    assert_eq!(parsed_peg_out_request_op.amount, peg_out_request_op.amount);
-    assert_eq!(
-        parsed_peg_out_request_op.signature,
-        peg_out_request_op.signature
-    );
-    assert_eq!(
-        parsed_peg_out_request_op.peg_wallet_address,
-        peg_out_request_op.peg_wallet_address
-    );
-    assert_eq!(
-        parsed_peg_out_request_op.fulfillment_fee,
-        peg_out_request_op.fulfillment_fee
-    );
-
-    assert_eq!(
-        parsed_peg_out_fulfill_op.recipient,
-        peg_out_fulfill_op.recipient
-    );
-    assert_eq!(parsed_peg_out_fulfill_op.amount, peg_out_fulfill_op.amount);
-    assert_eq!(
-        parsed_peg_out_fulfill_op.chain_tip,
-        peg_out_fulfill_op.chain_tip
-    );
-
-    run_loop_coordinator_channel.stop_chains_coordinator();
 }

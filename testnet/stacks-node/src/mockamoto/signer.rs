@@ -1,5 +1,6 @@
+use rand::{CryptoRng, RngCore, SeedableRng};
 use stacks::chainstate::nakamoto::NakamotoBlock;
-use stacks_common::util::secp256k1::SchnorrSignature;
+use stacks::chainstate::stacks::ThresholdSignature;
 use wsts::curve::point::Point;
 use wsts::traits::Aggregator;
 
@@ -22,9 +23,17 @@ pub struct SelfSigner {
 }
 
 impl SelfSigner {
-    pub fn single_signer() -> Self {
-        let mut rng = rand_core::OsRng::default();
+    pub fn from_seed(seed: u64) -> Self {
+        let rng = rand::rngs::StdRng::seed_from_u64(seed);
+        Self::from_rng::<rand::rngs::StdRng>(rng)
+    }
 
+    pub fn single_signer() -> Self {
+        let rng = rand::rngs::OsRng::default();
+        Self::from_rng::<rand::rngs::OsRng>(rng)
+    }
+
+    fn from_rng<RNG: RngCore + CryptoRng>(mut rng: RNG) -> Self {
         // Create the parties
         let mut signer_parties = [wsts::v2::Party::new(0, &[0], 1, 1, 1, &mut rng)];
 
@@ -54,7 +63,7 @@ impl SelfSigner {
     }
 
     pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
-        let mut rng = rand_core::OsRng;
+        let mut rng = rand::rngs::OsRng::default();
         let msg = block
             .header
             .signer_signature_hash()
@@ -70,7 +79,6 @@ impl SelfSigner {
         let signature = sig_aggregator
             .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
             .expect("aggregator sig failed");
-        let schnorr_signature = SchnorrSignature::from(&signature);
-        block.header.signer_signature = schnorr_signature;
+        block.header.signer_signature = ThresholdSignature(signature);
     }
 }

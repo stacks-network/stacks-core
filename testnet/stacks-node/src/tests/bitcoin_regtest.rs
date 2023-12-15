@@ -16,6 +16,7 @@ use crate::helium::RunLoop;
 use crate::tests::to_addr;
 use crate::Config;
 
+#[derive(Debug)]
 pub enum BitcoinCoreError {
     SpawnFailed(String),
 }

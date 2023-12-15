@@ -6,6 +6,9 @@ use crate::types::chainstate::{
 };
 use crate::util::hash::{Hash160, Sha512Trunc256Sum};
 use crate::util::secp256k1::{MessageSignature, SchnorrSignature};
+use crate::util::vrf::VRFProof;
+
+use super::chainstate::VRFSeed;
 
 impl FromSql for Sha256dHash {
     fn column_result(value: ValueRef) -> FromSqlResult<Sha256dHash> {
@@ -27,7 +30,9 @@ impl ToSql for Sha256dHash {
 impl_byte_array_rusqlite_only!(ConsensusHash);
 impl_byte_array_rusqlite_only!(Hash160);
 impl_byte_array_rusqlite_only!(BlockHeaderHash);
+impl_byte_array_rusqlite_only!(VRFSeed);
 impl_byte_array_rusqlite_only!(BurnchainHeaderHash);
+impl_byte_array_rusqlite_only!(VRFProof);
 impl_byte_array_rusqlite_only!(TrieHash);
 impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
 impl_byte_array_rusqlite_only!(MessageSignature);

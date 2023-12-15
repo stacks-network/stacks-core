@@ -167,6 +167,15 @@ impl TestMiner {
         }
     }
 
+    pub fn block_commit_at(&self, idx: usize) -> Option<LeaderBlockCommitOp> {
+        assert!(idx < self.block_commits.len());
+        self.block_commits.get(idx).cloned()
+    }
+
+    pub fn num_block_commits(&self) -> usize {
+        self.block_commits.len()
+    }
+
     pub fn next_VRF_key(&mut self) -> VRFPrivateKey {
         let pk = if self.vrf_keys.len() == 0 {
             // first key is simply the 32-byte hash of the secret state
