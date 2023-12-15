@@ -26,6 +26,8 @@ pub mod cli;
 pub mod client;
 /// The configuration module for the signer
 pub mod config;
+/// Benchmark RTT in StackerDB.
+pub mod ping;
 /// The primary runloop for the signer
 pub mod runloop;
 /// Util functions

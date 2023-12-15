@@ -1,7 +1,9 @@
+use std::fmt::Debug;
+
 use rand_core::{OsRng, RngCore};
 use serde_derive::{Deserialize, Serialize};
 
-use crate::client::{PING_SLOT_ID, SIGNER_SLOTS_PER_USER};
+use super::events::{PING_SLOT_ID, SIGNER_SLOTS_PER_USER};
 
 /// Is an incoming slot update a ping::Packet?
 /// Use it to filter out other packets.
