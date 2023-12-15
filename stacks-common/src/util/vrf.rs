@@ -258,7 +258,6 @@ pub struct VRFProof {
     c: ed25519_Scalar,
     s: ed25519_Scalar,
 }
-impl_byte_array_rusqlite_only!(VRFProof);
 
 impl Debug for VRFProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -599,7 +598,6 @@ impl StacksMessageCodec for VRFProof {
 }
 
 pub const VRF_SEED_ENCODED_SIZE: u32 = 32;
-impl_byte_array_rusqlite_only!(VRFSeed);
 
 impl VRFSeed {
     /// First-ever VRF seed from the genesis block.  It's all 0's
