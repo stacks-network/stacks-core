@@ -268,8 +268,8 @@ pub fn get_loglevel() -> slog::Level {
 macro_rules! trace {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
-        if slog::Level::Trace.is_at_least(cur_level) {
-            slog_trace!($crate::util::log::LOGGER, $($arg)*)
+        if $crate::slog::Level::Trace.is_at_least(cur_level) {
+            $crate::slog::slog_trace!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -278,8 +278,8 @@ macro_rules! trace {
 macro_rules! error {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
-        if slog::Level::Error.is_at_least(cur_level) {
-            slog_error!($crate::util::log::LOGGER, $($arg)*)
+        if $crate::slog::Level::Error.is_at_least(cur_level) {
+            $crate::slog::slog_error!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -288,8 +288,8 @@ macro_rules! error {
 macro_rules! warn {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
-        if slog::Level::Warning.is_at_least(cur_level) {
-            slog_warn!($crate::util::log::LOGGER, $($arg)*)
+        if $crate::slog::Level::Warning.is_at_least(cur_level) {
+            $crate::slog::slog_warn!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -298,8 +298,8 @@ macro_rules! warn {
 macro_rules! info {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
-        if slog::Level::Info.is_at_least(cur_level) {
-            slog_info!($crate::util::log::LOGGER, $($arg)*)
+        if $crate::slog::Level::Info.is_at_least(cur_level) {
+            $crate::slog::slog_info!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -308,8 +308,8 @@ macro_rules! info {
 macro_rules! debug {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
-        if slog::Level::Debug.is_at_least(cur_level) {
-            slog_debug!($crate::util::log::LOGGER, $($arg)*)
+        if $crate::slog::Level::Debug.is_at_least(cur_level) {
+            $crate::slog::slog_debug!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }
@@ -318,8 +318,8 @@ macro_rules! debug {
 macro_rules! fatal {
     ($($arg:tt)*) => ({
         let cur_level = $crate::util::log::get_loglevel();
-        if slog::Level::Critical.is_at_least(cur_level) {
-            slog_crit!($crate::util::log::LOGGER, $($arg)*)
+        if $crate::slog::Level::Critical.is_at_least(cur_level) {
+            $crate::slog::slog_crit!($crate::util::log::LOGGER, $($arg)*)
         }
     })
 }

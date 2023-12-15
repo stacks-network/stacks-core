@@ -26,13 +26,13 @@ macro_rules! impl_byte_array_message_codec {
             fn consensus_serialize<W: std::io::Write>(
                 &self,
                 fd: &mut W,
-            ) -> Result<(), $crate::codec::Error> {
+            ) -> ::std::result::Result<(), $crate::codec::Error> {
                 fd.write_all(self.as_bytes())
                     .map_err($crate::codec::Error::WriteError)
             }
             fn consensus_deserialize<R: std::io::Read>(
                 fd: &mut R,
-            ) -> Result<$thing, $crate::codec::Error> {
+            ) -> ::std::result::Result<$thing, $crate::codec::Error> {
                 let mut buf = [0u8; ($len as usize)];
                 fd.read_exact(&mut buf)
                     .map_err($crate::codec::Error::ReadError)?;

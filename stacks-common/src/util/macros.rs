@@ -212,7 +212,7 @@ macro_rules! guarded_string {
 macro_rules! define_u8_enum {
     ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
     {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd, Hash, serde::Serialize, serde::Deserialize)]
         #[repr(u8)]
         pub enum $Name {
             $($Variant = $Val),*,
@@ -316,7 +316,7 @@ macro_rules! impl_array_newtype {
             }
         }
 
-        impl_index_newtype!($thing, $ty);
+        $crate::impl_index_newtype!($thing, $ty);
 
         impl PartialEq for $thing {
             #[inline]
@@ -446,7 +446,7 @@ macro_rules! impl_byte_array_newtype {
         impl $thing {
             /// Instantiates from a hex string
             #[allow(dead_code)]
-            pub fn from_hex(hex_str: &str) -> Result<$thing, $crate::util::HexError> {
+            pub fn from_hex(hex_str: &str) -> ::std::result::Result<$thing, $crate::util::HexError> {
                 use $crate::util::hash::hex_bytes;
                 let _hex_len = $len * 2;
                 match (hex_str.len(), hex_bytes(hex_str)) {
@@ -567,7 +567,7 @@ macro_rules! test_debug {
         {
             use std::env;
             if env::var("BLOCKSTACK_DEBUG") == Ok("1".to_string()) {
-                debug!($($arg)*);
+                $crate::debug!($($arg)*);
             }
         }
     )
