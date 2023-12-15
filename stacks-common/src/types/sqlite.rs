@@ -27,7 +27,9 @@ impl ToSql for Sha256dHash {
 impl_byte_array_rusqlite_only!(ConsensusHash);
 impl_byte_array_rusqlite_only!(Hash160);
 impl_byte_array_rusqlite_only!(BlockHeaderHash);
+impl_byte_array_rusqlite_only!(VRFSeed);
 impl_byte_array_rusqlite_only!(BurnchainHeaderHash);
+impl_byte_array_rusqlite_only!(VRFProof);
 impl_byte_array_rusqlite_only!(TrieHash);
 impl_byte_array_rusqlite_only!(Sha512Trunc256Sum);
 impl_byte_array_rusqlite_only!(MessageSignature);

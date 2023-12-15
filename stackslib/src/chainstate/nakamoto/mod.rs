@@ -2164,7 +2164,7 @@ impl NakamotoChainState {
             total_tenure_cost,
             &tenure_tx_fees.to_string(),
             &header.parent_block_id,
-            if tenure_changed { &1i64 } else { &0 },
+            if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
         ];
 
@@ -3065,7 +3065,7 @@ impl NakamotoChainState {
         // mainnet
         let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
         clarity_tx.connection().as_transaction(|clarity| {
-            let (ast, analysis) = clarity
+            let (mut ast, analysis) = clarity
                 .analyze_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
@@ -3077,7 +3077,8 @@ impl NakamotoChainState {
                 .initialize_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_content,
                     None,
                     |_, _| false,
