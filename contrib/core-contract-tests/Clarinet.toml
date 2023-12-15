@@ -21,15 +21,14 @@ depends_on = []
 clarity = 2
 epoch = 2.4
 
-
-[contracts.pox-4-aggregated-public-key]
-path = "./contracts/pox/pox-4-aggregated-public-key.clar"
+[contracts.pox-4-aggregated-public-key_test]
+path = "./contracts/pox-tests/pox-4-aggregated-public-key_test.clar"
 depends_on = []
 clarity = 2
 epoch = 2.4
 
-[contracts.pox-4-aggregated-public-key_test]
-path = "./contracts/pox-tests/pox-4-aggregated-public-key_test.clar"
+[contracts.bns_flow_test]
+path = "./contracts/bns-tests/bns_flow_test.clar"
 depends_on = []
 clarity = 2
 epoch = 2.4

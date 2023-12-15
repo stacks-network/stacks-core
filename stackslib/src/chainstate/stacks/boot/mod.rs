@@ -1728,6 +1728,38 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_4_vote_for_aggregated_public_key(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        reward_cycle: u64,
+        aggregate_public_key: &Point,
+    ) -> StacksTransaction {
+        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "vote-for-aggregated-public-key",
+            vec![
+                aggregate_public_key,
+                Value::UInt(reward_cycle as u128),
+                Value::UInt(0),
+                Value::Sequence(SequenceData::List(ListData {
+                    data: [].to_vec(),
+                    type_signature: ListTypeData::new_list(
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(33u32).unwrap(),
+                        )),
+                        4001,
+                    )
+                    .unwrap(),
+                })),
+            ],
+        )
+        .unwrap();
+        make_tx(key, nonce, 0, payload)
+    }
+
     pub fn make_pox_2_increase(
         key: &StacksPrivateKey,
         nonce: u64,
