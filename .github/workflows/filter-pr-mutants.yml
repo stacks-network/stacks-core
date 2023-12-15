@@ -2,6 +2,13 @@ name: Tracking PR Mutants
 
 on:
   pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+    paths:
+      - '**.rs'
 
 jobs:
   # Mutants testing: Execute on PR on packages that have functions modified, and fail the workflow if there are missed or timeout mutations
