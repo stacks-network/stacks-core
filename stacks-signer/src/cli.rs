@@ -53,7 +53,7 @@ pub enum Command {
     /// Run a DKG round through the stacker-db instance
     Dkg(RunDkgArgs),
     /// Run the signer, waiting for events from the stacker-db instance
-    Run(RunDkgArgs),
+    Run(RunArgs),
     /// Generate necessary files for running a collection of signers
     GenerateFiles(GenerateFilesArgs),
 }
@@ -130,7 +130,7 @@ pub struct SignArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-/// Arguments for the Run and Dkg commands
+/// Arguments for the Dkg commands
 pub struct RunDkgArgs {
     /// Path to config file
     #[arg(long, value_name = "FILE")]
@@ -168,6 +168,20 @@ pub struct GenerateFilesArgs {
     /// The number of milliseconds to wait when polling for events from the stacker-db instance.
     #[arg(long)]
     pub timeout: Option<u64>,
+}
+
+#[derive(Parser, Debug, Clone)]
+/// Arguments for the Run Commands
+pub struct RunArgs {
+    #[clap(flatten)]
+    /// Arguments for DKG
+    pub dkg_args: RunDkgArgs,
+    #[arg(long)]
+    /// A ping message will be sent periodically through StackerDB to track round-trip time
+    pub ping_in_millis: Option<u64>,
+    #[arg(long)]
+    /// The payload size in bytes to attach to RTT messages. Must be less than 16Mb.
+    pub ping_payload_size: Option<u32>,
 }
 
 /// Parse the contract ID

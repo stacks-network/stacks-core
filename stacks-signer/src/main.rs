@@ -49,10 +49,11 @@ use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
-    Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
-    SignArgs, StackerDBArgs,
+    Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunArgs,
+    RunDkgArgs, SignArgs, StackerDBArgs,
 };
 use stacks_signer::config::{Config, Network};
+use stacks_signer::ping::PeriodicPinger;
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 use tracing_subscriber::prelude::*;
@@ -254,9 +255,17 @@ fn handle_dkg_sign(args: SignArgs) {
     spawned_signer.running_signer.stop();
 }
 
-fn handle_run(args: RunDkgArgs) {
+fn handle_run(args: RunArgs) {
     debug!("Running signer...");
-    let spawned_signer = spawn_running_signer(&args.config);
+    let spawned_signer = spawn_running_signer(&args.dkg_args.config);
+    if let Some(millis) = args.ping_in_millis {
+        PeriodicPinger::spawn(
+            spawned_signer.cmd_send.clone(),
+            Duration::from_millis(millis),
+            args.ping_payload_size.unwrap_or(0),
+        );
+    }
+
     println!("Signer spawned successfully. Waiting for messages to process...");
     // Wait for the spawned signer to stop (will only occur if an error occurs)
     let _ = spawned_signer.running_signer.join();
