@@ -1796,7 +1796,7 @@ pub mod test {
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-extend",
-            vec![Value::UInt(lock_period), addr_tuple],
+            vec![Value::UInt(lock_period), addr_tuple, Value::Optional(OptionalData {data: None})],
         )
         .unwrap();
 
