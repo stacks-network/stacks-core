@@ -1004,6 +1004,12 @@ pub trait SortitionHandle {
         block_height: u64,
     ) -> Result<Option<BlockSnapshot>, db_error>;
 
+    /// Get the first burn block height
+    fn first_burn_block_height(&self) -> u64;
+
+    /// Get a ref to the PoX constants
+    fn pox_constants(&self) -> &PoxConstants;
+
     /// is the given block a descendant of `potential_ancestor`?
     ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
     ///  * potential_ancestor: the stacks block hash of the potential ancestor
@@ -1396,6 +1402,14 @@ impl SortitionHandle for SortitionHandleTx<'_> {
         SortitionDB::get_ancestor_snapshot_tx(self, block_height, &chain_tip)
     }
 
+    fn first_burn_block_height(&self) -> u64 {
+        self.context.first_block_height
+    }
+
+    fn pox_constants(&self) -> &PoxConstants {
+        &self.context.pox_constants
+    }
+
     fn sqlite(&self) -> &Connection {
         self.tx()
     }
@@ -1407,6 +1421,14 @@ impl SortitionHandle for SortitionHandleConn<'_> {
         block_height: u64,
     ) -> Result<Option<BlockSnapshot>, db_error> {
         SortitionHandleConn::get_block_snapshot_by_height(self, block_height)
+    }
+
+    fn first_burn_block_height(&self) -> u64 {
+        self.context.first_block_height
+    }
+
+    fn pox_constants(&self) -> &PoxConstants {
+        &self.context.pox_constants
     }
 
     fn sqlite(&self) -> &Connection {
