@@ -4,8 +4,9 @@ use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, StackerDBEventReceiver};
-use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::chainstate::stacks::boot::POX_4_TESTNET_CODE;
+use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_signer::config::Config as SignerConfig;
 use stacks_signer::runloop::RunLoopCommand;
@@ -167,11 +168,6 @@ fn setup_stx_btc_node(
     }
 }
 
-/// Helper function for building our fake pox contract
-pub fn build_pox_contract(_num_signers: u32) -> String {
-    POX_4_TESTNET_CODE.to_string()
-}
-
 #[test]
 #[ignore]
 fn test_stackerdb_dkg() {
@@ -199,10 +195,9 @@ fn test_stackerdb_dkg() {
     // Setup the neon node
     let (mut conf, _) = neon_integration_test_conf();
 
-    // Build our simulated pox-4 stacks contract
-    let pox_contract = build_pox_contract(num_signers);
-    let pox_contract_id =
-        QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "pox-4".into());
+    // Get pox-4 stacks contract
+    let pox_contract = POX_4_TESTNET_CODE.to_string();
+    let pox_contract_id = boot_code_id("pox-4".into(), false);
     // Build the stackerdb contract
     let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
     let stacker_db_contract_id = QualifiedContractIdentifier::new(
