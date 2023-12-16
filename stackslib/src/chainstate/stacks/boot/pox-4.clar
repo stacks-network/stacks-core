@@ -29,9 +29,10 @@
 (define-constant ERR_STACKING_NOT_DELEGATED 31)
 (define-constant ERR_STACK_EXTEND_NO_SIGNING_KEY 32)
 (define-constant ERR_NEXT_SIGNER_SET_ALREADY_REGISTERED 33)
-(define-constant ERR_NOT_IN_PREPARE_PHASE 34)
+(define-constant ERR_NOT_IN_PREPARE_PHASE_EARLY 34)
 (define-constant ERR_NOT_IN_SIGNER_SET 35)
 (define-constant ERR_KEY_IDS_ALREADY_SET 36)
+(define-constant ERR_NOT_IN_PREPARE_PHASE_LATE 37)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
@@ -221,12 +222,12 @@
 (define-map aggregate-public-keys uint (buff 33))
 
 ;; Data var used to track signer set for current cycle
-(define-data-var current-signer-set (list 4096 (buff 33)) (list ))
+(define-data-var current-signer-set (list 4000 (buff 33)) (list ))
 
 ;; Map that tracks the signing-key & cycle to a list of key-ids
 (define-map reward-cycle-signing-key-ids 
     {cycle: uint, signer: (buff 33)}
-    {key-ids: (list 4096 uint)})
+    {key-ids: (list 4000 uint)})
 
 ;; Getter for stacking-rejectors
 (define-read-only (get-pox-rejection (stacker principal) (reward-cycle uint))
@@ -1320,10 +1321,10 @@
             unlock-burn-height: new-unlock-ht }))))
 
 ;; This function allows a node to register a new 'current-signer-set' during the prepare phase
-(define-private (update-current-signer-set (new-signer-set (list 4096 {signer: (buff 33)})))
+(define-private (set-current-signer-set (new-signer-set (list 4000 {signer: (buff 33)})))
     (let 
         (
-            (next-reward-cycle (+ u1 current-pox-reward-cycle))
+            (next-reward-cycle (+ u1 (current-pox-reward-cycle)))
             (next-reward-cycle-burn-height (reward-cycle-to-burn-height next-reward-cycle))
             (next-signer-set-map (map-get? reward-cycle-signing-key-ids next-reward-cycle))
         )
@@ -1331,12 +1332,11 @@
         ;; Assert not already set by checking for 'none' map entry
         (asserts! (is-none next-signer-set-map) (err ERR_NEXT_SIGNER_SET_ALREADY_REGISTERED))
 
-        ;; Assert in prepare phase (in the last 100 blocks of the current cycle)
-        (asserts! 
-            (and 
-                (>= block-height (- next-reward-cycle-burn-height u100))
-                (< block-height next-reward-cycle-burn-height))
-                (err ERR_NOT_IN_PREPARE_PHASE))
+        ;; Assert in prepare phase (height equal to / greater than start of prepare phase)
+        (asserts! (>= block-height (- next-reward-cycle-burn-height u100)) (err ERR_NOT_IN_PREPARE_PHASE_EARLY))
+
+        ;; Assert in prepare phase (height less than end of prepare phase)
+        (asserts! (< block-height next-reward-cycle-burn-height) (err ERR_NOT_IN_PREPARE_PHASE_LATE))
 
         ;; Updates new signer-set
         (var-set current-signer-set new-signer-set)
@@ -1344,24 +1344,28 @@
 )
 
 ;; This function allows a node to register a list of key-ids to the current-signer-set
-;; This work is done one-at-a-time by the node & could require up to 4096 individual writes
-(define-private (update-current-signer (signer (buff 33)) (key-ids (list 4096 uint)))
+;; This work is done one-at-a-time by the node & could require up to 4000 individual writes
+(define-private (set-current-signer (signer (buff 33)) (key-ids (list 4000 uint)))
     (let 
         (
             (current-signers (var-get current-signer-set))
-            (next-reward-cycle (+ u1 current-pox-reward-cycle))
+            (next-reward-cycle (+ u1 (current-pox-reward-cycle)))
         )
 
         ;; Assert that signer exists in current list
         (asserts! (is-some (index-of current-signers signer)) (err ERR_NOT_IN_SIGNER_SET))
 
         ;; Assert that signer key-ids haven't been set yet (map entry is empty)
-        (asserts! (is-none (map-get? reward-cycle-signer-key-ids {cycle: next-reward-cycle, signer: signer})) (err ERR_KEY_IDS_ALREADY_SET))
+        (asserts! (is-none (map-get? reward-cycle-signing-key-ids {cycle: next-reward-cycle, signer: signer})) (err ERR_KEY_IDS_ALREADY_SET))
 
-        ;; Q - do we need another check here that we're in the 100-block prepare phase?
+        ;; Assert in prepare phase (height equal to / greater than start of prepare phase)
+        (asserts! (>= block-height (- next-reward-cycle-burn-height u100)) (err ERR_NOT_IN_PREPARE_PHASE_EARLY))
+
+        ;; Assert in prepare phase (height less than end of prepare phase)
+        (asserts! (< block-height next-reward-cycle-burn-height) (err ERR_NOT_IN_PREPARE_PHASE_LATE))
 
         ;; Update map with new key-ids for signer
-        (map-set reward-cycle-signing-key-ids {cycle: next-reward-cycle, signer: signer} {key-ids: key-idss})
+        (map-set reward-cycle-signing-key-ids {cycle: next-reward-cycle, signer: signer} {key-ids: key-ids})
     )
 )
 
