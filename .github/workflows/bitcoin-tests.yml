@@ -31,7 +31,7 @@ jobs:
         test-name:
           - tests::bitcoin_regtest::bitcoind_integration_test
           - tests::integrations::integration_test_get_info
-          - tests::neon_integrations::antientropy_integration_test 
+          - tests::neon_integrations::antientropy_integration_test
           - tests::neon_integrations::bad_microblock_pubkey
           - tests::neon_integrations::bitcoind_forking_test
           - tests::neon_integrations::bitcoind_integration_test
@@ -76,6 +76,7 @@ jobs:
           - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
           - tests::signer::stackerdb_dkg_sign
           - tests::signer::stackerdb_block_proposal
+          - tests::signer::signer_ping_mode
     steps:
       ## Setup test environment
       - name: Setup Test Environment
@@ -83,7 +84,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/testenv@main
         with:
           btc-version: "25.0"
-          
+
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
