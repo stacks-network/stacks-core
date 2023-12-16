@@ -1,12 +1,16 @@
 use std::fmt::{self, Debug};
 
+use libstackerdb::StackerDBChunkData;
 use rand_core::{OsRng, RngCore};
 use serde_derive::{Deserialize, Serialize};
+use wsts::v1::Signer;
+
+use crate::SignerMessage;
 
 use super::events::{PING_SLOT_ID, SIGNER_SLOTS_PER_USER};
 
 /// Is an incoming slot update a ping::Packet?
-/// Use it to filter out other packets.
+/// Use it to filter out other slots.
 pub fn is_ping_slot(slot_id: u32) -> bool {
     let Some(v) = slot_id.checked_sub(PING_SLOT_ID) else {
         return false;
@@ -93,12 +97,36 @@ impl Debug for Pong {
     }
 }
 
+impl Packet {
+    // convoluted but respects interfaces.
+    // 1. Single [SignerMessage::slot_id] implementation.
+    // 2. [Pongs] can't be instantiated without consuming a ping.
+    // 3. [SignerMessage::slot_id] does not depend on state thus, use a cheap new Packet with 0 payload.
+    fn slot_id(&self, signer_id: u32) -> u32 {
+        let dummy_msg: SignerMessage = match self {
+            Packet::Ping(_) => Ping::new(0).into(),
+            Packet::Pong(_) => Ping::new(0).pong().into(),
+        };
+
+        dummy_msg.slot_id(signer_id)
+    }
+
+    /// Whether a Packet needs to be processed or skipped
+    pub fn verify_packet(self, signer_id: u32, packet_slot_id: u32) -> Option<Self> {
+        // Packet in the wrong slot OR the slot update is yours.
+        if !is_ping_slot(packet_slot_id) || self.slot_id(signer_id) == packet_slot_id {
+            return None;
+        }
+
+        Some(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::vec;
 
     use super::*;
-    use crate::SignerMessage;
 
     #[test]
     fn same_slot_for_ping_pong() {
@@ -129,5 +157,17 @@ mod tests {
         let _p = &ping.payload;
 
         assert!(!ping_string.contains("payload"));
+    }
+
+    #[test]
+    fn sane_verify_packet() {
+        let packet = || Packet::from(Ping::new(0));
+
+        // Not ping slot
+        assert!(packet().verify_packet(0, 0).is_none());
+        // Ignore your own messages
+        assert!(packet().verify_packet(0, PING_SLOT_ID).is_none());
+        // pass
+        assert!(packet().verify_packet(1, PING_SLOT_ID).is_some());
     }
 }

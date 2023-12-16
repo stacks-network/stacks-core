@@ -65,6 +65,9 @@ pub const BLOCK_SLOT_ID: u32 = 10;
 /// overlapping slot for ping Packets.
 pub const PING_SLOT_ID: u32 = 10;
 
+/// Slot id used in function signatures.
+pub type SlotId = u32;
+
 /// The messages being sent through the stacker db contracts
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SignerMessage {
@@ -226,7 +229,7 @@ pub enum SignerEvent {
     /// The miner proposed blocks for signers to observe and sign
     ProposedBlocks(Vec<NakamotoBlock>),
     /// The signer messages for other signers and miners to observe
-    SignerMessages(Vec<SignerMessage>),
+    SignerMessages(Vec<(SignerMessage, SlotId)>),
     /// A new block proposal validation response from the node
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
@@ -518,10 +521,14 @@ fn process_stackerdb_event(
         SignerEvent::ProposedBlocks(blocks)
     } else if event.contract_id.name.to_string() == SIGNERS_NAME {
         // TODO: fix this to be against boot_code_id(SIGNERS_NAME, is_mainnet) when .signers is deployed
-        let signer_messages: Vec<SignerMessage> = event
+        let signer_messages: Vec<(SignerMessage, SlotId)> = event
             .modified_slots
             .iter()
-            .filter_map(|chunk| bincode::deserialize::<SignerMessage>(&chunk.data).ok())
+            .filter_map(|chunk| {
+                bincode::deserialize::<SignerMessage>(&chunk.data)
+                    .ok()
+                    .map(|msg| (msg, chunk.slot_id))
+            })
             .collect();
         SignerEvent::SignerMessages(signer_messages)
     } else {

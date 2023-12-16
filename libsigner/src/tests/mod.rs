@@ -143,7 +143,7 @@ fn test_simple_signer() {
 
     let running_signer = signer.spawn(endpoint).unwrap();
     sleep_ms(5000);
-    let accepted_events = running_signer.stop().unwrap();
+    let mut accepted_events = running_signer.stop().unwrap();
 
     chunks.sort_by(|ev1, ev2| {
         ev1.modified_slots[0]
@@ -157,9 +157,13 @@ fn test_simple_signer() {
         .map(|chunk| {
             let msg = chunk.modified_slots[0].data.clone();
             let signer_message: SignerMessage = bincode::deserialize(&msg).unwrap();
-            SignerEvent::SignerMessages(vec![signer_message])
+            SignerEvent::SignerMessages(vec![(signer_message, chunk.modified_slots[0].slot_id)])
         })
         .collect();
+    accepted_events.sort_by(|lhs, rhs| match (lhs, rhs) {
+        (SignerEvent::SignerMessages(lv), SignerEvent::SignerMessages(rv)) => lv[0].1.cmp(&rv[0].1),
+        _ => unreachable!(),
+    });
 
     assert_eq!(sent_events, accepted_events);
     mock_stacks_node.join().unwrap();
