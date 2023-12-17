@@ -1,0 +1,12 @@
+[package]
+name = "stacks-marf-sqlite"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.7.3"
+rusqlite = "0.24.2"
+stacks-common = { path = "../stacks-common" }
+stacks-marf = { path = "../stacks-marf" }
