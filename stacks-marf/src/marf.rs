@@ -25,6 +25,7 @@ use crate::node::{
     clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode256, 
     TrieNodeID, TrieNodeType, TriePath, TriePtr,
 };
+use crate::profile::TrieBenchmark;
 use crate::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
@@ -55,7 +56,7 @@ where
     TrieDB: TrieDb
 {
     //marf: &'a mut MARF<Id, TrieDB>,
-    storage: TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType>,
+    storage: TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
     open_chain_tip: &'a mut Option<WriteChainTip<Id>>,
 }
 
@@ -584,6 +585,9 @@ where
     Id: MarfTrieId,
     TrieDB: TrieDb
 {
+    pub fn get_benchmarks(&self) -> TrieBenchmark {
+        self.storage.get_benchmarks()
+    }
     #[cfg(test)]
     pub fn from_storage_opened(storage: TrieFileStorage<Id, TrieDB>, opened_to: &Id) -> MARF<Id, TrieDB> {
         MARF {
@@ -744,8 +748,8 @@ where
     /// On Ok, s will point to new_bhh and will be open for reading.
     /// Returns true/false, based on whether or not the trie will be created (this can return false
     /// if we're resuming work on an unconfirmed trie)
-    pub fn extend_trie(
-        storage: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>, 
+    pub fn extend_trie<'a>(
+        storage: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>, 
         new_bhh: &Id
     ) -> Result<(), MarfError> {
         if storage.readonly() {
@@ -790,8 +794,8 @@ where
     /// Walk down this MARF at the given block hash, doing a copy-on-write for intermediate nodes in this block's Trie from any prior Tries.
     /// s must point to the last filled-in Trie -- i.e. block_hash points to the _new_ Trie that is
     /// being filled in.
-    fn walk_cow(
-        storage: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+    fn walk_cow<'a>(
+        storage: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         block_hash: &Id,
         path: &TriePath,
     ) -> Result<TrieCursor<Id>, MarfError> {
@@ -986,8 +990,8 @@ where
         return Err(MarfError::CorruptionError("Trie has a cycle".to_string()));
     }
 
-    pub fn format(
-        storage: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+    pub fn format<'a>(
+        storage: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         first_block_hash: &Id,
     ) -> Result<(), MarfError> {
         if storage.readonly() {
@@ -1054,8 +1058,8 @@ where
         }
     }
 
-    fn do_insert_leaf(
-        storage: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+    fn do_insert_leaf<'a>(
+        storage: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         block_hash: &Id,
         path: &TriePath,
         leaf_value: &TrieLeaf,
@@ -1085,8 +1089,8 @@ where
         Ok(())
     }
 
-    pub fn insert_leaf(
-        storage: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+    pub fn insert_leaf<'a>(
+        storage: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         block_hash: &Id,
         path: &TriePath,
         value: &TrieLeaf,
@@ -1098,8 +1102,8 @@ where
     }
 
     // like insert_leaf, but don't update the merkle skiplist
-    pub fn insert_leaf_in_batch(
-        storage: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+    pub fn insert_leaf_in_batch<'a>(
+        storage: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         block_hash: &Id,
         path: &TriePath,
         value: &TrieLeaf,
@@ -1253,8 +1257,8 @@ where
 
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
-    fn inner_insert_batch(
-        conn: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+    fn inner_insert_batch<'a>(
+        conn: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         block_hash: &Id,
         keys: &Vec<String>,
         values: Vec<MARFValue>,
@@ -1520,7 +1524,7 @@ where
     }
 
     #[cfg(test)]
-    pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<Id, TrieDB, TrieDB::TxType> {
+    pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<Id, TrieDB, TrieDB::TxType<'_>> {
         self.storage.transaction().unwrap()
     }
 

@@ -8,11 +8,15 @@ pub trait TrieDb
 where
     Self: Sized
 {
-    type TxType: TrieDbTransaction<Self> + Sized;
+    type TxType<'a>: TrieDbTransaction<'a, Self> + Sized where Self: 'a;
 
-    fn transaction(
-        &mut self
-    ) -> Result<Self::TxType>;
+    fn transaction<'a>(
+        &'a self
+    ) -> Result<Self::TxType<'a>>;
+
+    fn is_memory(&self) -> bool;
+    fn db_path(&self) -> Result<String>;
+    fn is_readonly(&self) -> bool;
 
     //fn create_tables_if_needed(&self) -> Result<()>;
     //fn migrate_tables_if_needed<T: MarfTrieId>(&self) -> Result<u64>;
@@ -117,16 +121,12 @@ where
     fn clear_lock_data(&self) -> Result<()>;
     //fn clear_tables() -> Result<(), MarfError>;
 
-    #[cfg(test)]
-    fn read_all_block_hashes_and_roots<T: MarfTrieId>(
-        &self,
-    ) -> Result<Vec<(TrieHash, T)>>;
 
     fn format(&self) -> Result<()>;
     fn reopen_readonly(&self) -> Result<Self>;
 }
 
-pub trait TrieDbTransaction<TrieDB> 
+pub trait TrieDbTransaction<'a, TrieDB> 
 where
     TrieDB: TrieDb,
     Self: Deref<Target = TrieDB>

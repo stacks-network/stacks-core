@@ -2,7 +2,7 @@ use core::hash::Hash;
 
 use stacks_common::{impl_array_newtype, impl_array_hexstring_fmt, 
     impl_byte_array_newtype, impl_byte_array_message_codec, 
-    types::chainstate::{TRIEHASH_ENCODED_SIZE, TrieHash}
+    types::chainstate::{TRIEHASH_ENCODED_SIZE, TrieHash, BurnchainHeaderHash, StacksBlockId, SortitionId}
 };
 
 use sha2::{Digest, Sha512_256 as TrieHasher};
@@ -253,11 +253,6 @@ pub trait BlockMap {
     fn get_block_id(&self, bhh: &Self::TrieId) -> Result<u32>;
     fn get_block_id_caching(&mut self, bhh: &Self::TrieId) -> Result<u32>;
 }
-
-#[cfg(test)]
-use stacks_common::types::chainstate::BlockHeaderHash;
-#[cfg(test)]
-impl_marf_trie_id!(BlockHeaderHash);
 #[cfg(test)]
 impl BlockMap for () {
     type TrieId = BlockHeaderHash;
@@ -277,3 +272,11 @@ impl BlockMap for () {
         Err(MarfError::NotFoundError)
     }
 }
+
+impl_marf_trie_id!(BurnchainHeaderHash);
+impl_marf_trie_id!(StacksBlockId);
+impl_marf_trie_id!(SortitionId);
+#[cfg(test)]
+use stacks_common::types::chainstate::BlockHeaderHash;
+#[cfg(test)]
+impl_marf_trie_id!(BlockHeaderHash);

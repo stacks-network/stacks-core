@@ -19,6 +19,7 @@ use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::{fs, io};
 
+use super::Result;
 use stacks_common::test_debug;
 use stacks_common::types::chainstate::TrieHash;
 
@@ -31,8 +32,6 @@ use crate::node::{
 };
 use crate::storage::NodeHashReader;
 use crate::MarfTrieId;
-
-use super::Result;
 
 /// Mapping between block IDs and trie offsets
 pub type TrieIdOffsets = HashMap<u32, u64>;
@@ -123,6 +122,15 @@ impl TrieFile {
         } else {
             let blob_path = format!("{}.blobs", path);
             TrieFile::new_disk(&blob_path, readonly)
+        }
+    }
+
+    pub fn from_db(db: &impl TrieDb) -> Result<TrieFile> {
+        if db.is_memory() {
+            Ok(TrieFile::new_ram(db.is_readonly()))
+        } else {
+            let blob_path = format!("{}.blobs", db.db_path()?);
+            TrieFile::new_disk(&blob_path, db.is_readonly())
         }
     }
 

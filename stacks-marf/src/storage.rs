@@ -32,7 +32,7 @@ use stacks_common::types::chainstate::{
 use crate::bits::{
     get_node_byte_len, read_hash_bytes, read_nodetype, read_root_hash, write_nodetype_bytes,
 };
-use crate::cache::*;
+use crate::{cache::*, MARFOpenOpts, trie};
 use crate::db::TrieDbTransaction;
 use crate::file::{TrieFile, TrieFileNodeHashReader};
 use crate::node::{
@@ -138,7 +138,7 @@ where
     }
 }
 
-impl<'a, Id, TrieDB> BlockMap for TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType> 
+impl<'a, Id, TrieDB> BlockMap for TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>> 
 where
     Id: MarfTrieId,
     TrieDB: TrieDb
@@ -327,7 +327,7 @@ where
     /// succeeding.
     fn seal<'a, TrieDB>(
         self,
-        storage_tx: &'_ mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+        storage_tx: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
     ) -> Result<UncommittedState<Id>> 
     where
         TrieDB: TrieDb
@@ -347,7 +347,7 @@ where
     /// it first and then dump it.
     fn dump<'a, TrieDB, F>(
         self,
-        storage_tx: &'_ mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+        storage_tx: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         f: &mut F,
         bhh: &Id,
     ) -> Result<()> 
@@ -514,13 +514,13 @@ where
     /// The purpose of this method is to calculate the trie root hash from a trie that is in the
     /// process of being flushed.
     fn with_reinstated_data<'a, TrieDB, F, R>(
-        &mut self, 
-        storage: &'_ mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>, 
+        &'_ mut self, 
+        storage: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>, 
         f: F
     ) -> R
     where
         TrieDB: TrieDb,
-        F: 'a + FnOnce(&mut TrieRAM<Id>, &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>) -> R,
+        F: FnOnce(&mut TrieRAM<Id>, &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>) -> R,
     {
         // do NOT call this function within another instance of this function.  Only tears and
         // misery would result.
@@ -633,9 +633,9 @@ where
 
     /// Calculate the MARF root hash from a trie root hash.
     /// This hashes the trie root hash with a geometric series of prior trie hashes.
-    fn calculate_marf_root_hash<TrieDB>(
+    fn calculate_marf_root_hash<'a, TrieDB>(
         &mut self,
-        storage: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+        storage: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         root_hash: &TrieHash,
     ) -> TrieHash 
     where
@@ -657,9 +657,9 @@ where
 
     /// Calculate and store the MARF root hash, as well as any necessary intermediate nodes.  Do
     /// this only for deferred hashing mode.
-    fn inner_seal_marf<TrieDB>(
+    fn inner_seal_marf<'a, TrieDB>(
         &mut self,
-        storage_tx: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+        storage_tx: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
     ) -> Result<TrieHash> 
     where
         TrieDB: TrieDb
@@ -692,9 +692,9 @@ where
 
     /// Get the trie root hash of the trie ram, and update all nodes' root hashes if we're in
     /// deferred hash mode.  Returns the resulting MARF root.  This is part of the seal operation.
-    fn inner_seal<TrieDB>(
+    fn inner_seal<'a, TrieDB>(
         &mut self,
-        storage_tx: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+        storage_tx: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
     ) -> Result<TrieHash> 
     where
         TrieDB: TrieDb
@@ -712,9 +712,9 @@ where
     }
 
     #[cfg(test)]
-    pub fn test_inner_seal<TrieDB>(
-        &mut self,
-        storage_tx: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+    pub fn test_inner_seal<'a, TrieDB>(
+        &'a mut self,
+        storage_tx: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
     ) -> Result<TrieHash> 
     where
         TrieDB: TrieDb
@@ -726,9 +726,9 @@ where
     /// is Deferred, then this updates all the node hashes as well and stores the new node hash.
     /// Otherwise, this is a no-op.
     /// This part of the seal operation.
-    fn inner_seal_dump<TrieDB>(
+    fn inner_seal_dump<'a, TrieDB>(
         &mut self, 
-        storage_tx: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>
+        storage_tx: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>
     ) -> Result<()> 
     where
         TrieDB: TrieDb
@@ -748,9 +748,9 @@ where
     /// If the given `storage_tx`'s hash calculation mode is set to
     /// `TrieHashCalculationMode::Deferred`, then this method will also store each non-leaf node's
     /// hash.
-    fn calculate_node_hashes<TrieDB>(
+    fn calculate_node_hashes<'a, TrieDB>(
         &mut self,
-        storage_tx: &mut TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>,
+        storage_tx: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
         node_ptr: u64,
     ) -> Result<TrieHash> 
     where
@@ -1217,7 +1217,7 @@ where
     }
 }
 
-impl<'a, Id, TrieDB> Deref for TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType> 
+impl<'a, Id, TrieDB> Deref for TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>> 
 where
     Id: MarfTrieId,
     TrieDB: TrieDb
@@ -1228,7 +1228,7 @@ where
     }
 }
 
-impl<'a, Id, TrieDB> DerefMut for TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType> 
+impl<'a, Id, TrieDB> DerefMut for TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>> 
 where
     Id: MarfTrieId,
     TrieDB: TrieDb,
@@ -1247,7 +1247,7 @@ pub struct TrieStorageTransaction<'a, Id, TrieDB, TrieTX>
 where 
     Id: MarfTrieId, 
     TrieDB: TrieDb,
-    TrieTX: TrieDbTransaction<TrieDB>
+    TrieTX: TrieDbTransaction<'a, TrieDB>
 {
     storage: TrieStorageConnection<'a, Id, TrieDB>,
     db_tx: TrieTX
@@ -1410,9 +1410,9 @@ where
         }
     }
 
-    pub fn transaction(
-        &mut self
-    ) -> Result<TrieStorageTransaction<Id, TrieDB, TrieDB::TxType>> {
+    pub fn transaction<'a>(
+        &'a mut self
+    ) -> Result<TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>> {
         if self.data.is_readonly {
             return Err(MarfError::ReadOnlyError);
         }
@@ -1452,7 +1452,51 @@ where
     }
     */
 
-    
+    pub fn open(trie_db: TrieDB, readonly: bool, unconfirmed: bool, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, TrieDB>> {
+        let blobs = if marf_opts.external_blobs {
+            Some(TrieFile::from_db(&trie_db)?)
+        } else {
+            None
+        };
+
+        let cache = TrieCache::new(&marf_opts.cache_strategy);
+
+        let ret = TrieFileStorage {
+            db_path: trie_db.db_path()?.to_string(),
+            db: trie_db,
+            cache,
+            blobs,
+            bench: TrieBenchmark::new(),
+            hash_calculation_mode: marf_opts.hash_calculation_mode,
+
+            data: TrieStorageTransientData {
+                uncommitted_writes: None,
+                cur_block: Id::sentinel(),
+                cur_block_id: None,
+
+                read_count: 0,
+                read_backptr_count: 0,
+                read_node_count: 0,
+                read_leaf_count: 0,
+
+                write_count: 0,
+                write_node_count: 0,
+                write_leaf_count: 0,
+
+                trie_ancestor_hash_bytes_cache: None,
+
+                is_readonly: readonly,
+                unconfirmed: unconfirmed,
+            },
+
+            // used in testing in order to short-circuit block-height lookups
+            //   when the trie struct is tested outside of marf.rs usage
+            #[cfg(test)]
+            test_genesis_block: None,
+        };
+
+        Ok(ret)
+    }
 
     /*pub fn open(
         trie_db: TrieDB, 
@@ -1555,7 +1599,7 @@ where
     }
 }
 
-impl<'a, Id, TrieDB> TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType>
+impl<'a, Id, TrieDB> TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>
 where
     Id: MarfTrieId,
     TrieDB: TrieDb
@@ -1993,42 +2037,6 @@ where
             // stored to DB
             self.db.get_node_hash_bytes_by_bhh(bhh, &root_hash_ptr)
         }
-    }
-
-    #[cfg(test)]
-    fn inner_read_persisted_root_to_blocks(&mut self) -> Result<HashMap<TrieHash, Id>> {
-        let ret = match self.blobs.as_mut() {
-            Some(blobs) => {
-                HashMap::from_iter(self.db.read_all_block_hashes_and_roots()?.into_iter())
-            }
-            None => {
-                HashMap::from_iter(self.db.read_all_block_hashes_and_roots()?.into_iter())
-            }
-        };
-        Ok(ret)
-    }
-
-    /// Generate a mapping between Trie root hashes and the blocks that contain them
-    #[cfg(test)]
-    pub fn read_root_to_block_table(&mut self) -> Result<HashMap<TrieHash, Id>> {
-        use crate::node::set_backptr;
-
-        let mut ret = self.inner_read_persisted_root_to_blocks()?;
-        let uncommitted_writes = match self.data.uncommitted_writes.take() {
-            Some((bhh, trie_ram)) => {
-                let ptr = TriePtr::new(set_backptr(TrieNodeID::Node256 as u8), 0, 0);
-
-                let root_hash = trie_ram.read_node_hash(&ptr)?;
-
-                ret.insert(root_hash.clone(), bhh.clone());
-                Some((bhh, trie_ram))
-            }
-            _ => None,
-        };
-
-        self.data.uncommitted_writes = uncommitted_writes;
-
-        Ok(ret)
     }
 
     /// internal procedure for locking a trie hash for work
