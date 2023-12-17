@@ -77,6 +77,8 @@ pub struct MARFOpenOpts {
     pub external_blobs: bool,
     /// unconditionally do a DB migration (used for testing)
     pub force_db_migrate: bool,
+    pub readonly: bool,
+    pub unconfirmed: bool
 }
 
 impl MARFOpenOpts {
@@ -86,6 +88,8 @@ impl MARFOpenOpts {
             cache_strategy: "noop".to_string(),
             external_blobs: false,
             force_db_migrate: false,
+            readonly: false,
+            unconfirmed: false
         }
     }
 
@@ -93,26 +97,30 @@ impl MARFOpenOpts {
         hash_calculation_mode: TrieHashCalculationMode,
         cache_strategy: &str,
         external_blobs: bool,
+        readonly: bool,
+        unconfirmed: bool
     ) -> MARFOpenOpts {
         MARFOpenOpts {
             hash_calculation_mode,
             cache_strategy: cache_strategy.to_string(),
             external_blobs,
             force_db_migrate: false,
+            readonly,
+            unconfirmed
         }
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn all() -> Vec<MARFOpenOpts> {
         vec![
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false, false, false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false, false, false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true, false, false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true, false, false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", false, false, false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", false, false, false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true, false, false),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true, false, false),
         ]
     }
 }
@@ -307,7 +315,7 @@ where
         }
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     fn commit_tx(self) {
         self.storage.commit()
     }
@@ -588,7 +596,7 @@ where
     pub fn get_benchmarks(&self) -> TrieBenchmark {
         self.storage.get_benchmarks()
     }
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn from_storage_opened(storage: TrieFileStorage<Id, TrieDB>, opened_to: &Id) -> MARF<Id, TrieDB> {
         MARF {
             storage,
@@ -599,7 +607,7 @@ where
         }
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn begin(&mut self, chain_tip: &Id, next_chain_tip: &Id) -> Result<(), MarfError> {
         let mut tx = self.begin_tx()?;
         tx.begin(chain_tip, next_chain_tip)?;
@@ -607,7 +615,7 @@ where
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn begin_unconfirmed(&mut self, chain_tip: &Id) -> Result<Id, MarfError> {
         let mut tx = self.begin_tx()?;
         let result = tx.begin_unconfirmed(chain_tip)?;
@@ -615,7 +623,7 @@ where
         Ok(result)
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn seal(&mut self) -> Result<TrieHash, MarfError> {
         let mut tx = self.begin_tx()?;
         let h = tx.seal()?;
@@ -1176,7 +1184,7 @@ where
         current_block_hash: &Id,
     ) -> Result<Option<u32>, MarfError> {
         let hash_key = format!("{}::{}", BLOCK_HASH_TO_HEIGHT_MAPPING_KEY, block_hash);
-        #[cfg(test)]
+        #[cfg(feature = "testing")]
         {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -1207,7 +1215,7 @@ where
         height: u32,
         current_block_hash: &Id,
     ) -> Result<Option<Id>, MarfError> {
-        #[cfg(test)]
+        #[cfg(feature = "testing")]
         {
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
@@ -1518,12 +1526,12 @@ where
     }
 
     /// Access internal storage
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<Id, TrieDB> {
         self.storage.connection()
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<Id, TrieDB, TrieDB::TxType<'_>> {
         self.storage.transaction().unwrap()
     }

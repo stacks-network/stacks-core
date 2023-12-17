@@ -10,7 +10,11 @@ members = [
     "contrib/tools/relay-server",
     "libsigner",
     "stacks-signer",
-    "testnet/stacks-node"]
+    "testnet/stacks-node",
+    "stacks-chainstate",
+    "stacks-marf",
+    "stacks-marf-sqlite"
+]
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]  

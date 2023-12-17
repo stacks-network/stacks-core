@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
 use std::fmt;
-#[cfg(test)]
+#[cfg(feature = "testing")]
 use std::collections::HashMap;
 
 use sha2::Digest;
@@ -380,7 +380,7 @@ where
         }
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn print_to_stderr(&self) {
         self.trie_ram_ref().print_to_stderr()
     }
@@ -559,7 +559,7 @@ where
         result
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     #[allow(dead_code)]
     pub fn stats(&mut self) -> (u64, u64) {
         let r = self.read_count;
@@ -569,7 +569,7 @@ where
         (r, w)
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     #[allow(dead_code)]
     pub fn node_stats(&mut self) -> (u64, u64, u64) {
         let nr = self.read_node_count;
@@ -583,7 +583,7 @@ where
         (nr, br, nw)
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     #[allow(dead_code)]
     pub fn leaf_stats(&mut self) -> (u64, u64) {
         let lr = self.read_leaf_count;
@@ -711,7 +711,7 @@ where
         }
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn test_inner_seal<'a, TrieDB>(
         &'a mut self,
         storage_tx: &mut TrieStorageTransaction<'a, Id, TrieDB, TrieDB::TxType<'a>>,
@@ -1159,14 +1159,14 @@ where
         Ok(self.data.len() as u32)
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn print_to_stderr(&self) {
         for dat in self.data.iter() {
             eprintln!("{}: {:?}", &dat.1, &dat.0);
         }
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn data(&self) -> &Vec<(TrieNodeType, TrieHash)> {
         &self.data
     }
@@ -1294,7 +1294,7 @@ where
 
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub test_genesis_block: &'a mut Option<Id>,
 }
 
@@ -1360,7 +1360,7 @@ where
 
     // used in testing in order to short-circuit block-height lookups
     //   when the trie struct is tested outside of marf.rs usage
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub test_genesis_block: Option<Id>,
 }
 
@@ -1405,7 +1405,7 @@ where
             hash_calculation_mode: self.hash_calculation_mode,
             unconfirmed_block_id: None,
 
-            #[cfg(test)]
+            #[cfg(feature = "testing")]
             test_genesis_block: &mut self.test_genesis_block,
         }
     }
@@ -1429,7 +1429,7 @@ where
             hash_calculation_mode: self.hash_calculation_mode,
             unconfirmed_block_id: None,
 
-            #[cfg(test)]
+            #[cfg(feature = "testing")]
             test_genesis_block: &mut self.test_genesis_block,
         };
 
@@ -1452,7 +1452,11 @@ where
     }
     */
 
-    pub fn open(trie_db: TrieDB, readonly: bool, unconfirmed: bool, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, TrieDB>> {
+    pub fn open(trie_db: TrieDB, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, TrieDB>> {
+        Self::inner_open(trie_db, marf_opts.readonly, marf_opts.unconfirmed, marf_opts)
+    }
+
+    fn inner_open(trie_db: TrieDB, readonly: bool, unconfirmed: bool, marf_opts: MARFOpenOpts) -> Result<TrieFileStorage<Id, TrieDB>> {
         let blobs = if marf_opts.external_blobs {
             Some(TrieFile::from_db(&trie_db)?)
         } else {
@@ -1491,7 +1495,7 @@ where
 
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
-            #[cfg(test)]
+            #[cfg(feature = "testing")]
             test_genesis_block: None,
         };
 
@@ -1579,7 +1583,7 @@ where
 
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
-            #[cfg(test)]
+            #[cfg(feature = "testing")]
             test_genesis_block: self.test_genesis_block.clone(),
         };
 
@@ -1655,7 +1659,7 @@ where
 
             // used in testing in order to short-circuit block-height lookups
             //   when the trie struct is tested outside of marf.rs usage
-            #[cfg(test)]
+            #[cfg(feature = "testing")]
             test_genesis_block: self.test_genesis_block.clone(),
         };
 
@@ -1982,7 +1986,7 @@ where
         None
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn stats(&mut self) -> (u64, u64) {
         let r = self.data.read_count;
         let w = self.data.write_count;
@@ -1991,7 +1995,7 @@ where
         (r, w)
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn node_stats(&mut self) -> (u64, u64, u64) {
         let nr = self.data.read_node_count;
         let br = self.data.read_backptr_count;
@@ -2004,7 +2008,7 @@ where
         (nr, br, nw)
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn leaf_stats(&mut self) -> (u64, u64) {
         let lr = self.data.read_leaf_count;
         let lw = self.data.write_leaf_count;
@@ -2023,7 +2027,7 @@ where
     }*/
 
     /// Read the Trie root node's hash from the block table.
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn read_block_root_hash(&mut self, bhh: &Id) -> Result<TrieHash> {
         let root_hash_ptr = TriePtr::new(
             TrieNodeID::Node256 as u8,
@@ -2692,12 +2696,12 @@ where
         self.bench.reset();
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn transient_data(&self) -> &TrieStorageTransientData<Id> {
         &self.data
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "testing")]
     pub fn transient_data_mut(&mut self) -> &mut TrieStorageTransientData<Id> {
         &mut self.data
     }

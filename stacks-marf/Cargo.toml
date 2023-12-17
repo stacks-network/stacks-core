@@ -3,7 +3,8 @@ name = "stacks-marf"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+testing = []
 
 [dependencies]
 stacks-common = { path = "../stacks-common" }
@@ -17,3 +18,6 @@ sha2 = { version = "0.10", features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), target_env = "msvc"))'.dependencies]
 sha2 = { version = "0.10" }
+
+[dev-dependencies]
+stacks-common = { path = "../stacks-common", features = ["testing"] }

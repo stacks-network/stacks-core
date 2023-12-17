@@ -253,7 +253,7 @@ pub trait BlockMap {
     fn get_block_id(&self, bhh: &Self::TrieId) -> Result<u32>;
     fn get_block_id_caching(&mut self, bhh: &Self::TrieId) -> Result<u32>;
 }
-#[cfg(test)]
+#[cfg(feature = "testing")]
 impl BlockMap for () {
     type TrieId = BlockHeaderHash;
     fn get_block_hash(&self, _id: u32) -> Result<BlockHeaderHash> {
@@ -276,7 +276,7 @@ impl BlockMap for () {
 impl_marf_trie_id!(BurnchainHeaderHash);
 impl_marf_trie_id!(StacksBlockId);
 impl_marf_trie_id!(SortitionId);
-#[cfg(test)]
+#[cfg(feature = "testing")]
 use stacks_common::types::chainstate::BlockHeaderHash;
-#[cfg(test)]
+#[cfg(feature = "testing")]
 impl_marf_trie_id!(BlockHeaderHash);

@@ -9,6 +9,8 @@ use stacks_marf::errors::MarfError;
 mod migrations;
 mod trie_db_impl;
 mod memory;
+
+#[cfg(test)]
 mod tests;
 
 pub struct SqliteTrieDb {

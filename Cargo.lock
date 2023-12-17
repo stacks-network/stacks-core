@@ -3504,6 +3504,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-chainstate"
+version = "0.1.0"
+dependencies = [
+ "stacks-common",
+]
+
+[[package]]
 name = "stacks-common"
 version = "0.0.1"
 dependencies = [
@@ -3534,6 +3541,28 @@ dependencies = [
  "time 0.2.27",
  "winapi 0.3.9",
  "wsts",
+]
+
+[[package]]
+name = "stacks-marf"
+version = "0.1.0"
+dependencies = [
+ "rand 0.7.3",
+ "serde",
+ "serde_derive",
+ "sha2 0.10.6",
+ "slog",
+ "stacks-common",
+]
+
+[[package]]
+name = "stacks-marf-sqlite"
+version = "0.1.0"
+dependencies = [
+ "rand 0.7.3",
+ "rusqlite",
+ "stacks-common",
+ "stacks-marf",
 ]
 
 [[package]]

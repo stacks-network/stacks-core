@@ -21,6 +21,7 @@ use std::{cmp, fs};
 use stacks_common::{test_debug, debug};
 use stacks_common::types::chainstate::{TrieHash, BlockHeaderHash};
 use stacks_common::util::hash::{Sha512Trunc256Sum, to_hex};
+use stacks_marf::*;
 
 use crate::memory::InMemorySqliteTrieDb;
 use crate::node::TriePath;
@@ -83,10 +84,10 @@ fn test_marf_with_cache(
         test_file
     };
 
-    let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true);
+    let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true, false, false);
     let db = InMemorySqliteTrieDb::new()
         .expect("failed to open in-memory trie db");
-    let f = TrieFileStorage::open(db, false, false, marf_opts).unwrap();
+    let f = TrieFileStorage::open(db, marf_opts).unwrap();
     let mut marf = MARF::from_storage(f);
     let mut last_block_header = BlockHeaderHash::sentinel();
     let batch_size = batch_size.unwrap_or(0);
