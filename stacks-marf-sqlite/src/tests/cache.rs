@@ -21,7 +21,6 @@ use std::{cmp, fs};
 use stacks_common::{test_debug, debug};
 use stacks_common::types::chainstate::{TrieHash, BlockHeaderHash};
 use stacks_common::util::hash::{Sha512Trunc256Sum, to_hex};
-use stacks_marf::*;
 
 use crate::memory::InMemorySqliteTrieDb;
 use crate::node::TriePath;
@@ -40,7 +39,7 @@ pub fn make_test_insert_data(
     for blk in 0..num_blocks {
         let mut block_data = vec![];
         test_debug!("Make block {}", blk);
-        for val in 0..num_inserts_per_block {
+        for _val in 0..num_inserts_per_block {
             let path_bytes = Sha512Trunc256Sum::from_data(&data).as_bytes().to_vec();
             data.copy_from_slice(&path_bytes[0..32]);
 
@@ -68,7 +67,7 @@ fn test_marf_with_cache(
     data: &[Vec<(String, MARFValue)>],
     batch_size: Option<usize>,
 ) -> TrieHash {
-    let test_file = if test_name == ":memory:" {
+    if test_name == ":memory:" {
         test_name.to_string()
     } else {
         let test_dir = format!("/tmp/stacks-marf-tests/{}", test_name);
@@ -128,7 +127,6 @@ fn test_marf_with_cache(
     debug!("---------");
 
     let mut total_read_time = 0;
-    let mut root_hash = TrieHash([0u8; 32]);
     for (i, block_data) in data.iter().enumerate() {
         test_debug!("Read block {}", i);
         for (key, value) in block_data.iter() {
@@ -162,7 +160,7 @@ fn test_marf_with_cache(
 
     eprintln!("MARF bench total: {:#?}", &bench);
 
-    root_hash = marf.get_root_hash_at(&last_block_header).unwrap();
+    let root_hash = marf.get_root_hash_at(&last_block_header).unwrap();
     eprintln!("root hash at {:?}: {:?}", &last_block_header, &root_hash);
     root_hash
 }

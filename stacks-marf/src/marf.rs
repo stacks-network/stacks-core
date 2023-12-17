@@ -328,7 +328,7 @@ where
     ) -> Result<MARF<Id, TrieDB>, MarfError> {
         if self.open_chain_tip.is_some() {
             error!(
-                "MARF at {} is already in the process of writing",
+                "MARF at {:?} is already in the process of writing",
                 &self.storage.db_path
             );
             return Err(MarfError::InProgressError);
@@ -1549,7 +1549,7 @@ where
     pub fn reopen_readonly(&self) -> Result<MARF<Id, TrieDB>, MarfError> {
         if self.open_chain_tip.is_some() {
             error!(
-                "MARF at {} is already in the process of writing",
+                "MARF at {:?} is already in the process of writing",
                 &self.storage.db_path
             );
             return Err(MarfError::InProgressError);

@@ -25,13 +25,8 @@ use stacks_marf::*;
 
 use super::*;
 use crate::bits::*;
-use crate::marf::*;
 use crate::memory::InMemorySqliteTrieDb;
 use crate::node::*;
-use crate::proofs::*;
-use crate::storage::*;
-use crate::trie::*;
-use crate::*;
 
 #[test]
 fn trieptr_to_bytes() {

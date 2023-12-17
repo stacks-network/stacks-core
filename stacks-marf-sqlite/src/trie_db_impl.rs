@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, path::PathBuf};
 
 use stacks_marf::{Result, TrieDb};
 
@@ -212,8 +212,8 @@ impl TrieDb for SqliteTrieDb {
         true
     }
 
-    fn db_path(&self) -> Result<String> {
-        Ok(":memory:".to_string())
+    fn db_path(&self) -> Result<Option<PathBuf>> {
+        Ok(self.db_path.clone())
     }
 
     fn is_readonly(&self) -> bool {

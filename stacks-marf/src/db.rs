@@ -1,4 +1,4 @@
-use std::{io::Write, ops::Deref};
+use std::{io::Write, ops::Deref, path::PathBuf};
 
 use stacks_common::types::chainstate::TrieHash;
 
@@ -15,7 +15,7 @@ where
     ) -> Result<Self::TxType<'a>>;
 
     fn is_memory(&self) -> bool;
-    fn db_path(&self) -> Result<String>;
+    fn db_path(&self) -> Result<Option<PathBuf>>;
     fn is_readonly(&self) -> bool;
 
     //fn create_tables_if_needed(&self) -> Result<()>;

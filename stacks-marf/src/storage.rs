@@ -21,6 +21,7 @@ use std::ops::{Deref, DerefMut};
 use std::fmt;
 #[cfg(feature = "testing")]
 use std::collections::HashMap;
+use std::path::{PathBuf, Path};
 
 use sha2::Digest;
 use stacks_common::util::hash::to_hex;
@@ -1277,7 +1278,7 @@ where
     Id: MarfTrieId,
     TrieDB: TrieDb
 {
-    pub db_path: &'a str,
+    pub db_path: Option<&'a Path>,
     db: &'a TrieDB,
     blobs: Option<&'a mut TrieFile>,
     data: &'a mut TrieStorageTransientData<Id>,
@@ -1349,7 +1350,7 @@ where
     Id: MarfTrieId,
     DB: TrieDb
 {
-    pub db_path: String,
+    pub db_path: Option<PathBuf>,
 
     db: DB,
     blobs: Option<TrieFile>,
@@ -1397,7 +1398,7 @@ where
     pub fn connection(&mut self) -> TrieStorageConnection<Id, TrieDB> {
         TrieStorageConnection {
             db: &self.db,
-            db_path: &self.db_path,
+            db_path: self.db_path.as_ref().map(|p| p.as_path()),
             data: &mut self.data,
             blobs: self.blobs.as_mut(),
             cache: &mut self.cache,
@@ -1421,7 +1422,7 @@ where
 
         let conn = TrieStorageConnection {
             db: &self.db,
-            db_path: &self.db_path,
+            db_path: self.db_path.as_ref().map(|p| p.as_path()),
             data: &mut self.data,
             blobs: self.blobs.as_mut(),
             cache: &mut self.cache,
@@ -1466,7 +1467,7 @@ where
         let cache = TrieCache::new(&marf_opts.cache_strategy);
 
         let ret = TrieFileStorage {
-            db_path: trie_db.db_path()?.to_string(),
+            db_path: trie_db.db_path()?,
             db: trie_db,
             cache,
             blobs,
@@ -1545,12 +1546,12 @@ where
         let db = self.db.reopen_readonly()?;
         let cache = TrieCache::default();
         let blobs = if self.blobs.is_some() {
-            Some(TrieFile::from_db_path(&self.db_path, true)?)
+            Some(TrieFile::from_db_path(self.db_path.as_ref().map(|p| p.as_path()), true)?)
         } else {
             None
         };
 
-        trace!("Make read-only view of TrieFileStorage: {}", &self.db_path);
+        trace!("Make read-only view of TrieFileStorage: {:?}", &self.db_path);
 
         // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
@@ -1616,21 +1617,21 @@ where
         //let db = marf_sqlite_open(&self.db_path, OpenFlags::SQLITE_OPEN_READ_ONLY, false)?;
         let db = self.db.reopen_readonly()?;
         let blobs = if self.blobs.is_some() {
-            Some(TrieFile::from_db_path(&self.db_path, true)?)
+            Some(TrieFile::from_db_path(self.db_path, true)?)
         } else {
             None
         };
 
         trace!(
-            "Make read-only view of TrieStorageTransaction: {}",
-            &self.db_path
+            "Make read-only view of TrieStorageTransaction: {:?}",
+            self.db_path
         );
 
         let cache = TrieCache::default();
 
         // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
-            db_path: self.db_path.to_string(),
+            db_path: self.db_path.map(|p| p.to_owned()),
             db: db,
             blobs: blobs,
             cache: cache,

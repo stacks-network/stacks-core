@@ -1,8 +1,8 @@
-use std::{path::{PathBuf, Path}, ops::{Deref, DerefMut}, fs, io, rc::Rc};
+use std::{path::{PathBuf, Path}, ops::Deref, fs, io, rc::Rc};
 
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OpenFlags, ToSql, NO_PARAMS, Transaction, OptionalExtension};
-use stacks_common::{debug, util::sleep_ms, error};
+use stacks_common::{debug, util::sleep_ms};
 use stacks_marf::*;
 use stacks_marf::errors::MarfError;
 
@@ -15,11 +15,17 @@ mod tests;
 
 pub struct SqliteTrieDb {
     conn: Rc<Connection>,
+    is_readonly: bool,
+    db_path: Option<PathBuf>,
 }
 
 impl SqliteTrieDb {
     fn new_from_connection(conn: Rc<Connection>) -> Result<Self> {
-        Ok(Self { conn })
+        Ok(Self { 
+            conn, 
+            is_readonly: false, 
+            db_path: None 
+        })
     }
 
     pub fn open(path: PathBuf, readonly: bool, force_db_migration: bool) -> Result<Self> {
@@ -57,7 +63,7 @@ impl SqliteTrieDb {
             }
         };
 
-        let mut conn = Connection::open(path)
+        let mut conn = Connection::open(path.clone())
             .map_err(|e| MarfError::SQLError(e.to_string()))?;
 
         if create_flag {
@@ -70,7 +76,11 @@ impl SqliteTrieDb {
             panic!("PARTIAL MIGRATION DETECTED! This is an irrecoverable error. You will need to restart your node from genesis.");
         }
 
-        Ok(Self { conn: Rc::new(conn) })
+        Ok(Self { 
+            conn: Rc::new(conn), 
+            is_readonly: readonly,
+            db_path: Some(path.clone())
+        })
     }
 
     pub fn clear_tables(&self, tx: &Transaction) -> Result<()> {

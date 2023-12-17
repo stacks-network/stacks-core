@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::path::Path;
 use std::{fs, io};
 
 use super::Result;
@@ -116,11 +117,11 @@ impl TrieFile {
     /// Instantiate a TrieFile, given the associated DB path.
     /// If path is ':memory:', then it'll be an in-RAM TrieFile.
     /// Otherwise, it'll be stored as `$db_path.blobs`.
-    pub fn from_db_path(path: &str, readonly: bool) -> Result<TrieFile> {
-        if path == ":memory:" {
+    pub fn from_db_path(path: Option<&Path>, readonly: bool) -> Result<TrieFile> {
+        if path.is_none() {
             Ok(TrieFile::new_ram(readonly))
         } else {
-            let blob_path = format!("{}.blobs", path);
+            let blob_path = format!("{}.blobs", path.unwrap().display());
             TrieFile::new_disk(&blob_path, readonly)
         }
     }
@@ -129,7 +130,8 @@ impl TrieFile {
         if db.is_memory() {
             Ok(TrieFile::new_ram(db.is_readonly()))
         } else {
-            let blob_path = format!("{}.blobs", db.db_path()?);
+            // TODO: Make this more robust
+            let blob_path = format!("{:?}.blobs", db.db_path()?);
             TrieFile::new_disk(&blob_path, db.is_readonly())
         }
     }
