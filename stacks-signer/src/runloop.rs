@@ -1,3 +1,4 @@
+use hashbrown::{HashMap, HashSet};
 use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
@@ -233,12 +234,24 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             .iter()
             .map(|i| i - 1) // Signer::new (unlike Signer::from) doesn't do this
             .collect::<Vec<u32>>();
+        // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
+        let mut signer_key_ids = HashMap::new();
+        for (signer_id, key_ids) in &config.signer_key_ids {
+            let id = signer_id - 1;
+            let ids = key_ids.iter().map(|i| *i).collect::<HashSet<u32>>();
+
+            signer_key_ids.insert(id, ids);
+        }
         let coordinator_config = CoordinatorConfig {
             threshold,
             num_signers: total_signers,
             num_keys: total_keys,
             message_private_key: config.message_private_key,
-            ..Default::default()
+            dkg_public_timeout: config.dkg_public_timeout,
+            dkg_end_timeout: config.dkg_end_timeout,
+            nonce_timeout: config.nonce_timeout,
+            sign_timeout: config.sign_timeout,
+            signer_key_ids,
         };
         let coordinator = FrostCoordinator::new(coordinator_config);
         let signing_round = Signer::new(
