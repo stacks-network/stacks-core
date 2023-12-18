@@ -489,11 +489,6 @@ impl BlockMinerThread {
             &chain_state,
             &burn_db.index_conn(),
             &mut mem_pool,
-            // TODO (refactor): the nakamoto block builder doesn't use the parent tenure ID,
-            //  it has to be included in the tenure change tx, which is an arg to the builder.
-            //  we should probably just remove this from the nakamoto block builder, so that
-            //  there isn't duplicated or unused logic here
-            &self.parent_tenure_id,
             &parent_block_info.stacks_parent_header,
             &self.burn_block.consensus_hash,
             self.burn_block.total_burn,
