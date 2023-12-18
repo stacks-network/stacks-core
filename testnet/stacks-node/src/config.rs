@@ -4,6 +4,7 @@ use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
@@ -1161,6 +1162,10 @@ impl Config {
                     .as_ref()
                     .map(|x| SelfSigner::from_seed(*x))
                     .or(miner_default_config.self_signing_key),
+                wait_on_interim_blocks: miner
+                    .wait_on_interim_blocks_ms
+                    .map(Duration::from_millis)
+                    .unwrap_or(miner_default_config.wait_on_interim_blocks),
             },
             None => miner_default_config,
         };
@@ -2166,7 +2171,7 @@ impl NodeConfig {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct MinerConfig {
     pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
@@ -2184,10 +2189,12 @@ pub struct MinerConfig {
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
     pub self_signing_key: Option<SelfSigner>,
+    /// Amount of time while mining in nakamoto to wait in between mining interim blocks
+    pub wait_on_interim_blocks: Duration,
 }
 
-impl MinerConfig {
-    pub fn default() -> MinerConfig {
+impl Default for MinerConfig {
+    fn default() -> MinerConfig {
         MinerConfig {
             min_tx_fee: 1,
             first_attempt_time_ms: 5_000,
@@ -2202,6 +2209,7 @@ impl MinerConfig {
             unprocessed_block_deadline_secs: 30,
             mining_key: None,
             self_signing_key: None,
+            wait_on_interim_blocks: Duration::from_millis(2_500),
         }
     }
 }
@@ -2311,6 +2319,7 @@ pub struct MinerConfigFile {
     pub unprocessed_block_deadline_secs: Option<u64>,
     pub mining_key: Option<String>,
     pub self_signing_seed: Option<u64>,
+    pub wait_on_interim_blocks_ms: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

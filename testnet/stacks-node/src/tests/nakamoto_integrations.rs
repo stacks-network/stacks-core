@@ -220,8 +220,19 @@ fn next_block_and_mine_commit(
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let mut block_processed_time: Option<Instant> = None;
     next_block_and(btc_controller, timeout_secs, || {
-        if let Some(block_processed_time) = block_processed_time.as_ref() {
-            let commits_sent = commits_submitted.load(Ordering::SeqCst);
+        let commits_sent = commits_submitted.load(Ordering::SeqCst);
+        let blocks_processed = coord_channels
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+
+        if blocks_processed > blocks_processed_before && block_processed_time.is_none() {
+            block_processed_time.replace(Instant::now());
+        }
+        if blocks_processed > blocks_processed_before {
+            let block_processed_time = block_processed_time
+                .as_ref()
+                .ok_or("TEST-ERROR: Processed time wasn't set")?;
             if commits_sent >= commits_before + 2 {
                 return Ok(true);
             }
@@ -232,13 +243,6 @@ fn next_block_and_mine_commit(
             }
             Ok(false)
         } else {
-            let blocks_processed = coord_channels
-                .lock()
-                .expect("Mutex poisoned")
-                .get_stacks_blocks_processed();
-            if blocks_processed > blocks_processed_before {
-                block_processed_time.replace(Instant::now());
-            }
             Ok(false)
         }
     })
@@ -326,6 +330,7 @@ fn simple_neon_integration() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
@@ -481,6 +486,178 @@ fn simple_neon_integration() {
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// This test spins up a nakamoto-neon node.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
+///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
+///  struct handles the epoch-2/3 tear-down and spin-up.
+/// This test makes three assertions:
+///  * 10 tenures are mined after 3.0 starts
+///  * Each tenure has 2 blocks
+fn mine_multiple_per_tenure_integration() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for a test stx transfer
+    let tenure_count = 10;
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 100;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        (send_amt + send_fee) * tenure_count,
+    );
+    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        stacker_sk,
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    info!("Nakamoto miner started...");
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    // Mine 10 nakamoto tenures
+    for sender_nonce in 0..tenure_count {
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+
+        let blocks_processed_before = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+
+        // submit a tx so that the miner will mine an extra block
+        let transfer_tx =
+            make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+        // let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
+        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap();
+
+        let mut mempool = naka_conf
+            .connect_mempool_db()
+            .expect("Database failure opening mempool");
+
+        mempool
+            .submit_raw(
+                &mut chainstate,
+                &sortdb,
+                &tip.consensus_hash,
+                &tip.anchored_header.block_hash(),
+                transfer_tx.clone(),
+                &ExecutionCost::max_value(),
+                &StacksEpochId::Epoch30,
+            )
+            .unwrap();
+
+        loop {
+            let blocks_processed = coord_channel
+                .lock()
+                .expect("Mutex poisoned")
+                .get_stacks_blocks_processed();
+            if blocks_processed > blocks_processed_before {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+    info!(
+        "Latest tip";
+        "height" => tip.stacks_block_height,
+        "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+    );
+
+    assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 20);
 
     coord_channel
         .lock()

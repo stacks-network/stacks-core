@@ -6,10 +6,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::{cmp, thread};
 
-use clarity::boot_util::boot_code_id;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::ClarityVersion;
 use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
@@ -73,6 +69,7 @@ pub struct Counters {
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
+    pub naka_mined_tenures: RunLoopCounter,
 }
 
 impl Counters {
@@ -87,6 +84,7 @@ impl Counters {
             naka_submitted_vrfs: RunLoopCounter::new(AtomicU64::new(0)),
             naka_submitted_commits: RunLoopCounter::new(AtomicU64::new(0)),
             naka_mined_blocks: RunLoopCounter::new(AtomicU64::new(0)),
+            naka_mined_tenures: RunLoopCounter::new(AtomicU64::new(0)),
         }
     }
 
@@ -101,6 +99,7 @@ impl Counters {
             naka_submitted_vrfs: (),
             naka_submitted_commits: (),
             naka_mined_blocks: (),
+            naka_mined_tenures: (),
         }
     }
 
@@ -150,6 +149,10 @@ impl Counters {
 
     pub fn bump_naka_mined_blocks(&self) {
         Counters::inc(&self.naka_mined_blocks);
+    }
+
+    pub fn bump_naka_mined_tenures(&self) {
+        Counters::inc(&self.naka_mined_tenures);
     }
 
     pub fn set_microblocks_processed(&self, value: u64) {
