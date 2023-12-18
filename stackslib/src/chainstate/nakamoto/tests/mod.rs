@@ -21,10 +21,12 @@ use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
+use stacks_common::address::AddressHashMode;
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey,
-    StacksPublicKey, StacksWorkScore, TrieHash,
+    StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
 };
 use stacks_common::types::{Address, PrivateKey, StacksEpoch, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
@@ -34,15 +36,20 @@ use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 use stdext::prelude::Integer;
 use stx_genesis::GenesisData;
 
-use crate::burnchains::{PoxConstants, Txid};
+use crate::burnchains::{BurnchainSigner, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::tests::make_fork_run;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+use crate::chainstate::burn::operations::{
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+};
 use crate::chainstate::burn::{BlockSnapshot, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::tests::{
     get_burnchain, get_burnchain_db, get_chainstate, get_rw_sortdb, get_sortition_db, p2pkh_from,
     pox_addr_from, setup_states_with_epochs,
 };
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
+use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::tenure::NakamotoTenure;
 use crate::chainstate::nakamoto::tests::node::TestSigners;
 use crate::chainstate::nakamoto::{
@@ -59,7 +66,7 @@ use crate::chainstate::stacks::{
     TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionVersion,
 };
 use crate::core;
-use crate::core::StacksEpochExtension;
+use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
 
 /// Get an address's account
@@ -1635,4 +1642,273 @@ pub fn test_get_highest_nakamoto_tenure() {
     assert_eq!(highest_tenure.coinbase_height, 3);
     assert_eq!(highest_tenure.tenure_index, 3);
     assert_eq!(highest_tenure.num_blocks_confirmed, 10);
+}
+
+/// Test that we can generate a .miners stackerdb config.
+/// The config must be stable across sortitions -- if a miner is given slot i, then it continues
+/// to have slot i in subsequent sortitions.
+#[test]
+fn test_make_miners_stackerdb_config() {
+    let test_signers = TestSigners::default();
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        test_signers.aggregate_public_key.clone(),
+    );
+
+    let miner_keys: Vec<_> = (3..13).map(|_| StacksPrivateKey::new()).collect();
+    let miner_hash160s: Vec<_> = miner_keys
+        .iter()
+        .map(|miner_privkey| {
+            let miner_pubkey = StacksPublicKey::from_private(miner_privkey);
+            let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
+            miner_hash160
+        })
+        .collect();
+    let miner_addrs: Vec<_> = miner_hash160s
+        .iter()
+        .map(|miner_hash160| StacksAddress {
+            version: 1,
+            bytes: miner_hash160.clone(),
+        })
+        .collect();
+
+    debug!("miners = {:#?}", &miner_hash160s);
+
+    // extract chainstate and sortdb -- we don't need the peer anymore
+    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.sortdb.as_mut().unwrap();
+    let mut last_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+
+    // make two leader keys (miner 1 and miner 2)
+    let mut miners = vec![];
+    for i in 3..13 {
+        let vrf_privkey = VRFPrivateKey::new();
+        let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
+        let miner = LeaderKeyRegisterOp {
+            consensus_hash: last_snapshot.consensus_hash.clone(),
+            public_key: vrf_pubkey,
+            memo: miner_hash160s[i - 3].0.to_vec(),
+            txid: Txid([i as u8; 32]),
+            vtxindex: 1 + (i as u32),
+            block_height: last_snapshot.block_height + 1,
+            burn_header_hash: last_snapshot.burn_header_hash.clone(),
+        };
+        miners.push(miner);
+    }
+
+    let mut stackerdb_configs = vec![];
+    let mut stackerdb_chunks = vec![];
+
+    // synthesize some sortitions and corresponding winning block-commits
+    for i in 3..13 {
+        // no winner every 3rd sortition
+        let sortition = i > 3 && i % 3 != 0;
+        let winning_txid = if sortition {
+            Txid([(i as u8); 32])
+        } else {
+            Txid([0x00; 32])
+        };
+        let winning_block_hash = BlockHeaderHash([(i as u8); 32]);
+        let snapshot = BlockSnapshot {
+            accumulated_coinbase_ustx: 0,
+            pox_valid: true,
+            block_height: last_snapshot.block_height + 1,
+            burn_header_timestamp: get_epoch_time_secs(),
+            burn_header_hash: BurnchainHeaderHash([(i as u8); 32]),
+            sortition_id: SortitionId([(i as u8); 32]),
+            parent_sortition_id: last_snapshot.sortition_id.clone(),
+            parent_burn_header_hash: last_snapshot.burn_header_hash.clone(),
+            consensus_hash: ConsensusHash([(i as u8); 20]),
+            ops_hash: OpsHash([(i as u8); 32]),
+            total_burn: 0,
+            sortition,
+            sortition_hash: SortitionHash([(i as u8); 32]),
+            winning_block_txid: winning_txid.clone(),
+            winning_stacks_block_hash: winning_block_hash.clone(),
+            index_root: TrieHash([0u8; 32]),
+            num_sortitions: last_snapshot.num_sortitions + if sortition { 1 } else { 0 },
+            stacks_block_accepted: false,
+            stacks_block_height: last_snapshot.stacks_block_height,
+            arrival_index: 0,
+            canonical_stacks_tip_height: last_snapshot.canonical_stacks_tip_height + 10,
+            canonical_stacks_tip_hash: BlockHeaderHash([((i + 1) as u8); 32]),
+            canonical_stacks_tip_consensus_hash: ConsensusHash([((i + 1) as u8); 20]),
+            miner_pk_hash: None,
+        };
+        let winning_block_commit = LeaderBlockCommitOp {
+            sunset_burn: 0,
+            block_header_hash: BlockHeaderHash([(i as u8); 32]),
+            new_seed: VRFSeed([(i as u8); 32]),
+            parent_block_ptr: last_snapshot.block_height as u32,
+            parent_vtxindex: 1,
+            // miners take turns winning
+            key_block_ptr: miners[i - 3].block_height as u32,
+            key_vtxindex: miners[i - 3].vtxindex as u16,
+            memo: vec![STACKS_EPOCH_3_0_MARKER],
+            commit_outs: vec![],
+
+            burn_fee: 12345,
+            input: (Txid([0; 32]), 0),
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
+                    "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+                )
+                .unwrap()],
+            ),
+
+            txid: winning_txid.clone(),
+            vtxindex: 1,
+            block_height: snapshot.block_height,
+            burn_parent_modulus: ((snapshot.block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+            burn_header_hash: snapshot.burn_header_hash.clone(),
+        };
+
+        let winning_ops = if i == 3 {
+            // first snapshot includes leader keys
+            miners
+                .clone()
+                .into_iter()
+                .map(|miner| BlockstackOperationType::LeaderKeyRegister(miner))
+                .collect()
+        } else {
+            // subsequent ones include block-commits
+            if sortition {
+                vec![BlockstackOperationType::LeaderBlockCommit(
+                    winning_block_commit,
+                )]
+            } else {
+                vec![]
+            }
+        };
+
+        {
+            let mut tx = SortitionHandleTx::begin(sort_db, &last_snapshot.sortition_id).unwrap();
+            let _index_root = tx
+                .append_chain_tip_snapshot(
+                    &last_snapshot,
+                    &snapshot,
+                    &winning_ops,
+                    &vec![],
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+            tx.test_update_canonical_stacks_tip(
+                &snapshot.sortition_id,
+                &snapshot.canonical_stacks_tip_consensus_hash,
+                &snapshot.canonical_stacks_tip_hash,
+                snapshot.canonical_stacks_tip_height,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+
+        last_snapshot = SortitionDB::get_block_snapshot(sort_db.conn(), &snapshot.sortition_id)
+            .unwrap()
+            .unwrap();
+
+        if i > 3 {
+            // have block-commit
+            // check the stackerdb config as of this chain tip
+            let stackerdb_config =
+                NakamotoChainState::make_miners_stackerdb_config(sort_db).unwrap();
+            eprintln!(
+                "stackerdb_config at i = {} (sorition? {}): {:?}",
+                &i, sortition, &stackerdb_config
+            );
+
+            stackerdb_configs.push(stackerdb_config);
+
+            // make a stackerdb chunk for a hypothetical block
+            let header = NakamotoBlockHeader {
+                version: 1,
+                chain_length: 2,
+                burn_spent: 3,
+                consensus_hash: ConsensusHash([0x04; 20]),
+                parent_block_id: StacksBlockId([0x05; 32]),
+                tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+                state_index_root: TrieHash([0x07; 32]),
+                miner_signature: MessageSignature::empty(),
+                signer_signature: ThresholdSignature::mock(),
+            };
+            let block = NakamotoBlock {
+                header,
+                txs: vec![],
+            };
+            if sortition {
+                let chunk = NakamotoBlockBuilder::make_stackerdb_block_proposal(
+                    &sort_db,
+                    i as u32,
+                    &block,
+                    &miner_keys[i - 3],
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(chunk.slot_version, (i + 1) as u32);
+                assert_eq!(chunk.data, block.serialize_to_vec());
+                stackerdb_chunks.push(chunk);
+            } else {
+                assert!(NakamotoBlockBuilder::make_stackerdb_block_proposal(
+                    &sort_db,
+                    i as u32,
+                    &block,
+                    &miner_keys[i - 3]
+                )
+                .unwrap()
+                .is_none());
+            }
+        }
+    }
+    // miners are "stable" across snapshots
+    let miner_hashbytes: Vec<_> = stackerdb_configs
+        .iter()
+        .map(|config| {
+            (
+                config.signers[0].0.bytes.clone(),
+                config.signers[1].0.bytes.clone(),
+            )
+        })
+        .collect();
+
+    // active miner alternates slots (part of stability)
+    assert_eq!(stackerdb_chunks[0].slot_id, 0);
+    assert_eq!(stackerdb_chunks[1].slot_id, 1);
+    assert_eq!(stackerdb_chunks[2].slot_id, 0);
+    assert_eq!(stackerdb_chunks[3].slot_id, 1);
+    assert_eq!(stackerdb_chunks[4].slot_id, 0);
+    assert_eq!(stackerdb_chunks[5].slot_id, 1);
+
+    assert!(stackerdb_chunks[0].verify(&miner_addrs[1]).unwrap());
+    assert!(stackerdb_chunks[1].verify(&miner_addrs[2]).unwrap());
+    assert!(stackerdb_chunks[2].verify(&miner_addrs[4]).unwrap());
+    assert!(stackerdb_chunks[3].verify(&miner_addrs[5]).unwrap());
+    assert!(stackerdb_chunks[4].verify(&miner_addrs[7]).unwrap());
+    assert!(stackerdb_chunks[5].verify(&miner_addrs[8]).unwrap());
+
+    assert_eq!(miner_hashbytes[0].0, miner_hash160s[1]);
+    assert_eq!(miner_hashbytes[1].0, miner_hash160s[1]);
+    assert_eq!(miner_hashbytes[2].0, miner_hash160s[1]);
+
+    assert_eq!(miner_hashbytes[1].1, miner_hash160s[2]);
+    assert_eq!(miner_hashbytes[2].1, miner_hash160s[2]);
+    assert_eq!(miner_hashbytes[3].1, miner_hash160s[2]);
+
+    assert_eq!(miner_hashbytes[3].0, miner_hash160s[4]);
+    assert_eq!(miner_hashbytes[4].0, miner_hash160s[4]);
+    assert_eq!(miner_hashbytes[5].0, miner_hash160s[4]);
+
+    assert_eq!(miner_hashbytes[4].1, miner_hash160s[5]);
+    assert_eq!(miner_hashbytes[5].1, miner_hash160s[5]);
+    assert_eq!(miner_hashbytes[6].1, miner_hash160s[5]);
+
+    assert_eq!(miner_hashbytes[6].0, miner_hash160s[7]);
+    assert_eq!(miner_hashbytes[7].0, miner_hash160s[7]);
+    assert_eq!(miner_hashbytes[8].0, miner_hash160s[7]);
+
+    assert_eq!(miner_hashbytes[7].1, miner_hash160s[8]);
+    assert_eq!(miner_hashbytes[8].1, miner_hash160s[8]);
 }
