@@ -237,10 +237,9 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
         // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
         let mut signer_key_ids = HashMap::new();
         for (signer_id, key_ids) in &config.signer_key_ids {
-            let id = signer_id - 1;
-            let ids = key_ids.iter().map(|i| *i).collect::<HashSet<u32>>();
+            let ids = key_ids.iter().map(|i| *i - 1).collect::<HashSet<u32>>();
 
-            signer_key_ids.insert(id, ids);
+            signer_key_ids.insert(*signer_id, ids);
         }
         let coordinator_config = CoordinatorConfig {
             threshold,
