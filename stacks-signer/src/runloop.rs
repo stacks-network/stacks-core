@@ -170,7 +170,7 @@ impl<C: Coordinator> RunLoop<C> {
         event: &StackerDBChunksEvent,
     ) -> (Vec<Packet>, Vec<OperationResult>) {
         // Determine the current coordinator id and public key for verification
-        let (coordinator_id, coordinator_public_key) =
+        let (_coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys);
         // Filter out invalid messages
         let inbound_messages: Vec<Packet> = event
@@ -190,14 +190,11 @@ impl<C: Coordinator> RunLoop<C> {
             .signing_round
             .process_inbound_messages(&inbound_messages)
             .unwrap_or_default();
-        // If the signer is the coordinator, then next process the message as the coordinator
-        let (messages, results) = if self.signing_round.signer_id == coordinator_id {
-            self.coordinator
-                .process_inbound_messages(&inbound_messages)
-                .unwrap_or_default()
-        } else {
-            (vec![], vec![])
-        };
+        // Next process the message as the coordinator
+        let (messages, results) = self
+            .coordinator
+            .process_inbound_messages(&inbound_messages)
+            .unwrap_or_default();
         outbound_messages.extend(messages);
         (outbound_messages, results)
     }
