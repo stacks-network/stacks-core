@@ -34,6 +34,7 @@ use clarity::vm::types::{
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
 use lazy_static::lazy_static;
+use libc::sem_t;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
@@ -1165,6 +1166,37 @@ impl StacksChainState {
             });
         Ok(aggregate_public_key)
     }
+
+    // Get the current signer set
+    pub fn get_current_signer_set_pox_4(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<Vec<Point>, Error> {
+        let current_signer_set = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                POX_4_NAME,
+                &format!("(get-signer-set-by-reward-cycle u{})", reward_cycle),
+            )?
+            .expect_list()
+            .into_iter()
+            .map(|value| {
+                let data = value.expect_buff(33);
+                if data.len() != 33 {
+                    return Err(Error::InvalidFee); // Adjust error creation
+                }
+                let compressed_data =
+                    Compressed::try_from(data.as_slice()).map_err(|_| Error::InvalidFee)?; // Assuming Error::InvalidData exists
+                Point::try_from(&compressed_data).map_err(|_| Error::InvalidFee)
+                // Assuming Error::ConversionError exists
+            })
+            .collect::<Result<Vec<Point>, Error>>();
+
+        current_signer_set
+    }
 }
 
 #[cfg(test)]
@@ -1733,6 +1765,38 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    // Get the current signer set
+    // pub fn get_current_signer_set_pox_4(
+    //     &mut self,
+    //     sortdb: &SortitionDB,
+    //     block_id: &StacksBlockId,
+    //     reward_cycle: u64,
+    // ) -> Result<Vec<Point>, Error> {
+
+    //     let current_signer_set = self
+    //         .eval_boot_code_read_only(
+    //             sortdb,
+    //             block_id,
+    //             POX_4_NAME,
+    //             &format!("(get-signer-set-by-reward-cycle u{})", reward_cycle),
+    //         )?
+    //         .expect_list()
+    //         .into_iter()
+    //         .map(|value| {
+    //             let data = value.expect_buff(33);
+    //             if data.len() != 33 {
+    //                 return Err(Error::InvalidFee); // Adjust error creation
+    //             }
+    //             let compressed_data = Compressed::try_from(data.as_slice())
+    //             .map_err(|_| Error::InvalidFee)?; // Assuming Error::InvalidData exists
+    //         Point::try_from(&compressed_data)
+    //             .map_err(|_| Error::InvalidFee) // Assuming Error::ConversionError exists
+    //         })
+    //         .collect::<Result<Vec<Point>, Error>>();
+
+    //     current_signer_set
+    // }
+
     pub fn make_pox_2_increase(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -1796,7 +1860,11 @@ pub mod test {
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-extend",
-            vec![Value::UInt(lock_period), addr_tuple, Value::Optional(OptionalData {data: None})],
+            vec![
+                Value::UInt(lock_period),
+                addr_tuple,
+                Value::Optional(OptionalData { data: None }),
+            ],
         )
         .unwrap();
 

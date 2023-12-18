@@ -67,6 +67,7 @@ use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::tests::make_coinbase;
 use crate::chainstate::stacks::*;
+use crate::chainstate::{self};
 use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::HeadersDBConn;
@@ -1233,4 +1234,56 @@ fn balances_from_keys(
         .map(|addr| PrincipalData::from(addr))
         .map(|principal| get_stx_account_at(peer, tip, &principal))
         .collect()
+}
+
+#[test]
+fn get_current_signer_set() {
+    // Config for this test
+    // We are going to try locking for 2 reward cycles (10 blocks)
+    let lock_period = 2;
+    let (epochs, pox_constants) = make_test_epochs_pox();
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let (mut peer, keys) =
+        instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
+
+    assert_eq!(burnchain.pox_constants.reward_slots(), 6);
+    let mut coinbase_nonce = 0;
+    let mut latest_block;
+
+    // Advance into pox4
+    let target_height = burnchain.pox_constants.pox_4_activation_height;
+    // produce blocks until the first reward phase that everyone should be in
+    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+        // if we reach epoch 2.1, perform the check
+        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
+            assert_latest_was_burn(&mut peer);
+        }
+    }
+
+    info!(
+        "Block height: {}",
+        get_tip(peer.sortdb.as_ref()).block_height
+    );
+
+    let mut tx: StacksTransaction;
+    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
+    //tx = peer.chainstate().get_current_signer_set_pox_4().unwrap();
+
+    //let tx:Result<Vec<Point>, Error> = get_current_signer_set_pox_4(&mut peer, &keys[0], &keys[1]).unwrap();
+
+    //let txResult = get_current_signer_set_pox_4(&mut peer, &keys[0], &keys[1]);
+
+    // if let Ok(tx) = tx_result {
+    //     assert_eq!(tx.len(), 0, "Expected the length of the vector to be 0");
+    // } else {
+    //     // Error case: You can handle the error or ignore it
+    //     // If you want to assert that this path should not occur, you can use panic! here.
+    // }
 }
