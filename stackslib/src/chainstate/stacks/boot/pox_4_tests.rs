@@ -1238,52 +1238,22 @@ fn balances_from_keys(
 
 #[test]
 fn get_current_signer_set() {
-    // Config for this test
-    // We are going to try locking for 2 reward cycles (10 blocks)
-    let lock_period = 2;
     let (epochs, pox_constants) = make_test_epochs_pox();
-
     let mut burnchain = Burnchain::default_unittest(
         0,
         &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
     );
     burnchain.pox_constants = pox_constants.clone();
-
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
-    assert_eq!(burnchain.pox_constants.reward_slots(), 6);
-    let mut coinbase_nonce = 0;
-    let mut latest_block;
+    let sortdb = peer.sortdb.take().unwrap();
+    let tip = get_tip(peer.sortdb.as_ref());
+    let tip_index_block = tip.get_canonical_stacks_block_id();
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap() as u64;
 
-    // Advance into pox4
-    let target_height = burnchain.pox_constants.pox_4_activation_height;
-    // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
-        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[3].start_height {
-            assert_latest_was_burn(&mut peer);
-        }
-    }
-
-    info!(
-        "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
-    );
-
-    let mut tx: StacksTransaction;
-    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
-    //tx = peer.chainstate().get_current_signer_set_pox_4().unwrap();
-
-    //let tx:Result<Vec<Point>, Error> = get_current_signer_set_pox_4(&mut peer, &keys[0], &keys[1]).unwrap();
-
-    //let txResult = get_current_signer_set_pox_4(&mut peer, &keys[0], &keys[1]);
-
-    // if let Ok(tx) = tx_result {
-    //     assert_eq!(tx.len(), 0, "Expected the length of the vector to be 0");
-    // } else {
-    //     // Error case: You can handle the error or ignore it
-    //     // If you want to assert that this path should not occur, you can use panic! here.
-    // }
+    peer.chainstate()
+        .get_current_signer_set_pox_4(&sortdb, &tip_index_block, reward_cycle);
 }
