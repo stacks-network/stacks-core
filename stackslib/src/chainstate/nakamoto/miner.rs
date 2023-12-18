@@ -539,6 +539,10 @@ impl NakamotoBlockBuilder {
                 })
         else {
             // miner key does not match any slot
+            warn!("Miner is not in the miners StackerDB config";
+                  "miner" => %miner_hash160,
+                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+
             return Ok(None);
         };
 
