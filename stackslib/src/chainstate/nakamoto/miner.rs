@@ -29,7 +29,9 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
+use libstackerdb::StackerDBChunkData;
 use serde::Deserialize;
+use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, TrieHash,
 };
@@ -62,7 +64,6 @@ use crate::chainstate::stacks::miner::{
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
-use crate::codec::Error as CodecError;
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::cost_estimates::metrics::CostMetric;
@@ -501,6 +502,54 @@ impl NakamotoBlockBuilder {
 
     pub fn get_bytes_so_far(&self) -> u64 {
         self.bytes_so_far
+    }
+
+    /// Make a StackerDB chunk message containing a proposed block.
+    /// Sign it with the miner's private key.
+    /// Automatically determine which StackerDB slot to use.
+    /// Returns Some(chunk) if the given key corresponds to one of the expected miner slots
+    /// Returns None if not
+    /// Returns an error on signing or DB error
+    pub fn make_stackerdb_block_proposal(
+        sortdb: &SortitionDB,
+        write_count: u32,
+        block: &NakamotoBlock,
+        miner_privkey: &StacksPrivateKey,
+    ) -> Result<Option<StackerDBChunkData>, Error> {
+        let miner_pubkey = StacksPublicKey::from_private(&miner_privkey);
+        let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
+        let stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(sortdb)?;
+
+        // find out which slot we're in
+        let Some(slot_id_res) =
+            stackerdb_config
+                .signers
+                .iter()
+                .enumerate()
+                .find_map(|(i, (addr, _))| {
+                    if addr.bytes == miner_hash160 {
+                        Some(u32::try_from(i).map_err(|_| {
+                            CodecError::OverflowError(
+                                "stackerdb config slot ID cannot fit into u32".into(),
+                            )
+                        }))
+                    } else {
+                        None
+                    }
+                })
+        else {
+            // miner key does not match any slot
+            return Ok(None);
+        };
+
+        let slot_id = slot_id_res?;
+        let block_bytes = block.serialize_to_vec();
+        let mut chunk =
+            StackerDBChunkData::new(slot_id, write_count.saturating_add(1), block_bytes);
+        chunk
+            .sign(miner_privkey)
+            .map_err(|_| net_error::SigningError("Failed to sign StackerDB chunk".into()))?;
+        Ok(Some(chunk))
     }
 }
 
