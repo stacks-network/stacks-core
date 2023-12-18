@@ -1247,13 +1247,24 @@ fn get_current_signer_set() {
     let (mut peer, keys) =
         instantiate_pox_peer_with_epoch(&burnchain, function_name!(), Some(epochs.clone()), None);
 
-    let sortdb = peer.sortdb.take().unwrap();
-    let tip = get_tip(peer.sortdb.as_ref());
-    let tip_index_block = tip.get_canonical_stacks_block_id();
-    let reward_cycle = burnchain
-        .block_height_to_reward_cycle(tip.block_height)
-        .unwrap() as u64;
+    match peer.sortdb.take() {
+        Some(sortdb) => {
+          println!("SortitionDB readwrite: {}", sortdb.readwrite);
+          println!("SortitionDB first_block_height: {}", sortdb.first_block_height);
+          println!("SortitionDB first_burn_header_hash: {:?}", sortdb.first_burn_header_hash);
+          println!("SortitionDB pox_constants: {:?}", sortdb.pox_constants);
 
-    peer.chainstate()
-        .get_current_signer_set_pox_4(&sortdb, &tip_index_block, reward_cycle);
+        let tip = get_tip(Some(&sortdb));
+
+        let tip_index_block = tip.get_canonical_stacks_block_id();
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap() as u64;
+        peer.chainstate()
+            .get_current_signer_set_pox_4(&sortdb, &tip_index_block, reward_cycle);
+        },
+        None => {
+            println!("Error: peer.sortdb is None");
+        }
+    }
 }
