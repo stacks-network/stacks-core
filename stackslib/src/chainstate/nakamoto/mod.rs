@@ -29,6 +29,7 @@ use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
+    MAX_PAYLOAD_LEN,
 };
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
@@ -78,6 +79,7 @@ use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
 use crate::monitoring;
+use crate::net::stackerdb::StackerDBConfig;
 use crate::net::Error as net_error;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
@@ -3045,6 +3047,83 @@ impl NakamotoChainState {
         NakamotoChainState::set_block_processed(&chainstate_tx, &new_block_id)?;
 
         Ok((epoch_receipt, clarity_commit))
+    }
+
+    /// Create a StackerDB config for the .miners contract.
+    /// It has two slots -- one for the past two sortition winners.
+    pub fn make_miners_stackerdb_config(
+        sortdb: &SortitionDB,
+    ) -> Result<StackerDBConfig, ChainstateError> {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let ih = sortdb.index_handle(&tip.sortition_id);
+        let last_winner_snapshot = ih.get_last_snapshot_with_sortition(tip.block_height)?;
+        let parent_winner_snapshot = ih.get_last_snapshot_with_sortition(
+            last_winner_snapshot.block_height.saturating_sub(1),
+        )?;
+
+        let mut miner_key_hash160s = vec![];
+
+        // go get their corresponding leader keys, but preserve the miner's relative position in
+        // the stackerdb signer list -- if a miner was in slot 0, then it should stay in slot 0
+        // after a sortition (and vice versa for 1)
+        let sns = if last_winner_snapshot.num_sortitions % 2 == 0 {
+            [last_winner_snapshot, parent_winner_snapshot]
+        } else {
+            [parent_winner_snapshot, last_winner_snapshot]
+        };
+
+        for sn in sns {
+            // find the commit
+            let Some(block_commit) =
+                ih.get_block_commit_by_txid(&sn.sortition_id, &sn.winning_block_txid)?
+            else {
+                warn!(
+                    "No block commit for {} in sortition for {}",
+                    &sn.winning_block_txid, &sn.consensus_hash
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "No block-commit in sortition for block's consensus hash".into(),
+                ));
+            };
+
+            // key register of the winning miner
+            let leader_key = ih
+                .get_leader_key_at(
+                    u64::from(block_commit.key_block_ptr),
+                    u32::from(block_commit.key_vtxindex),
+                )?
+                .expect("FATAL: have block commit but no leader key");
+
+            // the leader key should always be valid (i.e. the unwrap_or() should be unreachable),
+            // but be defensive and just use the "null" address
+            miner_key_hash160s.push(
+                leader_key
+                    .interpret_nakamoto_signing_key()
+                    .unwrap_or(Hash160([0x00; 20])),
+            );
+        }
+
+        let signers = miner_key_hash160s
+            .into_iter()
+            .map(|hash160|
+                // each miner gets one slot
+                (
+                    StacksAddress {
+                        version: 1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
+                        bytes: hash160
+                    },
+                    1
+                ))
+            .collect();
+
+        Ok(StackerDBConfig {
+            chunk_size: MAX_PAYLOAD_LEN.into(),
+            signers,
+            write_freq: 5,
+            max_writes: u32::MAX,  // no limit on number of writes
+            max_neighbors: 200, // TODO: const -- just has to be equal to or greater than the number of signers
+            hint_replicas: vec![], // TODO: is there a way to get the IP addresses of stackers' preferred nodes?
+        })
     }
 
     /// Boot code instantiation for the aggregate public key.
