@@ -22,10 +22,11 @@ pub mod miner;
 pub mod tenure;
 
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
@@ -37,8 +38,8 @@ use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
 };
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId, StacksPrivateKey,
-    StacksPublicKey, TrieHash, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::get_epoch_time_secs;
@@ -53,6 +54,7 @@ use super::burn::db::sortdb::{
     SortitionHandleConn, SortitionHandleTx,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
+use super::stacks::boot::{BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
@@ -70,15 +72,18 @@ use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegister
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
+use crate::chainstate::stacks::boot::POX_4_NAME;
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
+use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
 use crate::monitoring;
 use crate::net::Error as net_error;
+use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
@@ -1745,39 +1750,74 @@ impl NakamotoChainState {
         Ok(true)
     }
 
-    /// Get the aggregate public key for the given block.
-    pub fn get_aggregate_public_key(
+    /// Get the aggregate public key for the given block from the pox-4 contract
+    fn load_aggregate_public_key<SH: SortitionHandle>(
         sortdb: &SortitionDB,
-        sort_handle: &SortitionHandleConn,
+        sort_handle: &SH,
         chainstate: &mut StacksChainState,
-        for_block_height: u64,
+        for_burn_block_height: u64,
         at_block_id: &StacksBlockId,
     ) -> Result<Point, ChainstateError> {
         // Get the current reward cycle
-        let Some(reward_cycle) = sort_handle
-            .context
-            .pox_constants
-            .block_height_to_reward_cycle(sort_handle.context.first_block_height, for_block_height)
-        else {
+        let Some(rc) = sort_handle.pox_constants().block_height_to_reward_cycle(
+            sort_handle.first_burn_block_height(),
+            for_burn_block_height,
+        ) else {
             // This should be unreachable, but we'll return an error just in case.
             let msg = format!(
-                "BUG: Failed to determine reward cycle of block height: {}.",
-                for_block_height
+                "BUG: Failed to determine reward cycle of burn block height: {}.",
+                for_burn_block_height
             );
             warn!("{msg}");
             return Err(ChainstateError::InvalidStacksBlock(msg));
         };
 
-        chainstate
-            .get_aggregate_public_key_pox_4(sortdb, at_block_id, reward_cycle)?
-            .ok_or_else(|| {
-                warn!(
-                    "Failed to get aggregate public key";
-                    "block_id" => %at_block_id,
-                    "reward_cycle" => reward_cycle,
-                );
-                ChainstateError::InvalidStacksBlock("Failed to get aggregate public key".into())
-            })
+        debug!("get-aggregate-public-key {} {}", at_block_id, rc);
+        match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
+            Some(key) => Ok(key),
+            None => {
+                // if this is the first block in its reward cycle, it'll contain the effects of
+                // setting the aggregate public key for `rc`, but there will currently be no key
+                // for `rc`.  So, check `rc - 1`
+                chainstate
+                    .get_aggregate_public_key_pox_4(sortdb, at_block_id, rc.saturating_sub(1))?
+                    .ok_or_else(|| {
+                        warn!(
+                            "Failed to get aggregate public key";
+                            "block_id" => %at_block_id,
+                            "reward_cycle" => rc,
+                        );
+                        ChainstateError::InvalidStacksBlock(
+                            "Failed to get aggregate public key".into(),
+                        )
+                    })
+            }
+        }
+    }
+
+    /// Get the aggregate public key for a block.
+    /// TODO: The block at which the aggregate public key is queried needs to be better defined.
+    /// See https://github.com/stacks-network/stacks-core/issues/4109
+    pub fn get_aggregate_public_key<SH: SortitionHandle>(
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
+        sort_handle: &SH,
+        block: &NakamotoBlock,
+    ) -> Result<Point, ChainstateError> {
+        let block_sn =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &block.header.consensus_hash)?
+                .ok_or(ChainstateError::DBError(DBError::NotFoundError))?;
+        let aggregate_key_block_header =
+            Self::get_canonical_block_header(chainstate.db(), sortdb)?.unwrap();
+
+        let aggregate_public_key = Self::load_aggregate_public_key(
+            sortdb,
+            sort_handle,
+            chainstate,
+            block_sn.block_height,
+            &aggregate_key_block_header.index_block_hash(),
+        )?;
+        Ok(aggregate_public_key)
     }
 
     /// Return the total ExecutionCost consumed during the tenure up to and including
@@ -2338,6 +2378,7 @@ impl NakamotoChainState {
         chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         sortition_dbconn: &'b dyn SortitionDBRef,
+        first_block_height: u64,
         pox_constants: &PoxConstants,
         parent_consensus_hash: ConsensusHash,
         parent_header_hash: BlockHeaderHash,
@@ -2484,6 +2525,15 @@ impl NakamotoChainState {
             );
         }
 
+        if !clarity_tx.config.mainnet {
+            Self::set_aggregate_public_key(
+                &mut clarity_tx,
+                first_block_height,
+                pox_constants,
+                burn_header_height.into(),
+            );
+        }
+
         debug!(
             "Setup block: completed setup";
             "parent_consensus_hash" => %parent_consensus_hash,
@@ -2533,6 +2583,99 @@ impl NakamotoChainState {
         Ok(lockup_events)
     }
 
+    /// Set the aggregate public key for verifying stacker signatures.
+    /// TODO: rely on signer voting instead
+    /// DO NOT USE IN MAINNET
+    pub(crate) fn set_aggregate_public_key(
+        clarity_tx: &mut ClarityTx,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+        burn_header_height: u64,
+    ) {
+        let mainnet = clarity_tx.config.mainnet;
+        let chain_id = clarity_tx.config.chain_id;
+        assert!(!mainnet);
+
+        let my_reward_cycle = pox_constants
+            .block_height_to_reward_cycle(
+                first_block_height,
+                burn_header_height
+                    .try_into()
+                    .expect("Burn block height exceeded u32"),
+            )
+            .expect("FATAL: block height occurs before first block height");
+
+        let parent_reward_cycle = my_reward_cycle.saturating_sub(1);
+        debug!(
+            "Try setting aggregate public key in reward cycle {}, parent {}",
+            my_reward_cycle, parent_reward_cycle
+        );
+
+        // execute `set-aggregate-public-key` using `clarity-tx`
+        let Some(aggregate_public_key) = clarity_tx
+            .connection()
+            .with_readonly_clarity_env(
+                mainnet,
+                chain_id,
+                ClarityVersion::Clarity2,
+                StacksAddress::burn_address(mainnet).into(),
+                None,
+                LimitedCostTracker::Free,
+                |vm_env| {
+                    vm_env.execute_contract_allow_private(
+                        &boot_code_id(POX_4_NAME, mainnet),
+                        "get-aggregate-public-key",
+                        &vec![SymbolicExpression::atom_value(Value::UInt(u128::from(
+                            parent_reward_cycle,
+                        )))],
+                        true,
+                    )
+                },
+            )
+            .ok()
+            .map(|agg_key_value| {
+                let agg_key_opt = agg_key_value.expect_optional().map(|agg_key_buff| {
+                    Value::buff_from(agg_key_buff.expect_buff(33))
+                        .expect("failed to reconstruct buffer")
+                });
+                agg_key_opt
+            })
+            .flatten()
+        else {
+            panic!(
+                "No aggregate public key in parent cycle {}",
+                parent_reward_cycle
+            );
+        };
+
+        clarity_tx.connection().as_transaction(|tx| {
+            tx.with_abort_callback(
+                |vm_env| {
+                    vm_env.execute_in_env(
+                        StacksAddress::burn_address(mainnet).into(),
+                        None,
+                        None,
+                        |vm_env| {
+                            vm_env.execute_contract_allow_private(
+                                &boot_code_id(POX_4_NAME, mainnet),
+                                "set-aggregate-public-key",
+                                &vec![
+                                    SymbolicExpression::atom_value(Value::UInt(u128::from(
+                                        my_reward_cycle,
+                                    ))),
+                                    SymbolicExpression::atom_value(aggregate_public_key),
+                                ],
+                                false,
+                            )
+                        },
+                    )
+                },
+                |_, _| false,
+            )
+            .expect("FATAL: failed to set aggregate public key")
+        });
+    }
+
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     pub fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
@@ -2556,6 +2699,7 @@ impl NakamotoChainState {
 
         let ast_rules = ASTRules::PrecheckSize;
         let next_block_height = block.header.chain_length;
+        let first_block_height = burn_dbconn.context.first_block_height;
 
         // check that this block attaches to the `parent_chain_tip`
         let (parent_ch, parent_block_hash) = if block.is_first_mined() {
@@ -2701,6 +2845,7 @@ impl NakamotoChainState {
             chainstate_tx,
             clarity_instance,
             burn_dbconn,
+            first_block_height,
             pox_constants,
             parent_ch,
             parent_block_hash,
@@ -2904,6 +3049,42 @@ impl NakamotoChainState {
         NakamotoChainState::set_block_processed(&chainstate_tx, &new_block_id)?;
 
         Ok((epoch_receipt, clarity_commit))
+    }
+
+    /// Boot code instantiation for the aggregate public key.
+    /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
+    /// public key
+    /// DO NOT USE IN MAINNET
+    pub fn aggregate_public_key_bootcode(clarity_tx: &mut ClarityTx, apk: &Point) {
+        let agg_pub_key = to_hex(&apk.compress().data);
+        let contract_content = format!(
+            "(define-read-only ({}) 0x{})",
+            BOOT_TEST_POX_4_AGG_KEY_FNAME, agg_pub_key
+        );
+        // NOTE: this defaults to a testnet address to prevent it from ever working on
+        // mainnet
+        let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
+        clarity_tx.connection().as_transaction(|clarity| {
+            let (ast, analysis) = clarity
+                .analyze_smart_contract(
+                    &contract_id,
+                    ClarityVersion::Clarity2,
+                    &contract_content,
+                    ASTRules::PrecheckSize,
+                )
+                .unwrap();
+            clarity
+                .initialize_smart_contract(
+                    &contract_id,
+                    ClarityVersion::Clarity2,
+                    &ast,
+                    &contract_content,
+                    None,
+                    |_, _| false,
+                )
+                .unwrap();
+            clarity.save_analysis(&contract_id, &analysis).unwrap();
+        })
     }
 }
 

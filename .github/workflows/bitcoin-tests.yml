@@ -69,6 +69,7 @@ jobs:
           - tests::neon_integrations::test_problematic_txs_are_not_stored
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::should_succeed_handling_malformed_and_valid_txs
+          - tests::nakamoto_integrations::simple_neon_integration
     steps:
       ## Setup test environment
       - name: Setup Test Environment
