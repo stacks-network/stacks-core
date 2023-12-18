@@ -18,7 +18,7 @@ use std::convert::TryFrom;
 use std::net::Shutdown;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{cmp, fs, net, path, time};
@@ -339,6 +339,12 @@ impl BitcoinIndexer {
         let mut initiated = false;
 
         while keep_going {
+            if let Some(ref should_keep_running) = self.should_keep_running {
+                if !should_keep_running.load(Ordering::SeqCst) {
+                    return Err(btc_error::TimedOut);
+                }
+            }
+
             if do_handshake {
                 debug!("(Re)establish peer connection");
 
