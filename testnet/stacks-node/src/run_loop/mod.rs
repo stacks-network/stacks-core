@@ -1,4 +1,6 @@
+pub mod boot_nakamoto;
 pub mod helium;
+pub mod nakamoto;
 pub mod neon;
 
 use clarity::vm::costs::ExecutionCost;

@@ -1496,7 +1496,11 @@ fn make_fork_run_with_arrivals(
 #[test]
 pub fn test_get_highest_nakamoto_tenure() {
     let test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], test_signers.aggregate_public_key);
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        test_signers.aggregate_public_key.clone(),
+    );
 
     // extract chainstate and sortdb -- we don't need the peer anymore
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;

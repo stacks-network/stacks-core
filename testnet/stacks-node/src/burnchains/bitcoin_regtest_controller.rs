@@ -8,6 +8,7 @@ use async_h1::client;
 use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use base64::encode;
+#[cfg(test)]
 use clarity::vm::types::PrincipalData;
 use http_types::{Method, Request, Url};
 use serde::Serialize;
@@ -50,7 +51,9 @@ use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
-use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+#[cfg(test)]
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
