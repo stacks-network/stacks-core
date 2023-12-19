@@ -27,21 +27,20 @@
 (define-constant ERR_DELEGATION_WRONG_REWARD_SLOT 29)
 (define-constant ERR_STACKING_IS_DELEGATED 30)
 (define-constant ERR_STACKING_NOT_DELEGATED 31)
+(define-constant ERR_STACKING_DURING_PREPARE_PHASE 32)
+(define-constant ERR_STACK_EXTEND_NOT_SIGNED 33)
 
 ;; PoX disabling threshold (a percent)
 (define-constant POX_REJECTION_FRACTION u25)
 
 ;; Valid values for burnchain address versions.
-;; These first four correspond to address hash modes in Stacks 2.1,
-;; and are defined in pox-mainnet.clar and pox-testnet.clar (so they
-;; cannot be defined here again).
 ;; (define-constant ADDRESS_VERSION_P2PKH 0x00)
 ;; (define-constant ADDRESS_VERSION_P2SH 0x01)
 ;; (define-constant ADDRESS_VERSION_P2WPKH 0x02)
 ;; (define-constant ADDRESS_VERSION_P2WSH 0x03)
-(define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
-(define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
-(define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
 ;; Keep these constants in lock-step with the address version buffs above
 ;; Maximum value of an address version as a uint
 (define-constant MAX_ADDRESS_VERSION u6)
@@ -51,6 +50,21 @@
 ;; Maximum value of an address version that has a 32-byte hashbytes
 ;; (0x05 and 0x06 have 32-byte hashbytes)
 (define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
+
+;; PoX mainnet constants
+;; Min/max number of reward cycles uSTX can be locked for
+(define-constant MIN_POX_REWARD_CYCLES u1)
+(define-constant MAX_POX_REWARD_CYCLES u12)
+
+;; Default length of the PoX registration window, in burnchain blocks.
+(define-constant PREPARE_CYCLE_LENGTH (if is-in-mainnet u100 u50))
+
+;; Default length of the PoX reward cycle, in burnchain blocks.
+(define-constant REWARD_CYCLE_LENGTH (if is-in-mainnet u2100 u1050))
+
+;; Stacking thresholds
+(define-constant STACKING_THRESHOLD_25 (if is-in-mainnet u20000 u8000))
+(define-constant STACKING_THRESHOLD_100 (if is-in-mainnet u5000 u2000))
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
@@ -117,7 +131,9 @@
         ;;  previous stack-stx calls, or prior to an extend)
         reward-set-indexes: (list 12 uint),
         ;; principal of the delegate, if stacker has delegated
-        delegated-to: (optional principal)
+        delegated-to: (optional principal),
+        ;; signing key for Nakamoto, only 'none' when delegated & before delegate calls stack-aggregation-commit-indexed
+        signing-key: (buff 33)
     }
 )
 
@@ -138,6 +154,13 @@
 (define-map allowance-contract-callers
     { sender: principal, contract-caller: principal }
     { until-burn-ht: (optional uint) })
+
+;; The signing key slots for a reward cycle
+;; Written by a Stacks node as part of processing the first tenure-start-block after last tenure-start-block in previous reward cycle
+(define-map reward-cycle-signing-keys
+    { reward-cycle: uint, signer-address: principal }
+    { num-slots: uint, stx-amount: uint }
+)
 
 ;; How many uSTX are stacked in a given reward cycle.
 ;; Updated when a new PoX address is registered, or when more STX are granted
@@ -250,6 +273,10 @@
         ;; no state at all
         none
     ))
+
+;; Get the number of slots & amount of STX for a given reward cycle signer
+(define-read-only (get-signer-info-for-cycle (signer-principal principal) (reward-cycle uint))
+    (map-get? reward-cycle-signing-keys { reward-cycle: reward-cycle, signer-address: signer-principal }))
 
 (define-read-only (check-caller-allowed)
     (or (is-eq tx-sender contract-caller)
@@ -508,6 +535,14 @@
     (and (>= lock-period MIN_POX_REWARD_CYCLES)
          (<= lock-period MAX_POX_REWARD_CYCLES)))
 
+;; Is the given burn block height in the prepare phase?
+;; This computes `((height - first-burnchain-block-height) + pox-prepare-cycle-length) % pox-reward-cycle-length) < pox-prepare-cycle-length`.
+(define-read-only (check-prepare-phase (height uint))
+    (let ((prepare-cycle-length (var-get pox-prepare-cycle-length)))
+        (< (mod (+ (- height (var-get first-burnchain-block-height)) prepare-cycle-length)
+            (var-get pox-reward-cycle-length))
+        prepare-cycle-length)))
+
 ;; Evaluate if a participant can stack an amount of STX for a given period.
 ;; This method is designed as a read-only method so that it can be used as
 ;; a set of guard conditions and also as a read-only RPC call that can be
@@ -545,6 +580,10 @@
     (asserts! (check-pox-lock-period num-cycles)
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
 
+    ;; stacking must not happen during prepare phase
+    (asserts! (not (check-prepare-phase burn-block-height))
+              (err ERR_STACKING_DURING_PREPARE_PHASE))
+
     ;; address version must be valid
     (asserts! (check-pox-addr-version (get version pox-addr))
               (err ERR_STACKING_INVALID_POX_ADDRESS))
@@ -576,13 +615,14 @@
 
 ;; Lock up some uSTX for stacking!  Note that the given amount here is in micro-STX (uSTX).
 ;; The STX will be locked for the given number of reward cycles (lock-period).
-;; This is the self-service interface.  tx-sender will be the Stacker.
+;; This is the self-service interface.  tx-sender will be the Stacker. Stacker is responsible for providing a valid signing key.
 ;;
 ;; * The given stacker cannot currently be stacking.
 ;; * You will need the minimum uSTX threshold.  This will be determined by (get-stacking-minimum)
 ;; at the time this method is called.
 ;; * You may need to increase the amount of uSTX locked up later, since the minimum uSTX threshold
 ;; may increase between reward cycles.
+;; * You need to provide a signing-key used to allocate signature-weight to a valid signer
 ;; * The Stacker will receive rewards in the reward cycle following `start-burn-ht`.
 ;; Importantly, `start-burn-ht` may not be further into the future than the next reward cycle,
 ;; and in most cases should be set to the current burn block height.
@@ -591,7 +631,8 @@
 (define-public (stack-stx (amount-ustx uint)
                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                           (start-burn-ht uint)
-                          (lock-period uint))
+                          (lock-period uint)
+                          (signing-key (buff 33)))
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
           (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht))))
@@ -628,7 +669,8 @@
              reward-set-indexes: reward-set-indexes,
              first-reward-cycle: first-reward-cycle,
              lock-period: lock-period,
-             delegated-to: none })
+             delegated-to: none,
+             signing-key: signing-key })
 
           ;; return the lock-up information, so the node can actually carry out the lock.
           (ok { stacker: tx-sender, lock-amount: amount-ustx, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))))
@@ -824,12 +866,14 @@
           (ok true))))
 
 ;; As a delegate, stack the given principal's STX using partial-stacked-by-cycle
+;; As a delegate, you need to provide a signing-key used to allocate signature-weight to a valid signer
 ;; Once the delegate has stacked > minimum, the delegate should call stack-aggregation-commit
 (define-public (delegate-stack-stx (stacker principal)
                                    (amount-ustx uint)
                                    (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                    (start-burn-ht uint)
-                                   (lock-period uint))
+                                   (lock-period uint)
+                                   (signing-key (buff 33)))
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
           (specified-reward-cycle (+ u1 (burn-height-to-reward-cycle start-burn-ht)))
@@ -885,7 +929,8 @@
           first-reward-cycle: first-reward-cycle,
           reward-set-indexes: (list),
           lock-period: lock-period,
-          delegated-to: (some tx-sender) })
+          delegated-to: (some tx-sender),
+          signing-key: signing-key })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
@@ -1022,12 +1067,14 @@
 ;; This method extends the `tx-sender`'s current lockup for an additional `extend-count`
 ;;    and associates `pox-addr` with the rewards
 (define-public (stack-extend (extend-count uint)
-                             (pox-addr { version: (buff 1), hashbytes: (buff 32) }))
+                             (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                             (updated-signing-key (optional (buff 33))))
    (let ((stacker-info (stx-account tx-sender))
-         ;; to extend, there must already be an etry in the stacking-state
+         ;; to extend, there must already be an entry in the stacking-state
          (stacker-state (unwrap! (get-stacker-info tx-sender) (err ERR_STACK_EXTEND_NOT_LOCKED)))
          (amount-ustx (get locked stacker-info))
          (unlock-height (get unlock-height stacker-info))
+         (next-signing-key (default-to (get signing-key stacker-state) updated-signing-key))
          (cur-cycle (current-pox-reward-cycle))
          ;; first-extend-cycle will be the cycle in which tx-sender *would have* unlocked
          (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
@@ -1093,7 +1140,8 @@
               reward-set-indexes: reward-set-indexes,
               first-reward-cycle: first-reward-cycle,
               lock-period: lock-period,
-              delegated-to: none })
+              delegated-to: none,
+              signing-key: next-signing-key })
 
         ;; return lock-up information
         (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
@@ -1194,12 +1242,14 @@
 (define-public (delegate-stack-extend
                     (stacker principal)
                     (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-                    (extend-count uint))
+                    (extend-count uint)
+                    (updated-signing-key (optional (buff 33))))
     (let ((stacker-info (stx-account stacker))
           ;; to extend, there must already be an entry in the stacking-state
           (stacker-state (unwrap! (get-stacker-info stacker) (err ERR_STACK_EXTEND_NOT_LOCKED)))
           (amount-ustx (get locked stacker-info))
           (unlock-height (get unlock-height stacker-info))
+          (next-signing-key (default-to (get signing-key stacker-state) updated-signing-key))
           ;; first-extend-cycle will be the cycle in which tx-sender *would have* unlocked
           (first-extend-cycle (burn-height-to-reward-cycle unlock-height))
           (cur-cycle (current-pox-reward-cycle))
@@ -1275,7 +1325,8 @@
           reward-set-indexes: (list),
           first-reward-cycle: first-reward-cycle,
           lock-period: lock-period,
-          delegated-to: (some tx-sender) })
+          delegated-to: (some tx-sender),
+          signing-key: next-signing-key })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
       (ok { stacker: stacker,
