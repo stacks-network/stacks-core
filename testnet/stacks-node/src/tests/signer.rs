@@ -312,8 +312,11 @@ fn test_stackerdb_dkg() {
                         info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
                         schnorr_proof = Some(proof);
                     }
-                    OperationResult::DkgError(..) | OperationResult::SignError(..) => {
-                        todo!()
+                    OperationResult::DkgError(dkg_error) => {
+                        panic!("Received DkgError {}", dkg_error);
+                    }
+                    OperationResult::SignError(sign_error) => {
+                        panic!("Received SignError {}", sign_error);
                     }
                 }
             }
