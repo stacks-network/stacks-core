@@ -1638,37 +1638,6 @@ pub mod test {
         make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_3_NAME)
     }
 
-    /// TODO: add signer key
-    pub fn make_pox_4_lockup(
-        key: &StacksPrivateKey,
-        nonce: u64,
-        amount: u128,
-        addr: PoxAddress,
-        lock_period: u128,
-        burn_ht: u64,
-    ) -> StacksTransaction {
-        // ;; TODO: add signer key
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
-        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
-        let payload = TransactionPayload::new_contract_call(
-            boot_code_test_addr(),
-            "pox-4",
-            "stack-stx",
-            vec![
-                Value::UInt(amount),
-                addr_tuple,
-                Value::UInt(burn_ht as u128),
-                Value::UInt(lock_period),
-            ],
-        )
-        .unwrap();
-
-        make_tx(key, nonce, 0, payload)
-    }
-
     pub fn make_pox_2_or_3_lockup(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -1761,24 +1730,6 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_3_NAME,
-            "stack-extend",
-            vec![Value::UInt(lock_period), addr_tuple],
-        )
-        .unwrap();
-
-        make_tx(key, nonce, 0, payload)
-    }
-
-    pub fn make_pox_4_extend(
-        key: &StacksPrivateKey,
-        nonce: u64,
-        addr: PoxAddress,
-        lock_period: u128,
-    ) -> StacksTransaction {
-        let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
-        let payload = TransactionPayload::new_contract_call(
-            boot_code_test_addr(),
-            POX_4_NAME,
             "stack-extend",
             vec![Value::UInt(lock_period), addr_tuple],
         )
