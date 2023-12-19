@@ -459,6 +459,10 @@ impl NakamotoBlockBuilder {
             return Err(Error::MinerAborted);
         }
 
+        if builder.txs.is_empty() {
+            return Err(Error::NoTransactionsToMine);
+        }
+
         // save the block so we can build microblocks off of it
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.bytes_so_far;

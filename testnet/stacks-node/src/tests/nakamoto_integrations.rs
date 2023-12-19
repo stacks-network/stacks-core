@@ -503,24 +503,27 @@ fn simple_neon_integration() {
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
 /// This test makes three assertions:
-///  * 10 tenures are mined after 3.0 starts
-///  * Each tenure has 2 blocks
+///  * 5 tenures are mined after 3.0 starts
+///  * Each tenure has 10 blocks (the coinbase block and 9 interim blocks)
 fn mine_multiple_per_tenure_integration() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(5);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
-    // setup sender + recipient for a test stx transfer
-    let tenure_count = 10;
+    let tenure_count = 5;
+    let inter_blocks_per_tenure = 9;
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
-    let send_amt = 1000;
-    let send_fee = 100;
+    let send_amt = 100;
+    let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count,
+        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -566,7 +569,7 @@ fn mine_multiple_per_tenure_integration() {
 
     let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::open(
         naka_conf.is_mainnet(),
         naka_conf.burnchain.chain_id,
         &naka_conf.get_chainstate_path_str(),
@@ -595,8 +598,8 @@ fn mine_multiple_per_tenure_integration() {
     })
     .unwrap();
 
-    // Mine 10 nakamoto tenures
-    for sender_nonce in 0..tenure_count {
+    // Mine `tenure_count` nakamoto tenures
+    for tenure_ix in 0..tenure_count {
         next_block_and_mine_commit(
             &mut btc_regtest_controller,
             60,
@@ -605,44 +608,28 @@ fn mine_multiple_per_tenure_integration() {
         )
         .unwrap();
 
-        let blocks_processed_before = coord_channel
-            .lock()
-            .expect("Mutex poisoned")
-            .get_stacks_blocks_processed();
-
-        // submit a tx so that the miner will mine an extra block
-        let transfer_tx =
-            make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
-        // let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
-        let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
-            .unwrap()
-            .unwrap();
-
-        let mut mempool = naka_conf
-            .connect_mempool_db()
-            .expect("Database failure opening mempool");
-
-        mempool
-            .submit_raw(
-                &mut chainstate,
-                &sortdb,
-                &tip.consensus_hash,
-                &tip.anchored_header.block_hash(),
-                transfer_tx.clone(),
-                &ExecutionCost::max_value(),
-                &StacksEpochId::Epoch30,
-            )
-            .unwrap();
-
-        loop {
-            let blocks_processed = coord_channel
+        // mine the interim blocks
+        for interim_block_ix in 0..inter_blocks_per_tenure {
+            let blocks_processed_before = coord_channel
                 .lock()
                 .expect("Mutex poisoned")
                 .get_stacks_blocks_processed();
-            if blocks_processed > blocks_processed_before {
-                break;
+            // submit a tx so that the miner will mine an extra block
+            let sender_nonce = tenure_ix * inter_blocks_per_tenure + interim_block_ix;
+            let transfer_tx =
+                make_stacks_transfer(&sender_sk, sender_nonce, send_fee, &recipient, send_amt);
+            submit_tx(&http_origin, &transfer_tx);
+
+            loop {
+                let blocks_processed = coord_channel
+                    .lock()
+                    .expect("Mutex poisoned")
+                    .get_stacks_blocks_processed();
+                if blocks_processed > blocks_processed_before {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
             }
-            thread::sleep(Duration::from_millis(100));
         }
     }
 
@@ -657,7 +644,11 @@ fn mine_multiple_per_tenure_integration() {
     );
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 20);
+    assert_eq!(
+        tip.stacks_block_height,
+        block_height_pre_3_0 + ((inter_blocks_per_tenure + 1) * tenure_count),
+        "Should have mined (1 + interim_blocks_per_tenure) * tenure_count nakamoto blocks"
+    );
 
     coord_channel
         .lock()

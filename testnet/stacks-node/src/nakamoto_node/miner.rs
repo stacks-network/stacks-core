@@ -138,13 +138,19 @@ impl BlockMinerThread {
         loop {
             let new_block = loop {
                 match self.mine_block() {
-                    Ok(x) => break x,
+                    Ok(x) => break Some(x),
                     Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
                         info!("Miner interrupted while mining, will try again");
                         // sleep, and try again. if the miner was interrupted because the burnchain
                         // view changed, the next `mine_block()` invocation will error
                         thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                         continue;
+                    }
+                    Err(NakamotoNodeError::MiningFailure(
+                        ChainstateError::NoTransactionsToMine,
+                    )) => {
+                        debug!("Miner did not find any transactions to mine");
+                        break None;
                     }
                     Err(e) => {
                         warn!("Failed to mine block: {e:?}");
@@ -408,10 +414,8 @@ impl BlockMinerThread {
     }
 
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
-    /// burnchain block-commit transaction.  If we succeed, then return the assembled block data as
-    /// well as the microblock private key to use to produce microblocks.
-    /// Return None if we couldn't build a block for whatever reason.
-    fn mine_block(&mut self) -> Result<Option<NakamotoBlock>, NakamotoNodeError> {
+    /// burnchain block-commit transaction.  If we succeed, then return the assembled block.
+    fn mine_block(&mut self) -> Result<NakamotoBlock, NakamotoNodeError> {
         debug!("block miner thread ID is {:?}", thread::current().id());
 
         let burn_db_path = self.config.get_burn_db_file_path();
@@ -501,14 +505,19 @@ impl BlockMinerThread {
             Some(&self.event_dispatcher),
         )
         .map_err(|e| {
-            if !matches!(e, ChainstateError::MinerAborted) {
+            if !matches!(
+                e,
+                ChainstateError::MinerAborted | ChainstateError::NoTransactionsToMine
+            ) {
                 error!("Relayer: Failure mining anchored block: {e}");
             }
             NakamotoNodeError::MiningFailure(e)
         })?;
 
         if block.txs.is_empty() {
-            return Ok(None);
+            return Err(NakamotoNodeError::MiningFailure(
+                ChainstateError::NoTransactionsToMine,
+            ));
         }
 
         let mining_key = self.keychain.get_nakamoto_sk();
@@ -539,7 +548,7 @@ impl BlockMinerThread {
         // enough to build this block that another block could have arrived), and confirm that all
         // Stacks blocks with heights higher than the canoincal tip are processed.
         self.check_burn_tip_changed(&burn_db)?;
-        Ok(Some(block))
+        Ok(block)
     }
 
     /// Check if the tenure needs to change -- if so, return a BurnchainTipChanged error
