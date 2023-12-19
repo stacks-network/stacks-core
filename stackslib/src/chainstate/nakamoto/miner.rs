@@ -53,8 +53,8 @@ use crate::chainstate::stacks::db::transactions::{
     handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::{
-    ChainstateTx, ClarityTx, MinerRewardInfo, StacksChainState, StacksHeaderInfo,
-    MINER_REWARD_MATURITY,
+    ChainstateTx, ClarityTx, MinerRewardInfo, StacksBlockHeaderTypes, StacksChainState,
+    StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
 use crate::chainstate::stacks::miner::{
@@ -99,22 +99,18 @@ impl NakamotoTenureInfo {
 }
 
 pub struct NakamotoBlockBuilder {
-    /// if this is building atop an epoch 2 block, then this is that block's header
-    epoch2_parent_header: Option<(StacksBlockHeader, ConsensusHash)>,
-    /// if this is building atop an epoch 3 block, then this is that block's header
-    nakamoto_parent_header: Option<NakamotoBlockHeader>,
+    /// If there's a parent (i.e., not a genesis), this is Some(parent_header)    
+    parent_header: Option<StacksHeaderInfo>,
     /// Signed coinbase tx, if starting a new tenure
     coinbase_tx: Option<StacksTransaction>,
     /// Tenure change tx, if starting or extending a tenure
     tenure_tx: Option<StacksTransaction>,
     /// Total burn this block represents
     total_burn: u64,
-    /// parent block-commit hash value
-    parent_commit_hash_value: BlockHeaderHash,
     /// Matured miner rewards to process, if any.
     matured_miner_rewards_opt: Option<MaturedMinerRewards>,
     /// bytes of space consumed so far
-    bytes_so_far: u64,
+    pub bytes_so_far: u64,
     /// transactions selected
     txs: Vec<StacksTransaction>,
     /// header we're filling in
@@ -138,102 +134,16 @@ pub struct MinerTenureInfo<'a> {
 }
 
 impl NakamotoBlockBuilder {
-    /// Make a block builder atop a Nakamoto parent for a new tenure
-    pub fn new_tenure_from_nakamoto_parent(
-        parent_tenure_id: &StacksBlockId,
-        parent: &NakamotoBlockHeader,
-        tenure_id_consensus_hash: &ConsensusHash,
-        total_burn: u64,
-        tenure_change: &StacksTransaction,
-        coinbase: &StacksTransaction,
-    ) -> NakamotoBlockBuilder {
-        let parent_commit_hash_value = BlockHeaderHash(parent_tenure_id.0.clone());
-        NakamotoBlockBuilder {
-            epoch2_parent_header: None,
-            nakamoto_parent_header: Some(parent.clone()),
-            total_burn,
-            coinbase_tx: Some(coinbase.clone()),
-            tenure_tx: Some(tenure_change.clone()),
-            parent_commit_hash_value,
-            matured_miner_rewards_opt: None,
-            bytes_so_far: 0,
-            txs: vec![],
-            header: NakamotoBlockHeader::from_parent_empty(
-                parent.chain_length + 1,
-                total_burn,
-                tenure_id_consensus_hash.clone(),
-                parent.block_id(),
-            ),
-        }
-    }
-
-    /// Make a block builder atop a Nakamoto parent for a new block within a tenure
-    pub fn continue_tenure_from_nakamoto_parent(
-        parent: &NakamotoBlockHeader,
-        tenure_id_consensus_hash: &ConsensusHash,
-        total_burn: u64,
-        tenure_extend: Option<&StacksTransaction>,
-    ) -> NakamotoBlockBuilder {
-        let parent_commit_hash_value = BlockHeaderHash(parent.block_id().0.clone());
-        NakamotoBlockBuilder {
-            epoch2_parent_header: None,
-            nakamoto_parent_header: Some(parent.clone()),
-            total_burn,
-            coinbase_tx: None,
-            tenure_tx: tenure_extend.cloned(),
-            parent_commit_hash_value,
-            matured_miner_rewards_opt: None,
-            bytes_so_far: 0,
-            txs: vec![],
-            header: NakamotoBlockHeader::from_parent_empty(
-                parent.chain_length + 1,
-                total_burn,
-                tenure_id_consensus_hash.clone(),
-                parent.block_id(),
-            ),
-        }
-    }
-
-    /// Make a block builder atop an epoch 2 parent for a new tenure
-    pub fn new_tenure_from_epoch2_parent(
-        parent: &StacksBlockHeader,
-        parent_tenure_id_consensus_hash: &ConsensusHash,
-        tenure_id_consensus_hash: &ConsensusHash,
-        total_burn: u64,
-        tenure_change: &StacksTransaction,
-        coinbase: &StacksTransaction,
-    ) -> NakamotoBlockBuilder {
-        NakamotoBlockBuilder {
-            epoch2_parent_header: Some((parent.clone(), parent_tenure_id_consensus_hash.clone())),
-            nakamoto_parent_header: None,
-            total_burn,
-            coinbase_tx: Some(coinbase.clone()),
-            tenure_tx: Some(tenure_change.clone()),
-            parent_commit_hash_value: parent.block_hash(),
-            matured_miner_rewards_opt: None,
-            bytes_so_far: 0,
-            txs: vec![],
-            header: NakamotoBlockHeader::from_parent_empty(
-                parent.total_work.work + 1,
-                total_burn,
-                tenure_id_consensus_hash.clone(),
-                StacksBlockId::new(parent_tenure_id_consensus_hash, &parent.block_hash()),
-            ),
-        }
-    }
-
     /// Make a block builder from genesis (testing only)
-    pub fn new_tenure_from_genesis(
+    pub fn new_first_block(
         tenure_change: &StacksTransaction,
         coinbase: &StacksTransaction,
     ) -> NakamotoBlockBuilder {
         NakamotoBlockBuilder {
-            epoch2_parent_header: None,
-            nakamoto_parent_header: None,
+            parent_header: None,
             total_burn: 0,
             coinbase_tx: Some(coinbase.clone()),
             tenure_tx: Some(tenure_change.clone()),
-            parent_commit_hash_value: FIRST_STACKS_BLOCK_HASH.clone(),
             matured_miner_rewards_opt: None,
             bytes_so_far: 0,
             txs: vec![],
@@ -242,72 +152,59 @@ impl NakamotoBlockBuilder {
     }
 
     /// Make a Nakamoto block builder appropriate for building atop the given block header
-    pub fn new_from_parent(
-        // tenure ID -- this is the index block hash of the start block of the last tenure (i.e.
-        // the data we committed to in the block-commit).  If this is an epoch 2.x parent, then
-        // this is just the index block hash of the parent Stacks block.
-        parent_tenure_id: &StacksBlockId,
-        // Stacks header we're building off of.
+    ///
+    /// * `parent_stacker_header` - the stacks header this builder's block will build off
+    ///
+    /// * `tenure_id_consensus_hash` - consensus hash of this tenure's burnchain block.
+    ///    This is the consensus hash that goes into the block header.
+    ///
+    /// * `total_burn` - total BTC burnt so far in this fork.
+    ///
+    /// * `tenure_change` - the TenureChange tx if this is going to start or
+    ///    extend a tenure
+    ///
+    /// * `coinbase` - the coinbase tx if this is going to start a new tenure
+    ///
+    pub fn new(
         parent_stacks_header: &StacksHeaderInfo,
-        // consensus hash of this tenure's burnchain block. This is the consensus hash that goes
-        // into the block header.
         tenure_id_consensus_hash: &ConsensusHash,
-        // total BTC burn so far
         total_burn: u64,
-        // tenure change, if we're starting or extending a tenure
         tenure_change: Option<&StacksTransaction>,
-        // coinbase, if we're starting a new tenure
         coinbase: Option<&StacksTransaction>,
     ) -> Result<NakamotoBlockBuilder, Error> {
-        let builder = if let Some(parent_nakamoto_header) =
-            parent_stacks_header.anchored_header.as_stacks_nakamoto()
-        {
-            // building atop a nakamoto block
-            // new tenure?
-            if coinbase.is_some() && tenure_change.is_some() {
-                NakamotoBlockBuilder::new_tenure_from_nakamoto_parent(
-                    parent_tenure_id,
-                    parent_nakamoto_header,
-                    tenure_id_consensus_hash,
-                    total_burn,
-                    tenure_change.ok_or(Error::ExpectedTenureChange)?,
-                    coinbase.ok_or(Error::ExpectedTenureChange)?,
-                )
-            } else {
-                NakamotoBlockBuilder::continue_tenure_from_nakamoto_parent(
-                    parent_nakamoto_header,
-                    tenure_id_consensus_hash,
-                    total_burn,
-                    tenure_change,
-                )
-            }
-        } else if let Some(parent_epoch2_header) =
-            parent_stacks_header.anchored_header.as_stacks_epoch2()
-        {
+        let next_height = parent_stacks_header
+            .anchored_header
+            .height()
+            .checked_add(1)
+            .ok_or_else(|| Error::InvalidStacksBlock("Block height exceeded u64".into()))?;
+        if matches!(
+            parent_stacks_header.anchored_header,
+            StacksBlockHeaderTypes::Epoch2(_)
+        ) {
             // building atop a stacks 2.x block.
             // we are necessarily starting a new tenure
-            if tenure_change.is_some() && coinbase.is_some() {
-                NakamotoBlockBuilder::new_tenure_from_epoch2_parent(
-                    parent_epoch2_header,
-                    &parent_stacks_header.consensus_hash,
-                    tenure_id_consensus_hash,
-                    total_burn,
-                    tenure_change.ok_or(Error::ExpectedTenureChange)?,
-                    coinbase.ok_or(Error::ExpectedTenureChange)?,
-                )
-            } else {
+            if tenure_change.is_none() || coinbase.is_none() {
                 // not allowed
                 warn!("Failed to start a Nakamoto tenure atop a Stacks 2.x block -- missing a coinbase and/or tenure");
                 return Err(Error::ExpectedTenureChange);
             }
-        } else {
-            // not reachable -- no other choices
-            return Err(Error::InvalidStacksBlock(
-                "Parent is neither a Nakamoto block nor a Stacks 2.x block".into(),
-            ));
-        };
+        }
 
-        Ok(builder)
+        Ok(NakamotoBlockBuilder {
+            parent_header: Some(parent_stacks_header.clone()),
+            total_burn,
+            coinbase_tx: coinbase.cloned(),
+            tenure_tx: tenure_change.cloned(),
+            matured_miner_rewards_opt: None,
+            bytes_so_far: 0,
+            txs: vec![],
+            header: NakamotoBlockHeader::from_parent_empty(
+                next_height,
+                total_burn,
+                tenure_id_consensus_hash.clone(),
+                parent_stacks_header.index_block_hash(),
+            ),
+        })
     }
 
     /// This function should be called before `tenure_begin`.
@@ -330,74 +227,36 @@ impl NakamotoBlockBuilder {
 
         let mainnet = chainstate.config().mainnet;
 
-        let (chain_tip, parent_tenure_id_consensus_hash, parent_header_hash) =
-            if let Some(nakamoto_parent_header) = self.nakamoto_parent_header.as_ref() {
-                // parent is a nakamoto block
-                let parent_header_info = NakamotoChainState::get_block_header(
-                    chainstate.db(),
-                    &StacksBlockId::new(
-                        &nakamoto_parent_header.consensus_hash,
-                        &nakamoto_parent_header.block_hash(),
-                    ),
-                )?
-                .ok_or(Error::NoSuchBlockError)
-                .map_err(|e| {
-                    warn!(
-                        "No such Nakamoto parent block {}/{} ({})",
-                        &nakamoto_parent_header.consensus_hash,
-                        &nakamoto_parent_header.block_hash(),
-                        &nakamoto_parent_header.block_id()
-                    );
-                    e
-                })?;
-
-                (
-                    parent_header_info,
-                    nakamoto_parent_header.consensus_hash.clone(),
-                    nakamoto_parent_header.block_hash(),
-                )
-            } else if let Some((stacks_header, consensus_hash)) = self.epoch2_parent_header.as_ref()
-            {
-                // parent is a Stacks epoch2 block
-                let parent_header_info = NakamotoChainState::get_block_header(
-                    chainstate.db(),
-                    &StacksBlockId::new(consensus_hash, &stacks_header.block_hash()),
-                )?
-                .ok_or(Error::NoSuchBlockError)
-                .map_err(|e| {
-                    warn!(
-                        "No such Stacks 2.x parent block {}/{} ({})",
-                        &consensus_hash,
-                        &stacks_header.block_hash(),
-                        &StacksBlockId::new(&consensus_hash, &stacks_header.block_hash())
-                    );
-                    e
-                })?;
-
-                (
-                    parent_header_info,
-                    consensus_hash.clone(),
-                    stacks_header.block_hash(),
-                )
-            } else {
+        let (chain_tip, parent_consensus_hash, parent_header_hash) = match self.parent_header {
+            Some(ref header_info) => (
+                header_info.clone(),
+                header_info.consensus_hash.clone(),
+                header_info.anchored_header.block_hash(),
+            ),
+            None => {
                 // parent is genesis (testing only)
                 (
                     StacksHeaderInfo::regtest_genesis(),
                     FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
                     FIRST_STACKS_BLOCK_HASH.clone(),
                 )
-            };
+            }
+        };
 
-        let coinbase_height = if let Ok(Some(parent_coinbase_height)) =
-            NakamotoChainState::get_coinbase_height(
-                chainstate.db(),
-                &StacksBlockId::new(&parent_tenure_id_consensus_hash, &parent_header_hash),
-            ) {
+        let parent_block_id = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
+        let parent_coinbase_height =
+            NakamotoChainState::get_coinbase_height(chainstate.db(), &parent_block_id)
+                .ok()
+                .flatten()
+                .unwrap_or(0);
+
+        let new_tenure = cause == Some(TenureChangeCause::BlockFound);
+        let coinbase_height = if new_tenure {
             parent_coinbase_height
                 .checked_add(1)
                 .expect("Blockchain overflow")
         } else {
-            0
+            parent_coinbase_height
         };
 
         // data won't be committed, so do a concurrent transaction
@@ -409,7 +268,7 @@ impl NakamotoBlockBuilder {
             burn_tip,
             burn_tip_height,
             mainnet,
-            parent_consensus_hash: parent_tenure_id_consensus_hash,
+            parent_consensus_hash,
             parent_header_hash,
             parent_stacks_block_height: chain_tip.stacks_block_height,
             parent_burn_block_height: chain_tip.burn_header_height,
@@ -526,9 +385,6 @@ impl NakamotoBlockBuilder {
         chainstate_handle: &StacksChainState,
         burn_dbconn: &SortitionDBConn,
         mempool: &mut MemPoolDB,
-        // tenure ID -- this is the index block hash of the start block of the last tenure (i.e.
-        // the data we committed to in the block-commit)
-        parent_tenure_id: &StacksBlockId,
         // Stacks header we're building off of.
         parent_stacks_header: &StacksHeaderInfo,
         // tenure ID consensus hash of this block
@@ -552,8 +408,7 @@ impl NakamotoBlockBuilder {
 
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
-        let mut builder = NakamotoBlockBuilder::new_from_parent(
-            parent_tenure_id,
+        let mut builder = NakamotoBlockBuilder::new(
             parent_stacks_header,
             tenure_id_consensus_hash,
             total_burn,
@@ -604,6 +459,10 @@ impl NakamotoBlockBuilder {
             return Err(Error::MinerAborted);
         }
 
+        if builder.txs.is_empty() {
+            return Err(Error::NoTransactionsToMine);
+        }
+
         // save the block so we can build microblocks off of it
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.bytes_so_far;
@@ -638,80 +497,6 @@ impl NakamotoBlockBuilder {
         );
 
         Ok((block, consumed, size))
-    }
-
-    #[cfg(test)]
-    pub fn make_nakamoto_block_from_txs(
-        mut self,
-        chainstate_handle: &StacksChainState,
-        burn_dbconn: &SortitionDBConn,
-        mut txs: Vec<StacksTransaction>,
-    ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> {
-        debug!("Build Nakamoto block from {} transactions", txs.len());
-        let (mut chainstate, _) = chainstate_handle.reopen()?;
-
-        let mut tenure_cause = None;
-        for tx in txs.iter() {
-            let TransactionPayload::TenureChange(payload) = &tx.payload else {
-                continue;
-            };
-            tenure_cause = Some(payload.cause);
-            break;
-        }
-
-        let mut miner_tenure_info =
-            self.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
-        let mut tenure_tx = self.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
-        for tx in txs.drain(..) {
-            let tx_len = tx.tx_len();
-            match self.try_mine_tx_with_len(
-                &mut tenure_tx,
-                &tx,
-                tx_len,
-                &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
-            ) {
-                TransactionResult::Success(..) => {
-                    debug!("Included {}", &tx.txid());
-                }
-                TransactionResult::Skipped(TransactionSkipped { error, .. })
-                | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
-                    match error {
-                        Error::BlockTooBigError => {
-                            // done mining -- our execution budget is exceeded.
-                            // Make the block from the transactions we did manage to get
-                            debug!("Block budget exceeded on tx {}", &tx.txid());
-                        }
-                        Error::InvalidStacksTransaction(_emsg, true) => {
-                            // if we have an invalid transaction that was quietly ignored, don't warn here either
-                            test_debug!(
-                                "Failed to apply tx {}: InvalidStacksTransaction '{:?}'",
-                                &tx.txid(),
-                                &_emsg
-                            );
-                            continue;
-                        }
-                        Error::ProblematicTransaction(txid) => {
-                            test_debug!("Encountered problematic transaction. Aborting");
-                            return Err(Error::ProblematicTransaction(txid));
-                        }
-                        e => {
-                            warn!("Failed to apply tx {}: {:?}", &tx.txid(), &e);
-                            continue;
-                        }
-                    }
-                }
-                TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
-                    // drop from the mempool
-                    debug!("Encountered problematic transaction {}", &tx.txid());
-                    return Err(Error::ProblematicTransaction(tx.txid()));
-                }
-            }
-        }
-        let block = self.mine_nakamoto_block(&mut tenure_tx);
-        let size = self.bytes_so_far;
-        let cost = self.tenure_finish(tenure_tx);
-        Ok((block, size, cost))
     }
 }
 
