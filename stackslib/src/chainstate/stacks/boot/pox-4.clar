@@ -39,9 +39,9 @@
 ;; (define-constant ADDRESS_VERSION_P2SH 0x01)
 ;; (define-constant ADDRESS_VERSION_P2WPKH 0x02)
 ;; (define-constant ADDRESS_VERSION_P2WSH 0x03)
-(define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
-(define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
-(define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
+;; (define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
 ;; Keep these constants in lock-step with the address version buffs above
 ;; Maximum value of an address version as a uint
 (define-constant MAX_ADDRESS_VERSION u6)
@@ -51,6 +51,21 @@
 ;; Maximum value of an address version that has a 32-byte hashbytes
 ;; (0x05 and 0x06 have 32-byte hashbytes)
 (define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
+
+;; PoX mainnet constants
+;; Min/max number of reward cycles uSTX can be locked for
+(define-constant MIN_POX_REWARD_CYCLES u1)
+(define-constant MAX_POX_REWARD_CYCLES u12)
+
+;; Default length of the PoX registration window, in burnchain blocks.
+(define-constant PREPARE_CYCLE_LENGTH (if is-in-mainnet u100 u50))
+
+;; Default length of the PoX reward cycle, in burnchain blocks.
+(define-constant REWARD_CYCLE_LENGTH (if is-in-mainnet u2100 u1050))
+
+;; Stacking thresholds
+(define-constant STACKING_THRESHOLD_25 (if is-in-mainnet u20000 u8000))
+(define-constant STACKING_THRESHOLD_100 (if is-in-mainnet u5000 u2000))
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
