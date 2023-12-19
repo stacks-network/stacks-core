@@ -228,8 +228,8 @@ fn test_stackerdb_replica_2_neighbors_1_chunk() {
         let mut i = 0;
         loop {
             // run peer network state-machines
-            let res_1 = peer_1.step();
-            let res_2 = peer_2.step();
+            let res_1 = peer_1.step_with_ibd(false);
+            let res_2 = peer_2.step_with_ibd(false);
 
             if let Ok(mut res) = res_1 {
                 Relayer::process_stacker_db_chunks(
@@ -347,8 +347,8 @@ fn inner_test_stackerdb_replica_2_neighbors_10_chunks(push_only: bool, base_port
         let mut i = 0;
         loop {
             // run peer network state-machines
-            let res_1 = peer_1.step();
-            let res_2 = peer_2.step();
+            let res_1 = peer_1.step_with_ibd(false);
+            let res_2 = peer_2.step_with_ibd(false);
 
             if let Ok(mut res) = res_1 {
                 Relayer::process_stacker_db_chunks(
@@ -485,7 +485,7 @@ fn inner_test_stackerdb_10_replicas_10_neighbors_line_10_chunks(push_only: bool,
         loop {
             // run peer network state-machines
             for i in 0..num_peers {
-                let res = peers[i].step();
+                let res = peers[i].step_with_ibd(false);
                 if let Ok(mut res) = res {
                     let rc_consensus_hash =
                         peers[i].network.get_chain_view().rc_consensus_hash.clone();
