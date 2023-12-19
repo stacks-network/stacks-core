@@ -1,20 +1,14 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use clarity::boot_util::boot_code_addr;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::Value;
-use rand_core::OsRng;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::nakamoto::NakamotoChainState;
-use stacks::chainstate::stacks::boot::POX_4_NAME;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::to_hex;
-use wsts::curve::point::Point;
-use wsts::curve::scalar::Scalar;
 
 use super::MockamotoNode;
 use crate::config::{EventKeyType, EventObserverConfig};
@@ -260,16 +254,13 @@ fn observe_set_aggregate_key() {
 
     let globals = mockamoto.globals.clone();
 
-    let mut mempool = PeerThread::connect_mempool_db(&conf);
-    let (mut chainstate, _) = StacksChainState::open(
+    StacksChainState::open(
         conf.is_mainnet(),
         conf.burnchain.chain_id,
         &conf.get_chainstate_path_str(),
         None,
     )
     .unwrap();
-    let burnchain = conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
     let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(mockamoto.sortdb.conn()).unwrap();
 
     let start = Instant::now();
