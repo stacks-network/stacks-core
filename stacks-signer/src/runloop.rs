@@ -235,12 +235,12 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             .map(|i| i - 1) // Signer::new (unlike Signer::from) doesn't do this
             .collect::<Vec<u32>>();
         // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
-        let mut signer_key_ids = HashMap::new();
-        for (signer_id, key_ids) in &config.signer_key_ids {
-            let ids = key_ids.iter().map(|i| *i - 1).collect::<HashSet<u32>>();
+        let signer_key_ids = config
+            .signer_key_ids
+            .iter()
+            .map(|(i, ids)| (*i, ids.iter().map(|id| id - 1).collect::<HashSet<u32>>()))
+            .collect::<HashMap<u32, HashSet<u32>>>();
 
-            signer_key_ids.insert(*signer_id, ids);
-        }
         let coordinator_config = CoordinatorConfig {
             threshold,
             num_signers: total_signers,
