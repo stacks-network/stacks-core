@@ -11,7 +11,7 @@ use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::OperationResult;
 use wsts::v2;
 
@@ -39,12 +39,12 @@ fn spawn_signer(
 ) -> RunningSigner<StackerDBEventReceiver, Vec<OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
     let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: stacks_signer::runloop::RunLoop<FrostCoordinator<v2::Aggregator>> =
+    let runloop: stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>> =
         stacks_signer::runloop::RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        stacks_signer::runloop::RunLoop<FrostCoordinator<v2::Aggregator>>,
+        stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>>,
         StackerDBEventReceiver,
     > = Signer::new(runloop, ev, receiver, sender);
     let endpoint = config.endpoint;
@@ -312,8 +312,11 @@ fn test_stackerdb_dkg() {
                         info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
                         schnorr_proof = Some(proof);
                     }
-                    OperationResult::DkgError(..) | OperationResult::SignError(..) => {
-                        todo!()
+                    OperationResult::DkgError(dkg_error) => {
+                        panic!("Received DkgError {}", dkg_error);
+                    }
+                    OperationResult::SignError(sign_error) => {
+                        panic!("Received SignError {}", sign_error);
                     }
                 }
             }

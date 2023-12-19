@@ -119,6 +119,14 @@ pub struct Config {
     pub signer_id: u32,
     /// The time to wait for a response from the stacker-db instance
     pub event_timeout: Duration,
+    /// timeout to gather DkgPublicShares messages
+    pub dkg_public_timeout: Option<Duration>,
+    /// timeout to gather DkgEnd messages
+    pub dkg_end_timeout: Option<Duration>,
+    /// timeout to gather nonces
+    pub nonce_timeout: Option<Duration>,
+    /// timeout to gather signature shares
+    pub sign_timeout: Option<Duration>,
 }
 
 /// Internal struct for loading up the config file signer data
@@ -290,6 +298,10 @@ impl TryFrom<RawConfigFile> for Config {
             signer_id: raw_data.signer_id,
             signer_key_ids,
             event_timeout,
+            dkg_end_timeout: None,
+            dkg_public_timeout: None,
+            nonce_timeout: None,
+            sign_timeout: None,
         })
     }
 }
