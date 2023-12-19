@@ -9,7 +9,7 @@ use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
 use wsts::net::{Message, Packet, Signable};
-use wsts::state_machine::coordinator::fire::Coordinator as FrostCoordinator;
+use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
 use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys};
@@ -207,7 +207,7 @@ impl<C: Coordinator> RunLoop<C> {
     }
 }
 
-impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
+impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
     /// Creates new runloop from a config
     fn from(config: &Config) -> Self {
         // TODO: this should be a config option
@@ -252,7 +252,7 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             sign_timeout: config.sign_timeout,
             signer_key_ids,
         };
-        let coordinator = FrostCoordinator::new(coordinator_config);
+        let coordinator = FireCoordinator::new(coordinator_config);
         let signing_round = Signer::new(
             threshold,
             total_signers,
