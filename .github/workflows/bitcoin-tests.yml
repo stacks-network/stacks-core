@@ -70,6 +70,7 @@ jobs:
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::nakamoto_integrations::simple_neon_integration
+          - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
     steps:
       ## Setup test environment
       - name: Setup Test Environment

@@ -555,8 +555,7 @@ impl TestStacksNode {
 
             // make a block
             let builder = if let Some(parent_tip) = parent_tip_opt {
-                NakamotoBlockBuilder::new_from_parent(
-                    &parent_tip.index_block_hash(),
+                NakamotoBlockBuilder::new(
                     &parent_tip,
                     tenure_id_consensus_hash,
                     burn_tip.total_burn,
@@ -573,7 +572,7 @@ impl TestStacksNode {
                 )
                 .unwrap()
             } else {
-                NakamotoBlockBuilder::new_tenure_from_genesis(
+                NakamotoBlockBuilder::new_first_block(
                     &tenure_change.clone().unwrap(),
                     &coinbase.clone().unwrap(),
                 )
@@ -582,9 +581,9 @@ impl TestStacksNode {
             tenure_change = None;
             coinbase = None;
 
-            let (mut nakamoto_block, size, cost) = builder
-                .make_nakamoto_block_from_txs(chainstate, &sortdb.index_conn(), txs)
-                .unwrap();
+            let (mut nakamoto_block, size, cost) =
+                Self::make_nakamoto_block_from_txs(builder, chainstate, &sortdb.index_conn(), txs)
+                    .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
             signers.sign_nakamoto_block(&mut nakamoto_block);
 
@@ -637,6 +636,81 @@ impl TestStacksNode {
             block_count += 1;
         }
         blocks
+    }
+
+    pub fn make_nakamoto_block_from_txs(
+        mut builder: NakamotoBlockBuilder,
+        chainstate_handle: &StacksChainState,
+        burn_dbconn: &SortitionDBConn,
+        mut txs: Vec<StacksTransaction>,
+    ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
+        use clarity::vm::ast::ASTRules;
+
+        debug!("Build Nakamoto block from {} transactions", txs.len());
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
+
+        let mut tenure_cause = None;
+        for tx in txs.iter() {
+            let TransactionPayload::TenureChange(payload) = &tx.payload else {
+                continue;
+            };
+            tenure_cause = Some(payload.cause);
+            break;
+        }
+
+        let mut miner_tenure_info =
+            builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
+        let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
+        for tx in txs.drain(..) {
+            let tx_len = tx.tx_len();
+            match builder.try_mine_tx_with_len(
+                &mut tenure_tx,
+                &tx,
+                tx_len,
+                &BlockLimitFunction::NO_LIMIT_HIT,
+                ASTRules::PrecheckSize,
+            ) {
+                TransactionResult::Success(..) => {
+                    debug!("Included {}", &tx.txid());
+                }
+                TransactionResult::Skipped(TransactionSkipped { error, .. })
+                | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
+                    match error {
+                        ChainstateError::BlockTooBigError => {
+                            // done mining -- our execution budget is exceeded.
+                            // Make the block from the transactions we did manage to get
+                            debug!("Block budget exceeded on tx {}", &tx.txid());
+                        }
+                        ChainstateError::InvalidStacksTransaction(_emsg, true) => {
+                            // if we have an invalid transaction that was quietly ignored, don't warn here either
+                            test_debug!(
+                                "Failed to apply tx {}: InvalidStacksTransaction '{:?}'",
+                                &tx.txid(),
+                                &_emsg
+                            );
+                            continue;
+                        }
+                        ChainstateError::ProblematicTransaction(txid) => {
+                            test_debug!("Encountered problematic transaction. Aborting");
+                            return Err(ChainstateError::ProblematicTransaction(txid));
+                        }
+                        e => {
+                            warn!("Failed to apply tx {}: {:?}", &tx.txid(), &e);
+                            continue;
+                        }
+                    }
+                }
+                TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
+                    // drop from the mempool
+                    debug!("Encountered problematic transaction {}", &tx.txid());
+                    return Err(ChainstateError::ProblematicTransaction(tx.txid()));
+                }
+            }
+        }
+        let block = builder.mine_nakamoto_block(&mut tenure_tx);
+        let size = builder.bytes_so_far;
+        let cost = builder.tenure_finish(tenure_tx);
+        Ok((block, size, cost))
     }
 }
 

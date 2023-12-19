@@ -20,10 +20,8 @@ use std::thread;
 use std::thread::{sleep, JoinHandle};
 use std::time::Duration;
 
-use clarity::boot_util::boot_code_id;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::{ClarityVersion, Value as ClarityValue};
+use clarity::vm::Value as ClarityValue;
 use lazy_static::lazy_static;
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
@@ -50,9 +48,6 @@ use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::{
-    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, POX_4_NAME,
-};
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, MinerStatus, TransactionResult,
@@ -87,7 +82,6 @@ use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
-use wsts::curve::point::Point;
 
 use self::signer::SelfSigner;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
@@ -803,9 +797,6 @@ impl MockamotoNode {
         let mut coinbase_tx_signer = StacksTransactionSigner::new(&coinbase_tx);
         coinbase_tx_signer.sign_origin(&self.miner_key).unwrap();
         let coinbase_tx = coinbase_tx_signer.get_tx().unwrap();
-
-        let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
-        let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
 
         let miner_pk = Secp256k1PublicKey::from_private(&self.miner_key);
         let miner_pk_hash = Hash160::from_node_public_key(&miner_pk);
