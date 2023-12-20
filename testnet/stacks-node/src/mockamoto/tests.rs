@@ -14,7 +14,7 @@ use super::MockamotoNode;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::neon_node::PeerThread;
 use crate::tests::neon_integrations::{get_pox_info, submit_tx, test_observer};
-use crate::tests::{make_contract_call, make_stacks_transfer, to_addr};
+use crate::tests::{make_stacks_transfer, to_addr};
 use crate::{Config, ConfigFile};
 
 #[test]
