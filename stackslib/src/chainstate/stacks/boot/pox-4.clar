@@ -51,21 +51,6 @@
 ;; (0x05 and 0x06 have 32-byte hashbytes)
 (define-constant MAX_ADDRESS_VERSION_BUFF_32 u6)
 
-;; PoX mainnet constants
-;; Min/max number of reward cycles uSTX can be locked for
-(define-constant MIN_POX_REWARD_CYCLES u1)
-(define-constant MAX_POX_REWARD_CYCLES u12)
-
-;; Default length of the PoX registration window, in burnchain blocks.
-(define-constant PREPARE_CYCLE_LENGTH (if is-in-mainnet u100 u50))
-
-;; Default length of the PoX reward cycle, in burnchain blocks.
-(define-constant REWARD_CYCLE_LENGTH (if is-in-mainnet u2100 u1050))
-
-;; Stacking thresholds
-(define-constant STACKING_THRESHOLD_25 (if is-in-mainnet u20000 u8000))
-(define-constant STACKING_THRESHOLD_100 (if is-in-mainnet u5000 u2000))
-
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
 ;; used in e.g. test harnesses.
@@ -535,14 +520,6 @@
     (and (>= lock-period MIN_POX_REWARD_CYCLES)
          (<= lock-period MAX_POX_REWARD_CYCLES)))
 
-;; Is the given burn block height in the prepare phase?
-;; This computes `((height - first-burnchain-block-height) + pox-prepare-cycle-length) % pox-reward-cycle-length) < pox-prepare-cycle-length`.
-(define-read-only (check-prepare-phase (height uint))
-    (let ((prepare-cycle-length (var-get pox-prepare-cycle-length)))
-        (< (mod (+ (- height (var-get first-burnchain-block-height)) prepare-cycle-length)
-            (var-get pox-reward-cycle-length))
-        prepare-cycle-length)))
-
 ;; Evaluate if a participant can stack an amount of STX for a given period.
 ;; This method is designed as a read-only method so that it can be used as
 ;; a set of guard conditions and also as a read-only RPC call that can be
@@ -579,10 +556,6 @@
     ;; lock period must be in acceptable range.
     (asserts! (check-pox-lock-period num-cycles)
               (err ERR_STACKING_INVALID_LOCK_PERIOD))
-
-    ;; stacking must not happen during prepare phase
-    (asserts! (not (check-prepare-phase burn-block-height))
-              (err ERR_STACKING_DURING_PREPARE_PHASE))
 
     ;; address version must be valid
     (asserts! (check-pox-addr-version (get version pox-addr))

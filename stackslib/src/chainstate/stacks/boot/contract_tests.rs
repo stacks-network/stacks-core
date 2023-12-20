@@ -62,6 +62,8 @@ lazy_static! {
         boot_code_id("pox-2", false);
     pub static ref COST_VOTING_CONTRACT_TESTNET: QualifiedContractIdentifier =
         boot_code_id("cost-voting", false);
+    pub static ref POX_4_CONTRACT_TESTNET: QualifiedContractIdentifier =
+        boot_code_id("pox-4", false);
     pub static ref USER_KEYS: Vec<StacksPrivateKey> =
         (0..50).map(|_| StacksPrivateKey::new()).collect();
     pub static ref POX_ADDRS: Vec<Value> = (0..50u64)
@@ -557,6 +559,31 @@ impl HeadersDB for TestSimHeadersDB {
         // if the block is defined at all, then return a constant
         self.get_burn_block_height_for_block(id_bhh).map(|_| 3000)
     }
+}
+
+#[test]
+fn pox_4_instantiates() {
+    let mut sim = ClarityTestSim::new();
+    sim.epoch_bounds = vec![0, 1, 2];
+    let delegator = StacksPrivateKey::new();
+
+    let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
+
+    // execute past 2.1 epoch initialization
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+    sim.execute_next_block(|_env| {});
+
+    sim.execute_next_block(|env| {
+        env.initialize_versioned_contract(
+            POX_4_CONTRACT_TESTNET.clone(),
+            ClarityVersion::Clarity2,
+            &boot::POX_4_TESTNET_CODE,
+            None,
+            ASTRules::PrecheckSize,
+        )
+        .unwrap()
+    });
 }
 
 #[test]
