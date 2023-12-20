@@ -61,8 +61,8 @@ impl Preamble {
         payload_len: u32,
     ) -> Preamble {
         Preamble {
-            peer_version: peer_version,
-            network_id: network_id,
+            peer_version,
+            network_id,
             seq: 0,
             burn_block_height: block_height,
             burn_block_hash: burn_block_hash.clone(),
@@ -70,7 +70,7 @@ impl Preamble {
             burn_stable_block_hash: stable_burn_block_hash.clone(),
             additional_data: 0,
             signature: MessageSignature::empty(),
-            payload_len: payload_len,
+            payload_len,
         }
     }
 
@@ -918,70 +918,66 @@ impl StacksMessageCodec for RelayData {
 
 impl StacksMessageType {
     pub fn get_message_id(&self) -> StacksMessageID {
-        match *self {
-            StacksMessageType::Handshake(ref _m) => StacksMessageID::Handshake,
-            StacksMessageType::HandshakeAccept(ref _m) => StacksMessageID::HandshakeAccept,
+        match self {
+            StacksMessageType::Handshake(..) => StacksMessageID::Handshake,
+            StacksMessageType::HandshakeAccept(..) => StacksMessageID::HandshakeAccept,
             StacksMessageType::HandshakeReject => StacksMessageID::HandshakeReject,
             StacksMessageType::GetNeighbors => StacksMessageID::GetNeighbors,
-            StacksMessageType::Neighbors(ref _m) => StacksMessageID::Neighbors,
-            StacksMessageType::GetPoxInv(ref _m) => StacksMessageID::GetPoxInv,
-            StacksMessageType::PoxInv(ref _m) => StacksMessageID::PoxInv,
-            StacksMessageType::GetBlocksInv(ref _m) => StacksMessageID::GetBlocksInv,
-            StacksMessageType::BlocksInv(ref _m) => StacksMessageID::BlocksInv,
-            StacksMessageType::BlocksAvailable(ref _m) => StacksMessageID::BlocksAvailable,
-            StacksMessageType::MicroblocksAvailable(ref _m) => {
-                StacksMessageID::MicroblocksAvailable
-            }
-            StacksMessageType::Blocks(ref _m) => StacksMessageID::Blocks,
-            StacksMessageType::Microblocks(ref _m) => StacksMessageID::Microblocks,
-            StacksMessageType::Transaction(ref _m) => StacksMessageID::Transaction,
-            StacksMessageType::Nack(ref _m) => StacksMessageID::Nack,
-            StacksMessageType::Ping(ref _m) => StacksMessageID::Ping,
-            StacksMessageType::Pong(ref _m) => StacksMessageID::Pong,
-            StacksMessageType::NatPunchRequest(ref _m) => StacksMessageID::NatPunchRequest,
-            StacksMessageType::NatPunchReply(ref _m) => StacksMessageID::NatPunchReply,
-            StacksMessageType::StackerDBHandshakeAccept(ref _h, ref _m) => {
+            StacksMessageType::Neighbors(..) => StacksMessageID::Neighbors,
+            StacksMessageType::GetPoxInv(..) => StacksMessageID::GetPoxInv,
+            StacksMessageType::PoxInv(..) => StacksMessageID::PoxInv,
+            StacksMessageType::GetBlocksInv(..) => StacksMessageID::GetBlocksInv,
+            StacksMessageType::BlocksInv(..) => StacksMessageID::BlocksInv,
+            StacksMessageType::BlocksAvailable(..) => StacksMessageID::BlocksAvailable,
+            StacksMessageType::MicroblocksAvailable(..) => StacksMessageID::MicroblocksAvailable,
+            StacksMessageType::Blocks(..) => StacksMessageID::Blocks,
+            StacksMessageType::Microblocks(..) => StacksMessageID::Microblocks,
+            StacksMessageType::Transaction(..) => StacksMessageID::Transaction,
+            StacksMessageType::Nack(..) => StacksMessageID::Nack,
+            StacksMessageType::Ping(..) => StacksMessageID::Ping,
+            StacksMessageType::Pong(..) => StacksMessageID::Pong,
+            StacksMessageType::NatPunchRequest(..) => StacksMessageID::NatPunchRequest,
+            StacksMessageType::NatPunchReply(..) => StacksMessageID::NatPunchReply,
+            StacksMessageType::StackerDBHandshakeAccept(..) => {
                 StacksMessageID::StackerDBHandshakeAccept
             }
-            StacksMessageType::StackerDBGetChunkInv(ref _m) => {
-                StacksMessageID::StackerDBGetChunkInv
-            }
-            StacksMessageType::StackerDBChunkInv(ref _m) => StacksMessageID::StackerDBChunkInv,
-            StacksMessageType::StackerDBGetChunk(ref _m) => StacksMessageID::StackerDBGetChunk,
-            StacksMessageType::StackerDBChunk(ref _m) => StacksMessageID::StackerDBChunk,
-            StacksMessageType::StackerDBPushChunk(ref _m) => StacksMessageID::StackerDBPushChunk,
+            StacksMessageType::StackerDBGetChunkInv(..) => StacksMessageID::StackerDBGetChunkInv,
+            StacksMessageType::StackerDBChunkInv(..) => StacksMessageID::StackerDBChunkInv,
+            StacksMessageType::StackerDBGetChunk(..) => StacksMessageID::StackerDBGetChunk,
+            StacksMessageType::StackerDBChunk(..) => StacksMessageID::StackerDBChunk,
+            StacksMessageType::StackerDBPushChunk(..) => StacksMessageID::StackerDBPushChunk,
+            StacksMessageType::NakamotoBlocks(..) => StacksMessageID::NakamotoBlocks,
         }
     }
 
     pub fn get_message_name(&self) -> &'static str {
-        match *self {
-            StacksMessageType::Handshake(ref _m) => "Handshake",
-            StacksMessageType::HandshakeAccept(ref _m) => "HandshakeAccept",
+        match self {
+            StacksMessageType::Handshake(..) => "Handshake",
+            StacksMessageType::HandshakeAccept(..) => "HandshakeAccept",
             StacksMessageType::HandshakeReject => "HandshakeReject",
             StacksMessageType::GetNeighbors => "GetNeighbors",
-            StacksMessageType::Neighbors(ref _m) => "Neighbors",
-            StacksMessageType::GetPoxInv(ref _m) => "GetPoxInv",
-            StacksMessageType::PoxInv(ref _m) => "PoxInv",
-            StacksMessageType::GetBlocksInv(ref _m) => "GetBlocksInv",
-            StacksMessageType::BlocksInv(ref _m) => "BlocksInv",
-            StacksMessageType::BlocksAvailable(ref _m) => "BlocksAvailable",
-            StacksMessageType::MicroblocksAvailable(ref _m) => "MicroblocksAvailable",
-            StacksMessageType::Blocks(ref _m) => "Blocks",
-            StacksMessageType::Microblocks(ref _m) => "Microblocks",
-            StacksMessageType::Transaction(ref _m) => "Transaction",
-            StacksMessageType::Nack(ref _m) => "Nack",
-            StacksMessageType::Ping(ref _m) => "Ping",
-            StacksMessageType::Pong(ref _m) => "Pong",
-            StacksMessageType::NatPunchRequest(ref _m) => "NatPunchRequest",
-            StacksMessageType::NatPunchReply(ref _m) => "NatPunchReply",
-            StacksMessageType::StackerDBHandshakeAccept(ref _h, ref _m) => {
-                "StackerDBHandshakeAccept"
-            }
-            StacksMessageType::StackerDBGetChunkInv(ref _m) => "StackerDBGetChunkInv",
-            StacksMessageType::StackerDBChunkInv(ref _m) => "StackerDBChunkInv",
-            StacksMessageType::StackerDBGetChunk(ref _m) => "StackerDBGetChunk",
-            StacksMessageType::StackerDBChunk(ref _m) => "StackerDBChunk",
-            StacksMessageType::StackerDBPushChunk(ref _m) => "StackerDBPushChunk",
+            StacksMessageType::Neighbors(..) => "Neighbors",
+            StacksMessageType::GetPoxInv(..) => "GetPoxInv",
+            StacksMessageType::PoxInv(..) => "PoxInv",
+            StacksMessageType::GetBlocksInv(..) => "GetBlocksInv",
+            StacksMessageType::BlocksInv(..) => "BlocksInv",
+            StacksMessageType::BlocksAvailable(..) => "BlocksAvailable",
+            StacksMessageType::MicroblocksAvailable(..) => "MicroblocksAvailable",
+            StacksMessageType::Blocks(..) => "Blocks",
+            StacksMessageType::Microblocks(..) => "Microblocks",
+            StacksMessageType::Transaction(..) => "Transaction",
+            StacksMessageType::Nack(..) => "Nack",
+            StacksMessageType::Ping(..) => "Ping",
+            StacksMessageType::Pong(..) => "Pong",
+            StacksMessageType::NatPunchRequest(..) => "NatPunchRequest",
+            StacksMessageType::NatPunchReply(..) => "NatPunchReply",
+            StacksMessageType::StackerDBHandshakeAccept(..) => "StackerDBHandshakeAccept",
+            StacksMessageType::StackerDBGetChunkInv(..) => "StackerDBGetChunkInv",
+            StacksMessageType::StackerDBChunkInv(..) => "StackerDBChunkInv",
+            StacksMessageType::StackerDBGetChunk(..) => "StackerDBGetChunk",
+            StacksMessageType::StackerDBChunk(..) => "StackerDBChunk",
+            StacksMessageType::StackerDBPushChunk(..) => "StackerDBPushChunk",
+            StacksMessageType::NakamotoBlocks(..) => "NakamotoBlocks",
         }
     }
 
@@ -1083,6 +1079,14 @@ impl StacksMessageType {
                     m.chunk_data.data.len()
                 )
             }
+            StacksMessageType::NakamotoBlocks(ref m) => format!(
+                "{}({:?}",
+                self.get_message_name(),
+                m.blocks
+                    .iter()
+                    .map(|NakamotoBlocksDatum(ch, blk)| (ch.clone(), blk.header.block_hash()))
+                    .collect::<Vec<_>>(),
+            ),
         }
     }
 }
@@ -1174,6 +1178,7 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::StackerDBGetChunk(ref m) => write_next(fd, m)?,
             StacksMessageType::StackerDBChunk(ref m) => write_next(fd, m)?,
             StacksMessageType::StackerDBPushChunk(ref m) => write_next(fd, m)?,
+            StacksMessageType::NakamotoBlocks(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1275,6 +1280,10 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::StackerDBPushChunk => {
                 let m: StackerDBPushChunkData = read_next(fd)?;
                 StacksMessageType::StackerDBPushChunk(m)
+            }
+            StacksMessageID::NakamotoBlocks => {
+                let m: NakamotoBlocksData = read_next(fd)?;
+                StacksMessageType::NakamotoBlocks(m)
             }
             StacksMessageID::Reserved => {
                 return Err(codec_error::DeserializeError(

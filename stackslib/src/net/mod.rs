@@ -1097,6 +1097,8 @@ pub enum StacksMessageType {
     StackerDBGetChunk(StackerDBGetChunkData),
     StackerDBChunk(StackerDBChunkData),
     StackerDBPushChunk(StackerDBPushChunkData),
+    // End stacker DB
+    NakamotoBlocks(NakamotoBlocksData),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1128,6 +1130,8 @@ pub enum StacksMessageID {
     StackerDBGetChunk = 23,
     StackerDBChunk = 24,
     StackerDBPushChunk = 25,
+    // End stackerdb
+    NakamotoBlocks = 26,
     // reserved
     Reserved = 255,
 }
