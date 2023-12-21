@@ -1666,11 +1666,6 @@ pub mod test {
         burn_ht: u64,
         public_key: &Point,
     ) -> StacksTransaction {
-        // ;; TODO: add signer key
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
