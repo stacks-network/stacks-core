@@ -1992,45 +1992,6 @@ impl ConversationP2P {
         Ok(None)
     }
 
-    /// Validate pushed blocks.
-    /// Make sure the peer doesn't send us too much at once, though.
-    fn validate_nakamoto_blocks_push(
-        &mut self,
-        network: &PeerNetwork,
-        preamble: &Preamble,
-        relayers: Vec<RelayData>,
-    ) -> Result<Option<ReplyHandleP2P>, net_error> {
-        assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
-
-        let local_peer = network.get_local_peer();
-        let chain_view = network.get_chain_view();
-
-        if !self.process_relayers(local_peer, preamble, &relayers) {
-            warn!("Drop pushed nakamoto blocks -- invalid relayers {relayers:?}");
-            self.stats.msgs_err += 1;
-            return Err(net_error::InvalidMessage);
-        }
-
-        self.stats
-            .add_nakamoto_block_push(u64::from(preamble.payload_len) - 5);
-
-        if self.connection.options.max_nakamoto_block_push_bandwidth > 0
-            && self.stats.get_nakamoto_block_push_bandwidth()
-                > (self.connection.options.max_nakamoto_block_push_bandwidth as f64)
-        {
-            debug!(
-                "Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})",
-                &self.to_neighbor_key(),
-                self.connection.options.max_nakamoto_block_push_bandwidth,
-                self.stats.get_nakamoto_block_push_bandwidth()
-            );
-            return self
-                .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
-                .map(|handle| Some(handle));
-        }
-        Ok(None)
-    }
-
     /// Validate pushed microblocks.
     /// Not much we can do to see if they're semantically correct, but we can at least throttle a
     /// peer that sends us too many at once.
@@ -2062,6 +2023,45 @@ impl ConversationP2P {
                 > (self.connection.options.max_microblocks_push_bandwidth as f64)
         {
             debug!("Neighbor {:?} exceeded max microblocks-push bandwidth of {} bytes/sec (currently at {})", &self.to_neighbor_key(), self.connection.options.max_microblocks_push_bandwidth, self.stats.get_microblocks_push_bandwidth());
+            return self
+                .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
+                .map(|handle| Some(handle));
+        }
+        Ok(None)
+    }
+
+    /// Validate pushed Nakamoto blocks.
+    /// Make sure the peer doesn't send us too much at once, though.
+    fn validate_nakamoto_blocks_push(
+        &mut self,
+        network: &PeerNetwork,
+        preamble: &Preamble,
+        relayers: Vec<RelayData>,
+    ) -> Result<Option<ReplyHandleP2P>, net_error> {
+        assert!(preamble.payload_len > 5); // don't count 1-byte type prefix + 4 byte vector length
+
+        let local_peer = network.get_local_peer();
+        let chain_view = network.get_chain_view();
+
+        if !self.process_relayers(local_peer, preamble, &relayers) {
+            warn!("Drop pushed nakamoto blocks -- invalid relayers {relayers:?}");
+            self.stats.msgs_err += 1;
+            return Err(net_error::InvalidMessage);
+        }
+
+        self.stats
+            .add_nakamoto_block_push(u64::from(preamble.payload_len) - 5);
+
+        if self.connection.options.max_nakamoto_block_push_bandwidth > 0
+            && self.stats.get_nakamoto_block_push_bandwidth()
+                > (self.connection.options.max_nakamoto_block_push_bandwidth as f64)
+        {
+            debug!(
+                "Neighbor {:?} exceeded max block-push bandwidth of {} bytes/sec (currently at {})",
+                &self.to_neighbor_key(),
+                self.connection.options.max_nakamoto_block_push_bandwidth,
+                self.stats.get_nakamoto_block_push_bandwidth()
+            );
             return self
                 .reply_nack(local_peer, chain_view, preamble, NackErrorCodes::Throttled)
                 .map(|handle| Some(handle));
