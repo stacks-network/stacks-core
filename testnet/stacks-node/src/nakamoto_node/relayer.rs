@@ -779,8 +779,8 @@ impl RelayerThread {
 
         if should_commit {
             Some(RelayerDirective::IssueBlockCommit(
-                chain_tip_header.consensus_hash,
-                chain_tip_header.anchored_header.block_hash(),
+                chain_tip_tenure_start.consensus_hash,
+                chain_tip_tenure_start.anchored_header.block_hash(),
             ))
         } else {
             None
