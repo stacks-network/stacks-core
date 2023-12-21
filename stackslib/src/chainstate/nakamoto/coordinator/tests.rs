@@ -25,7 +25,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::{Address, StacksEpoch};
 use stacks_common::util::vrf::VRFProof;
-use wsts::curve::point::Point;
+use wsts::curve::point::{Point, Compressed};
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
@@ -50,6 +50,9 @@ use crate::net::test::{TestPeer, TestPeerConfig};
 fn advance_to_nakamoto(peer: &mut TestPeer) {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
+    let public_key = StacksPublicKey::from_private(&private_key);
+    let compressed_key = Compressed::try_from(public_key.to_bytes_compressed().as_slice()).expect("Failed to convert public key to compressed struct");
+    let public_key_point = Point::try_from(&compressed_key).expect("Failed to convert public key to point");
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -69,6 +72,7 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
                 PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone()),
                 12,
                 34,
+                &public_key_point
             );
             vec![stack_tx]
         } else {

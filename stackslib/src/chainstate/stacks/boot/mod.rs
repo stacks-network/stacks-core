@@ -1664,6 +1664,7 @@ pub mod test {
         addr: PoxAddress,
         lock_period: u128,
         burn_ht: u64,
+        public_key: &Point,
     ) -> StacksTransaction {
         // ;; TODO: add signer key
         // (define-public (stack-stx (amount-ustx uint)
@@ -1680,6 +1681,8 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
+                Value::buff_from(public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key")
             ],
         )
         .unwrap();
@@ -1792,13 +1795,17 @@ pub mod test {
         nonce: u64,
         addr: PoxAddress,
         lock_period: u128,
+        signing_key: Option<&Point>,
     ) -> StacksTransaction {
+        let signing_key = Value::Optional(OptionalData {
+            data: signing_key.map(|key| Box::new(Value::buff_from(key.compress().data.to_vec()).unwrap()))
+        });
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-extend",
-            vec![Value::UInt(lock_period), addr_tuple],
+            vec![Value::UInt(lock_period), addr_tuple, signing_key],
         )
         .unwrap();
 
