@@ -2,14 +2,14 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use backoff::default;
+use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
 use wsts::net::{Message, Packet, Signable};
-use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
 use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys};
@@ -207,7 +207,7 @@ impl<C: Coordinator> RunLoop<C> {
     }
 }
 
-impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
+impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
     /// Creates new runloop from a config
     fn from(config: &Config) -> Self {
         // TODO: this should be a config option
@@ -234,14 +234,25 @@ impl From<&Config> for RunLoop<FrostCoordinator<v2::Aggregator>> {
             .iter()
             .map(|i| i - 1) // Signer::new (unlike Signer::from) doesn't do this
             .collect::<Vec<u32>>();
+        // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
+        let signer_key_ids = config
+            .signer_key_ids
+            .iter()
+            .map(|(i, ids)| (*i, ids.iter().map(|id| id - 1).collect::<HashSet<u32>>()))
+            .collect::<HashMap<u32, HashSet<u32>>>();
+
         let coordinator_config = CoordinatorConfig {
             threshold,
             num_signers: total_signers,
             num_keys: total_keys,
             message_private_key: config.message_private_key,
-            ..Default::default()
+            dkg_public_timeout: config.dkg_public_timeout,
+            dkg_end_timeout: config.dkg_end_timeout,
+            nonce_timeout: config.nonce_timeout,
+            sign_timeout: config.sign_timeout,
+            signer_key_ids,
         };
-        let coordinator = FrostCoordinator::new(coordinator_config);
+        let coordinator = FireCoordinator::new(coordinator_config);
         let signing_round = Signer::new(
             threshold,
             total_signers,
