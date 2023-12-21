@@ -127,26 +127,26 @@ lazy_static! {
     ];
 }
 
-pub fn add_initial_balances(conf: &mut Config, accounts: usize) -> Vec<StacksPrivateKey> {
+pub fn add_initial_balances(
+    conf: &mut Config,
+    accounts: usize,
+    amount: u64,
+) -> Vec<StacksPrivateKey> {
     (0..accounts)
         .map(|i| {
             let privk = StacksPrivateKey::from_seed(&[5, 5, 5, i as u8]);
+            let address = to_addr(&privk).into();
 
-            conf.initial_balances.push(InitialBalance {
-                address: to_addr(&privk).into(),
-                amount: 100000,
-            });
+            conf.initial_balances
+                .push(InitialBalance { address, amount });
             privk
         })
         .collect()
 }
 
 /// Return a working nakamoto-neon config and the miner's bitcoin address to fund
-pub fn naka_neon_integration_conf(
-    seed: Option<&[u8]>,
-) -> (Config, StacksAddress, Vec<StacksPrivateKey>) {
+pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
-    let account_keys = add_initial_balances(&mut conf, 10);
 
     conf.burnchain.mode = "nakamoto-neon".into();
 
@@ -204,7 +204,7 @@ pub fn naka_neon_integration_conf(
     conf.burnchain.pox_prepare_length = Some(5);
     conf.burnchain.pox_reward_length = Some(20);
 
-    (conf, miner_account, account_keys)
+    (conf, miner_account)
 }
 
 pub fn next_block_and<F>(
@@ -395,7 +395,7 @@ fn simple_neon_integration() {
         return;
     }
 
-    let (mut naka_conf, _miner_account, _account_keys) = naka_neon_integration_conf(None);
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
     naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
@@ -610,7 +610,7 @@ fn mine_multiple_per_tenure_integration() {
         return;
     }
 
-    let (mut naka_conf, _miner_account, _account_keys) = naka_neon_integration_conf(None);
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
@@ -975,6 +975,9 @@ fn correct_burn_outs() {
 ///
 /// This endpoint allows miners to propose Nakamoto blocks to a node,
 /// and test if they would be accepted or rejected
+///
+/// Notes:
+/// - The `tenure_start_block` supplied doesn't seem to matter. It is required by `NakamotoBlockBuilder` but not used/checked?
 #[test]
 #[ignore]
 fn block_proposal_api_endpoint() {
@@ -982,17 +985,8 @@ fn block_proposal_api_endpoint() {
         return;
     }
 
-    let (mut conf, _miner_account, account_keys) = naka_neon_integration_conf(None);
-    let sender_sk = Secp256k1PrivateKey::new();
-    // setup sender + recipient for a test stx transfer
-    let sender_addr = tests::to_addr(&sender_sk);
-    let send_amt = 1000;
-    let send_fee = 100;
-    conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
-        send_amt + send_fee,
-    );
-    let _recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let (mut conf, _miner_account) = naka_neon_integration_conf(None);
+    let account_keys = add_initial_balances(&mut conf, 10, 1000000);
     let stacker_sk = setup_stacker(&mut conf);
 
     test_observer::spawn();
@@ -1088,7 +1082,7 @@ fn block_proposal_api_endpoint() {
 
     let privk = conf.miner.mining_key.unwrap().clone();
     let parent_block_id = tip.index_block_hash();
-    // TODO
+    // TODO: Get current `total_burn` from somewhere
     let total_burn = 640000;
     let tenure_change = None;
     let coinbase = None;
@@ -1108,7 +1102,6 @@ fn block_proposal_api_endpoint() {
         p
     };
 
-    // Put block builder in code block so any database locks expire at the end
     let block = {
         let mut builder = NakamotoBlockBuilder::new(
             &tip,
@@ -1162,9 +1155,50 @@ fn block_proposal_api_endpoint() {
 
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_BADREQUEST: u16 = 400;
+    // TODO: Check error codes?
     let test_cases = [
-        ("No signature", proposal.clone(), HTTP_BADREQUEST),
-        ("Signed", sign(proposal.clone()), HTTP_ACCEPTED),
+        (
+            "Valid Nakamoto block proposal",
+            sign(proposal.clone()),
+            HTTP_ACCEPTED,
+        ),
+        (
+            "Corrupted (bit flipped after signing)",
+            (|| {
+                let mut sp = sign(proposal.clone());
+                sp.block.header.consensus_hash.0[3] ^= 0x07;
+                sp
+            })(),
+            HTTP_BADREQUEST,
+        ),
+        (
+            "`total_burn` too low",
+            (|| {
+                let mut p = proposal.clone();
+                p.total_burn -= 100;
+                sign(p)
+            })(),
+            HTTP_BADREQUEST,
+        ),
+        (
+            "`total_burn` too high",
+            (|| {
+                let mut p = proposal.clone();
+                p.total_burn += 100;
+                sign(p)
+            })(),
+            HTTP_BADREQUEST,
+        ),
+        (
+            // FIXME: Why does `NakamotoBlockBuilder` not check this?
+            "Invalid `tenure_start_block`",
+            (|| {
+                let mut p = proposal.clone();
+                p.tenure_start_block.0[8] ^= 0x55;
+                sign(p)
+            })(),
+            HTTP_ACCEPTED,
+        ),
     ];
 
     // Build HTTP client

@@ -504,16 +504,6 @@ impl NakamotoBlockBuilder {
     pub fn get_bytes_so_far(&self) -> u64 {
         self.bytes_so_far
     }
-
-    /// Add tx to block with no safety checks
-    /// For testing purposes only
-    ///
-    /// FIXME: Why does this not work in `nakamoto_integrations.rs` with `#[cfg(test)]`
-    //#[cfg(test)]
-    pub fn mine_tx_no_checks(&mut self, tx: StacksTransaction) {
-        self.bytes_so_far += tx.tx_len();
-        self.txs.push(tx)
-    }
 }
 
 impl BlockBuilder for NakamotoBlockBuilder {
@@ -861,8 +851,8 @@ impl NakamotoBlockProposal {
                 "reason" => "Block hash is not as expected",
                 "expected_block_header_hash" => %expected_block_header_hash,
                 "computed_block_header_hash" => %computed_block_header_hash,
-                "expected_block" => %serde_json::to_string(&serde_json::to_value(&self.block).unwrap()).unwrap(),
-                "computed_block" => %serde_json::to_string(&serde_json::to_value(&block).unwrap()).unwrap(),
+                //"expected_block" => %serde_json::to_string(&serde_json::to_value(&self.block).unwrap()).unwrap(),
+                //"computed_block" => %serde_json::to_string(&serde_json::to_value(&block).unwrap()).unwrap(),
             );
             return Err(BlockValidateReject {
                 reason: "Block hash is not as expected".into(),
