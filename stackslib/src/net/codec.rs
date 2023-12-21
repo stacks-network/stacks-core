@@ -1136,6 +1136,7 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::StackerDBPushChunk as u8 => {
                 StacksMessageID::StackerDBPushChunk
             }
+            x if x == StacksMessageID::NakamotoBlocks as u8 => StacksMessageID::NakamotoBlocks,
             _ => {
                 return Err(codec_error::DeserializeError(
                     "Unknown message ID".to_string(),

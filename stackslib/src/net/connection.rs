@@ -65,7 +65,7 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
         ReceiverNotify {
             expected_seq: seq,
             receiver_input: input,
-            ttl: ttl,
+            ttl,
         }
     }
 
@@ -362,6 +362,7 @@ pub struct ConnectionOptions {
     pub maximum_call_argument_size: u32,
     pub max_block_push_bandwidth: u64,
     pub max_microblocks_push_bandwidth: u64,
+    pub max_nakamoto_block_push_bandwidth: u64,
     pub max_transaction_push_bandwidth: u64,
     pub max_stackerdb_push_bandwidth: u64,
     pub max_sockets: usize,
@@ -458,6 +459,7 @@ impl std::default::Default for ConnectionOptions {
             maximum_call_argument_size: 20 * BOUND_VALUE_SERIALIZATION_HEX,
             max_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_microblocks_push_bandwidth: 0, // infinite upload bandwidth allowed
+            max_nakamoto_block_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_transaction_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_stackerdb_push_bandwidth: 0, // infinite upload bandwidth allowed
             max_sockets: 800,            // maximum number of client sockets we'll ever register

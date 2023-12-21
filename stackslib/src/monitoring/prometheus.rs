@@ -44,6 +44,11 @@ lazy_static! {
         "Total number of Stacks micro blocks received"
     )).unwrap();
 
+    pub static ref STX_NAKAMOTO_BLOCKS_RECEIVED_COUNTER: IntCounter = register_int_counter!(opts!(
+        "stacks_node_nakamoto_blocks_received_total",
+        "Total number of Nakamoto blocks received"
+    )).unwrap();
+
     pub static ref STX_BLOCKS_SERVED_COUNTER: IntCounter = register_int_counter!(opts!(
         "stacks_node_stx_blocks_served_total",
         "Total number of Stacks blocks served"

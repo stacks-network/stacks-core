@@ -77,6 +77,11 @@ pub fn increment_stx_micro_blocks_received_counter() {
     prometheus::STX_MICRO_BLOCKS_RECEIVED_COUNTER.inc();
 }
 
+pub fn increment_nakamoto_blocks_received_counter() {
+    #[cfg(feature = "monitoring_prom")]
+    prometheus::STX_NAKAMOTO_BLOCKS_RECEIVED_COUNTER.inc();
+}
+
 pub fn increment_stx_blocks_served_counter() {
     #[cfg(feature = "monitoring_prom")]
     prometheus::STX_BLOCKS_SERVED_COUNTER.inc();
