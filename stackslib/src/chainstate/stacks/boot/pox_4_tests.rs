@@ -56,8 +56,8 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
     get_stacking_state_pox_2, get_stx_account_at, PoxPrintFields, StackingStateCheckData,
 };
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_2_NAME,
-    POX_3_NAME,
+    Compressed, Point, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_POX_TESTNET, POX_2_NAME, POX_3_NAME,
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -74,8 +74,6 @@ use crate::core::*;
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, FromRow};
-use crate::chainstate::stacks::boot::Compressed;
-use crate::chainstate::stacks::boot::Point;
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
 
@@ -216,14 +214,18 @@ fn pox_extend_transition() {
 
     let alice = keys.pop().unwrap();
     let alice_pubkey = StacksPublicKey::from_private(&alice);
-    let alice_compressed = Compressed::try_from(alice_pubkey.to_bytes_compressed().as_slice()).expect("Failed to convert public key to compressed struct");
-    let alice_point = Point::try_from(&alice_compressed).expect("Failed to convert Alice's public key to point");
+    let alice_compressed = Compressed::try_from(alice_pubkey.to_bytes_compressed().as_slice())
+        .expect("Failed to convert public key to compressed struct");
+    let alice_point =
+        Point::try_from(&alice_compressed).expect("Failed to convert Alice's public key to point");
     let alice_address = key_to_stacks_addr(&alice);
     let alice_principal = PrincipalData::from(alice_address.clone());
     let bob = keys.pop().unwrap();
     let bob_pubkey = StacksPublicKey::from_private(&bob);
-    let bob_compressed = Compressed::try_from(bob_pubkey.to_bytes_compressed().as_slice()).expect("Failed to convert public key to compressed struct");
-    let bob_point = Point::try_from(&bob_compressed).expect("Failed to convert Bob's public key to point");
+    let bob_compressed = Compressed::try_from(bob_pubkey.to_bytes_compressed().as_slice())
+        .expect("Failed to convert public key to compressed struct");
+    let bob_point =
+        Point::try_from(&bob_compressed).expect("Failed to convert Bob's public key to point");
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
 
@@ -494,7 +496,7 @@ fn pox_extend_transition() {
         ),
         4,
         tip.block_height,
-        &alice_point
+        &alice_point,
     );
     let alice_pox_4_lock_nonce = 2;
     let alice_first_pox_4_unlock_height =
@@ -549,7 +551,7 @@ fn pox_extend_transition() {
         ),
         3,
         tip.block_height,
-        &bob_point
+        &bob_point,
     );
 
     // Alice can stack-extend in PoX v2
@@ -561,7 +563,7 @@ fn pox_extend_transition() {
             key_to_stacks_addr(&alice).bytes,
         ),
         6,
-         Some(&alice_point)
+        Some(&alice_point),
     );
 
     let alice_pox_4_extend_nonce = 3;
@@ -809,8 +811,10 @@ fn pox_lock_unlock() {
         ])
         .map(|(key, hash_mode)| {
             let key_public = StacksPublicKey::from_private(key);
-            let key_compressed = Compressed::try_from(key_public.to_bytes_compressed().as_slice()).expect("Failed to convert public key to compressed struct");
-            let key_point = Point::try_from(&key_compressed).expect("Failed to convert Alice's public key to point");
+            let key_compressed = Compressed::try_from(key_public.to_bytes_compressed().as_slice())
+                .expect("Failed to convert public key to compressed struct");
+            let key_point = Point::try_from(&key_compressed)
+                .expect("Failed to convert Alice's public key to point");
             let pox_addr = PoxAddress::from_legacy(hash_mode, key_to_stacks_addr(key).bytes);
             txs.push(make_pox_4_lockup(
                 key,
@@ -819,7 +823,7 @@ fn pox_lock_unlock() {
                 pox_addr.clone(),
                 lock_period,
                 tip_height,
-                &key_point
+                &key_point,
             ));
             pox_addr
         })

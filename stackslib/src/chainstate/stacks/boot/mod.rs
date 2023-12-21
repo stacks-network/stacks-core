@@ -1677,7 +1677,7 @@ pub mod test {
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
                 Value::buff_from(public_key.compress().data.to_vec())
-            .expect("Failed to serialize aggregate public key")
+                    .expect("Failed to serialize aggregate public key"),
             ],
         )
         .unwrap();
@@ -1793,7 +1793,8 @@ pub mod test {
         signing_key: Option<&Point>,
     ) -> StacksTransaction {
         let signing_key = Value::Optional(OptionalData {
-            data: signing_key.map(|key| Box::new(Value::buff_from(key.compress().data.to_vec()).unwrap()))
+            data: signing_key
+                .map(|key| Box::new(Value::buff_from(key.compress().data.to_vec()).unwrap())),
         });
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
