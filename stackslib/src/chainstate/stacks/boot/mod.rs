@@ -246,12 +246,12 @@ impl StacksChainState {
                         &format!(r#"
                             (unwrap-panic (map-get? stacking-state {{ stacker: '{unlocked_principal} }}))
                             "#,
-                            unlocked_principal = Value::Principal(principal.clone())
+                                 unlocked_principal = Value::Principal(principal.clone())
                         ),
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                 })
-                .expect("FATAL: failed to query unlocked principal");
+            .expect("FATAL: failed to query unlocked principal");
 
         user_stacking_state.expect_tuple()
     }
@@ -499,7 +499,7 @@ impl StacksChainState {
             "pox",
             &format!("(get-stacking-minimum)"),
         )
-        .map(|value| value.expect_u128())
+            .map(|value| value.expect_u128())
     }
 
     pub fn get_total_ustx_stacked(
@@ -553,7 +553,7 @@ impl StacksChainState {
             "pox",
             &format!("(get-total-ustx-stacked u{})", reward_cycle),
         )
-        .map(|value| value.expect_u128())
+            .map(|value| value.expect_u128())
     }
 
     /// Is PoX active in the given reward cycle?
@@ -570,7 +570,7 @@ impl StacksChainState {
             pox_contract,
             &format!("(is-pox-active u{})", reward_cycle),
         )
-        .map(|value| value.expect_bool())
+            .map(|value| value.expect_bool())
     }
 
     /// Given a threshold and set of registered addresses, return a reward set where
@@ -592,10 +592,10 @@ impl StacksChainState {
             addresses.sort_by_cached_key(|k| k.reward_address.to_burnchain_repr());
         }
         while let Some(RawRewardSetEntry {
-            reward_address: address,
-            amount_stacked: mut stacked_amt,
-            stacker,
-        }) = addresses.pop()
+                           reward_address: address,
+                           amount_stacked: mut stacked_amt,
+                           stacker,
+                       }) = addresses.pop()
         {
             let mut contributed_stackers = vec![];
             if let Some(stacker) = stacker.as_ref() {
@@ -1116,8 +1116,8 @@ impl StacksChainState {
         // there hasn't yet been a Stacks block.
         match result {
             Err(Error::ClarityError(ClarityError::Interpreter(VmError::Unchecked(
-                CheckErrors::NoSuchContract(_),
-            )))) => {
+                                                                  CheckErrors::NoSuchContract(_),
+                                                              )))) => {
                 warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
                 return Ok(vec![]);
             }
@@ -1269,9 +1269,9 @@ pub mod test {
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[],
-                liquid
+                liquid,
             )
-            .0,
+                .0,
             POX_THRESHOLD_STEPS_USTX
         );
         assert_eq!(
@@ -1280,11 +1280,11 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
-                    stacker: None
+                    stacker: None,
                 }],
-                liquid
+                liquid,
             )
-            .0,
+                .0,
             POX_THRESHOLD_STEPS_USTX
         );
 
@@ -1294,9 +1294,9 @@ pub mod test {
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[],
-                liquid
+                liquid,
             )
-            .0,
+                .0,
             50_000 * MICROSTACKS_PER_STACKS as u128
         );
         // should be the same at 25% participation
@@ -1306,11 +1306,11 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid / 4,
-                    stacker: None
+                    stacker: None,
                 }],
-                liquid
+                liquid,
             )
-            .0,
+                .0,
             50_000 * MICROSTACKS_PER_STACKS as u128
         );
         // but not at 30% participation
@@ -1321,17 +1321,17 @@ pub mod test {
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
-                        stacker: None
+                        stacker: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: 10_000_000 * (MICROSTACKS_PER_STACKS as u128),
-                        stacker: None
+                        stacker: None,
                     },
                 ],
-                liquid
+                liquid,
             )
-            .0,
+                .0,
             60_000 * MICROSTACKS_PER_STACKS as u128
         );
 
@@ -1343,17 +1343,17 @@ pub mod test {
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
-                        stacker: None
+                        stacker: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: MICROSTACKS_PER_STACKS as u128,
-                        stacker: None
+                        stacker: None,
                     },
                 ],
-                liquid
+                liquid,
             )
-            .0,
+                .0,
             60_000 * MICROSTACKS_PER_STACKS as u128
         );
 
@@ -1364,11 +1364,11 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
-                    stacker: None
+                    stacker: None,
                 }],
-                liquid
+                liquid,
             )
-            .0,
+                .0,
             200_000 * MICROSTACKS_PER_STACKS as u128
         );
     }
@@ -1384,7 +1384,7 @@ pub mod test {
             1,
             &vec![StacksPublicKey::from_private(key)],
         )
-        .unwrap()
+            .unwrap()
     }
 
     pub fn instantiate_pox_peer<'a>(
@@ -1417,19 +1417,19 @@ pub mod test {
             StacksPrivateKey::from_hex(
                 "7e3ee1f2a0ae11b785a1f0e725a9b3ab0a5fd6cc057d43763b0a85f256fdec5d01",
             )
-            .unwrap(),
+                .unwrap(),
             StacksPrivateKey::from_hex(
                 "11d055ac8b0ab4f04c5eb5ea4b4def9c60ae338355d81c9411b27b4f49da2a8301",
             )
-            .unwrap(),
+                .unwrap(),
             StacksPrivateKey::from_hex(
                 "00eed368626b96e482944e02cc136979973367491ea923efb57c482933dd7c0b01",
             )
-            .unwrap(),
+                .unwrap(),
             StacksPrivateKey::from_hex(
                 "00380ff3c05350ee313f60f30313acb4b5fc21e50db4151bf0de4cd565eb823101",
             )
-            .unwrap(),
+                .unwrap(),
         ];
 
         let addrs: Vec<StacksAddress> = keys.iter().map(|pk| key_to_stacks_addr(pk)).collect();
@@ -1541,8 +1541,8 @@ pub mod test {
     }
 
     pub fn with_sortdb<F, R>(peer: &mut TestPeer, todo: F) -> R
-    where
-        F: FnOnce(&mut StacksChainState, &SortitionDB) -> R,
+        where
+            F: FnOnce(&mut StacksChainState, &SortitionDB) -> R,
     {
         let sortdb = peer.sortdb.take().unwrap();
         let r = todo(peer.chainstate(), &sortdb);
@@ -1592,7 +1592,7 @@ pub mod test {
                     })),
                 ),
             ])
-            .unwrap(),
+                .unwrap(),
         )
     }
 
@@ -1640,20 +1640,15 @@ pub mod test {
         make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_3_NAME)
     }
 
-    /// TODO: add signer key
     pub fn make_pox_4_lockup(
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
         addr: PoxAddress,
         lock_period: u128,
+        signer_key: Vec<u8>,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // ;; TODO: add signer key
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
@@ -1664,9 +1659,10 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
+                Value::buff_from(signer_key).unwrap(),
             ],
         )
-        .unwrap();
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1696,7 +1692,7 @@ pub mod test {
                 Value::UInt(lock_period),
             ],
         )
-        .unwrap();
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1715,7 +1711,7 @@ pub mod test {
             "set-aggregate-public-key",
             vec![Value::UInt(reward_cycle as u128), aggregate_public_key],
         )
-        .unwrap();
+            .unwrap();
         make_tx(key, nonce, 0, payload)
     }
 
@@ -1730,7 +1726,7 @@ pub mod test {
             "stack-increase",
             vec![Value::UInt(amount)],
         )
-        .unwrap();
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1748,7 +1744,7 @@ pub mod test {
             "stack-extend",
             vec![Value::UInt(lock_period), addr_tuple],
         )
-        .unwrap();
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1766,7 +1762,7 @@ pub mod test {
             "stack-extend",
             vec![Value::UInt(lock_period), addr_tuple],
         )
-        .unwrap();
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1776,15 +1772,16 @@ pub mod test {
         nonce: u64,
         addr: PoxAddress,
         lock_period: u128,
+        signer_key: Vec<u8>,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-extend",
-            vec![Value::UInt(lock_period), addr_tuple],
+            vec![Value::UInt(lock_period), addr_tuple, Value::buff_from(signer_key).unwrap()],
         )
-        .unwrap();
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1820,7 +1817,7 @@ pub mod test {
             function_name,
             args,
         )
-        .unwrap();
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1837,7 +1834,7 @@ pub mod test {
             function_name,
             args,
         )
-        .unwrap();
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1854,7 +1851,24 @@ pub mod test {
             function_name,
             args,
         )
-        .unwrap();
+            .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            function_name,
+            args,
+        )
+            .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1880,7 +1894,7 @@ pub mod test {
                     })),
                 ),
             ])
-            .unwrap(),
+                .unwrap(),
         );
 
         let generator = |amount, pox_addr, lock_period, nonce| {
@@ -2006,7 +2020,7 @@ pub mod test {
                 Value::UInt(lock_period),
             ],
         )
-        .unwrap();
+            .unwrap();
         make_tx(key, nonce, 0, payload)
     }
 
@@ -2024,7 +2038,7 @@ pub mod test {
             "withdraw-stx",
             vec![Value::UInt(amount)],
         )
-        .unwrap();
+            .unwrap();
         make_tx(key, nonce, 0, payload)
     }
 
@@ -2080,15 +2094,15 @@ pub mod test {
                     &tip.sortition_id,
                     &block.block_hash(),
                 )
-                .unwrap()
-                .unwrap(); // succeeds because we don't fork
+                    .unwrap()
+                    .unwrap(); // succeeds because we don't fork
                 StacksChainState::get_anchored_block_header_info(
                     chainstate.db(),
                     &snapshot.consensus_hash,
                     &snapshot.winning_stacks_block_hash,
                 )
-                .unwrap()
-                .unwrap()
+                    .unwrap()
+                    .unwrap()
             }
         };
         parent_tip
@@ -2142,7 +2156,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -2150,7 +2164,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -2264,7 +2278,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -2272,7 +2286,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -2351,7 +2365,6 @@ pub mod test {
                     let tx = make_tx(&alice, 7, 0, cc_payload.clone()); // should be allowed!
                     block_txs.push(alice_allowance);
                     block_txs.push(tx);
-
                 }
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
@@ -2455,7 +2468,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -2463,7 +2476,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -2499,8 +2512,8 @@ pub mod test {
                 state.db(),
                 &parent_block_id,
             )
-            .unwrap()
-            .unwrap();
+                .unwrap()
+                .unwrap();
 
         parent_header_info.burn_header_height as u64
     }
@@ -2565,7 +2578,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -2573,7 +2586,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -2601,7 +2614,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
@@ -2613,7 +2626,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
@@ -2645,7 +2658,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
@@ -2654,7 +2667,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
@@ -2662,7 +2675,7 @@ pub mod test {
                         cur_reward_cycle,
                     )
                 })
-                .unwrap();
+                    .unwrap();
 
                 eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
@@ -2782,7 +2795,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -2790,7 +2803,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -2852,7 +2865,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
@@ -2864,7 +2877,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when tokens get stacked
@@ -2898,7 +2911,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
@@ -2907,7 +2920,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
@@ -2915,7 +2928,7 @@ pub mod test {
                         cur_reward_cycle,
                     )
                 })
-                .unwrap();
+                    .unwrap();
 
                 eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
@@ -3039,7 +3052,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -3047,7 +3060,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -3067,7 +3080,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
@@ -3079,7 +3092,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
@@ -3110,7 +3123,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
@@ -3119,7 +3132,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
@@ -3127,7 +3140,7 @@ pub mod test {
                         cur_reward_cycle,
                     )
                 })
-                .unwrap();
+                    .unwrap();
 
                 eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
@@ -3162,7 +3175,7 @@ pub mod test {
                                 &mut peer,
                                 &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                             )
-                            .unwrap();
+                                .unwrap();
                         eprintln!("\nContract: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                         // should be consistent with the API call
@@ -3313,7 +3326,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -3321,7 +3334,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -3346,7 +3359,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
@@ -3358,7 +3371,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
@@ -3396,7 +3409,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
@@ -3405,7 +3418,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
 
                 eprintln!(
                     "\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\n",
@@ -3595,7 +3608,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
@@ -3728,7 +3741,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -3736,7 +3749,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -3757,7 +3770,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
@@ -3769,7 +3782,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
@@ -3799,7 +3812,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     get_reward_addresses_with_par_tip(
                         chainstate,
@@ -3808,7 +3821,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.test_get_total_ustx_stacked(
                         sortdb,
@@ -3816,7 +3829,7 @@ pub mod test {
                         cur_reward_cycle,
                     )
                 })
-                .unwrap();
+                    .unwrap();
 
                 eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
@@ -4026,7 +4039,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -4034,7 +4047,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -4060,15 +4073,15 @@ pub mod test {
             let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
-            .unwrap();
+                .unwrap();
             let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
-            .unwrap();
+                .unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
-            .unwrap();
+                .unwrap();
 
             if tenure_id <= 1 {
                 if tenure_id < 1 {
@@ -4082,7 +4095,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
@@ -4118,7 +4131,7 @@ pub mod test {
                 let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                     chainstate.get_stacking_minimum(sortdb, &tip_index_block)
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(min_ustx, total_liquid_ustx / TESTNET_STACKING_THRESHOLD_25);
 
                 // no reward addresses
@@ -4169,7 +4182,7 @@ pub mod test {
                             &mut peer,
                             &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                         )
-                        .unwrap();
+                            .unwrap();
                     eprintln!("\nCharlie: {} uSTX stacked for {} cycle(s); addr is {:?}; first reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, first_reward_cycle);
 
                     assert_eq!(first_reward_cycle, first_pox_reward_cycle);
@@ -4245,9 +4258,9 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into()
+                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     )
-                    .is_none());
+                        .is_none());
 
                     // empty reward cycle
                     assert_eq!(reward_addrs.len(), 0);
@@ -4296,7 +4309,7 @@ pub mod test {
                             &mut peer,
                             &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                         )
-                        .unwrap();
+                            .unwrap();
                     eprintln!("\nCharlie: {} uSTX stacked for {} cycle(s); addr is {:?}; second reward cycle is {}\n", amount_ustx, lock_period, &pox_addr, second_reward_cycle);
 
                     assert_eq!(first_pox_reward_cycle, second_reward_cycle);
@@ -4378,9 +4391,9 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into()
+                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     )
-                    .is_none());
+                        .is_none());
 
                     // empty reward cycle
                     assert_eq!(reward_addrs.len(), 0);
@@ -4606,7 +4619,7 @@ pub mod test {
                         tip.total_burn,
                         microblock_pubkeyhash,
                     )
-                    .unwrap();
+                        .unwrap();
                     let (anchored_block, _size, _cost) =
                         StacksBlockBuilder::make_anchored_block_from_txs(
                             block_builder,
@@ -4614,7 +4627,7 @@ pub mod test {
                             &sortdb.index_conn(),
                             block_txs,
                         )
-                        .unwrap();
+                            .unwrap();
                     (anchored_block, vec![])
                 },
             );
@@ -4704,15 +4717,15 @@ pub mod test {
             let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
-            .unwrap();
+                .unwrap();
             let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
-            .unwrap();
+                .unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
-            .unwrap();
+                .unwrap();
 
             eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\n", tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked);
 
@@ -4720,7 +4733,7 @@ pub mod test {
                 if tenure_id < 1 {
                     // no one has locked
                     for (balance, expected_balance) in
-                        balances.iter().zip(balances_before_stacking.iter())
+                    balances.iter().zip(balances_before_stacking.iter())
                     {
                         assert_eq!(balance, expected_balance);
                     }
@@ -4736,7 +4749,7 @@ pub mod test {
                         &tip_index_block,
                     )
                 })
-                .unwrap();
+                    .unwrap();
                 assert_eq!(reward_addrs.len(), 0);
 
                 // record the first reward cycle when Alice's tokens get stacked
@@ -4754,9 +4767,9 @@ pub mod test {
                 // alice did _NOT_ spend
                 assert!(get_contract(
                     &mut peer,
-                    &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-spend").into()
+                    &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-spend").into(),
                 )
-                .is_none());
+                    .is_none());
             }
 
             if reward_cycle > 0 {
@@ -4775,7 +4788,7 @@ pub mod test {
 
                     // in stacker order
                     for (i, (pox_addr, expected_stacked)) in
-                        sorted_expected_pox_info.iter().enumerate()
+                    sorted_expected_pox_info.iter().enumerate()
                     {
                         assert_eq!((reward_addrs[i].0).version(), pox_addr.0);
                         assert_eq!((reward_addrs[i].0).hash160(), pox_addr.1);
@@ -4794,14 +4807,14 @@ pub mod test {
 
                     // all tokens locked
                     for (balance, expected_balance) in
-                        balances.iter().zip(balances_during_stacking.iter())
+                    balances.iter().zip(balances_during_stacking.iter())
                     {
                         assert_eq!(balance, expected_balance);
                     }
 
                     // Lock-up is consistent with stacker state
                     for (addr, expected_balance) in
-                        stacker_addrs.iter().zip(balances_stacked.iter())
+                    stacker_addrs.iter().zip(balances_stacked.iter())
                     {
                         let account = get_account(&mut peer, addr);
                         assert_eq!(account.stx_balance.amount_unlocked(), 0);
@@ -4819,14 +4832,14 @@ pub mod test {
                     if tenure_id < 11 {
                         // all balances should have been restored
                         for (balance, expected_balance) in
-                            balances.iter().zip(balances_after_stacking.iter())
+                        balances.iter().zip(balances_after_stacking.iter())
                         {
                             assert_eq!(balance, expected_balance);
                         }
                     } else {
                         // some balances reduced, but none are zero
                         for (balance, expected_balance) in
-                            balances.iter().zip(balances_after_spending.iter())
+                        balances.iter().zip(balances_after_spending.iter())
                         {
                             assert_eq!(balance, expected_balance);
                         }
@@ -4848,7 +4861,7 @@ pub mod test {
             if tenure_id >= 11 {
                 // all balances are restored
                 for (addr, expected_balance) in
-                    stacker_addrs.iter().zip(balances_after_spending.iter())
+                stacker_addrs.iter().zip(balances_after_spending.iter())
                 {
                     let account = get_account(&mut peer, addr);
                     assert_eq!(account.stx_balance.amount_unlocked(), *expected_balance);
@@ -4943,12 +4956,12 @@ pub mod test {
                     // Charlie tries to stack, but it should fail.
                     // Specifically, (stack-stx) should fail with (err 17).
                     let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                           &format!(
+                                                               "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 17)
                                (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1))))",
-                               boot_code_test_addr()));
+                                                               boot_code_test_addr()));
 
                     block_txs.push(charlie_stack);
 
@@ -4957,24 +4970,24 @@ pub mod test {
                     // stacked.
                     // If it's the case, then this tx will NOT be mined
                     let alice_reject = make_bare_contract(&alice, 1, 0, "alice-try-reject",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                          &format!(
+                                                              "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 3)
                                (print (contract-call? '{}.pox reject-pox))))",
-                               boot_code_test_addr()));
+                                                              boot_code_test_addr()));
 
                     block_txs.push(alice_reject);
 
                     // Charlie tries to reject again, but it should fail.
                     // Specifically, (reject-pox) should fail with (err 17).
                     let charlie_reject = make_bare_contract(&charlie, 3, 0, "charlie-try-reject",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                            &format!(
+                                                                "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 17)
                                (print (contract-call? '{}.pox reject-pox))))",
-                               boot_code_test_addr()));
+                                                                boot_code_test_addr()));
 
                     block_txs.push(charlie_reject);
                 }
@@ -5006,15 +5019,15 @@ pub mod test {
             let min_ustx = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 chainstate.get_stacking_minimum(sortdb, &tip_index_block)
             })
-            .unwrap();
+                .unwrap();
             let reward_addrs = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 get_reward_addresses_with_par_tip(chainstate, &burnchain, sortdb, &tip_index_block)
             })
-            .unwrap();
+                .unwrap();
             let total_stacked = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 chainstate.test_get_total_ustx_stacked(sortdb, &tip_index_block, cur_reward_cycle)
             })
-            .unwrap();
+                .unwrap();
             let total_stacked_next = with_sortdb(&mut peer, |ref mut chainstate, ref sortdb| {
                 chainstate.test_get_total_ustx_stacked(
                     sortdb,
@@ -5022,9 +5035,9 @@ pub mod test {
                     cur_reward_cycle + 1,
                 )
             })
-            .unwrap();
+                .unwrap();
 
-            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\ntotal-stacked next: {}\n", 
+            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\ntotal-stacked next: {}\n",
                       tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked, total_stacked_next);
 
             if tenure_id <= 1 {
@@ -5067,7 +5080,7 @@ pub mod test {
                         "charlie-try-stack",
                         "(var-get test-passed)",
                     )
-                    .expect_bool();
+                        .expect_bool();
                     assert!(result, "charlie-try-stack test should be `true`");
                     let result = eval_contract_at_tip(
                         &mut peer,
@@ -5075,7 +5088,7 @@ pub mod test {
                         "charlie-try-reject",
                         "(var-get test-passed)",
                     )
-                    .expect_bool();
+                        .expect_bool();
                     assert!(result, "charlie-try-reject test should be `true`");
                     let result = eval_contract_at_tip(
                         &mut peer,
@@ -5083,7 +5096,7 @@ pub mod test {
                         "alice-try-reject",
                         "(var-get test-passed)",
                     )
-                    .expect_bool();
+                        .expect_bool();
                     assert!(result, "alice-try-reject test should be `true`");
                 }
 
