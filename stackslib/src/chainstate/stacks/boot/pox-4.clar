@@ -140,13 +140,6 @@
     { sender: principal, contract-caller: principal }
     { until-burn-ht: (optional uint) })
 
-;; The signing key slots for a reward cycle
-;; Written by a Stacks node as part of processing the first tenure-start-block after last tenure-start-block in previous reward cycle
-(define-map reward-cycle-signing-keys
-    { reward-cycle: uint, signer-address: principal }
-    { num-slots: uint, stx-amount: uint }
-)
-
 ;; How many uSTX are stacked in a given reward cycle.
 ;; Updated when a new PoX address is registered, or when more STX are granted
 ;; to it.
@@ -258,10 +251,6 @@
         ;; no state at all
         none
     ))
-
-;; Get the number of slots & amount of STX for a given reward cycle signer
-(define-read-only (get-signer-info-for-cycle (signer-principal principal) (reward-cycle uint))
-    (map-get? reward-cycle-signing-keys { reward-cycle: reward-cycle, signer-address: signer-principal }))
 
 (define-read-only (check-caller-allowed)
     (or (is-eq tx-sender contract-caller)
