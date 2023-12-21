@@ -1150,7 +1150,6 @@ fn block_proposal_api_endpoint() {
         block,
         tenure_start_block: parent_block_id,
         chain_id: chainstate.chain_id,
-        total_burn,
     };
 
     const HTTP_ACCEPTED: u16 = 202;
@@ -1168,24 +1167,6 @@ fn block_proposal_api_endpoint() {
                 let mut sp = sign(proposal.clone());
                 sp.block.header.consensus_hash.0[3] ^= 0x07;
                 sp
-            })(),
-            HTTP_BADREQUEST,
-        ),
-        (
-            "`total_burn` too low",
-            (|| {
-                let mut p = proposal.clone();
-                p.total_burn -= 100;
-                sign(p)
-            })(),
-            HTTP_BADREQUEST,
-        ),
-        (
-            "`total_burn` too high",
-            (|| {
-                let mut p = proposal.clone();
-                p.total_burn += 100;
-                sign(p)
             })(),
             HTTP_BADREQUEST,
         ),

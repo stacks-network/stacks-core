@@ -589,9 +589,3 @@ paths:
           description: 'Identifies which chain block is for (Mainnet, Testnet, etc.)'
           schema:
             type: integer
-        - name: total_burn
-          in: query
-          required: true
-          description: 'Total BTC burn so far'
-          schema:
-            type: integer

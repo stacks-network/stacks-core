@@ -491,7 +491,5 @@ pub struct NakamotoBlockProposal {
     pub tenure_start_block: StacksBlockId,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
-    /// total BTC burn so far
-    pub total_burn: u64,
 }
 ```
