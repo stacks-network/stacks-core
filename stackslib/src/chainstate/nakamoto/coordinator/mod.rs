@@ -198,6 +198,8 @@ pub(crate) fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 
     // did we already calculate the reward cycle info?  If so, then return it.
     let first_sortition_id = if let Some(first_sn) = prepare_phase_sortitions.first() {
+        info!("First prepare phase sortition found";
+              "first_sn_height" => first_sn.block_height);
         if let Some(persisted_reward_cycle_info) =
             SortitionDB::get_preprocessed_reward_set(sort_db.conn(), &first_sn.sortition_id)?
         {
