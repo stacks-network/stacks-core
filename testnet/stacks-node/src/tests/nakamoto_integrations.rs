@@ -337,6 +337,7 @@ fn boot_to_epoch_3(
             pox_addr_tuple,
             clarity::vm::Value::UInt(205),
             clarity::vm::Value::UInt(12),
+            clarity::vm::Value::buff_from(vec![0; 33]).unwrap(), // TODO: replace once signer key calculation is implemented
         ],
     );
 
