@@ -1126,7 +1126,7 @@ impl StacksChainState {
                     &contract_code_str,
                     ast_rules,
                 );
-                let (mut contract_ast, mut contract_analysis) = match analysis_resp {
+                let (mut contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
                         match e {
