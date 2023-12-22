@@ -23,13 +23,13 @@ path = "src/main.rs"
 backoff = "0.4"
 bincode = "1.3.3"
 # clarity = { path = "../clarity" }
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
 clap = { version = "4.1.1", features = ["derive", "env"] }
 hashbrown = "0.14"
 # libsigner = { path = "../libsigner" }
-libsigner = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+libsigner = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
 # libstackerdb = { path = "../libstackerdb" }
-libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
 rand_core = "0.6"
 reqwest = { version = "0.11.22", features = ["blocking", "json"] }
 serde = "1"
@@ -39,9 +39,9 @@ slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 slog-json = { version = "2.3.0", optional = true }
 slog-term = "2.6.0"
 # stacks-common = { path = "../stacks-common" }
-stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
 # stackslib = { path = "../stackslib"}
-stackslib = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+stackslib = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
 thiserror = "1.0"
 toml = "0.5.6"
 tracing = "0.1.37"
