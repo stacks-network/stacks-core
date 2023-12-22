@@ -56,7 +56,7 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
         1,
         &vec![StacksPublicKey::from_private(&private_key)],
     )
-        .unwrap();
+    .unwrap();
 
     for sortition_height in 0..11 {
         // stack to pox-3 in cycle 7
@@ -98,7 +98,7 @@ pub fn boot_nakamoto(
         1,
         &vec![StacksPublicKey::from_private(&private_key)],
     )
-        .unwrap();
+    .unwrap();
 
     // reward cycles are 5 blocks long
     // first 25 blocks are boot-up
@@ -142,8 +142,8 @@ fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>) -> TestPeer<'a> {
             replay_tip.block_height,
             &tip.sortition_id,
         )
-            .unwrap()
-            .unwrap();
+        .unwrap()
+        .unwrap();
         ancestor_tip
     };
 
@@ -221,7 +221,7 @@ fn replay_reward_cycle(
             &mut node.chainstate,
             block.clone(),
         )
-            .unwrap();
+        .unwrap();
         if accepted {
             test_debug!("Accepted Nakamoto block {block_id}");
             peer.coord.handle_new_nakamoto_stacks_block().unwrap();
@@ -297,7 +297,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
         1,
         &vec![StacksPublicKey::from_private(&private_key)],
     )
-        .unwrap();
+    .unwrap();
 
     let mut test_signers = TestSigners::default();
     let mut peer = boot_nakamoto(
@@ -419,7 +419,7 @@ fn test_nakamoto_chainstate_getters() {
         1,
         &vec![StacksPublicKey::from_private(&private_key)],
     )
-        .unwrap();
+    .unwrap();
     let mut test_signers = TestSigners::default();
     let mut peer = boot_nakamoto(
         function_name!(),
@@ -543,16 +543,16 @@ fn test_nakamoto_chainstate_getters() {
                 &tip.index_block_hash(),
                 coinbase_height,
             )
-                .unwrap();
+            .unwrap();
             let header = header_opt.expect("No tenure");
 
             if coinbase_height
                 <= tip
-                .anchored_header
-                .as_stacks_nakamoto()
-                .unwrap()
-                .chain_length
-                - 10
+                    .anchored_header
+                    .as_stacks_nakamoto()
+                    .unwrap()
+                    .chain_length
+                    - 10
             {
                 // all tenures except the last are epoch2
                 assert!(header.anchored_header.as_stacks_epoch2().is_some());
@@ -586,8 +586,8 @@ fn test_nakamoto_chainstate_getters() {
             sort_tx.tx(),
             &highest_tenure.tenure_id_consensus_hash,
         )
-            .unwrap()
-            .unwrap();
+        .unwrap()
+        .unwrap();
 
         // this tenure's TC tx is the first-ever TC
         let tenure_change_payload = blocks[0].get_tenure_change_tx_payload().unwrap().clone();
@@ -596,33 +596,33 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &tenure_change_payload,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
         assert!(NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
             sort_tx.sqlite(),
             &blocks[0].header.consensus_hash,
             &blocks[1].header,
         )
-            .unwrap());
+        .unwrap());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &tenure_change_payload.tenure_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &tenure_change_payload.prev_tenure_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &tenure_change_payload.burn_view_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
 
         // this should fail, since it's not idempotent -- the highest tenure _is_ this tenure
         assert!(NakamotoChainState::check_nakamoto_tenure(
@@ -631,8 +631,8 @@ fn test_nakamoto_chainstate_getters() {
             &blocks[0].header,
             &tenure_change_payload,
         )
-            .unwrap()
-            .is_none());
+        .unwrap()
+        .is_none());
 
         let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
         let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
@@ -651,7 +651,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &blocks[0].header.consensus_hash,
         )
-            .unwrap();
+        .unwrap();
 
         // check works (this would be the first tenure)
         assert!(NakamotoChainState::check_nakamoto_tenure(
@@ -660,8 +660,8 @@ fn test_nakamoto_chainstate_getters() {
             &blocks[0].header,
             &tenure_change_payload,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
 
         // restore
         sort_tx
@@ -679,7 +679,7 @@ fn test_nakamoto_chainstate_getters() {
             1,
             &tenure_change_payload,
         )
-            .unwrap();
+        .unwrap();
     }
 
     debug!("\n======================================\nBegin second tenure\n===========================================\n");
@@ -716,7 +716,7 @@ fn test_nakamoto_chainstate_getters() {
         &next_consensus_hash,
         &txid,
     )
-        .unwrap();
+    .unwrap();
     assert_eq!(parent_vrf_proof, vrf_proof);
 
     // make the second tenure's blocks
@@ -785,59 +785,59 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &tenure_change_payload,
         )
-            .unwrap()
-            .is_none());
+        .unwrap()
+        .is_none());
         assert!(NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
             sort_tx.sqlite(),
             &new_blocks[0].header.consensus_hash,
             &new_blocks[1].header,
         )
-            .unwrap());
+        .unwrap());
         assert!(!NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
             sort_tx.sqlite(),
             &blocks[0].header.consensus_hash,
             &new_blocks[1].header,
         )
-            .unwrap());
+        .unwrap());
 
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &tenure_change_payload.tenure_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &tenure_change_payload.prev_tenure_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &tenure_change_payload.burn_view_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &old_tenure_change_payload.tenure_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &old_tenure_change_payload.prev_tenure_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
             &old_tenure_change_payload.burn_view_consensus_hash,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
 
         let cur_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sort_tx.sqlite()).unwrap();
         let (cur_stacks_ch, cur_stacks_bhh, cur_stacks_height) =
@@ -855,7 +855,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &new_blocks[0].header.consensus_hash,
         )
-            .unwrap();
+        .unwrap();
 
         assert!(NakamotoChainState::check_nakamoto_tenure(
             chainstate.db(),
@@ -863,8 +863,8 @@ fn test_nakamoto_chainstate_getters() {
             &new_blocks[0].header,
             &tenure_change_payload,
         )
-            .unwrap()
-            .is_some());
+        .unwrap()
+        .is_some());
 
         // checks on older confired tenures continue to fail
         assert!(NakamotoChainState::check_nakamoto_tenure(
@@ -873,8 +873,8 @@ fn test_nakamoto_chainstate_getters() {
             &blocks[0].header,
             &old_tenure_change_payload,
         )
-            .unwrap()
-            .is_none());
+        .unwrap()
+        .is_none());
 
         // restore
         sort_tx
@@ -892,7 +892,7 @@ fn test_nakamoto_chainstate_getters() {
             2,
             &tenure_change_payload,
         )
-            .unwrap();
+        .unwrap();
     }
 }
 
@@ -907,7 +907,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
         1,
         &vec![StacksPublicKey::from_private(&private_key)],
     )
-        .unwrap();
+    .unwrap();
 
     let mut test_signers = TestSigners::default();
     let mut peer = boot_nakamoto(
@@ -930,7 +930,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
         1,
         &vec![StacksPublicKey::from_private(&private_key)],
     )
-        .unwrap();
+    .unwrap();
 
     for i in 0..10 {
         let (burn_ops, mut tenure_change, miner_key) =
@@ -1113,7 +1113,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
                 &tip.index_block_hash(),
                 i,
             )
-                .unwrap();
+            .unwrap();
             matured_rewards.push(matured_reward_opt);
         }
     }
@@ -1228,7 +1228,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
         1,
         &vec![StacksPublicKey::from_private(&private_key)],
     )
-        .unwrap();
+    .unwrap();
     let mut test_signers = TestSigners::default();
     let mut peer = boot_nakamoto(
         function_name!(),
@@ -1556,7 +1556,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
         1,
         &vec![StacksPublicKey::from_private(&private_key)],
     )
-        .unwrap();
+    .unwrap();
     let mut test_signers = TestSigners::default();
     let mut peer = boot_nakamoto(
         function_name!(),
