@@ -55,7 +55,7 @@ assert-json-diff = "1.0.0"
 # criterion = "0.3"
 
 [features]
-default = ["developer-mode", "canonical", "log"]
+default = ["canonical", "log"]
 canonical = ["sqlite", "stacks_common/canonical", "serde_stacker", "wasmtime"]
 log = ["slog", "stacks_common/log"]
 sqlite = ["rusqlite"]
