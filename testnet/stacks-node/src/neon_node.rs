@@ -2348,10 +2348,7 @@ impl RelayerThread {
 
                 let mut broadcast = true;
                 if self.chainstate_ref().fault_injection.hide_blocks
-                    && Relayer::fault_injection_is_block_hidden(
-                        &mined_block.header,
-                        snapshot.block_height,
-                    )
+                    && Relayer::fault_injection_is_block_hidden(snapshot.block_height)
                 {
                     broadcast = false;
                 }

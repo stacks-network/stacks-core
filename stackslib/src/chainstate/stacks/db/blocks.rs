@@ -1989,7 +1989,7 @@ impl StacksChainState {
                             let mut status = true;
                             if self.fault_injection.hide_blocks {
                                 if let Some(header_info) = StacksChainState::get_stacks_block_header_info_by_index_block_hash(self.db(), &index_block_hash)? {
-                                    if Relayer::fault_injection_is_block_hidden(&hdr, header_info.burn_header_height.into()) {
+                                    if Relayer::fault_injection_is_block_hidden(header_info.burn_header_height.into()) {
                                         status = false;
                                     }
                                 }

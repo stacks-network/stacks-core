@@ -93,6 +93,7 @@ pub struct ProcessedNetReceipts {
     pub num_new_blocks: u64,
     pub num_new_confirmed_microblocks: u64,
     pub num_new_unconfirmed_microblocks: u64,
+    pub num_new_nakamoto_blocks: u64,
 }
 
 /// A trait for implementing both mempool event observer methods and stackerdb methods.
@@ -528,6 +529,41 @@ impl Relayer {
         Ok(())
     }
 
+    /// Given Nakamoto blocks pushed to us, verify that they correspond to expected block data.
+    pub fn validate_nakamoto_blocks_push(
+        conn: &SortitionDBConn,
+        blocks_data: &NakamotoBlocksData,
+    ) -> Result<(), net_error> {
+        for NakamotoBlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
+            let block_hash = block.header.block_hash();
+
+            // is this the right Stacks block for this sortition?
+            let sn = match SortitionDB::get_block_snapshot_consensus(conn.conn(), consensus_hash)? {
+                Some(sn) => {
+                    if !sn.pox_valid {
+                        info!( "Pushed block from consensus hash {consensus_hash} corresponds to invalid PoX state",);
+                        continue;
+                    }
+                    sn
+                }
+                None => {
+                    // don't know about this yet
+                    continue;
+                }
+            };
+
+            if !sn.sortition || sn.winning_stacks_block_hash != block_hash {
+                info!("No such sortition in block with consensus hash {consensus_hash}");
+
+                // TODO: once PoX is implemented, this can be permitted if we're missing the reward
+                // window's anchor block for the reward window in which this block lives.  Until
+                // then, it's never okay -- this peer shall be considered broken.
+                return Err(net_error::InvalidMessage);
+            }
+        }
+        Ok(())
+    }
+
     /// Get the snapshot of the parent of a given Stacks block
     pub fn get_parent_stacks_block_snapshot(
         sort_handle: &SortitionHandleConn,
@@ -585,7 +621,7 @@ impl Relayer {
             .ok_or(chainstate_error::DBError(db_error::NotFoundError))?;
 
         if chainstate.fault_injection.hide_blocks
-            && Self::fault_injection_is_block_hidden(&block.header, block_sn.block_height)
+            && Self::fault_injection_is_block_hidden(block_sn.block_height)
         {
             return Ok(false);
         }
@@ -707,15 +743,14 @@ impl Relayer {
             return Ok(false);
         }
 
+        let bhh = block.header.block_hash();
         let accept_msg = format!(
             "Stored incoming Nakamoto block {}/{}",
-            &block.header.consensus_hash,
-            &block.header.block_hash()
+            block.header.consensus_hash, bhh
         );
         let reject_msg = format!(
             "Rejected incoming Nakamoto block {}/{}",
-            &block.header.consensus_hash,
-            &block.header.block_hash()
+            block.header.consensus_hash, bhh
         );
 
         let config = chainstate.config();
@@ -741,9 +776,9 @@ impl Relayer {
         staging_db_tx.commit()?;
 
         if accepted {
-            debug!("{}", &accept_msg);
+            debug!("{accept_msg}");
         } else {
-            debug!("{}", &reject_msg);
+            debug!("{reject_msg}");
         }
 
         Ok(accepted)
@@ -847,7 +882,7 @@ impl Relayer {
                     SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)
                         .expect("FATAL: failed to query downloaded block snapshot")
                 {
-                    if Self::fault_injection_is_block_hidden(&block.header, sn.block_height) {
+                    if Self::fault_injection_is_block_hidden(sn.block_height) {
                         continue;
                     }
                 }
@@ -898,10 +933,7 @@ impl Relayer {
     // fault injection -- don't accept this block if we are to deliberatly ignore
     // it in a test
     #[cfg(any(test, feature = "testing"))]
-    pub fn fault_injection_is_block_hidden(
-        _header: &StacksBlockHeader,
-        burn_block_height: u64,
-    ) -> bool {
+    pub fn fault_injection_is_block_hidden(burn_block_height: u64) -> bool {
         if let Ok(heights_str) = std::env::var("STACKS_HIDE_BLOCKS_AT_HEIGHT") {
             use serde_json;
             if let Ok(serde_json::Value::Array(height_list_value)) =
@@ -924,10 +956,7 @@ impl Relayer {
     }
 
     #[cfg(not(any(test, feature = "testing")))]
-    pub fn fault_injection_is_block_hidden(
-        _block: &StacksBlockHeader,
-        _burn_block_height: u64,
-    ) -> bool {
+    pub fn fault_injection_is_block_hidden(_burn_block_height: u64) -> bool {
         false
     }
 
@@ -947,13 +976,10 @@ impl Relayer {
         // If a neighbor sends us an invalid block, ban them.
         for (neighbor_key, blocks_datas) in network_result.pushed_blocks.iter() {
             for blocks_data in blocks_datas.iter() {
-                match Relayer::validate_blocks_push(sort_ic, blocks_data) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        // punish this peer
-                        bad_neighbors.push((*neighbor_key).clone());
-                        break;
-                    }
+                if Relayer::validate_blocks_push(sort_ic, blocks_data).is_err() {
+                    // punish this peer
+                    bad_neighbors.push((*neighbor_key).clone());
+                    break;
                 }
 
                 for BlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
@@ -970,10 +996,7 @@ impl Relayer {
                                 continue;
                             }
                             if chainstate.fault_injection.hide_blocks
-                                && Self::fault_injection_is_block_hidden(
-                                    &block.header,
-                                    sn.block_height,
-                                )
+                                && Self::fault_injection_is_block_hidden(sn.block_height)
                             {
                                 continue;
                             }
@@ -984,13 +1007,11 @@ impl Relayer {
                         }
                     };
 
+                    let bhh = block.block_hash();
                     debug!(
                         "Received pushed block {}/{} from {}",
-                        &consensus_hash,
-                        block.block_hash(),
-                        neighbor_key
+                        &consensus_hash, bhh, neighbor_key
                     );
-                    let bhh = block.block_hash();
                     match Relayer::process_new_anchored_block(
                         sort_ic,
                         chainstate,
@@ -1015,18 +1036,14 @@ impl Relayer {
                         Err(chainstate_error::InvalidStacksBlock(msg)) => {
                             warn!(
                                 "Invalid pushed Stacks block {}/{}: {}",
-                                &consensus_hash,
-                                block.block_hash(),
-                                msg
+                                &consensus_hash, bhh, msg
                             );
                             bad_neighbors.push((*neighbor_key).clone());
                         }
                         Err(e) => {
                             warn!(
                                 "Could not process pushed Stacks block {}/{}: {:?}",
-                                &consensus_hash,
-                                block.block_hash(),
-                                &e
+                                &consensus_hash, bhh, &e
                             );
                         }
                     }
@@ -1091,11 +1108,10 @@ impl Relayer {
 
             let mut stored = false;
             for mblock in microblock_stream.iter() {
+                let mbhh = mblock.block_hash();
                 debug!(
                     "Preprocess downloaded microblock {}/{}-{}",
-                    consensus_hash,
-                    &anchored_block_hash,
-                    &mblock.block_hash()
+                    consensus_hash, &anchored_block_hash, &mbhh
                 );
                 if !Relayer::static_check_problematic_relayed_microblock(
                     chainstate.mainnet,
@@ -1103,7 +1119,7 @@ impl Relayer {
                     mblock,
                     ast_rules,
                 ) {
-                    info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &mblock.block_hash(), consensus_hash, &anchored_block_hash);
+                    info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &mbhh, consensus_hash, &anchored_block_hash);
                     break;
                 }
                 match chainstate.preprocess_streamed_microblock(
@@ -1117,10 +1133,7 @@ impl Relayer {
                     Err(e) => {
                         warn!(
                             "Invalid downloaded microblock {}/{}-{}: {:?}",
-                            consensus_hash,
-                            &anchored_block_hash,
-                            mblock.block_hash(),
-                            &e
+                            consensus_hash, &anchored_block_hash, mbhh, &e
                         );
                     }
                 }
@@ -1180,11 +1193,10 @@ impl Relayer {
                     .epoch_id;
 
                 for mblock in mblock_data.microblocks.iter() {
+                    let mbhh = mblock.block_hash();
                     debug!(
                         "Preprocess downloaded microblock {}/{}-{}",
-                        &consensus_hash,
-                        &anchored_block_hash,
-                        &mblock.block_hash()
+                        &consensus_hash, &anchored_block_hash, &mbhh
                     );
                     if !Relayer::static_check_problematic_relayed_microblock(
                         chainstate.mainnet,
@@ -1192,13 +1204,11 @@ impl Relayer {
                         mblock,
                         ast_rules,
                     ) {
-                        info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &mblock.block_hash(), &consensus_hash, &anchored_block_hash);
+                        info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &mbhh, &consensus_hash, &anchored_block_hash);
                         continue;
                     }
-                    let need_relay = !chainstate.has_descendant_microblock_indexed(
-                        &index_block_hash,
-                        &mblock.block_hash(),
-                    )?;
+                    let need_relay =
+                        !chainstate.has_descendant_microblock_indexed(&index_block_hash, &mbhh)?;
                     match chainstate.preprocess_streamed_microblock(
                         &consensus_hash,
                         &anchored_block_hash,
@@ -1216,10 +1226,10 @@ impl Relayer {
                                 );
                                 if let Some((_, mblocks_map)) = new_microblocks.get_mut(&index_hash)
                                 {
-                                    mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                                    mblocks_map.insert(mbhh, (*mblock).clone());
                                 } else {
                                     let mut mblocks_map = HashMap::new();
-                                    mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                                    mblocks_map.insert(mbhh, (*mblock).clone());
                                     new_microblocks.insert(
                                         index_hash,
                                         ((*mblock_relayers).clone(), mblocks_map),
@@ -1238,10 +1248,7 @@ impl Relayer {
                         Err(e) => {
                             warn!(
                                 "Could not process pushed microblock {}/{}-{}: {:?}",
-                                &consensus_hash,
-                                &anchored_block_hash,
-                                &mblock.block_hash(),
-                                &e
+                                &consensus_hash, &anchored_block_hash, &mbhh, &e
                             );
                             continue;
                         }
@@ -1254,6 +1261,7 @@ impl Relayer {
         // data we need to forward them to neighbors.
         for uploaded_mblock in network_result.uploaded_microblocks.iter() {
             for mblock in uploaded_mblock.microblocks.iter() {
+                let mbhh = mblock.block_hash();
                 // is this microblock actually stored? i.e. it wasn't problematic?
                 let (consensus_hash, block_hash) =
                     match chainstate.get_block_header_hashes(&uploaded_mblock.index_anchor_block) {
@@ -1271,24 +1279,22 @@ impl Relayer {
                         }
                     };
                 if chainstate
-                    .get_microblock_status(&consensus_hash, &block_hash, &mblock.block_hash())
+                    .get_microblock_status(&consensus_hash, &block_hash, &mbhh)
                     .unwrap_or(None)
                     .is_some()
                 {
                     // yup, stored!
                     debug!(
                         "Preprocessed uploaded microblock {}/{}-{}",
-                        &consensus_hash,
-                        &block_hash,
-                        &mblock.block_hash()
+                        &consensus_hash, &block_hash, &mbhh
                     );
                     if let Some((_, mblocks_map)) =
                         new_microblocks.get_mut(&uploaded_mblock.index_anchor_block)
                     {
-                        mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                        mblocks_map.insert(mbhh, (*mblock).clone());
                     } else {
                         let mut mblocks_map = HashMap::new();
-                        mblocks_map.insert(mblock.block_hash(), (*mblock).clone());
+                        mblocks_map.insert(mbhh, (*mblock).clone());
                         new_microblocks.insert(
                             uploaded_mblock.index_anchor_block.clone(),
                             (vec![], mblocks_map),
@@ -1298,9 +1304,7 @@ impl Relayer {
                     // nope
                     debug!(
                         "Did NOT preprocess uploaded microblock {}/{}-{}",
-                        &consensus_hash,
-                        &block_hash,
-                        &mblock.block_hash()
+                        &consensus_hash, &block_hash, &mbhh
                     );
                 }
             }
@@ -1308,6 +1312,162 @@ impl Relayer {
 
         let mblock_datas = Relayer::make_microblocksdata_messages(new_microblocks);
         Ok((mblock_datas, bad_neighbors))
+    }
+
+    /// Preprocess all our downloaded Nakamoto blocks.
+    /// Does not fail on invalid blocks; just logs a warning.
+    /// Returns the set of consensus hashes for the sortitions that selected these blocks, and the
+    /// blocks themselves
+    fn preprocess_downloaded_nakamoto_blocks(
+        sortdb: &SortitionDB,
+        network_result: &mut NetworkResult,
+        chainstate: &mut StacksChainState,
+    ) -> HashMap<StacksBlockId, NakamotoBlock> {
+        let mut new_blocks = HashMap::new();
+        let sort_ic = sortdb.index_conn();
+
+        for (consensus_hash, block, _download_time) in network_result.nakamoto_blocks.iter() {
+            let bhh = block.header.block_hash();
+            debug!("Received downloaded block {consensus_hash}/{bhh}");
+            if chainstate.fault_injection.hide_blocks {
+                if let Some(sn) =
+                    SortitionDB::get_block_snapshot_consensus(&sort_ic, &consensus_hash)
+                        .expect("FATAL: failed to query downloaded block snapshot")
+                {
+                    if Self::fault_injection_is_block_hidden(sn.block_height) {
+                        continue;
+                    }
+                }
+            }
+            let mut sort_handle =
+                match SortitionHandleConn::open_reader_consensus(&sort_ic, consensus_hash) {
+                    Ok(sh) => sh,
+                    Err(e) => {
+                        warn!("Could not get sortition handle for {consensus_hash}/{bhh}: {e:?}");
+                        continue;
+                    }
+                };
+            match Relayer::process_new_nakamoto_block(
+                sortdb,
+                &mut sort_handle,
+                chainstate,
+                block.clone(),
+            ) {
+                Ok(accepted) => {
+                    if accepted {
+                        debug!("Accepted downloaded block {consensus_hash}/{bhh}");
+                        let block_id = StacksBlockId::new(consensus_hash, &bhh);
+                        new_blocks.insert(block_id, block.clone());
+                    } else {
+                        debug!("Rejected downloaded block {consensus_hash}/{bhh}");
+                    }
+                }
+                Err(chainstate_error::InvalidStacksBlock(msg)) => {
+                    warn!("Downloaded invalid Stacks block: {msg}");
+                    // NOTE: we can't punish the neighbor for this, since we could have been
+                    // MITM'ed in our download.
+                    continue;
+                }
+                Err(e) => {
+                    warn!(
+                        "Could not process downloaded Stacks block {consensus_hash}/{bhh}: {e:?}"
+                    );
+                }
+            };
+        }
+
+        new_blocks
+    }
+
+    /// Preprocess all pushed Nakamoto blocks
+    /// Return consensus hashes for the sortitions that elected the blocks we got, as well as the
+    /// list of peers that served us invalid data.
+    /// Does not fail; just logs warnings.
+    fn preprocess_pushed_nakamoto_blocks(
+        sortdb: &SortitionDB,
+        network_result: &mut NetworkResult,
+        chainstate: &mut StacksChainState,
+    ) -> Result<(HashMap<StacksBlockId, NakamotoBlock>, Vec<NeighborKey>), net_error> {
+        let mut new_blocks = HashMap::new();
+        let mut bad_neighbors = vec![];
+        let sort_ic = sortdb.index_conn();
+
+        // process blocks pushed to us.
+        // If a neighbor sends us an invalid block, ban them.
+        for (neighbor_key, blocks_datas) in network_result.pushed_nakamoto_blocks.iter() {
+            for blocks_data in blocks_datas.iter() {
+                if Relayer::validate_nakamoto_blocks_push(&sort_ic, blocks_data).is_err() {
+                    // punish this peer
+                    bad_neighbors.push(neighbor_key.clone());
+                    break;
+                };
+
+                for NakamotoBlocksDatum(consensus_hash, block) in blocks_data.blocks.iter() {
+                    match SortitionDB::get_block_snapshot_consensus(
+                        sort_ic.conn(),
+                        &consensus_hash,
+                    )? {
+                        Some(sn) => {
+                            if !sn.pox_valid {
+                                warn!(
+                                    "Consensus hash {consensus_hash} is not on the valid PoX fork"
+                                );
+                                continue;
+                            }
+                            if chainstate.fault_injection.hide_blocks
+                                && Self::fault_injection_is_block_hidden(sn.block_height)
+                            {
+                                continue;
+                            }
+                        }
+                        None => {
+                            warn!("Consensus hash {consensus_hash} not known to this node");
+                            continue;
+                        }
+                    };
+
+                    let bhh = block.header.block_hash();
+                    debug!("Received pushed block {consensus_hash}/{bhh} from {neighbor_key}",);
+                    let mut sort_handle = match SortitionHandleConn::open_reader_consensus(
+                        &sort_ic,
+                        consensus_hash,
+                    ) {
+                        Ok(sh) => sh,
+                        Err(e) => {
+                            warn!(
+                                "Could not get sortition handle for {consensus_hash}/{bhh}: {e:?}"
+                            );
+                            continue;
+                        }
+                    };
+                    match Relayer::process_new_nakamoto_block(
+                        sortdb,
+                        &mut sort_handle,
+                        chainstate,
+                        block.clone(),
+                    ) {
+                        Ok(accepted) => {
+                            if accepted {
+                                debug!("Accepted block {consensus_hash}/{bhh} from {neighbor_key}",);
+                                let block_id = StacksBlockId::new(consensus_hash, &bhh);
+                                new_blocks.insert(block_id, block.clone());
+                            } else {
+                                debug!("Rejected block {consensus_hash}/{bhh} from {neighbor_key}",);
+                            }
+                        }
+                        Err(chainstate_error::InvalidStacksBlock(msg)) => {
+                            warn!("Invalid pushed Stacks block {consensus_hash}/{bhh}: {msg}",);
+                            bad_neighbors.push(neighbor_key.clone());
+                        }
+                        Err(e) => {
+                            warn!( "Could not process pushed Stacks block {consensus_hash}/{bhh}: {e:?}",);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((new_blocks, bad_neighbors))
     }
 
     /// Verify that a relayed transaction is not problematic.  This is a static check -- we only
@@ -1599,6 +1759,86 @@ impl Relayer {
             new_microblocks,
             bad_neighbors,
         ))
+    }
+
+    /// Process Nakamoto blocks that we recieved, both downloaded (confirmed) and streamed (unconfirmed).
+    /// Returns:
+    /// * set of consensus hashes that elected the newly-discovered blocks, and the blocks, so we can turn them into BlocksAvailable / BlocksData messages
+    /// * list of neighbors that served us invalid data (so we can ban them)
+    pub fn process_new_nakamoto_blocks(
+        network_result: &mut NetworkResult,
+        sortdb: &mut SortitionDB,
+        chainstate: &mut StacksChainState,
+        coord_comms: Option<&CoordinatorChannels>,
+    ) -> Result<(HashMap<StacksBlockId, NakamotoBlock>, Vec<NeighborKey>), net_error> {
+        let mut new_blocks = HashMap::new();
+
+        // process blocks we downloaded
+        let new_dled_blocks =
+            Relayer::preprocess_downloaded_nakamoto_blocks(sortdb, network_result, chainstate);
+        for (block_id, block) in new_dled_blocks.into_iter() {
+            let block_hash = block.header.block_hash();
+            debug!(
+                "Received downloaded Nakamoto block";
+                "consensus_hash" => %block.header.consensus_hash,
+                "block_id" => %block_id,
+                "block_hash" => %block_hash
+            );
+            new_blocks.insert(block_id, block);
+        }
+
+        // process blocks pushed to us
+        let (new_pushed_blocks, bad_neighbors) =
+            Relayer::preprocess_pushed_nakamoto_blocks(sortdb, network_result, chainstate)?;
+        for (block_id, block) in new_pushed_blocks.into_iter() {
+            let block_hash = block.header.block_hash();
+            debug!(
+                "Received p2p-pushed Nakamoto block";
+                "consensus_hash" => %block.header.consensus_hash,
+                "block_id" => %block_id,
+                "block_hash" => %block_hash
+            );
+            new_blocks.insert(block_id, block);
+        }
+
+        // process blocks uploaded to us.  They've already been stored, but we need to report them
+        // as available anyway so the callers of this method can know that they have shown up (e.g.
+        // so they can be relayed).
+        for block_data in network_result.uploaded_nakamoto_blocks.drain(..) {
+            for NakamotoBlocksDatum(consensus_hash, block) in block_data.blocks.into_iter() {
+                let block_hash = block.header.block_hash();
+                let block_id = StacksBlockId::new(&consensus_hash, &block_hash);
+                // did we actually store it?
+                if let Ok(Some(_b)) = StacksChainState::get_staging_block_status(
+                    chainstate.db(),
+                    &consensus_hash,
+                    &block_hash,
+                ) {
+                    // block stored
+                    debug!(
+                        "Received http-uploaded Nakamoto block";
+                        "consensus_hash" => %consensus_hash,
+                        "block_id" => %block_id,
+                        "block_hash" => %block_hash
+                    );
+                    new_blocks.insert(block_id, block);
+                }
+            }
+        }
+
+        if new_blocks.len() > 0 {
+            info!(
+                "Processing newly received Nakamoto blocks: {}",
+                new_blocks.len(),
+            );
+            if let Some(coord_comms) = coord_comms {
+                if !coord_comms.announce_new_nakamoto_block() {
+                    return Err(net_error::CoordinatorClosed);
+                }
+            }
+        }
+
+        Ok((new_blocks, bad_neighbors))
     }
 
     /// Produce blocks-available messages from blocks we just got.
@@ -2076,6 +2316,15 @@ impl Relayer {
             }
         };
 
+        // Process Nakamoto blocks
+        // TODO
+        let mut num_new_nakamoto_blocks = 0;
+        match Relayer::process_new_nakamoto_blocks(network_result, sortdb, chainstate, coord_comms)
+        {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+
         let mut mempool_txs_added = vec![];
 
         // only care about transaction forwarding if not IBD
@@ -2148,6 +2397,7 @@ impl Relayer {
             num_new_blocks,
             num_new_confirmed_microblocks,
             num_new_unconfirmed_microblocks,
+            num_new_nakamoto_blocks,
         };
 
         Ok(receipts)
