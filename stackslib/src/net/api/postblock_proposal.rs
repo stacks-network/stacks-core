@@ -67,7 +67,7 @@ impl RPCBlockProposalRequestHandler {
     }
 
     /// Decode a bare transaction from the body
-    fn parse_posttransaction_octets(mut body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
+    fn parse_octets(mut body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
         NakamotoBlockProposal::consensus_deserialize(&mut body).map_err(|e| match e {
             CodecError::DeserializeError(msg) => {
                 Error::DecodeError(format!("Failed to deserialize posted transaction: {msg}"))
@@ -77,7 +77,7 @@ impl RPCBlockProposalRequestHandler {
     }
 
     /// Decode a JSON-encoded transaction
-    fn parse_posttransaction_json(body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
+    fn parse_json(body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
         serde_json::from_slice(body).map_err(|_| Error::DecodeError("Failed to parse body".into()))
     }
 }
@@ -125,8 +125,8 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         }
 
         let block_proposal = match preamble.content_type {
-            Some(HttpContentType::Bytes) => Self::parse_posttransaction_octets(body)?,
-            Some(HttpContentType::JSON) => Self::parse_posttransaction_json(body)?,
+            Some(HttpContentType::Bytes) => Self::parse_octets(body)?,
+            Some(HttpContentType::JSON) => Self::parse_json(body)?,
             None => {
                 return Err(Error::DecodeError(
                     "Missing Content-Type for transaction".to_string(),
