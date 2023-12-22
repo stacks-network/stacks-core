@@ -7,7 +7,7 @@ use async_h1::client;
 use async_std::net::TcpStream;
 use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
+use clarity::vm::events::{DataEventType, FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
 pub use libsigner::StackerDBChunksEvent;
