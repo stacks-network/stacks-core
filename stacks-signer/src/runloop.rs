@@ -1,8 +1,8 @@
-use hashbrown::{HashMap, HashSet};
 use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerRunLoop, StackerDBChunksEvent};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
