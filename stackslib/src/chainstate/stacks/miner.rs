@@ -1660,7 +1660,8 @@ impl StacksBlockBuilder {
             &self.header.parent_block,
             &self.header.parent_microblock,
             self.header.parent_microblock_sequence,
-            state_root_hash
+            state_root_hash;
+            "chain_tip_burn_height" => self.chain_tip.burn_header_height,
         );
 
         block

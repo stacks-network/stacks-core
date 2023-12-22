@@ -209,12 +209,17 @@ pub(crate) fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         return Ok(None);
     };
 
+    // iterate over each sortition in the prepare phase from the earliest to the latest
+    //  to find:
+    // (1) The first stacks block produced.
+    // (2) The parent of that stacks block.
+    // (3) The first block of (2)'s tenure. This is the PoX anchor block.
     for sn in prepare_phase_sortitions.into_iter() {
         if !sn.sortition {
             continue;
         }
 
-        // find the first Stacks block processed in the prepare phase
+        
         let parent_block_id = if let Some(nakamoto_start_block) =
             NakamotoChainState::get_nakamoto_tenure_start_block_header(
                 chain_state.db(),
@@ -288,8 +293,11 @@ pub(crate) fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         let txid = anchor_block_sn.winning_block_txid;
 
         info!(
-            "Anchor block selected for cycle {}: (ch {}) {}",
-            reward_cycle, &anchor_block_header.consensus_hash, &block_id
+            "Anchor block selected";
+            "cycle" => reward_cycle,
+            "ch" => %anchor_block_header.consensus_hash,
+            "block_id" => %block_id,
+            "burn_height" => anchor_block_header.burn_header_height
         );
 
         let reward_set =

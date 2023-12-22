@@ -358,6 +358,8 @@ impl NakamotoBlockBuilder {
             state_root_hash
         );
 
+        let parent_burn_ht = self.parent_header.as_ref().map(|h| h.burn_header_height).unwrap_or(0);
+
         debug!(
             "Miner: mined Nakamoto block";
             "consensus_hash" => %block.header.consensus_hash,
@@ -365,7 +367,8 @@ impl NakamotoBlockBuilder {
             "block_height" => block.header.chain_length,
             "num_txs" => block.txs.len(),
             "parent_block" => %block.header.parent_block_id,
-            "state_root" => %state_root_hash
+            "state_root" => %state_root_hash,
+            "parent_burn_height" => parent_burn_ht
         );
 
         block
