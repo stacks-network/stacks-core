@@ -22,7 +22,6 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use lazy_static::lazy_static;
-//use stacks::burnchains::tests::TestMinerFactory;
 use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
