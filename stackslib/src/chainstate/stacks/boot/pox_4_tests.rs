@@ -42,6 +42,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::Address;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use wsts::curve::point::{Compressed, Point};
 
 use super::test::*;
 use super::RawRewardSetEntry;
@@ -485,7 +486,7 @@ fn pox_extend_transition() {
             key_to_stacks_addr(&alice).bytes,
         ),
         4,
-        vec![0; 33],
+        Point::default(),
         tip.block_height,
     );
     let alice_pox_4_lock_nonce = 2;
@@ -530,12 +531,12 @@ fn pox_extend_transition() {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let bob_signer_key = vec![
+    let bob_signer_key: [u8; 33] = [
         0x02, 0xb6, 0x19, 0x6d, 0xe8, 0x8b, 0xce, 0xe7, 0x93, 0xfa, 0x9a, 0x8a, 0x85, 0x96, 0x9b,
         0x64, 0x7f, 0x84, 0xc9, 0x0e, 0x9d, 0x13, 0xf9, 0xc8, 0xb8, 0xce, 0x42, 0x6c, 0xc8, 0x1a,
         0x59, 0x98, 0x3c,
     ];
-    let alice_signer_key = vec![
+    let alice_signer_key: [u8; 33] = [
         0x03, 0xa0, 0xf9, 0x81, 0x8e, 0xa8, 0xc1, 0x4a, 0x82, 0x7b, 0xb1, 0x44, 0xae, 0xc9, 0xcf,
         0xba, 0xeb, 0xa2, 0x25, 0xaf, 0x22, 0xbe, 0x18, 0xed, 0x78, 0xa2, 0xf2, 0x98, 0x10, 0x6f,
         0x4e, 0x28, 0x1b,
@@ -551,7 +552,7 @@ fn pox_extend_transition() {
             key_to_stacks_addr(&bob).bytes,
         ),
         3,
-        bob_signer_key,
+        Point::try_from(&Compressed::from(bob_signer_key)).unwrap(),
         tip.block_height,
     );
 
@@ -564,7 +565,7 @@ fn pox_extend_transition() {
             key_to_stacks_addr(&alice).bytes,
         ),
         6,
-        alice_signer_key,
+        Point::try_from(&Compressed::from(alice_signer_key)).unwrap(),
     );
 
     let alice_pox_4_extend_nonce = 3;
@@ -818,7 +819,7 @@ fn pox_lock_unlock() {
                 1024 * POX_THRESHOLD_STEPS_USTX,
                 pox_addr.clone(),
                 lock_period,
-                vec![0; 33],
+                Point::default(),
                 tip_height,
             ));
             pox_addr

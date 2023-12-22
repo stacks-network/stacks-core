@@ -68,7 +68,7 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
                 1_000_000_000_000_000_000,
                 PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone()),
                 12,
-                vec![0; 33],
+                Point::default(),
                 34,
             );
             vec![stack_tx]
