@@ -2694,10 +2694,14 @@ impl PeerNetwork {
                 }
             }
             Err(e) => {
-                warn!(
-                    "{:?}: failed to learn public IP: {:?}",
-                    &self.local_peer, &e
-                );
+                // if we bound to the loopback, don't complain that we can't find our
+                //  public IP.
+                if !self.local_peer.addrbytes.to_socketaddr(80).ip().is_loopback() {
+                    warn!(
+                        "{:?}: failed to learn public IP: {:?}",
+                        &self.local_peer, &e
+                    );
+                }
                 self.public_ip_reset();
                 return true;
             }

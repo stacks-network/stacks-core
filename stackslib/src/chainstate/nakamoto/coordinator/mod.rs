@@ -53,18 +53,15 @@ pub mod tests;
 impl OnChainRewardSetProvider {
     pub fn get_reward_set_nakamoto(
         &self,
-        // NOTE: this value is the first burnchain block in the prepare phase which has a Stacks
-        // block (unlike in Stacks 2.x, where this is the first block of the reward phase)
-        current_burn_height: u64,
+        cycle_start_height: u64,
         chainstate: &mut StacksChainState,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
         let cycle = burnchain
-            .block_height_to_reward_cycle(current_burn_height)
-            .expect("FATAL: no reward cycle for burn height")
-            + 1;
+            .block_height_to_reward_cycle(cycle_start_height)
+            .expect("FATAL: no reward cycle for burn height");
 
         let registered_addrs =
             chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
@@ -78,9 +75,9 @@ impl OnChainRewardSetProvider {
         );
 
         let cur_epoch =
-            SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(&format!(
+            SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_height)?.expect(&format!(
                 "FATAL: no epoch defined for burn height {}",
-                current_burn_height
+                cycle_start_height,
             ));
 
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 && participation == 0 {
@@ -90,7 +87,7 @@ impl OnChainRewardSetProvider {
         }
 
         info!("PoX reward cycle threshold computed";
-              "burn_height" => current_burn_height,
+              "burn_height" => cycle_start_height,
               "threshold" => threshold,
               "participation" => participation,
               "liquid_ustx" => liquid_ustx,
@@ -153,7 +150,7 @@ fn find_prepare_phase_sortitions(
 /// Returns Err(Error::NotInPreparePhase) if `burn_height` is not in the prepare phase
 /// Returns Err(Error::RewardCycleAlreadyProcessed) if the reward set for this reward cycle has
 /// already been processed.
-pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
+pub(crate) fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
     burn_height: u64,
     sortition_tip: &SortitionId,
     burnchain: &Burnchain,
@@ -182,6 +179,8 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         .block_height_to_reward_cycle(burn_height)
         .expect("FATAL: no reward cycle for burn height")
         + 1;
+    let reward_start_height = burnchain
+        .reward_cycle_to_block_height(reward_cycle);
 
     debug!("Processing reward set for Nakamoto reward cycle";
           "burn_height" => burn_height,
@@ -294,7 +293,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         );
 
         let reward_set =
-            provider.get_reward_set(burn_height, chain_state, burnchain, sort_db, &block_id)?;
+            provider.get_reward_set(reward_start_height, chain_state, burnchain, sort_db, &block_id)?;
         debug!(
             "Stacks anchor block (ch {}) {} cycle {} is processed",
             &anchor_block_header.consensus_hash, &block_id, reward_cycle
