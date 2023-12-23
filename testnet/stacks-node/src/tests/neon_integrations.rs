@@ -6089,7 +6089,7 @@ fn pox_integration_test() {
     );
     assert_eq!(
         pox_info.rejection_fraction,
-        pox_constants.pox_rejection_fraction
+        Some(pox_constants.pox_rejection_fraction)
     );
     assert_eq!(pox_info.reward_cycle_id, 0);
     assert_eq!(pox_info.current_cycle.id, 0);
@@ -6157,7 +6157,7 @@ fn pox_integration_test() {
     );
     assert_eq!(
         pox_info.rejection_fraction,
-        pox_constants.pox_rejection_fraction
+        Some(pox_constants.pox_rejection_fraction)
     );
     assert_eq!(pox_info.reward_cycle_id, 14);
     assert_eq!(pox_info.current_cycle.id, 14);
@@ -6288,7 +6288,7 @@ fn pox_integration_test() {
     );
     assert_eq!(
         pox_info.rejection_fraction,
-        pox_constants.pox_rejection_fraction
+        Some(pox_constants.pox_rejection_fraction)
     );
     assert_eq!(pox_info.reward_cycle_id, 14);
     assert_eq!(pox_info.current_cycle.id, 14);
