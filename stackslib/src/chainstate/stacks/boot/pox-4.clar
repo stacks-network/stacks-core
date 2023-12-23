@@ -127,8 +127,7 @@
         until-burn-ht: (optional uint), ;; how long does the delegation last?
         ;; does the delegate _need_ to use a specific
         ;; pox recipient address?
-        pox-addr: (optional { version: (buff 1), hashbytes: (buff 32) }),
-        signer-key: (optional (buff 33))
+        pox-addr: (optional { version: (buff 1), hashbytes: (buff 32) })
     }
 )
 
@@ -612,12 +611,10 @@
 ;;   * amount-ustx: the total amount of ustx the delegate may be allowed to lock
 ;;   * until-burn-ht: an optional burn height at which this delegation expires
 ;;   * pox-addr: an optional address to which any rewards *must* be sent
-;;   * signer-key: an optional signer key, that when set the delegate must use.
 (define-public (delegate-stx (amount-ustx uint)
                              (delegate-to principal)
                              (until-burn-ht (optional uint))
-                             (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) }))
-                             (signer-key (optional (buff 33))))
+                             (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
     (begin
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -642,17 +639,13 @@
       (asserts! (is-none (get-check-delegation tx-sender))
         (err ERR_STACKING_ALREADY_DELEGATED))
 
-      ;; ensure the signer key is valid, if it is set
-      (match signer-key key (try! (is-signer-key-valid key)) true)
-
       ;; add delegation record
       (map-set delegation-state
         { stacker: tx-sender }
         { amount-ustx: amount-ustx,
           delegated-to: delegate-to,
           until-burn-ht: until-burn-ht,
-          pox-addr: pox-addr,
-          signer-key: signer-key })
+          pox-addr: pox-addr })
 
       (ok true)))
 
@@ -833,11 +826,7 @@
                                            unlock-burn-height)
                       true)
                   (err ERR_DELEGATION_EXPIRES_DURING_LOCK))
-        ;; if the delegatee set a signer-key, it must be equal to the delegate signer-key
-        (asserts!
-            (or (is-none (get signer-key delegation-info)) (is-eq (get signer-key delegation-info) (some signer-key)))
-            (err ERR_REQUESTED_SIGNER_KEY_MISMATCH)
-        ))
+        )
 
       ;; stacker principal must not be stacking
       (asserts! (is-none (get-stacker-info stacker))
@@ -1214,11 +1203,7 @@
                                            new-unlock-ht)
                       true)
                   (err ERR_DELEGATION_EXPIRES_DURING_LOCK))
-        ;; if the stacker set a signer-key, it must be equal to the delegate signer-key
-        (asserts!
-            (or (is-none (get signer-key delegation-info)) (is-eq (get signer-key delegation-info) (some signer-key)))
-            (err ERR_REQUESTED_SIGNER_KEY_MISMATCH)
-        ))
+        )
 
       ;; delegate stacking does minimal-can-stack-stx
       (try! (minimal-can-stack-stx pox-addr amount-ustx first-extend-cycle lock-period))
