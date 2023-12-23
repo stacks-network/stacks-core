@@ -1,5 +1,6 @@
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
+use super::chainstate::VRFSeed;
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksBlockId, TrieHash,
@@ -7,8 +8,6 @@ use crate::types::chainstate::{
 use crate::util::hash::{Hash160, Sha512Trunc256Sum};
 use crate::util::secp256k1::{MessageSignature, SchnorrSignature};
 use crate::util::vrf::VRFProof;
-
-use super::chainstate::VRFSeed;
 
 impl FromSql for Sha256dHash {
     fn column_result(value: ValueRef) -> FromSqlResult<Sha256dHash> {
