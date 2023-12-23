@@ -50,6 +50,12 @@ use crate::net::test::{TestPeer, TestPeerConfig};
 fn advance_to_nakamoto(peer: &mut TestPeer) {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
+    let signer_key = StacksPublicKey::from_slice(&[
+        0x02, 0xb6, 0x19, 0x6d, 0xe8, 0x8b, 0xce, 0xe7, 0x93, 0xfa, 0x9a, 0x8a, 0x85, 0x96, 0x9b,
+        0x64, 0x7f, 0x84, 0xc9, 0x0e, 0x9d, 0x13, 0xf9, 0xc8, 0xb8, 0xce, 0x42, 0x6c, 0xc8, 0x1a,
+        0x59, 0x98, 0x3c,
+    ])
+    .unwrap();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -68,7 +74,7 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
                 1_000_000_000_000_000_000,
                 PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone()),
                 12,
-                Point::default(),
+                signer_key,
                 34,
             );
             vec![stack_tx]

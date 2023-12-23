@@ -486,7 +486,7 @@ fn pox_extend_transition() {
             key_to_stacks_addr(&alice).bytes,
         ),
         4,
-        Point::default(),
+        StacksPublicKey::default(),
         tip.block_height,
     );
     let alice_pox_4_lock_nonce = 2;
@@ -552,7 +552,7 @@ fn pox_extend_transition() {
             key_to_stacks_addr(&bob).bytes,
         ),
         3,
-        Point::try_from(&Compressed::from(bob_signer_key)).unwrap(),
+        StacksPublicKey::from_slice(&bob_signer_key).unwrap(),
         tip.block_height,
     );
 
@@ -565,7 +565,7 @@ fn pox_extend_transition() {
             key_to_stacks_addr(&alice).bytes,
         ),
         6,
-        Point::try_from(&Compressed::from(alice_signer_key)).unwrap(),
+        StacksPublicKey::from_slice(&alice_signer_key).unwrap(),
     );
 
     let alice_pox_4_extend_nonce = 3;
@@ -819,7 +819,7 @@ fn pox_lock_unlock() {
                 1024 * POX_THRESHOLD_STEPS_USTX,
                 pox_addr.clone(),
                 lock_period,
-                Point::default(),
+                StacksPublicKey::default(),
                 tip_height,
             ));
             pox_addr

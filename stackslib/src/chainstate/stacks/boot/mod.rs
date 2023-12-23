@@ -1646,7 +1646,7 @@ pub mod test {
         amount: u128,
         addr: PoxAddress,
         lock_period: u128,
-        signer_key: Point,
+        signer_key: StacksPublicKey,
         burn_ht: u64,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
@@ -1659,7 +1659,7 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
-                Value::buff_from(signer_key.compress().data.into()).unwrap(),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
         .unwrap();
@@ -1772,7 +1772,7 @@ pub mod test {
         nonce: u64,
         addr: PoxAddress,
         lock_period: u128,
-        signer_key: Point,
+        signer_key: StacksPublicKey,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
@@ -1782,7 +1782,7 @@ pub mod test {
             vec![
                 Value::UInt(lock_period),
                 addr_tuple,
-                Value::buff_from(signer_key.compress().data.into()).unwrap(),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
         .unwrap();
