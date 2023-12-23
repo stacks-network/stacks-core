@@ -343,14 +343,21 @@ pub fn get_nakamoto_next_recipients(
         debug!("Get pre-processed reward set";
                "sortition_id" => %first_sn.sortition_id);
 
-        // NOTE: if we don't panic here, we'll panic later in a more obscure way
-        Some(
+        // NOTE: don't panic here. The only caller of this method is a stacks-node miner,
+        //  and they *may* have invoked this before they've processed the prepare phase.
+        //  That's recoverable by simply waiting to mine until they've processed those
+        //   blocks.
+        let reward_set =
             SortitionDB::get_preprocessed_reward_set(sort_db.conn(), &first_sn.sortition_id)?
-                .expect(&format!(
-                    "No reward set for start of reward cycle beginning with block {}",
-                    &sortition_tip.block_height
-                )),
-        )
+                .ok_or_else(|| {
+                    warn!(
+                        "No preprocessed reward set found";
+                        "reward_cycle_start" => sortition_tip.block_height + 1,
+                        "first_prepare_sortition_id" => %first_sn.sortition_id
+                    );
+                    Error::PoXNotProcessedYet
+                })?;
+        Some(reward_set)
     } else {
         None
     };
