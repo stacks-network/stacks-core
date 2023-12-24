@@ -285,20 +285,21 @@ pub struct OnChainRewardSetProvider();
 impl RewardSetProvider for OnChainRewardSetProvider {
     fn get_reward_set(
         &self,
-        // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
-        current_burn_height: u64,
+        cycle_start_burn_height: u64,
         chainstate: &mut StacksChainState,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error> {
-        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), current_burn_height)?.expect(
-            &format!("FATAL: no epoch for burn height {}", current_burn_height),
-        );
+        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_burn_height)?
+            .expect(&format!(
+                "FATAL: no epoch for burn height {}",
+                cycle_start_burn_height
+            ));
         if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
             // Stacks 2.x epoch
             return self.get_reward_set_epoch2(
-                current_burn_height,
+                cycle_start_burn_height,
                 chainstate,
                 burnchain,
                 sortdb,
@@ -308,7 +309,7 @@ impl RewardSetProvider for OnChainRewardSetProvider {
         } else {
             // Nakamoto epoch
             return self.get_reward_set_nakamoto(
-                current_burn_height,
+                cycle_start_burn_height,
                 chainstate,
                 burnchain,
                 sortdb,
