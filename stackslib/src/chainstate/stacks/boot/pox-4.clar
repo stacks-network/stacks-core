@@ -65,7 +65,6 @@
 
 ;; Stacking thresholds
 (define-constant STACKING_THRESHOLD_25 (if is-in-mainnet u20000 u8000))
-(define-constant STACKING_THRESHOLD_100 (if is-in-mainnet u5000 u2000))
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
