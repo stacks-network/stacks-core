@@ -1082,7 +1082,19 @@ fn block_proposal_api_endpoint() {
     let privk = conf.miner.mining_key.unwrap().clone();
     let parent_block_id = tip.index_block_hash();
     // TODO: Get current `total_burn` from somewhere
-    let total_burn = 640000;
+    let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())
+        .expect("Failed to get sortition tip");
+    let db_handle = sortdb.index_handle(&sort_tip);
+    let snapshot = db_handle
+        .get_block_snapshot(&tip.burn_header_hash)
+        .expect("Failed to get block snapshot")
+        .expect("No snapshot");
+    // Double check we got the right sortition
+    assert_eq!(
+        snapshot.consensus_hash, tip.consensus_hash,
+        "Found incorrect block snapshot"
+    );
+    let total_burn = snapshot.total_burn;
     let tenure_change = None;
     let coinbase = None;
 
