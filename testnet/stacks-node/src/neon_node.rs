@@ -138,91 +138,77 @@
 ///
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
-use std::collections::HashMap;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
-use std::mem;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
-use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{thread, thread::JoinHandle};
+use std::{mem, thread};
 
-use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid};
+use clarity::vm::ast::ASTRules;
+use clarity::vm::types::PrincipalData;
+use stacks::burnchains::db::BurnchainHeaderReader;
+use stacks::burnchains::{Burnchain, BurnchainParameters, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::leader_block_commit::{
+    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
+};
 use stacks::chainstate::burn::operations::{
-    leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
-use stacks::chainstate::burn::BlockSnapshot;
-use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
-use stacks::chainstate::stacks::db::StacksHeaderInfo;
-use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
-use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::chainstate::stacks::StacksPublicKey;
-use stacks::chainstate::stacks::{
-    miner::get_mining_spend_amount, miner::signal_mining_blocked, miner::signal_mining_ready,
-    miner::BlockBuilderSettings, miner::MinerStatus, miner::StacksMicroblockBuilder,
-    StacksBlockBuilder, StacksBlockHeader,
+use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
+use stacks::chainstate::stacks::miner::{
+    get_mining_spend_amount, signal_mining_blocked, signal_mining_ready, BlockBuilderSettings,
+    MinerStatus, StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
+    StacksMicroblock, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
 use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::core::STACKS_EPOCH_2_4_MARKER;
-use stacks::cost_estimates::metrics::CostMetric;
-use stacks::cost_estimates::metrics::UnitMetric;
-use stacks::cost_estimates::UnitEstimator;
-use stacks::cost_estimates::{CostEstimator, FeeEstimator};
+use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_2_4_MARKER};
+use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
+use stacks::cost_estimates::{CostEstimator, FeeEstimator, UnitEstimator};
+use stacks::monitoring;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
-use stacks::net::{
-    atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
-    db::{LocalPeer, PeerDB},
-    dns::DNSClient,
-    dns::DNSResolver,
-    p2p::PeerNetwork,
-    relay::Relayer,
-    rpc::RPCHandlerArgs,
-    Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
-};
+use stacks::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
+use stacks::net::db::{LocalPeer, PeerDB};
+use stacks::net::dns::{DNSClient, DNSResolver};
+use stacks::net::p2p::PeerNetwork;
+use stacks::net::relay::Relayer;
+use stacks::net::rpc::RPCHandlerArgs;
+use stacks::net::{Error as NetError, NetworkResult, PeerAddress, ServiceFlags};
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
 };
 use stacks::types::StacksEpochId;
-use stacks::util::get_epoch_time_ms;
-use stacks::util::get_epoch_time_secs;
 use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
 use stacks::util::secp256k1::Secp256k1PrivateKey;
 use stacks::util::vrf::VRFPublicKey;
+use stacks::util::{get_epoch_time_ms, get_epoch_time_secs};
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks::vm::costs::ExecutionCost;
-
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
-use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
-use crate::burnchains::make_bitcoin_indexer;
-use crate::run_loop::neon::Counters;
-use crate::run_loop::neon::RunLoop;
-use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
-
-use super::{BurnchainController, Config, EventDispatcher, Keychain};
-use crate::syncctl::PoxSyncWatchdogComms;
-use stacks::monitoring;
-
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::chainstate::{StacksBlockId, StacksPrivateKey};
 use stacks_common::util::vrf::VRFProof;
 
-use clarity::vm::ast::ASTRules;
-use clarity::vm::types::PrincipalData;
+use super::{BurnchainController, Config, EventDispatcher, Keychain};
+use crate::burnchains::bitcoin_regtest_controller::{BitcoinRegtestController, OngoingBlockCommit};
+use crate::burnchains::make_bitcoin_indexer;
+use crate::run_loop::neon::{Counters, RunLoop};
+use crate::run_loop::RegisteredKey;
+use crate::syncctl::PoxSyncWatchdogComms;
+use crate::ChainTip;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
@@ -1978,6 +1964,15 @@ impl BlockMinerThread {
                 return None;
             }
         };
+
+        if attempt >= 1
+            && self.config.miner.min_tx_count > 0
+            && u64::try_from(anchored_block.txs.len()).expect("too many txs")
+                < self.config.miner.min_tx_count
+        {
+            info!("Relayer: Succeeded assembling subsequent block with {} txs, but expected at least {}", anchored_block.txs.len(), self.config.miner.min_tx_count);
+            return None;
+        }
 
         info!(
             "Relayer: Succeeded assembling {} block #{}: {}, with {} txs, attempt {}",

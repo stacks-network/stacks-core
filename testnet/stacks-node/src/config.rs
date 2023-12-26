@@ -2,40 +2,30 @@ use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rand::RngCore;
-
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::Burnchain;
-use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use stacks::chainstate::stacks::miner::BlockBuilderSettings;
-use stacks::chainstate::stacks::miner::MinerStatus;
+use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
 use stacks::core::mempool::MemPoolWalkSettings;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochExtension;
-use stacks::core::StacksEpochId;
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
-use stacks::cost_estimates::metrics::CostMetric;
-use stacks::cost_estimates::metrics::ProportionalDotProduct;
-use stacks::cost_estimates::CostEstimator;
-use stacks::cost_estimates::FeeEstimator;
-use stacks::cost_estimates::PessimisticEstimator;
+use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
+use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
 use stacks::net::connection::ConnectionOptions;
 use stacks::net::{Neighbor, NeighborKey, PeerAddress};
 use stacks::util::get_epoch_time_ms;
 use stacks::util::hash::hex_bytes;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::secp256k1::Secp256k1PublicKey;
+use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 
@@ -909,6 +899,7 @@ impl Config {
                 unprocessed_block_deadline_secs: miner
                     .unprocessed_block_deadline_secs
                     .unwrap_or(miner_default_config.unprocessed_block_deadline_secs),
+                min_tx_count: miner.min_tx_count.unwrap_or(0),
             },
             None => miner_default_config,
         };
@@ -1890,6 +1881,7 @@ pub struct MinerConfig {
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
+    pub min_tx_count: u64,
 }
 
 impl MinerConfig {
@@ -1906,6 +1898,7 @@ impl MinerConfig {
             nonce_cache_size: 10_000,
             candidate_retry_cache_size: 10_000,
             unprocessed_block_deadline_secs: 30,
+            min_tx_count: 0,
         }
     }
 }
@@ -2022,6 +2015,7 @@ pub struct MinerConfigFile {
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
+    pub min_tx_count: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]

@@ -1,25 +1,35 @@
-use std::cmp;
-use std::fs;
+use std::collections::{HashMap, HashSet};
+use std::convert::TryFrom;
 use std::path::Path;
-use std::sync::mpsc;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
-use std::{
-    collections::HashMap,
-    collections::HashSet,
-    sync::atomic::{AtomicU64, Ordering},
-};
-use std::{env, thread};
+use std::{cmp, env, fs, thread};
 
+use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::ast::ASTRules;
+use clarity::vm::MAX_CALL_STACK_DEPTH;
+use rand::Rng;
 use rusqlite::types::ToSql;
-
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::Txid;
+use stacks::burnchains::db::BurnchainDB;
+use stacks::burnchains::{Address, Burnchain, PoxConstants, Txid};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, PreStxOp, TransferStxOp,
 };
+use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::{
+    signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
+    TransactionSuccessEvent,
+};
+use stacks::chainstate::stacks::{
+    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksMicroblockHeader, StacksPrivateKey,
+    StacksPublicKey, StacksTransaction, TransactionContractCall, TransactionPayload,
+};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::core;
@@ -31,53 +41,20 @@ use stacks::core::{
 use stacks::net::atlas::{AtlasConfig, AtlasDB, MAX_ATTACHMENT_INV_PAGES_PER_REQUEST};
 use stacks::net::{
     AccountEntryResponse, ContractSrcResponse, GetAttachmentResponse, GetAttachmentsInvResponse,
-    PostTransactionRequestBody, RPCPeerInfoData, StacksBlockAcceptedData,
-    UnconfirmedTransactionResponse,
+    PostTransactionRequestBody, RPCFeeEstimateResponse, RPCPeerInfoData, RPCPoxInfoData,
+    StacksBlockAcceptedData, UnconfirmedTransactionResponse,
 };
 use stacks::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
-use stacks::util::hash::Hash160;
-use stacks::util::hash::{bytes_to_hex, hex_bytes, to_hex};
+use stacks::util::hash::{bytes_to_hex, hex_bytes, to_hex, Hash160};
 use stacks::util::secp256k1::Secp256k1PublicKey;
 use stacks::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use stacks::util_lib::boot::boot_code_id;
+use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
+use stacks::vm::costs::ExecutionCost;
 use stacks::vm::types::PrincipalData;
-use stacks::vm::ClarityVersion;
-use stacks::vm::Value;
-use stacks::{
-    burnchains::db::BurnchainDB,
-    chainstate::{burn::ConsensusHash, stacks::StacksMicroblock},
-};
-use stacks::{
-    burnchains::{Address, Burnchain, PoxConstants},
-    vm::costs::ExecutionCost,
-};
-use stacks::{
-    chainstate::stacks::{
-        db::StacksChainState, StacksBlock, StacksBlockHeader, StacksMicroblockHeader,
-        StacksPrivateKey, StacksPublicKey, StacksTransaction, TransactionContractCall,
-        TransactionPayload,
-    },
-    net::RPCPoxInfoData,
-    util_lib::db::query_row_columns,
-    util_lib::db::query_rows,
-    util_lib::db::u64_to_sql,
-};
-
-use crate::{
-    burnchains::bitcoin_regtest_controller::UTXO, config::EventKeyType,
-    config::EventObserverConfig, config::InitialBalance, neon, operations::BurnchainOpSigner,
-    syncctl::PoxSyncWatchdogComms, BitcoinRegtestController, BurnchainController, Config,
-    ConfigFile, Keychain,
-};
-
-use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
-use crate::util::secp256k1::MessageSignature;
-
-use crate::neon_node::StacksNode;
-
-use rand::Rng;
+use stacks::vm::{ClarityName, ClarityVersion, ContractName, Value};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use super::{
@@ -85,23 +62,16 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
-
-use crate::config::FeeEstimatorName;
-use crate::tests::SK_3;
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::MAX_CALL_STACK_DEPTH;
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, TransactionErrorEvent, TransactionEvent,
-    TransactionSuccessEvent,
-};
-use stacks::net::RPCFeeEstimateResponse;
-use stacks::vm::ClarityName;
-use stacks::vm::ContractName;
-use std::convert::TryFrom;
-
+use crate::burnchains::bitcoin_regtest_controller::UTXO;
+use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
+use crate::neon_node::StacksNode;
+use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
+use crate::syncctl::PoxSyncWatchdogComms;
+use crate::tests::SK_3;
+use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use crate::util::secp256k1::MessageSignature;
+use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
     let mut conf = super::new_test_conf();
@@ -201,9 +171,8 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
-    use tokio;
-    use warp;
     use warp::Filter;
+    use {tokio, warp};
 
     use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent};
 
@@ -10729,4 +10698,100 @@ fn microblock_miner_multiple_attempts() {
     }
 
     channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+fn min_txs() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let spender_sk = StacksPrivateKey::new();
+    let spender_addr = to_addr(&spender_sk);
+    let spender_princ: PrincipalData = spender_addr.into();
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    test_observer::spawn();
+
+    conf.events_observers.push(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    conf.miner.min_tx_count = 4;
+
+    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_princ.clone(),
+        amount: spender_bal,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let _client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let _sort_height = channel.get_sortitions_processed();
+
+    for i in 0..2 {
+        let code = format!("(print \"hello world {}\")", i);
+        let publish = make_contract_publish(
+            &spender_sk,
+            i as u64,
+            1000,
+            &format!("test-publish-{}", &i),
+            &code,
+        );
+        submit_tx(&http_origin, &publish);
+
+        debug!("Try to build too-small a block {}", &i);
+        next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 15);
+    }
+
+    let blocks = test_observer::get_blocks();
+    for block in blocks {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        if transactions.len() > 1 {
+            assert!(transactions.len() >= 4);
+        }
+    }
+
+    test_observer::clear();
 }
