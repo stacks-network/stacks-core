@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Returned on successful POST to /v2/block_proposal",
+  "title": "PostCoreNodeBlockProposalResponse",
+  "type": "object",
+  "required": ["block", "cost", "size"],
+  "properties": {
+    "block": {
+      "type": "object",
+      "description": "Nakamoto block"
+    },
+    "cost": {
+      "type": "object",
+      "description": "Total execution costs for transactions in the block"
+    },
+    "size": {
+      "type": "integer",
+      "description": "Size of block in bytes"
+    }
+  }
+}

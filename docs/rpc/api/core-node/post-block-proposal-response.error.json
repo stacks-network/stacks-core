@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Returned on successful POST to /v2/block_proposal",
+  "title": "PostCoreNodeBlockProposalError",
+  "type": "object",
+  "required": ["reason", "reason_code"],
+  "properties": {
+    "reason": {
+      "type": "string",
+      "description": "Error description"
+    },
+    "reason_code": {
+      "type": "string",
+      "description": "String representation of error code enum"
+    }
+  }
+}
