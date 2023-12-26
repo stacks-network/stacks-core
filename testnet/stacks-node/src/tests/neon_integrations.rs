@@ -68,7 +68,7 @@ use super::{
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
     SK_2,
 };
-use crate::burnchains::bitcoin_regtest_controller::{BitcoinRPCRequest, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
 use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -924,6 +924,103 @@ fn bitcoind_integration_test() {
         assert!(res.contains("stacks_node_last_mined_block_runtime 0"));
         assert!(res.contains("stacks_node_last_mined_block_transaction_count 1"));
     }
+    test_observer::clear();
+    channel.stop_chains_coordinator();
+}
+
+#[test]
+#[ignore]
+/// Test that the RBF/ongoing_ops mechanism can detect that a submitted
+/// tx has been confirmed even if the burnchaindb doesn't parse it.
+/// This test forces the neon_node to submit a block commit with bad
+///  magic bytes, and then checks if mining can continue afterwards.
+fn confirm_unparsed_ongoing_ops() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut conf, miner_account) = neon_integration_test_conf();
+    conf.node.wait_time_for_blocks = 1000;
+    conf.burnchain.pox_reward_length = Some(500);
+    conf.burnchain.max_rbf = 1000000;
+
+    test_observer::spawn();
+
+    conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .map_err(|_e| ())
+        .expect("Failed starting bitcoind");
+
+    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf);
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(None, 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // this block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second bitcoin block will contain the first mined Stacks block, and then issue a 2nd valid commit
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // now, let's alter the miner's magic bytes
+    bitcoin_regtest_controller::TEST_MAGIC_BYTES
+        .lock()
+        .unwrap()
+        .replace(['Z' as u8, 'Z' as u8]);
+
+    // let's trigger another mining loop: this should create an invalid block commit.
+    // this bitcoin block will contain the valid commit created before (so, a second stacks block)
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // reset the miner's magic bytes
+    bitcoin_regtest_controller::TEST_MAGIC_BYTES
+        .lock()
+        .unwrap()
+        .take()
+        .unwrap();
+
+    // trigger another mining loop: this will mine the invalid block commit into a bitcoin block
+    //  if the block wasn't created in 25 seconds, just timeout -- the test will fail
+    //  at the final checks
+    // in correct behavior, this will create a 3rd valid block commit
+    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 25);
+
+    // trigger another mining loop: this will mine the last valid block commit. after this,
+    //  the node *should* see 3 stacks blocks.
+    next_block_and_wait_with_timeout(&mut btc_regtest_controller, &blocks_processed, 25);
+
+    // query the miner's account nonce
+
+    eprintln!("Miner account: {}", miner_account);
+
+    let account = get_account(&http_origin, &miner_account);
+    assert_eq!(account.balance, 0);
+    assert_eq!(
+        account.nonce, 3,
+        "Miner should have mined 3 coinbases -- one should be invalid"
+    );
+
     test_observer::clear();
     channel.stop_chains_coordinator();
 }
@@ -5992,7 +6089,7 @@ fn pox_integration_test() {
     );
     assert_eq!(
         pox_info.rejection_fraction,
-        pox_constants.pox_rejection_fraction
+        Some(pox_constants.pox_rejection_fraction)
     );
     assert_eq!(pox_info.reward_cycle_id, 0);
     assert_eq!(pox_info.current_cycle.id, 0);
@@ -6060,7 +6157,7 @@ fn pox_integration_test() {
     );
     assert_eq!(
         pox_info.rejection_fraction,
-        pox_constants.pox_rejection_fraction
+        Some(pox_constants.pox_rejection_fraction)
     );
     assert_eq!(pox_info.reward_cycle_id, 14);
     assert_eq!(pox_info.current_cycle.id, 14);
@@ -6191,7 +6288,7 @@ fn pox_integration_test() {
     );
     assert_eq!(
         pox_info.rejection_fraction,
-        pox_constants.pox_rejection_fraction
+        Some(pox_constants.pox_rejection_fraction)
     );
     assert_eq!(pox_info.reward_cycle_id, 14);
     assert_eq!(pox_info.current_cycle.id, 14);

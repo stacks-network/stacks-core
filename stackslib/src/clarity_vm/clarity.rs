@@ -1282,7 +1282,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let first_block_height = self.burn_state_db.get_burn_start_height();
             let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
             let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
-            let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
             let pox_4_activation_height = self.burn_state_db.get_pox_4_activation_height();
 
             let pox_4_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
@@ -1387,7 +1386,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     Value::UInt(u128::from(first_block_height)),
                     Value::UInt(u128::from(pox_prepare_length)),
                     Value::UInt(u128::from(pox_reward_cycle_length)),
-                    Value::UInt(u128::from(pox_rejection_fraction)),
                     Value::UInt(u128::from(pox_4_first_cycle)),
                 ];
 

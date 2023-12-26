@@ -204,6 +204,29 @@ where
 
 /// Mine a bitcoin block, and wait until:
 ///  (1) a new block has been processed by the coordinator
+fn next_block_and_process_new_stacks_block(
+    btc_controller: &mut BitcoinRegtestController,
+    timeout_secs: u64,
+    coord_channels: &Arc<Mutex<CoordinatorChannels>>,
+) -> Result<(), String> {
+    let blocks_processed_before = coord_channels
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    next_block_and(btc_controller, timeout_secs, || {
+        let blocks_processed = coord_channels
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        if blocks_processed > blocks_processed_before {
+            return Ok(true);
+        }
+        Ok(false)
+    })
+}
+
+/// Mine a bitcoin block, and wait until:
+///  (1) a new block has been processed by the coordinator
 ///  (2) 2 block commits have been issued ** or ** more than 10 seconds have
 ///      passed since (1) occurred
 fn next_block_and_mine_commit(
@@ -219,26 +242,41 @@ fn next_block_and_mine_commit(
         .get_stacks_blocks_processed();
     let commits_before = commits_submitted.load(Ordering::SeqCst);
     let mut block_processed_time: Option<Instant> = None;
+    let mut commit_sent_time: Option<Instant> = None;
     next_block_and(btc_controller, timeout_secs, || {
         let commits_sent = commits_submitted.load(Ordering::SeqCst);
         let blocks_processed = coord_channels
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-
+        let now = Instant::now();
         if blocks_processed > blocks_processed_before && block_processed_time.is_none() {
-            block_processed_time.replace(Instant::now());
+            block_processed_time.replace(now);
+        }
+        if commits_sent > commits_before && commit_sent_time.is_none() {
+            commit_sent_time.replace(now);
         }
         if blocks_processed > blocks_processed_before {
             let block_processed_time = block_processed_time
                 .as_ref()
                 .ok_or("TEST-ERROR: Processed time wasn't set")?;
+            if commits_sent <= commits_before {
+                return Ok(false);
+            }
+            let commit_sent_time = commit_sent_time
+                .as_ref()
+                .ok_or("TEST-ERROR: Processed time wasn't set")?;
+            // try to ensure the commit was sent after the block was processed
+            if commit_sent_time > block_processed_time {
+                return Ok(true);
+            }
+            // if two commits have been sent, one of them must have been after
             if commits_sent >= commits_before + 2 {
                 return Ok(true);
             }
-            if commits_sent >= commits_before + 1
-                && block_processed_time.elapsed() > Duration::from_secs(6)
-            {
+            // otherwise, just timeout if the commit was sent and its been long enough
+            //  for a new commit pass to have occurred
+            if block_processed_time.elapsed() > Duration::from_secs(10) {
                 return Ok(true);
             }
             Ok(false)
@@ -600,13 +638,9 @@ fn mine_multiple_per_tenure_integration() {
 
     // Mine `tenure_count` nakamoto tenures
     for tenure_ix in 0..tenure_count {
-        next_block_and_mine_commit(
-            &mut btc_regtest_controller,
-            60,
-            &coord_channel,
-            &commits_submitted,
-        )
-        .unwrap();
+        let commits_before = commits_submitted.load(Ordering::SeqCst);
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
 
         // mine the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
@@ -630,6 +664,14 @@ fn mine_multiple_per_tenure_integration() {
                 }
                 thread::sleep(Duration::from_millis(100));
             }
+        }
+
+        let start_time = Instant::now();
+        while commits_submitted.load(Ordering::SeqCst) <= commits_before {
+            if start_time.elapsed() >= Duration::from_secs(20) {
+                panic!("Timed out waiting for block-commit");
+            }
+            thread::sleep(Duration::from_millis(100));
         }
     }
 

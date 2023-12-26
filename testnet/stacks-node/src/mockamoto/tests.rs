@@ -13,7 +13,7 @@ use stacks_common::util::hash::to_hex;
 use super::MockamotoNode;
 use crate::config::{EventKeyType, EventObserverConfig};
 use crate::neon_node::PeerThread;
-use crate::tests::neon_integrations::{submit_tx, test_observer};
+use crate::tests::neon_integrations::{get_pox_info, submit_tx, test_observer};
 use crate::tests::{make_stacks_transfer, to_addr};
 use crate::{Config, ConfigFile};
 
@@ -344,4 +344,64 @@ fn observe_set_aggregate_key() {
     // Did we set and retrieve the aggregate key correctly?
     assert_eq!(orig_aggregate_key.unwrap(), orig_key);
     assert_eq!(new_aggregate_key.unwrap(), orig_key);
+}
+
+#[test]
+fn rpc_pox_info() {
+    let mut conf = Config::from_config_file(ConfigFile::mockamoto()).unwrap();
+    conf.node.mockamoto_time_ms = 10;
+    conf.node.rpc_bind = "127.0.0.1:19543".into();
+    conf.node.p2p_bind = "127.0.0.1:19544".into();
+
+    let observer_port = 19500;
+    test_observer::spawn_at(observer_port);
+    conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut mockamoto = MockamotoNode::new(&conf).unwrap();
+    let globals = mockamoto.globals.clone();
+
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    let start = Instant::now();
+
+    let node_thread = thread::Builder::new()
+        .name("mockamoto-main".into())
+        .spawn(move || mockamoto.run())
+        .expect("FATAL: failed to start mockamoto main thread");
+
+    // mine 5 blocks
+    let completed = loop {
+        // complete within 2 minutes or abort
+        if Instant::now().duration_since(start) > Duration::from_secs(120) {
+            break false;
+        }
+        let latest_block = test_observer::get_blocks().pop();
+        thread::sleep(Duration::from_secs(1));
+        let Some(ref latest_block) = latest_block else {
+            info!("No block observed yet!");
+            continue;
+        };
+        let stacks_block_height = latest_block.get("block_height").unwrap().as_u64().unwrap();
+        info!("Block height observed: {stacks_block_height}");
+
+        if stacks_block_height >= 5 {
+            break true;
+        }
+    };
+
+    // fetch rpc poxinfo
+    let _pox_info = get_pox_info(&http_origin);
+
+    globals.signal_stop();
+
+    assert!(
+        completed,
+        "Mockamoto node failed to produce and announce 100 blocks before timeout"
+    );
+    node_thread
+        .join()
+        .expect("Failed to join node thread to exit");
 }
