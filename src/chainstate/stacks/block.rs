@@ -20,77 +20,32 @@ use std::io::prelude::*;
 use std::io::{Read, Write};
 
 use sha2::Digest;
-use sha2::Sha512Trunc256;
+use sha2::Sha512_256;
 
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::operations::*;
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
 use crate::codec::MAX_MESSAGE_LEN;
+use crate::core::*;
+use crate::net::Error as net_error;
 use crate::types::StacksPublicKeyBuffer;
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
-use chainstate::burn::operations::*;
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use core::*;
-use net::Error as net_error;
-use util::hash::MerkleTree;
-use util::hash::Sha512Trunc256Sum;
-use util::retry::BoundReader;
-use util::secp256k1::MessageSignature;
-use util::vrf::*;
+use stacks_common::util::hash::MerkleTree;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::retry::BoundReader;
+use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::vrf::*;
 
+use crate::chainstate::stacks::StacksBlockHeader;
+use crate::chainstate::stacks::StacksMicroblockHeader;
 use crate::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 use crate::types::chainstate::BurnchainHeaderHash;
+use crate::types::chainstate::StacksBlockId;
+use crate::types::chainstate::TrieHash;
 use crate::types::chainstate::{BlockHeaderHash, StacksWorkScore, VRFSeed};
-use crate::types::chainstate::{StacksBlockHeader, StacksBlockId, StacksMicroblockHeader};
-use crate::types::proof::TrieHash;
-
-impl StacksMessageCodec for VRFProof {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        fd.write_all(&self.to_bytes())
-            .map_err(codec_error::WriteError)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<VRFProof, codec_error> {
-        let mut bytes = [0u8; VRF_PROOF_ENCODED_SIZE as usize];
-        fd.read_exact(&mut bytes).map_err(codec_error::ReadError)?;
-        let res = VRFProof::from_slice(&bytes).ok_or(codec_error::DeserializeError(
-            "Failed to parse VRF proof".to_string(),
-        ))?;
-
-        Ok(res)
-    }
-}
-
-impl StacksMessageCodec for StacksWorkScore {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.burn)?;
-        write_next(fd, &self.work)?;
-        Ok(())
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<StacksWorkScore, codec_error> {
-        let burn = read_next(fd)?;
-        let work = read_next(fd)?;
-
-        Ok(StacksWorkScore { burn, work })
-    }
-}
-
-impl StacksWorkScore {
-    /// Stacks work score for the first-mined block
-    pub fn initial() -> StacksWorkScore {
-        StacksWorkScore {
-            burn: 0,
-            work: 1, // block 0 is the boot code
-        }
-    }
-
-    /// Stacks work score for the boot code block
-    pub fn genesis() -> StacksWorkScore {
-        StacksWorkScore { burn: 0, work: 0 }
-    }
-}
 
 impl StacksMessageCodec for StacksBlockHeader {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
@@ -138,7 +93,7 @@ impl StacksBlockHeader {
 
     pub fn genesis_block_header() -> StacksBlockHeader {
         StacksBlockHeader {
-            version: STACKS_BLOCK_VERSION,
+            version: 0,
             total_work: StacksWorkScore::genesis(),
             proof: VRFProof::empty(),
             parent_block: BOOT_BLOCK_HASH.clone(),
@@ -175,12 +130,7 @@ impl StacksBlockHeader {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> StacksBlockId {
-        let mut hasher = Sha512Trunc256::new();
-        hasher.input(block_hash);
-        hasher.input(consensus_hash);
-
-        let h = Sha512Trunc256Sum::from_hasher(hasher);
-        StacksBlockId(h.0)
+        StacksBlockId::new(consensus_hash, block_hash)
     }
 
     pub fn index_block_hash(&self, consensus_hash: &ConsensusHash) -> StacksBlockId {
@@ -237,7 +187,7 @@ impl StacksBlockHeader {
     /// Used to determine whether or not we'll keep a block around (even if we don't yet have its parent).
     /// * burn_chain_tip is the BlockSnapshot encoding the sortition that selected this block for
     /// inclusion in the Stacks blockchain chain state.
-    /// * stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
+    /// * parent_stacks_chain_tip is the BlockSnapshot for the parent Stacks block this header builds on
     /// (i.e. this is the BlockSnapshot that corresponds to the parent of the given block_commit).
     pub fn validate_burnchain(
         &self,
@@ -245,7 +195,7 @@ impl StacksBlockHeader {
         sortition_chain_tip: &BlockSnapshot,
         leader_key: &LeaderKeyRegisterOp,
         block_commit: &LeaderBlockCommitOp,
-        stacks_chain_tip: &BlockSnapshot,
+        parent_stacks_chain_tip: &BlockSnapshot,
     ) -> Result<(), Error> {
         // the burn chain tip's sortition must have chosen given block commit
         assert_eq!(
@@ -267,12 +217,12 @@ impl StacksBlockHeader {
         }
 
         // this header must match the parent header as recorded on the burn chain
-        if self.parent_block != stacks_chain_tip.winning_stacks_block_hash {
+        if self.parent_block != parent_stacks_chain_tip.winning_stacks_block_hash {
             let msg = format!(
                 "Invalid Stacks block header {}: invalid parent hash: {} != {}",
                 self.block_hash(),
                 self.parent_block,
-                stacks_chain_tip.winning_stacks_block_hash
+                parent_stacks_chain_tip.winning_stacks_block_hash
             );
             debug!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
@@ -292,12 +242,12 @@ impl StacksBlockHeader {
         }
 
         // this header must commit to all of the work seen so far in this stacks blockchain fork.
-        if self.total_work.burn != stacks_chain_tip.total_burn {
+        if self.total_work.burn != parent_stacks_chain_tip.total_burn {
             let msg = format!(
                 "Invalid Stacks block header {}: invalid total burns: {} != {}",
                 self.block_hash(),
                 self.total_work.burn,
-                stacks_chain_tip.total_burn
+                parent_stacks_chain_tip.total_burn
             );
             debug!("{}", msg);
             return Err(Error::InvalidStacksBlock(msg));
@@ -405,7 +355,7 @@ impl StacksMessageCodec for StacksBlock {
         let mut coinbase_count = 0;
         for tx in txs.iter() {
             match tx.payload {
-                TransactionPayload::Coinbase(_) => {
+                TransactionPayload::Coinbase(..) => {
                     coinbase_count += 1;
                     if coinbase_count > 1 {
                         return Err(codec_error::DeserializeError(
@@ -484,13 +434,13 @@ impl StacksBlock {
             return None;
         }
         match self.txs[0].payload {
-            TransactionPayload::Coinbase(_) => Some(self.txs[0].clone()),
+            TransactionPayload::Coinbase(..) => Some(self.txs[0].clone()),
             _ => None,
         }
     }
 
     /// verify no duplicate txids
-    pub fn validate_transactions_unique(txs: &Vec<StacksTransaction>) -> bool {
+    pub fn validate_transactions_unique(txs: &[StacksTransaction]) -> bool {
         // no duplicates
         let mut txids = HashMap::new();
         for (i, tx) in txs.iter().enumerate() {
@@ -565,12 +515,12 @@ impl StacksBlock {
     }
 
     /// verify that a coinbase is present and is on-chain only, or is absent
-    pub fn validate_coinbase(txs: &Vec<StacksTransaction>, check_present: bool) -> bool {
+    pub fn validate_coinbase(txs: &[StacksTransaction], check_present: bool) -> bool {
         let mut found_coinbase = false;
         let mut coinbase_index = 0;
         for (i, tx) in txs.iter().enumerate() {
             match tx.payload {
-                TransactionPayload::Coinbase(_) => {
+                TransactionPayload::Coinbase(..) => {
                     if !check_present {
                         warn!("Found unexpected coinbase tx {}", tx.txid());
                         return false;
@@ -615,8 +565,43 @@ impl StacksBlock {
         }
     }
 
+    /// Verify that all transactions are supported in the given epoch, as indicated by `epoch_id`
+    pub fn validate_transactions_static_epoch(
+        txs: &[StacksTransaction],
+        epoch_id: StacksEpochId,
+    ) -> bool {
+        if epoch_id < StacksEpochId::Epoch21 {
+            // nothing new since the start of the system is supported.
+            // Expand this list of things to check for as needed.
+            // * no pay-to-contract coinbases
+            // * no versioned smart contract payloads
+            for tx in txs.iter() {
+                if let TransactionPayload::Coinbase(_, ref recipient_opt) = &tx.payload {
+                    if recipient_opt.is_some() {
+                        // not supported
+                        error!("Coinbase pay-to-alt-recipient not supported before Stacks 2.1"; "txid" => %tx.txid());
+                        return false;
+                    }
+                }
+                if let TransactionPayload::SmartContract(_, ref version_opt) = &tx.payload {
+                    if version_opt.is_some() {
+                        // not supported
+                        error!("Versioned smart contracts not supported before Stacks 2.1");
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
     /// static sanity checks on transactions.
-    pub fn validate_transactions_static(&self, mainnet: bool, chain_id: u32) -> bool {
+    pub fn validate_transactions_static(
+        &self,
+        mainnet: bool,
+        chain_id: u32,
+        epoch_id: StacksEpochId,
+    ) -> bool {
         if !StacksBlock::validate_transactions_unique(&self.txs) {
             return false;
         }
@@ -630,6 +615,9 @@ impl StacksBlock {
             return false;
         }
         if !StacksBlock::validate_coinbase(&self.txs, true) {
+            return false;
+        }
+        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id) {
             return false;
         }
         return true;
@@ -678,10 +666,10 @@ impl StacksMicroblockHeader {
             .expect("BUG: failed to serialize to a vec");
 
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
-        sha2.input(&bytes[..]);
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        sha2.update(&bytes[..]);
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let sig = privk
             .sign(&digest_bits)
@@ -706,11 +694,11 @@ impl StacksMicroblockHeader {
 
     pub fn check_recover_pubkey(&self) -> Result<Hash160, net_error> {
         let mut digest_bits = [0u8; 32];
-        let mut sha2 = Sha512Trunc256::new();
+        let mut sha2 = Sha512_256::new();
 
         self.serialize(&mut sha2, true)
             .expect("BUG: failed to serialize to a vec");
-        digest_bits.copy_from_slice(sha2.result().as_slice());
+        digest_bits.copy_from_slice(sha2.finalize().as_slice());
 
         let mut pubk =
             StacksPublicKey::recover_to_pubkey(&digest_bits, &self.signature).map_err(|_ve| {
@@ -932,24 +920,24 @@ impl StacksMicroblock {
 
 #[cfg(test)]
 mod test {
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::BurnchainBlockHeader;
+    use crate::burnchains::BurnchainSigner;
+    use crate::burnchains::Txid;
+    use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::test::make_codec_test_block;
+    use crate::chainstate::stacks::test::*;
+    use crate::chainstate::stacks::*;
+    use crate::net::codec::test::*;
+    use crate::net::codec::*;
+    use crate::net::*;
+    use stacks_common::address::*;
+    use stacks_common::util::hash::*;
     use std::error::Error;
-
-    use address::*;
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::BurnchainBlockHeader;
-    use burnchains::BurnchainSigner;
-    use burnchains::Txid;
-    use chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-    use chainstate::stacks::test::make_codec_test_block;
-    use chainstate::stacks::test::*;
-    use chainstate::stacks::*;
-    use net::codec::test::*;
-    use net::codec::*;
-    use net::*;
-    use util::hash::*;
 
     use crate::types::chainstate::StacksAddress;
 
@@ -1060,69 +1048,6 @@ mod test {
 
     #[test]
     fn codec_stacks_block() {
-        /*
-        let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
-        let proof = VRFProof::from_bytes(&proof_bytes[..].to_vec()).unwrap();
-
-        let privk = StacksPrivateKey::from_hex("6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001").unwrap();
-        let origin_auth = TransactionAuth::Standard(TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(&privk)).unwrap());
-        let mut tx_coinbase = StacksTransaction::new(TransactionVersion::Mainnet,
-                                                     origin_auth.clone(),
-                                                     TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])));
-
-        tx_coinbase.anchor_mode = TransactionAnchorMode::OnChainOnly;
-
-        // make a block with each and every kind of transaction
-        let mut all_txs = codec_all_transactions(&TransactionVersion::Testnet, 0x80000000, &TransactionAnchorMode::OnChainOnly, &TransactionPostConditionMode::Allow);
-
-        // remove all coinbases, except for an initial coinbase
-        let mut txs_anchored = vec![];
-        txs_anchored.push(tx_coinbase);
-
-        for tx in all_txs.drain(..) {
-            match tx.payload {
-                TransactionPayload::Coinbase(_) => {
-                    continue;
-                },
-                _ => {}
-            }
-            txs_anchored.push(tx);
-        }
-
-        let txid_vecs = txs_anchored
-            .iter()
-            .map(|tx| tx.txid().as_bytes().to_vec())
-            .collect();
-
-        let merkle_tree = MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs);
-        let tx_merkle_root = merkle_tree.root();
-        let tr = tx_merkle_root.as_bytes().to_vec();
-
-        let work_score = StacksWorkScore {
-            burn: 123,
-            work: 456
-        };
-
-        let parent_header = StacksBlockHeader {
-            version: 0x01,
-            total_work: StacksWorkScore {
-                burn: 234,
-                work: 567,
-            },
-            proof: proof.clone(),
-            parent_block: BlockHeaderHash([5u8; 32]),
-            parent_microblock: BlockHeaderHash([6u8; 32]),
-            parent_microblock_sequence: 4,
-            tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
-            state_index_root: TrieHash([8u8; 32]),
-            microblock_pubkey_hash: Hash160([9u8; 20])
-        };
-
-
-        let mut block = StacksBlock::from_parent(&parent_header, &parent_microblock_header, txs_anchored.clone(), &work_score, &proof, &TrieHash([2u8; 32]), &Hash160([3u8; 20]));
-        block.header.version = 0x24;
-        */
-
         let parent_microblock_header = StacksMicroblockHeader {
             version: 0x12,
             sequence: 0x34,
@@ -1202,7 +1127,7 @@ mod test {
 
         for tx in all_txs.iter() {
             match tx.payload {
-                TransactionPayload::Coinbase(_) => {
+                TransactionPayload::Coinbase(..) => {
                     continue;
                 }
                 _ => {}
@@ -1351,13 +1276,6 @@ mod test {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -1382,14 +1300,14 @@ mod test {
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
-            apparent_sender: BurnchainSigner {
-                public_keys: vec![StacksPublicKey::from_hex(
+            apparent_sender: BurnchainSigner::mock_parts(
+                AddressHashMode::SerializeP2PKH,
+                1,
+                vec![StacksPublicKey::from_hex(
                     "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
                 )
                 .unwrap()],
-                num_sigs: 1,
-                hash_mode: AddressHashMode::SerializeP2PKH,
-            },
+            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("3c07a0a93360bc85047bbaadd49e30c8af770f73a37e10fec400174d2e5f27cf")
@@ -1514,13 +1432,13 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
 
         let tx_coinbase_2 = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([1u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([1u8; 32]), None),
         );
 
         let mut tx_invalid_coinbase = tx_coinbase.clone();
@@ -1648,7 +1566,7 @@ mod test {
         let tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
             origin_auth.clone(),
-            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
         );
 
         let mut tx_coinbase_offchain = tx_coinbase.clone();
@@ -1747,6 +1665,149 @@ mod test {
                 .find(msg)
                 .is_some());
         }
+    }
+
+    #[test]
+    fn test_block_validate_transactions_static() {
+        let header = StacksBlockHeader {
+            version: 0x01,
+            total_work: StacksWorkScore {
+                burn: 234,
+                work: 567,
+            },
+            proof: VRFProof::empty(),
+            parent_block: BlockHeaderHash([5u8; 32]),
+            parent_microblock: BlockHeaderHash([6u8; 32]),
+            parent_microblock_sequence: 4,
+            tx_merkle_root: Sha512Trunc256Sum([7u8; 32]),
+            state_index_root: TrieHash([8u8; 32]),
+            microblock_pubkey_hash: Hash160([9u8; 20]),
+        };
+
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let origin_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(StacksPublicKey::from_private(
+                &privk,
+            ))
+            .unwrap(),
+        );
+        let tx_coinbase = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
+        );
+
+        let tx_coinbase_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::Coinbase(
+                CoinbasePayload([1u8; 32]),
+                Some(PrincipalData::Contract(
+                    QualifiedContractIdentifier::transient(),
+                )),
+            ),
+        );
+
+        let stx_address = StacksAddress {
+            version: 0,
+            bytes: Hash160([0u8; 20]),
+        };
+        let tx_transfer = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(),
+                123,
+                TokenTransferMemo([1u8; 34]),
+            ),
+        );
+        let tx_transfer_mainnet = StacksTransaction::new(
+            TransactionVersion::Mainnet,
+            origin_auth.clone(),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(),
+                123,
+                TokenTransferMemo([1u8; 34]),
+            ),
+        );
+        let mut tx_transfer_alt_chain = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(),
+                123,
+                TokenTransferMemo([1u8; 34]),
+            ),
+        );
+        tx_transfer_alt_chain.chain_id += 1;
+
+        let mut tx_transfer_bad_anchor = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::TokenTransfer(
+                stx_address.into(),
+                123,
+                TokenTransferMemo([1u8; 34]),
+            ),
+        );
+        tx_transfer_bad_anchor.anchor_mode = TransactionAnchorMode::OffChainOnly;
+
+        let tx_versioned_smart_contract = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            origin_auth.clone(),
+            TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from("hello-world").unwrap(),
+                    code_body: StacksString::from_str("(print \"hello world\")").unwrap(),
+                },
+                Some(ClarityVersion::Clarity1),
+            ),
+        );
+
+        let dup_txs = vec![
+            tx_coinbase.clone(),
+            tx_transfer.clone(),
+            tx_transfer.clone(),
+        ];
+        let mainnet_txs = vec![tx_coinbase.clone(), tx_transfer_mainnet.clone()];
+        let alt_chain_id_txs = vec![tx_coinbase.clone(), tx_transfer_alt_chain.clone()];
+        let offchain_txs = vec![tx_coinbase.clone(), tx_transfer_bad_anchor.clone()];
+        let no_coinbase = vec![tx_transfer.clone()];
+        let coinbase_contract = vec![tx_coinbase_contract.clone()];
+        let versioned_contract = vec![tx_versioned_smart_contract.clone()];
+
+        assert!(!StacksBlock::validate_transactions_unique(&dup_txs));
+        assert!(!StacksBlock::validate_transactions_network(
+            &mainnet_txs,
+            false
+        ));
+        assert!(!StacksBlock::validate_transactions_chain_id(
+            &alt_chain_id_txs,
+            0x80000000
+        ));
+        assert!(!StacksBlock::validate_anchor_mode(&offchain_txs, true));
+        assert!(!StacksBlock::validate_coinbase(&no_coinbase, true));
+        assert!(!StacksBlock::validate_transactions_static_epoch(
+            &coinbase_contract,
+            StacksEpochId::Epoch2_05
+        ));
+
+        assert!(StacksBlock::validate_transactions_static_epoch(
+            &coinbase_contract,
+            StacksEpochId::Epoch21
+        ));
+
+        assert!(!StacksBlock::validate_transactions_static_epoch(
+            &versioned_contract,
+            StacksEpochId::Epoch2_05
+        ));
+        assert!(StacksBlock::validate_transactions_static_epoch(
+            &versioned_contract,
+            StacksEpochId::Epoch21
+        ));
     }
 
     // TODO:

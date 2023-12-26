@@ -9,18 +9,17 @@ use rusqlite::{
 };
 use serde_json::Value as JsonValue;
 
-use chainstate::stacks::TransactionPayload;
-use util::db::sqlite_open;
-use util::db::u64_to_sql;
-use vm::costs::ExecutionCost;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::u64_to_sql;
+use clarity::vm::costs::ExecutionCost;
 
-use crate::util::db::sql_pragma;
-use crate::util::db::table_exists;
-use crate::util::db::tx_begin_immediate_sqlite;
-
-use crate::core::StacksEpochId;
+use crate::util_lib::db::sql_pragma;
+use crate::util_lib::db::table_exists;
+use crate::util_lib::db::tx_begin_immediate_sqlite;
 
 use super::{CostEstimator, EstimatorError};
+use crate::core::StacksEpochId;
 
 /// This struct pessimistically estimates the `ExecutionCost` of transaction payloads.
 ///
@@ -230,15 +229,22 @@ impl PessimisticEstimator {
                     StacksEpochId::Epoch10 => "",
                     StacksEpochId::Epoch20 => "",
                     StacksEpochId::Epoch2_05 => ":2.05",
+                    StacksEpochId::Epoch21 => ":2.1",
+                    // reuse cost estimates in Epoch22
+                    StacksEpochId::Epoch22 => ":2.1",
+                    // reuse cost estimates in Epoch23
+                    StacksEpochId::Epoch23 => ":2.1",
+                    // reuse cost estimates in Epoch24
+                    StacksEpochId::Epoch24 => ":2.1",
                 };
                 format!(
                     "cc{}:{}:{}.{}",
                     epoch_marker, cc.address, cc.contract_name, cc.function_name
                 )
             }
-            TransactionPayload::SmartContract(_sc) => "contract-publish".to_string(),
+            TransactionPayload::SmartContract(..) => "contract-publish".to_string(),
             TransactionPayload::PoisonMicroblock(_, _) => "poison-ublock".to_string(),
-            TransactionPayload::Coinbase(_) => "coinbase".to_string(),
+            TransactionPayload::Coinbase(..) => "coinbase".to_string(),
         };
 
         format!("{}:{}", &tx_descriptor, field)

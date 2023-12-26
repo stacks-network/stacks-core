@@ -31,40 +31,41 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use chainstate::burn::db::sortdb::{
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::chainstate::burn::db::sortdb::{
     BlockHeaderCache, SortitionDB, SortitionDBConn, SortitionHandleConn,
 };
-use chainstate::burn::BlockSnapshot;
-use chainstate::stacks::db::StacksChainState;
-use net::asn::ASEntry4;
-use net::chat::ConversationP2P;
-use net::codec::*;
-use net::connection::ConnectionOptions;
-use net::connection::ConnectionP2P;
-use net::connection::ReplyHandleP2P;
-use net::db::PeerDB;
-use net::db::*;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::p2p::PeerNetwork;
-use net::Error as net_error;
-use net::GetBlocksInv;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-use net::StacksMessage;
-use net::StacksP2P;
-use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_ms;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
+use crate::chainstate::burn::BlockSnapshot;
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::net::asn::ASEntry4;
+use crate::net::chat::ConversationP2P;
+use crate::net::codec::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ConnectionP2P;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::PeerDB;
+use crate::net::db::*;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::p2p::PeerNetwork;
+use crate::net::Error as net_error;
+use crate::net::GetBlocksInv;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::StacksMessage;
+use crate::net::StacksP2P;
+use crate::net::*;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use crate::chainstate::burn::ConsensusHashExtensions;
 use crate::types::chainstate::{BlockHeaderHash, PoxId, SortitionId};
 
 /// This module is responsible for synchronizing block inventories with other peers
@@ -1774,6 +1775,14 @@ impl PeerNetwork {
 
     /// Determine at which reward cycle to begin scanning inventories
     fn get_block_scan_start(&self, sortdb: &SortitionDB, highest_remote_reward_cycle: u64) -> u64 {
+        // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
+        // start scaning at the reward cycle just before that.
+        let am_rescan_rc = self
+            .stacks_tip_affirmation_map
+            .find_inv_search(&self.heaviest_affirmation_map);
+
+        // affirmation maps are compatible, so just resume scanning off of wherever we are at the
+        // tip.
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
             .unwrap_or((ConsensusHash::empty(), BlockHeaderHash([0u8; 32])));
 
@@ -1795,13 +1804,16 @@ impl PeerNetwork {
             highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
         );
 
+        let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
+
         test_debug!(
-            "begin blocks inv scan at {} = min({},{})",
-            start_reward_cycle,
+            "begin blocks inv scan at {} = min({},{},{})",
+            rescan_rc,
             stacks_tip_rc,
-            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles)
+            highest_remote_reward_cycle.saturating_sub(self.connection_opts.inv_reward_cycles),
+            am_rescan_rc
         );
-        start_reward_cycle
+        rescan_rc
     }
 
     /// Start requesting the next batch of PoX inventories
@@ -2248,7 +2260,7 @@ impl PeerNetwork {
         &mut self,
         sortdb: &SortitionDB,
         ibd: bool,
-    ) -> Result<(bool, bool, Vec<NeighborKey>, Vec<NeighborKey>), net_error> {
+    ) -> (bool, bool, Vec<NeighborKey>, Vec<NeighborKey>) {
         PeerNetwork::with_inv_state(self, |network, inv_state| {
             debug!(
                 "{:?}: Inventory state has {} block stats tracked",
@@ -2279,7 +2291,7 @@ impl PeerNetwork {
                     &network.local_peer,
                     inv_state.last_rescanned_at + inv_state.sync_interval
                 );
-                return Ok((true, true, vec![], vec![]));
+                return (true, true, vec![], vec![]);
             }
 
             for (nk, stats) in inv_state.block_stats.iter_mut() {
@@ -2475,16 +2487,17 @@ impl PeerNetwork {
                     network.connection_opts.num_neighbors as usize,
                 );
 
-                Ok((true, false, broken_peers, dead_peers))
+                (true, false, broken_peers, dead_peers)
             } else {
-                Ok((false, false, vec![], vec![]))
+                (false, false, vec![], vec![])
             }
         })
+        .expect("FATAL: network not connected")
     }
 
     pub fn with_inv_state<F, R>(network: &mut PeerNetwork, handler: F) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut InvState) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork, &mut InvState) -> R,
     {
         let mut inv_state = network.inv_state.take();
         let res = match inv_state {
@@ -2492,7 +2505,7 @@ impl PeerNetwork {
                 test_debug!("{:?}: inv state not connected", &network.local_peer);
                 Err(net_error::NotConnected)
             }
-            Some(ref mut invs) => handler(network, invs),
+            Some(ref mut invs) => Ok(handler(network, invs)),
         };
         network.inv_state = inv_state;
         res
@@ -2558,15 +2571,19 @@ impl PeerNetwork {
         func: F,
     ) -> Result<R, net_error>
     where
-        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> Result<R, net_error>,
+        F: FnOnce(&mut PeerNetwork, &mut NeighborBlockStats) -> R,
     {
-        PeerNetwork::with_inv_state(self, |network, inv_state| {
+        match PeerNetwork::with_inv_state(self, |network, inv_state| {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
-                func(network, nstats)
+                Ok(func(network, nstats))
             } else {
                 Err(net_error::PeerNotConnected)
             }
-        })
+        }) {
+            Ok(Ok(x)) => Ok(x),
+            Ok(Err(x)) => Err(x),
+            Err(x) => Err(x),
+        }
     }
 
     /// Get the local block inventory for a reward cycle
@@ -2640,13 +2657,20 @@ impl PeerNetwork {
 mod test {
     use std::collections::HashMap;
 
-    use burnchains::PoxConstants;
-    use chainstate::stacks::*;
-    use net::test::*;
-    use net::*;
-    use util::test::*;
+    use crate::burnchains::PoxConstants;
+    use crate::chainstate::stacks::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use crate::util_lib::test::*;
 
     use super::*;
+
+    use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+    use crate::burnchains::db::BurnchainHeaderReader;
+    use crate::burnchains::tests::BURNCHAIN_TEST_BLOCK_TIME;
+    use crate::burnchains::BurnchainBlockHeader;
+    use crate::chainstate::coordinator::tests::get_burnchain;
+    use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 
     #[test]
     fn peerblocksinv_has_ith_block() {
@@ -3085,7 +3109,18 @@ mod test {
     #[test]
     fn test_inv_merge_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
+        burnchain.pox_constants = PoxConstants::new(
+            5,
+            3,
+            3,
+            25,
+            5,
+            u64::MAX,
+            u64::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        );
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..32 {
@@ -3103,7 +3138,18 @@ mod test {
     #[test]
     fn test_inv_truncate_pox_inv() {
         let mut burnchain = Burnchain::regtest("unused");
-        burnchain.pox_constants = PoxConstants::new(5, 3, 3, 25, 5, u64::MAX, u64::MAX);
+        burnchain.pox_constants = PoxConstants::new(
+            5,
+            3,
+            3,
+            25,
+            5,
+            u64::MAX,
+            u64::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        );
 
         let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
         for i in 0..5 {
@@ -3150,24 +3196,73 @@ mod test {
 
     #[test]
     fn test_sync_inv_set_blocks_microblocks_available() {
-        let mut peer_1_config = TestPeerConfig::new(
-            "test_sync_inv_set_blocks_microblocks_available",
-            31981,
-            41981,
-        );
-        let mut peer_2_config = TestPeerConfig::new(
-            "test_sync_inv_set_blocks_microblocks_available",
-            31982,
-            41982,
-        );
+        let mut peer_1_config = TestPeerConfig::new(function_name!(), 31981, 41981);
+        let mut peer_2_config = TestPeerConfig::new(function_name!(), 31982, 41982);
+
+        let peer_1_test_path = TestPeer::make_test_path(&peer_1_config);
+        let peer_2_test_path = TestPeer::make_test_path(&peer_2_config);
+
+        let mut peer_1 = TestPeer::new(peer_1_config.clone());
+        let mut peer_2 = TestPeer::new(peer_2_config.clone());
+
+        for (test_path, burnchain) in [
+            (peer_1_test_path, &mut peer_1.config.burnchain),
+            (peer_2_test_path, &mut peer_2.config.burnchain),
+        ]
+        .iter_mut()
+        {
+            let working_dir = get_burnchain(&test_path, None).working_dir;
+
+            // pre-populate headers
+            let mut indexer = BitcoinIndexer::new_unit_test(&working_dir);
+            let now = BURNCHAIN_TEST_BLOCK_TIME;
+
+            for header_height in 1..6 {
+                let parent_hdr = indexer
+                    .read_burnchain_header(header_height - 1)
+                    .unwrap()
+                    .unwrap();
+
+                let block_header_hash = BurnchainHeaderHash::from_bitcoin_hash(
+                    &BitcoinIndexer::mock_bitcoin_header(&parent_hdr.block_hash, now as u32)
+                        .bitcoin_hash(),
+                );
+
+                let block_header = BurnchainBlockHeader {
+                    block_height: header_height,
+                    block_hash: block_header_hash.clone(),
+                    parent_block_hash: parent_hdr.block_hash.clone(),
+                    num_txs: 0,
+                    timestamp: now,
+                };
+
+                test_debug!(
+                    "Pre-populate block header for {}-{} ({})",
+                    &block_header.block_hash,
+                    &block_header.parent_block_hash,
+                    block_header.block_height
+                );
+                indexer.raw_store_header(block_header.clone()).unwrap();
+            }
+
+            let hdr = indexer
+                .read_burnchain_header(burnchain.first_block_height)
+                .unwrap()
+                .unwrap();
+            burnchain.first_block_hash = hdr.block_hash;
+        }
 
         peer_1_config.burnchain.first_block_height = 5;
         peer_2_config.burnchain.first_block_height = 5;
+        peer_1.config.burnchain.first_block_height = 5;
+        peer_2.config.burnchain.first_block_height = 5;
+
+        assert_eq!(
+            peer_1_config.burnchain.first_block_hash,
+            peer_2_config.burnchain.first_block_hash
+        );
 
         let burnchain = peer_1_config.burnchain.clone();
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
 
         let num_blocks = 5;
         let first_stacks_block_height = {
@@ -3336,8 +3431,9 @@ mod test {
 
     #[test]
     fn test_sync_inv_make_inv_messages() {
-        let peer_1_config = TestPeerConfig::new("test_sync_inv_make_inv_messages", 31985, 41986);
+        let peer_1_config = TestPeerConfig::new(function_name!(), 31985, 41986);
 
+        let indexer = BitcoinIndexer::new_unit_test(&peer_1_config.burnchain.working_dir);
         let reward_cycle_length = peer_1_config.burnchain.pox_constants.reward_cycle_length;
         let num_blocks = peer_1_config.burnchain.pox_constants.reward_cycle_length * 2;
 
@@ -3371,7 +3467,7 @@ mod test {
             .with_network_state(|sortdb, chainstate, network, _relayer, _mempool| {
                 network.refresh_local_peer().unwrap();
                 network
-                    .refresh_burnchain_view(sortdb, chainstate, false)
+                    .refresh_burnchain_view(&indexer, sortdb, chainstate, false)
                     .unwrap();
                 network.refresh_sortition_view(sortdb).unwrap();
                 Ok(())
@@ -3762,7 +3858,7 @@ mod test {
 
     #[test]
     fn test_sync_inv_diagnose_nack() {
-        let peer_config = TestPeerConfig::new("test_sync_inv_diagnose_nack", 31983, 41983);
+        let peer_config = TestPeerConfig::new(function_name!(), 31983, 41983);
         let neighbor = peer_config.to_neighbor();
         let neighbor_key = neighbor.addr.clone();
         let nack_no_block = NackData {
@@ -3868,10 +3964,8 @@ mod test {
     #[ignore]
     fn test_sync_inv_2_peers_plain() {
         with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_plain", 31992, 41992);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_plain", 31993, 41993);
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 31992, 41992);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 31993, 41993);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -4046,10 +4140,8 @@ mod test {
     #[ignore]
     fn test_sync_inv_2_peers_stale() {
         with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_stale", 31994, 41995);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_stale", 31995, 41996);
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 31994, 41995);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 31995, 41996);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());
@@ -4156,10 +4248,8 @@ mod test {
     #[ignore]
     fn test_sync_inv_2_peers_unstable() {
         with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31996, 41997);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_unstable", 31997, 41998);
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 31996, 41997);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 31997, 41998);
 
             let stable_confs = peer_1_config.burnchain.stable_confirmations as u64;
 
@@ -4371,10 +4461,8 @@ mod test {
     #[ignore]
     fn test_sync_inv_2_peers_different_pox_vectors() {
         with_timeout(600, || {
-            let mut peer_1_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_different_pox_vectors", 31998, 41998);
-            let mut peer_2_config =
-                TestPeerConfig::new("test_sync_inv_2_peers_different_pox_vectors", 31999, 41999);
+            let mut peer_1_config = TestPeerConfig::new(function_name!(), 31998, 41998);
+            let mut peer_2_config = TestPeerConfig::new(function_name!(), 31999, 41999);
 
             peer_1_config.add_neighbor(&peer_2_config.to_neighbor());
             peer_2_config.add_neighbor(&peer_1_config.to_neighbor());

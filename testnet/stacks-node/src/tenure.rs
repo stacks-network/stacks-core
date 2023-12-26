@@ -1,9 +1,14 @@
+/// Only used by the Helium (Mocknet) node
 use super::node::ChainTip;
 use super::{BurnchainTip, Config};
 
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+use stacks::burnchains::PoxConstants;
+#[cfg(test)]
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
@@ -80,6 +85,7 @@ impl<'a> Tenure {
             self.config.is_mainnet(),
             self.config.burnchain.chain_id,
             &self.config.get_chainstate_path_str(),
+            Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
 
@@ -116,8 +122,19 @@ impl<'a> Tenure {
             false,
             CHAIN_ID_TESTNET,
             &self.config.get_chainstate_path_str(),
+            Some(self.config.node.get_marf_opts()),
         )
         .unwrap();
         chain_state
+    }
+
+    #[cfg(test)]
+    pub fn open_fake_sortdb(&self) -> SortitionDB {
+        SortitionDB::open(
+            &self.config.get_burn_db_file_path(),
+            true,
+            PoxConstants::testnet_default(),
+        )
+        .unwrap()
     }
 }

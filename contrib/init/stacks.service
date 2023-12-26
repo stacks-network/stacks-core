@@ -1,0 +1,62 @@
+# # Modeled after https://github.com/bitcoin/bitcoin/blob/master/contrib/init/bitcoind.service
+
+[Unit]
+Description=Stacks Blockchain
+# https://www.freedesktop.org/wiki/Software/systemd/NetworkTarget/
+After=network-online.target
+Wants=network-online.target
+
+ConditionFileIsExecutable=/usr/local/bin/stacks-node
+ConditionPathExists=/etc/stacks-blockchain/Config.toml
+ConditionPathIsDirectory=/stacks-blockchain
+
+[Service]
+#ExecStart=/bin/sh -c "/usr/local/bin/stacks-node start --config=/etc/stacks-blockchain/Config.toml >> /stacks-blockchain/output.log 2>&1"
+ExecStart=/bin/sh -c "/usr/local/bin/stacks-node start --config=/etc/stacks-blockchain/Config.toml"
+ExecStartPost=/bin/sh -c "umask 022; sleep 2 && pgrep -f \"/usr/local/bin/stacks-node start --config=/etc/stacks-blockchain/Config.toml\" > /run/stacks-blockchain/stacks-blockchain.pid"
+ExecStopPost=/bin/sh -c "if [ -f \"/run/stacks-blockchain/stacks-blockchain.pid\" ]; then rm -f /run/stacks-blockchain/stacks-blockchain.pid; fi"
+
+# Make sure the config directory is readable by the service user
+PermissionsStartOnly=true
+#ExecStartPre=/bin/chgrp stacks /etc/stacks-blockchain/
+
+# Process management
+####################
+Type=simple
+PIDFile=/run/stacks-blockchain/stacks-blockchain.pid
+Restart=no
+TimeoutStopSec=600
+KillSignal=SIGTERM
+
+# Directory creation and permissions
+####################################
+# Run as stacks:stacks
+User=stacks
+Group=stacks
+
+# /run/stacks-blockchain
+RuntimeDirectory=stacks-blockchain
+RuntimeDirectoryMode=0710
+
+# Hardening measures
+####################
+
+# Provide a private /tmp and /var/tmp.
+PrivateTmp=true
+
+# Mount /usr, /boot/ and /etc read-only for the process.
+ProtectSystem=full
+
+# Deny access to /home, /root and /run/user
+ProtectHome=true
+
+# Disallow the process and all of its children to gain
+# new privileges through execve().
+NoNewPrivileges=true
+
+# Use a new /dev namespace only populated with API pseudo devices
+# such as /dev/null, /dev/zero and /dev/random.
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target

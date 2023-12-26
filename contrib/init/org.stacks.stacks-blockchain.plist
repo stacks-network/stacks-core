@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.stacks.stacks-blockchain</string>
+	<key>ProgramArguments</key>
+	<array>
+			<string>/usr/local/bin/stacks-node</string>
+			<string>start</string>
+			<string>--config=/etc/stacks-blockchain/Config.toml</string>
+	</array>
+
+	<key>ProcessType</key>
+	<integer>Standard</integer>
+
+	<key>StandardErrorPath</key>
+	<string>/tmp/stacks-blockchain.log</string>
+
+	<key>StandardOutPath</key>
+	<string>/tmp/stacks-blockchain.log</string>
+
+	<key>RunAtLoad</key>
+	<false/>
+
+	<key>ExitTimeOut</key>
+	<integer>60</integer>
+
+	<key>KeepAlive</key>
+	<false/>
+
+</dict>
+</plist>

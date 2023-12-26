@@ -119,7 +119,19 @@ fn bitcoind_integration_test() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
+    bitcoind_integration(false);
+}
 
+#[test]
+#[ignore]
+fn bitcoind_integration_test_segwit() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+    bitcoind_integration(true);
+}
+
+fn bitcoind_integration(segwit_flag: bool) {
     let mut conf = super::new_test_conf();
     conf.burnchain.commit_anchor_block_within = 2000;
     conf.burnchain.burn_fee_cap = BITCOIND_INT_TEST_COMMITS;
@@ -133,6 +145,7 @@ fn bitcoind_integration_test() {
     conf.miner.min_tx_fee = 0;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
+    conf.miner.segwit = segwit_flag;
 
     conf.initial_balances.push(InitialBalance {
         address: to_addr(
@@ -166,150 +179,201 @@ fn bitcoind_integration_test() {
     run_loop
         .callbacks
         .on_burn_chain_initialized(|burnchain_controller| {
-            burnchain_controller.bootstrap_chain(201);
+            burnchain_controller.bootstrap_chain(2001);
         });
 
     // In this serie of tests, the callback is fired post-burnchain-sync, pre-stacks-sync
-    run_loop.callbacks.on_new_burn_chain_state(|round, burnchain_tip, chain_tip| {
-        let block = &burnchain_tip.block_snapshot;
-        let expected_total_burn = BITCOIND_INT_TEST_COMMITS * (round as u64 + 1);
-        assert_eq!(block.total_burn, expected_total_burn);
-        assert_eq!(block.sortition, true);
-        assert_eq!(block.num_sortitions, round as u64 + 1);
-        assert_eq!(block.block_height, round as u64 + 203);
-        match round {
-            0 => {
-                let state_transition = &burnchain_tip.state_transition;
-                assert!(state_transition.accepted_ops.len() == 1);
-                assert!(state_transition.consumed_leader_keys.len() == 1);
+    run_loop
+        .callbacks
+        .on_new_burn_chain_state(|round, burnchain_tip, chain_tip| {
+            let block = &burnchain_tip.block_snapshot;
+            let expected_total_burn = BITCOIND_INT_TEST_COMMITS * (round as u64 + 1);
+            assert_eq!(block.total_burn, expected_total_burn);
+            assert_eq!(block.sortition, true);
+            assert_eq!(block.num_sortitions, round as u64 + 1);
+            assert_eq!(block.block_height, round as u64 + 2003);
+            let leader_key = "f888e0cab5c16de8edf72b544a189ece5c0b95cd9178606c970789ac71d17bb4";
 
-                for op in &state_transition.accepted_ops {
-                    match op {
-                        LeaderKeyRegister(_op) => {
-                            unreachable!();
-                        },
-                        LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6");
-                            assert!(op.parent_block_ptr == 0);
-                            assert!(op.parent_vtxindex == 0);
-                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+            match round {
+                0 => {
+                    let state_transition = &burnchain_tip.state_transition;
+                    assert!(state_transition.accepted_ops.len() == 1);
+                    assert!(state_transition.consumed_leader_keys.len() == 1);
+
+                    for op in &state_transition.accepted_ops {
+                        match op {
+                            LeaderKeyRegister(_op) => {
+                                unreachable!();
+                            }
+                            LeaderBlockCommit(op) => {
+                                assert_eq!(
+                                    burnchain_tip.state_transition.consumed_leader_keys[0]
+                                        .public_key
+                                        .to_hex(),
+                                    leader_key
+                                );
+                                assert!(op.parent_block_ptr == 0);
+                                assert!(op.parent_vtxindex == 0);
+                                assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                            }
+                            _ => assert!(false),
                         }
-                        _ => assert!(false)
                     }
                 }
-            },
-            1 => {
-                let state_transition = &burnchain_tip.state_transition;
-                assert!(state_transition.accepted_ops.len() == 1);
-                assert!(state_transition.consumed_leader_keys.len() == 1);
+                1 => {
+                    let state_transition = &burnchain_tip.state_transition;
+                    assert!(state_transition.accepted_ops.len() == 1);
+                    assert!(state_transition.consumed_leader_keys.len() == 1);
 
-                for op in &state_transition.accepted_ops {
-                    match op {
-                        LeaderKeyRegister(_op) => {
-                            unreachable!();
-                        },
-                        LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6");
-                            assert!(op.parent_block_ptr == 203);
-                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                    for op in &state_transition.accepted_ops {
+                        match op {
+                            LeaderKeyRegister(_op) => {
+                                unreachable!();
+                            }
+                            LeaderBlockCommit(op) => {
+                                assert_eq!(
+                                    burnchain_tip.state_transition.consumed_leader_keys[0]
+                                        .public_key
+                                        .to_hex(),
+                                    leader_key
+                                );
+                                assert_eq!(op.parent_block_ptr, 2003);
+                                assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                            }
+                            _ => assert!(false),
                         }
-                        _ => assert!(false)
                     }
+
+                    assert!(
+                        burnchain_tip.block_snapshot.parent_burn_header_hash
+                            == chain_tip.metadata.burn_header_hash
+                    );
                 }
+                2 => {
+                    let state_transition = &burnchain_tip.state_transition;
+                    assert!(state_transition.accepted_ops.len() == 1);
+                    assert!(state_transition.consumed_leader_keys.len() == 1);
 
-                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
-            },
-            2 => {
-                let state_transition = &burnchain_tip.state_transition;
-                assert!(state_transition.accepted_ops.len() == 1);
-                assert!(state_transition.consumed_leader_keys.len() == 1);
-
-                for op in &state_transition.accepted_ops {
-                    match op {
-                        LeaderKeyRegister(_op) => {
-                            unreachable!();
-                        },
-                        LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6");
-                            assert!(op.parent_block_ptr == 204);
-                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                    for op in &state_transition.accepted_ops {
+                        match op {
+                            LeaderKeyRegister(_op) => {
+                                unreachable!();
+                            }
+                            LeaderBlockCommit(op) => {
+                                assert_eq!(
+                                    burnchain_tip.state_transition.consumed_leader_keys[0]
+                                        .public_key
+                                        .to_hex(),
+                                    leader_key
+                                );
+                                assert_eq!(op.parent_block_ptr, 2004);
+                                assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                            }
+                            _ => assert!(false),
                         }
-                        _ => assert!(false)
                     }
+
+                    assert!(
+                        burnchain_tip.block_snapshot.parent_burn_header_hash
+                            == chain_tip.metadata.burn_header_hash
+                    );
                 }
+                3 => {
+                    let state_transition = &burnchain_tip.state_transition;
+                    assert!(state_transition.accepted_ops.len() == 1);
+                    assert!(state_transition.consumed_leader_keys.len() == 1);
 
-                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
-            },
-            3 => {
-                let state_transition = &burnchain_tip.state_transition;
-                assert!(state_transition.accepted_ops.len() == 1);
-                assert!(state_transition.consumed_leader_keys.len() == 1);
-
-                for op in &state_transition.accepted_ops {
-                    match op {
-                        LeaderKeyRegister(_op) => {
-                            unreachable!();
-                        },
-                        LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6");
-                            assert!(op.parent_block_ptr == 205);
-                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                    for op in &state_transition.accepted_ops {
+                        match op {
+                            LeaderKeyRegister(_op) => {
+                                unreachable!();
+                            }
+                            LeaderBlockCommit(op) => {
+                                assert_eq!(
+                                    burnchain_tip.state_transition.consumed_leader_keys[0]
+                                        .public_key
+                                        .to_hex(),
+                                    leader_key
+                                );
+                                assert_eq!(op.parent_block_ptr, 2005);
+                                assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                            }
+                            _ => assert!(false),
                         }
-                        _ => assert!(false)
                     }
+
+                    assert!(
+                        burnchain_tip.block_snapshot.parent_burn_header_hash
+                            == chain_tip.metadata.burn_header_hash
+                    );
                 }
+                4 => {
+                    let state_transition = &burnchain_tip.state_transition;
+                    assert!(state_transition.accepted_ops.len() == 1);
+                    assert!(state_transition.consumed_leader_keys.len() == 1);
 
-                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
-            },
-            4 => {
-                let state_transition = &burnchain_tip.state_transition;
-                assert!(state_transition.accepted_ops.len() == 1);
-                assert!(state_transition.consumed_leader_keys.len() == 1);
-
-                for op in &state_transition.accepted_ops {
-                    match op {
-                        LeaderKeyRegister(_op) => {
-                            unreachable!();
-                        },
-                        LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6");
-                            assert!(op.parent_block_ptr == 206);
-                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                    for op in &state_transition.accepted_ops {
+                        match op {
+                            LeaderKeyRegister(_op) => {
+                                unreachable!();
+                            }
+                            LeaderBlockCommit(op) => {
+                                assert_eq!(
+                                    burnchain_tip.state_transition.consumed_leader_keys[0]
+                                        .public_key
+                                        .to_hex(),
+                                    leader_key
+                                );
+                                assert_eq!(op.parent_block_ptr, 2006);
+                                assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                            }
+                            _ => assert!(false),
                         }
-                        _ => assert!(false)
                     }
+
+                    assert!(
+                        burnchain_tip.block_snapshot.parent_burn_header_hash
+                            == chain_tip.metadata.burn_header_hash
+                    );
                 }
+                5 => {
+                    let state_transition = &burnchain_tip.state_transition;
+                    assert!(state_transition.accepted_ops.len() == 1);
+                    assert!(state_transition.consumed_leader_keys.len() == 1);
 
-                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
-            },
-            5 => {
-                let state_transition = &burnchain_tip.state_transition;
-                assert!(state_transition.accepted_ops.len() == 1);
-                assert!(state_transition.consumed_leader_keys.len() == 1);
-
-                for op in &state_transition.accepted_ops {
-                    match op {
-                        LeaderKeyRegister(_op) => {
-                            unreachable!();
-                        },
-                        LeaderBlockCommit(op) => {
-                            assert!(burnchain_tip.state_transition.consumed_leader_keys[0].public_key.to_hex() == "63765f54b850bdcecc6df4ff0bf3fdb55e862d69aad4411d7093a07e5b39c7a6");
-                            assert!(op.parent_block_ptr == 207);
-                            assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                    for op in &state_transition.accepted_ops {
+                        match op {
+                            LeaderKeyRegister(_op) => {
+                                unreachable!();
+                            }
+                            LeaderBlockCommit(op) => {
+                                assert_eq!(
+                                    burnchain_tip.state_transition.consumed_leader_keys[0]
+                                        .public_key
+                                        .to_hex(),
+                                    leader_key
+                                );
+                                assert_eq!(op.parent_block_ptr, 2007);
+                                assert_eq!(op.burn_fee, BITCOIND_INT_TEST_COMMITS);
+                            }
+                            _ => assert!(false),
                         }
-                        _ => assert!(false)
                     }
-                }
 
-                assert!(burnchain_tip.block_snapshot.parent_burn_header_hash == chain_tip.metadata.burn_header_hash);
-            },
-            _ => {}
-        }
-    });
+                    assert!(
+                        burnchain_tip.block_snapshot.parent_burn_header_hash
+                            == chain_tip.metadata.burn_header_hash
+                    );
+                }
+                _ => {}
+            }
+        });
 
     // Use tenure's hook for submitting transactions
     run_loop.callbacks.on_new_tenure(|round, _burnchain_tip, chain_tip, tenure| {
         let mut chainstate_copy = tenure.open_chainstate();
+            let sortdb = tenure.open_fake_sortdb();
+
         match round {
             1 => {
                 // On round 1, publish the KV contract
@@ -329,7 +393,7 @@ fn bitcoind_integration_test() {
                 // ./blockstack-cli --testnet publish 043ff5004e3d695060fa48ac94c96049b8c14ef441c50a184a6a3875d2a000f3 0 0 store /tmp/out.clar
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash, PUBLISH_CONTRACT.to_owned(), &ExecutionCost::max_value(),
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash, PUBLISH_CONTRACT.to_owned(), &ExecutionCost::max_value(),
                                 &StacksEpochId::Epoch20,).unwrap();
             },
             2 => {
@@ -338,7 +402,7 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000001000000000000000a0100b7ff8b6c20c427b4f4f09c1ad7e50027e2b076b2ddc0ab55e64ef5ea3771dd4763a79bc5a2b1a79b72ce03dd146ccf24b84942d675a815819a8b85aa8065dfaa030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(), &ExecutionCost::max_value(),
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(), &ExecutionCost::max_value(),
                                 &StacksEpochId::Epoch20,).unwrap();
             },
             3 => {
@@ -347,7 +411,7 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let set_foo_bar = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000002000000000000000a010142a01caf6a32b367664869182f0ebc174122a5a980937ba259d44cc3ebd280e769a53dd3913c8006ead680a6e1c98099fcd509ce94b0a4e90d9f4603b101922d030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265097365742d76616c7565000000020d00000003666f6f0d00000003626172";
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec(), &ExecutionCost::max_value(),
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash,hex_bytes(set_foo_bar).unwrap().to_vec(), &ExecutionCost::max_value(),
                                 &StacksEpochId::Epoch20,).unwrap();
             },
             4 => {
@@ -356,7 +420,7 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let get_foo = "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe40000000000000003000000000000000a010046c2c1c345231443fef9a1f64fccfef3e1deacc342b2ab5f97612bb3742aa799038b20aea456789aca6b883e52f84a31adfee0bc2079b740464877af8f2f87d2030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f";
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(), &ExecutionCost::max_value(),
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash,hex_bytes(get_foo).unwrap().to_vec(), &ExecutionCost::max_value(),
                                 &StacksEpochId::Epoch20,).unwrap();
             },
             5 => {
@@ -365,7 +429,7 @@ fn bitcoind_integration_test() {
                 let header_hash = chain_tip.block.block_hash();
                 let consensus_hash = chain_tip.metadata.consensus_hash;
                 let transfer_1000_stx = "80800000000400b71a091b4b8b7661a661c620966ab6573bc2dcd30000000000000000000000000000000a0000393810832bacd44cfc4024980876135de6b95429bdb610d5ce96a92c9ee9bfd81ec77ea0f1748c8515fc9a1589e51d8b92bf028e3e84ade1249682c05271d5b803020000000000051a525b8a36ef8a73548cd0940c248d3b71ecf4a45100000000000003e800000000000000000000000000000000000000000000000000000000000000000000";
-                tenure.mem_pool.submit_raw(&mut chainstate_copy, &consensus_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec(), &ExecutionCost::max_value(),
+                tenure.mem_pool.submit_raw(&mut chainstate_copy, &sortdb, &consensus_hash, &header_hash,hex_bytes(transfer_1000_stx).unwrap().to_vec(), &ExecutionCost::max_value(),
                                 &StacksEpochId::Epoch20,).unwrap();
             },
             _ => {}
@@ -381,7 +445,7 @@ fn bitcoind_integration_test() {
                 0 => {
                     // Inspecting the chain at round 0.
                     // - Chain length should be 1.
-                    assert!(chain_tip.metadata.block_height == 1);
+                    assert!(chain_tip.metadata.stacks_block_height == 1);
 
                     // Block #1 should only have 0 txs
                     assert!(chain_tip.block.txs.len() == 1);
@@ -394,7 +458,7 @@ fn bitcoind_integration_test() {
                 1 => {
                     // Inspecting the chain at round 1.
                     // - Chain length should be 2.
-                    assert!(chain_tip.metadata.block_height == 2);
+                    assert!(chain_tip.metadata.stacks_block_height == 2);
 
                     // Block #2 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);
@@ -407,7 +471,7 @@ fn bitcoind_integration_test() {
                 2 => {
                     // Inspecting the chain at round 2.
                     // - Chain length should be 3.
-                    assert!(chain_tip.metadata.block_height == 3);
+                    assert!(chain_tip.metadata.stacks_block_height == 3);
 
                     // Block #3 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);
@@ -420,7 +484,7 @@ fn bitcoind_integration_test() {
                 3 => {
                     // Inspecting the chain at round 3.
                     // - Chain length should be 4.
-                    assert!(chain_tip.metadata.block_height == 4);
+                    assert!(chain_tip.metadata.stacks_block_height == 4);
 
                     // Block #4 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);
@@ -433,7 +497,7 @@ fn bitcoind_integration_test() {
                 4 => {
                     // Inspecting the chain at round 4.
                     // - Chain length should be 5.
-                    assert!(chain_tip.metadata.block_height == 5);
+                    assert!(chain_tip.metadata.stacks_block_height == 5);
 
                     // Block #5 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);
@@ -446,7 +510,7 @@ fn bitcoind_integration_test() {
                 5 => {
                     // Inspecting the chain at round 5.
                     // - Chain length should be 6.
-                    assert!(chain_tip.metadata.block_height == 6);
+                    assert!(chain_tip.metadata.stacks_block_height == 6);
 
                     // Block #6 should only have 2 txs
                     assert!(chain_tip.block.txs.len() == 2);

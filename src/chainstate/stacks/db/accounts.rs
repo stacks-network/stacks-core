@@ -19,33 +19,55 @@ use std::collections::HashMap;
 use rusqlite::types::ToSql;
 use rusqlite::Row;
 
-use burnchains::Address;
-use chainstate::stacks::db::blocks::*;
-use chainstate::stacks::db::*;
-use chainstate::stacks::Error;
-use chainstate::stacks::*;
-use clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
-use util::db::Error as db_error;
-use util::db::*;
-use vm::database::clarity_store::*;
-use vm::database::*;
-use vm::types::*;
+use crate::burnchains::Address;
+use crate::chainstate::stacks::db::blocks::*;
+use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::Error;
+use crate::chainstate::stacks::*;
+use crate::clarity::vm::types::StacksAddressExtensions;
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityTransactionConnection};
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::*;
+use clarity::vm::database::clarity_store::*;
+use clarity::vm::database::*;
+use clarity::vm::types::*;
 
-use crate::types::chainstate::{StacksAddress, StacksBlockHeader, StacksBlockId};
+use crate::types::chainstate::{StacksAddress, StacksBlockId};
 
+use crate::core::StacksEpochId;
+
+/// A record of a coin reward for a miner.  There will be at most two of these for a miner: one for
+/// the coinbase + block-txs + confirmed-mblock-txs, and one for the produced-mblock-txs.  The
+/// latter reward only stores the produced-mblock-txs, and is only ever stored if the microblocks
+/// are ever confirmed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MinerReward {
+    /// address of the miner that produced the block
     pub address: StacksAddress,
+    /// address of the entity that receives the block reward.
+    /// Ignored pre-2.1
+    pub recipient: PrincipalData,
+    /// block coinbase
     pub coinbase: u128,
+    /// block transaction fees
     pub tx_fees_anchored: u128,
+    /// microblock transaction fees from transactions *mined* by this miner
     pub tx_fees_streamed_produced: u128,
+    /// microblock transaction fees from transactions *confirmed* by this miner
     pub tx_fees_streamed_confirmed: u128,
-    pub vtxindex: u32, // will be 0 for the reward to the miner, and >0 for user burn supports
+    /// virtual transaction index in the block where these rewards get applied.  the miner's reward
+    /// is applied first (so vtxindex == 0) and user-burn supports would be applied after (so
+    /// vtxindex > 0).
+    pub vtxindex: u32,
 }
 
 impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
     fn from_row<'a>(row: &'a Row) -> Result<MinerPaymentSchedule, db_error> {
         let address = StacksAddress::from_column(row, "address")?;
+        let recipient_str: Option<String> = row.get_unwrap("recipient");
+        let recipient = recipient_str
+            .map(|s| PrincipalData::parse(&s).expect("FATAL: could not parse recipient principal"))
+            .unwrap_or(address.to_account_principal());
         let block_hash = BlockHeaderHash::from_column(row, "block_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let parent_block_hash = BlockHeaderHash::from_column(row, "parent_block_hash")?;
@@ -76,6 +98,7 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
 
         let payment_data = MinerPaymentSchedule {
             address,
+            recipient,
             block_hash,
             consensus_hash,
             parent_block_hash,
@@ -94,12 +117,88 @@ impl FromRow<MinerPaymentSchedule> for MinerPaymentSchedule {
     }
 }
 
+impl FromRow<MinerReward> for MinerReward {
+    fn from_row<'a>(row: &'a Row) -> Result<MinerReward, db_error> {
+        let address = StacksAddress::from_column(row, "address")?;
+        let recipient_str: Option<String> = row.get_unwrap("recipient");
+        let recipient = recipient_str
+            .map(|s| PrincipalData::parse(&s).expect("FATAL: could not parse recipient principal"))
+            .unwrap_or(address.to_account_principal());
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let coinbase_text: String = row.get_unwrap("coinbase");
+        let tx_fees_anchored_text: String = row.get_unwrap("tx_fees_anchored");
+        let tx_fees_streamed_confirmed_text: String = row.get_unwrap("tx_fees_streamed_confirmed");
+        let tx_fees_streamed_produced_text: String = row.get_unwrap("tx_fees_streamed_produced");
+
+        let coinbase = coinbase_text
+            .parse::<u128>()
+            .map_err(|_e| db_error::ParseError)?;
+        let tx_fees_anchored = tx_fees_anchored_text
+            .parse::<u128>()
+            .map_err(|_e| db_error::ParseError)?;
+        let tx_fees_streamed_confirmed = tx_fees_streamed_confirmed_text
+            .parse::<u128>()
+            .map_err(|_e| db_error::ParseError)?;
+        let tx_fees_streamed_produced = tx_fees_streamed_produced_text
+            .parse::<u128>()
+            .map_err(|_e| db_error::ParseError)?;
+
+        Ok(MinerReward {
+            address,
+            recipient,
+            coinbase,
+            tx_fees_anchored,
+            tx_fees_streamed_produced,
+            tx_fees_streamed_confirmed,
+            vtxindex,
+        })
+    }
+}
+
 impl MinerReward {
     pub fn total(&self) -> u128 {
         self.coinbase
             + self.tx_fees_anchored
             + self.tx_fees_streamed_produced
             + self.tx_fees_streamed_confirmed
+    }
+
+    pub fn is_child(&self) -> bool {
+        self.coinbase > 0 && self.tx_fees_streamed_produced == 0
+    }
+
+    pub fn is_parent(&self) -> bool {
+        self.coinbase == 0
+    }
+
+    pub fn try_add_parent(&self, other: &MinerReward) -> Option<MinerReward> {
+        if !other.is_parent() {
+            return None;
+        }
+        if !self.is_child() {
+            return None;
+        }
+        Some(MinerReward {
+            address: self.address.clone(),
+            recipient: self.recipient.clone(),
+            coinbase: self.coinbase,
+            tx_fees_anchored: self.tx_fees_anchored,
+            tx_fees_streamed_produced: other.tx_fees_streamed_produced,
+            tx_fees_streamed_confirmed: self.tx_fees_streamed_confirmed,
+            vtxindex: self.vtxindex,
+        })
+    }
+
+    pub fn genesis(mainnet: bool) -> MinerReward {
+        MinerReward {
+            address: StacksAddress::burn_address(mainnet),
+            recipient: StacksAddress::burn_address(mainnet).to_account_principal(),
+            coinbase: 0,
+            tx_fees_anchored: 0,
+            tx_fees_streamed_produced: 0,
+            tx_fees_streamed_confirmed: 0,
+            vtxindex: 0,
+        }
     }
 }
 
@@ -120,6 +219,7 @@ impl MinerPaymentSchedule {
     pub fn genesis(mainnet: bool) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
             address: StacksAddress::burn_address(mainnet),
+            recipient: StacksAddress::burn_address(mainnet).to_account_principal(),
             block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
@@ -134,6 +234,26 @@ impl MinerPaymentSchedule {
             stacks_block_height: 0,
             vtxindex: 0,
         }
+    }
+
+    /// Calculate the total reward for this block, excluding the microblocks produced off of it.
+    /// This is the value reported by `get-block-info? block-reward`.
+    /// Note that this *undercounts* the true reward, which will not be known until the microblock
+    /// stream produced by this block gets confirmed.
+    pub fn block_reward_so_far(&self) -> u128 {
+        test_debug!(
+            "reward so far for {}/{}: {} + {} + {}",
+            &self.consensus_hash,
+            &self.block_hash,
+            self.coinbase,
+            self.tx_fees_anchored,
+            self.streamed_tx_fees_confirmed()
+        );
+        self.streamed_tx_fees_confirmed()
+            .checked_add(self.tx_fees_anchored)
+            .expect("reward overflow")
+            .checked_add(self.coinbase)
+            .expect("reward overflow")
     }
 }
 
@@ -153,8 +273,12 @@ impl StacksChainState {
         })
     }
 
-    pub fn get_account_ft<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn get_nonce<T: ClarityConnection>(clarity_tx: &mut T, principal: &PrincipalData) -> u64 {
+        clarity_tx.with_clarity_db_readonly(|ref mut db| db.get_account_nonce(principal))
+    }
+
+    pub fn get_account_ft(
+        clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         principal: &PrincipalData,
@@ -168,8 +292,8 @@ impl StacksChainState {
             .map_err(Error::ClarityError)
     }
 
-    pub fn get_account_nft<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    pub fn get_account_nft(
+        clarity_tx: &mut ClarityTx,
         contract_id: &QualifiedContractIdentifier,
         token_name: &str,
         token_value: &Value,
@@ -245,16 +369,8 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let mut balance = STXBalance::initial(amount);
                 let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
-                let existing_balance = snapshot.balance().amount_unlocked;
-                if existing_balance > 0 {
-                    balance.amount_unlocked = balance
-                        .amount_unlocked
-                        .checked_add(existing_balance)
-                        .expect("Genesis credit balance overflow");
-                }
-                snapshot.set_balance(balance);
+                snapshot.credit(amount);
                 snapshot.save();
                 Ok(())
             })
@@ -276,8 +392,10 @@ impl StacksChainState {
             .expect("FATAL: failed to set account nonce")
     }
 
+    /////////////////////// PoX-3 /////////////////////////////////
+
     /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
-    pub fn pox_lock(
+    pub fn pox_lock_v3(
         db: &mut ClarityDatabase,
         principal: &PrincipalData,
         lock_amount: u128,
@@ -287,20 +405,268 @@ impl StacksChainState {
         assert!(lock_amount > 0);
 
         let mut snapshot = db.get_stx_balance_snapshot(principal);
+
         if snapshot.has_locked_tokens() {
             return Err(Error::PoxAlreadyLocked);
         }
         if !snapshot.can_transfer(lock_amount) {
             return Err(Error::PoxInsufficientBalance);
         }
-        snapshot.lock_tokens(lock_amount, unlock_burn_height);
+        snapshot.lock_tokens_v3(lock_amount, unlock_burn_height);
 
         debug!(
-            "PoX lock {} uSTX (new balance {}) until burnchain block height {} for {:?}",
-            snapshot.balance().amount_locked,
-            snapshot.balance().amount_unlocked,
-            unlock_burn_height,
-            principal
+            "PoX v3 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(())
+    }
+
+    /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
+    /// Returns Ok(lock_amount) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v3 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_extend_v3(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        unlock_burn_height: u64,
+    ) -> Result<u128, Error> {
+        assert!(unlock_burn_height > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if !snapshot.has_locked_tokens() {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        snapshot.extend_lock_v3(unlock_burn_height);
+
+        let amount_locked = snapshot.balance().amount_locked();
+
+        debug!(
+            "PoX v3 lock applied";
+            "pox_locked_ustx" => amount_locked,
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(amount_locked)
+    }
+
+    /// Increase a STX lock up for PoX-3.  Does NOT touch the account nonce.
+    /// Returns Ok( account snapshot ) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v3 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_increase_v3(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        new_total_locked: u128,
+    ) -> Result<STXBalance, Error> {
+        assert!(new_total_locked > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if !snapshot.has_locked_tokens() {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        let bal = snapshot.canonical_balance_repr();
+        let total_amount = bal
+            .amount_unlocked()
+            .checked_add(bal.amount_locked())
+            .expect("STX balance overflowed u128");
+        if total_amount < new_total_locked {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        if bal.amount_locked() > new_total_locked {
+            return Err(Error::PoxInvalidIncrease);
+        }
+
+        snapshot.increase_lock_v3(new_total_locked);
+
+        let out_balance = snapshot.canonical_balance_repr();
+
+        debug!(
+            "PoX v3 lock increased";
+            "pox_locked_ustx" => out_balance.amount_locked(),
+            "available_ustx" => out_balance.amount_unlocked(),
+            "unlock_burn_height" => out_balance.unlock_height(),
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(out_balance)
+    }
+
+    /////////////////////// PoX-2 /////////////////////////////////
+
+    /// Increase a STX lock up for PoX.  Does NOT touch the account nonce.
+    /// Returns Ok( account snapshot ) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_increase_v2(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        new_total_locked: u128,
+    ) -> Result<STXBalance, Error> {
+        assert!(new_total_locked > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if !snapshot.has_locked_tokens() {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        if !snapshot.is_v2_locked() {
+            return Err(Error::PoxIncreaseOnV1);
+        }
+
+        let bal = snapshot.canonical_balance_repr();
+        let total_amount = bal
+            .amount_unlocked()
+            .checked_add(bal.amount_locked())
+            .expect("STX balance overflowed u128");
+        if total_amount < new_total_locked {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        if bal.amount_locked() > new_total_locked {
+            return Err(Error::PoxInvalidIncrease);
+        }
+
+        snapshot.increase_lock_v2(new_total_locked);
+
+        let out_balance = snapshot.canonical_balance_repr();
+
+        debug!(
+            "PoX v2 lock increased";
+            "pox_locked_ustx" => out_balance.amount_locked(),
+            "available_ustx" => out_balance.amount_unlocked(),
+            "unlock_burn_height" => out_balance.unlock_height(),
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(out_balance)
+    }
+
+    /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
+    /// Returns Ok(lock_amount) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_extend_v2(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        unlock_burn_height: u64,
+    ) -> Result<u128, Error> {
+        assert!(unlock_burn_height > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if !snapshot.has_locked_tokens() {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        snapshot.extend_lock_v2(unlock_burn_height);
+
+        let amount_locked = snapshot.balance().amount_locked();
+
+        debug!(
+            "PoX v2 lock applied";
+            "pox_locked_ustx" => amount_locked,
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(amount_locked)
+    }
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock_v2(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        lock_amount: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if snapshot.has_locked_tokens() {
+            return Err(Error::PoxAlreadyLocked);
+        }
+        if !snapshot.can_transfer(lock_amount) {
+            return Err(Error::PoxInsufficientBalance);
+        }
+        snapshot.lock_tokens_v2(lock_amount, unlock_burn_height);
+
+        debug!(
+            "PoX v2 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save();
+        Ok(())
+    }
+
+    /////////////////////// PoX (first version) /////////////////////////////////
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock_v1(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        lock_amount: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal);
+
+        if snapshot.balance().was_locked_by_v2() {
+            debug!("PoX Lock attempted on an account locked by v2");
+            return Err(Error::DefunctPoxContract);
+        }
+
+        if snapshot.has_locked_tokens() {
+            return Err(Error::PoxAlreadyLocked);
+        }
+        if !snapshot.can_transfer(lock_amount) {
+            return Err(Error::PoxInsufficientBalance);
+        }
+        snapshot.lock_tokens_v1(lock_amount, unlock_burn_height);
+
+        debug!(
+            "PoX v1 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
         );
 
         snapshot.save();
@@ -310,21 +676,20 @@ impl StacksChainState {
     /// Schedule a miner payment in the future.
     /// Schedules payments out to both miners and users that support them.
     pub fn insert_miner_payment_schedule<'a>(
-        tx: &mut StacksDBTx<'a>,
+        tx: &mut DBTx<'a>,
         block_reward: &MinerPaymentSchedule,
-        user_burns: &Vec<StagingUserBurnSupport>,
+        user_burns: &[StagingUserBurnSupport],
     ) -> Result<(), Error> {
         assert!(block_reward.burnchain_commit_burn < i64::MAX as u64);
         assert!(block_reward.burnchain_sortition_burn < i64::MAX as u64);
         assert!(block_reward.stacks_block_height < i64::MAX as u64);
 
-        let index_block_hash = StacksBlockHeader::make_index_block_hash(
-            &block_reward.consensus_hash,
-            &block_reward.block_hash,
-        );
+        let index_block_hash =
+            StacksBlockId::new(&block_reward.consensus_hash, &block_reward.block_hash);
 
         let args: &[&dyn ToSql] = &[
             &block_reward.address.to_string(),
+            &block_reward.recipient.to_string(),
             &block_reward.block_hash,
             &block_reward.consensus_hash,
             &block_reward.parent_block_hash,
@@ -344,6 +709,7 @@ impl StacksChainState {
         tx.execute(
             "INSERT INTO payments (
                         address,
+                        recipient,
                         block_hash,
                         consensus_hash,
                         parent_block_hash,
@@ -358,7 +724,7 @@ impl StacksChainState {
                         miner,
                         vtxindex,
                         index_block_hash) \
-                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
             args,
         )
         .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -367,6 +733,7 @@ impl StacksChainState {
             assert!(user_support.burn_amount < i64::MAX as u64);
 
             let args: &[&dyn ToSql] = &[
+                &user_support.address.to_string(),
                 &user_support.address.to_string(),
                 &block_reward.block_hash,
                 &block_reward.consensus_hash,
@@ -387,6 +754,7 @@ impl StacksChainState {
             tx.execute(
                 "INSERT INTO payments (
                             address,
+                            recipient,
                             block_hash,
                             consensus_hash,
                             parent_block_hash,
@@ -401,13 +769,207 @@ impl StacksChainState {
                             miner,
                             vtxindex,
                             index_block_hash) \
-                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
                 args,
             )
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
         }
 
         Ok(())
+    }
+
+    /// Store a matured miner reward for subsequent query in Clarity, without doing any validation
+    fn inner_insert_matured_miner_reward<'a>(
+        tx: &mut DBTx<'a>,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+        reward: &MinerReward,
+    ) -> Result<(), Error> {
+        // the only time it's okay to re-insert the same reward is if there are two Stacks forks
+        // trying to store the same matured rewards for a common ancestor block.
+        let cur_rewards = StacksChainState::inner_get_matured_miner_payments(
+            tx,
+            parent_block_id,
+            child_block_id,
+        )?;
+        if cur_rewards.len() > 0 {
+            let mut present = false;
+            for rw in cur_rewards.iter() {
+                if (rw.is_parent() && reward.is_parent()) || (rw.is_child() && reward.is_child()) {
+                    // must insert a parent or a child at most once
+                    assert_eq!(rw, reward, "FATAL: tried to insert multiple distinct matured parent block reward records");
+                    present = true;
+                }
+            }
+
+            if present {
+                return Ok(());
+            }
+        }
+
+        // not present
+        let sql = "INSERT INTO matured_rewards (
+            address,
+            recipient,
+            vtxindex,
+            coinbase,
+            tx_fees_anchored,
+            tx_fees_streamed_confirmed,
+            tx_fees_streamed_produced,
+            parent_index_block_hash,
+            child_index_block_hash
+        ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)";
+
+        let args: &[&dyn ToSql] = &[
+            &reward.address.to_string(),
+            &reward.recipient.to_string(),
+            &reward.vtxindex,
+            &reward.coinbase.to_string(),
+            &reward.tx_fees_anchored.to_string(),
+            &reward.tx_fees_streamed_confirmed.to_string(),
+            &reward.tx_fees_streamed_produced.to_string(),
+            parent_block_id,
+            child_block_id,
+        ];
+
+        tx.execute(sql, args)
+            .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
+
+        Ok(())
+    }
+
+    /// Store a parent block's matured reward.  This is the share of the streamed tx fees produced
+    /// by the miner who mined this block, and nothing else.
+    pub fn insert_matured_parent_miner_reward<'a>(
+        tx: &mut DBTx<'a>,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+        parent_reward: &MinerReward,
+    ) -> Result<(), Error> {
+        test_debug!(
+            "Insert matured parent miner reward for {}-{}: {:?}",
+            parent_block_id,
+            child_block_id,
+            parent_reward
+        );
+        assert!(
+            parent_reward.is_parent(),
+            "FATAL: tried to insert a non-parent reward as the parent reward"
+        );
+        assert_eq!(
+            parent_reward.vtxindex, 0,
+            "FATAL: tried to insert a user reward as a miner reward"
+        );
+        StacksChainState::inner_insert_matured_miner_reward(
+            tx,
+            parent_block_id,
+            child_block_id,
+            parent_reward,
+        )
+    }
+
+    /// Store a child block's matured miner reward.  This is the block's coinbase, anchored tx fees, and
+    /// share of the confirmed streamed tx fees
+    pub fn insert_matured_child_miner_reward<'a>(
+        tx: &mut DBTx<'a>,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+        child_reward: &MinerReward,
+    ) -> Result<(), Error> {
+        test_debug!(
+            "Insert matured child miner reward for {}-{}: {:?}",
+            parent_block_id,
+            child_block_id,
+            child_reward
+        );
+        assert!(
+            child_reward.is_child(),
+            "FATAL: tried to insert a non-child reward as the child reward"
+        );
+        assert_eq!(
+            child_reward.vtxindex, 0,
+            "FATAL: tried to insert a user reward as a miner reward"
+        );
+        StacksChainState::inner_insert_matured_miner_reward(
+            tx,
+            parent_block_id,
+            child_block_id,
+            child_reward,
+        )
+    }
+
+    /// Store a child block's matured user burn-support reward.  This is the share of the
+    /// block's coinbase, anchored tx fees, and share of the confirmed streamed tx fees that go to
+    /// the user burn-support sender
+    pub fn insert_matured_child_user_reward<'a>(
+        tx: &mut DBTx<'a>,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+        child_reward: &MinerReward,
+    ) -> Result<(), Error> {
+        assert!(
+            child_reward.is_child(),
+            "FATAL: tried to insert a non-child reward as the child reward"
+        );
+        assert!(
+            child_reward.vtxindex > 0,
+            "FATAL: tried to insert a miner reward as a user reward"
+        );
+        StacksChainState::inner_insert_matured_miner_reward(
+            tx,
+            parent_block_id,
+            child_block_id,
+            child_reward,
+        )
+    }
+
+    fn inner_get_matured_miner_payments(
+        conn: &DBConn,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+    ) -> Result<Vec<MinerReward>, Error> {
+        let sql = "SELECT * FROM matured_rewards WHERE parent_index_block_hash = ?1 AND child_index_block_hash = ?2 AND vtxindex = 0";
+        let args: &[&dyn ToSql] = &[parent_block_id, child_block_id];
+        let ret: Vec<MinerReward> = query_rows(conn, sql, args).map_err(|e| Error::DBError(e))?;
+        Ok(ret)
+    }
+
+    /// Get the matured miner reward for a block's miner.
+    /// You'd be querying for the `child_block_id`'s reward.
+    pub fn get_matured_miner_payment(
+        conn: &DBConn,
+        parent_block_id: &StacksBlockId,
+        child_block_id: &StacksBlockId,
+    ) -> Result<Option<MinerReward>, Error> {
+        let config = StacksChainState::load_db_config(conn)?;
+        let ret = StacksChainState::inner_get_matured_miner_payments(
+            conn,
+            parent_block_id,
+            child_block_id,
+        )?;
+        if ret.len() == 2 {
+            let reward = if ret[0].is_child() {
+                ret[0]
+                    .try_add_parent(&ret[1])
+                    .expect("FATAL: got two child rewards")
+            } else if ret[1].is_child() {
+                ret[1]
+                    .try_add_parent(&ret[0])
+                    .expect("FATAL: got two child rewards")
+            } else {
+                panic!("FATAL: got two parent rewards");
+            };
+            Ok(Some(reward))
+        } else if child_block_id
+            == &StacksBlockHeader::make_index_block_hash(
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+            )
+        {
+            Ok(Some(MinerReward::genesis(config.mainnet)))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Find the reported poison-microblock data for this block
@@ -426,14 +988,15 @@ impl StacksChainState {
     }
 
     /// Get the scheduled miner rewards at a particular index hash
-    pub fn get_scheduled_block_rewards_at_block<'a>(
-        tx: &mut StacksDBTx<'a>,
+    pub fn get_scheduled_block_rewards_at_block(
+        conn: &DBConn,
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
         let qry =
             "SELECT * FROM payments WHERE index_block_hash = ?1 ORDER BY vtxindex ASC".to_string();
         let args: &[&dyn ToSql] = &[index_block_hash];
-        let rows = query_rows::<MinerPaymentSchedule, _>(tx, &qry, args).map_err(Error::DBError)?;
+        let rows =
+            query_rows::<MinerPaymentSchedule, _>(conn, &qry, args).map_err(Error::DBError)?;
         test_debug!("{} rewards in {}", rows.len(), index_block_hash);
         Ok(rows)
     }
@@ -472,11 +1035,11 @@ impl StacksChainState {
         tx: &mut StacksDBTx<'a>,
         tip: &StacksHeaderInfo,
     ) -> Result<Vec<MinerPaymentSchedule>, Error> {
-        if tip.block_height < MINER_REWARD_MATURITY {
+        if tip.stacks_block_height < MINER_REWARD_MATURITY {
             return Ok(vec![]);
         }
 
-        let block_height = tip.block_height - MINER_REWARD_MATURITY;
+        let block_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
         StacksChainState::get_scheduled_block_rewards_in_fork_at_height(tx, tip, block_height)
     }
 
@@ -527,9 +1090,10 @@ impl StacksChainState {
     /// not the miner, for reporting the microblock stream fork.
     fn calculate_miner_reward(
         mainnet: bool,
+        parent_block_epoch: StacksEpochId,
         participant: &MinerPaymentSchedule,
         miner: &MinerPaymentSchedule,
-        users: &Vec<MinerPaymentSchedule>,
+        users: &[MinerPaymentSchedule],
         parent: &MinerPaymentSchedule,
         poison_reporter_opt: Option<&StacksAddress>,
     ) -> (MinerReward, MinerReward) {
@@ -584,7 +1148,7 @@ impl StacksChainState {
         // process poison -- someone can steal a fraction of the total coinbase if they can present
         // evidence that the miner forked the microblock stream.  The remainder of the coinbase is
         // destroyed if this happens.
-        let (recipient, coinbase_reward, punished) =
+        let (child_address, child_recipient, coinbase_reward, punished) =
             if let Some(reporter_address) = poison_reporter_opt {
                 if participant.miner {
                     // the poison-reporter, not the miner, gets a (fraction of the) reward
@@ -595,16 +1159,27 @@ impl StacksChainState {
                     );
                     (
                         reporter_address.clone(),
+                        reporter_address.to_account_principal(),
                         StacksChainState::poison_microblock_commission(coinbase_reward),
                         true,
                     )
                 } else {
                     // users that helped a miner that reported a poison-microblock get nothing
-                    (StacksAddress::burn_address(mainnet), coinbase_reward, false)
+                    (
+                        StacksAddress::burn_address(mainnet),
+                        StacksAddress::burn_address(mainnet).to_account_principal(),
+                        0,
+                        false,
+                    )
                 }
             } else {
                 // no poison microblock reported
-                (participant.address, coinbase_reward, false)
+                (
+                    participant.address,
+                    participant.recipient.clone(),
+                    coinbase_reward,
+                    false,
+                )
             };
 
         let (tx_fees_anchored, parent_tx_fees_streamed_produced, tx_fees_streamed_confirmed) =
@@ -612,12 +1187,24 @@ impl StacksChainState {
                 // only award tx fees to the miner, and only if the miner was not punished.
                 // parent gets its produced tx fees regardless of punishment.
                 (
+                    // tx_fees_anchored
                     if !punished {
                         participant.tx_fees_anchored
                     } else {
                         0
                     },
-                    parent.streamed_tx_fees_produced(),
+                    // parent_tx_fees_streamed_produced
+                    if parent_block_epoch < StacksEpochId::Epoch21 {
+                        // this is wrong, per #3140.  It should be
+                        // `participant.streamed_tx_fees_produced()`, since
+                        // `participant.tx_fees_streamed` contains the sum of the microblock
+                        // transaction fees that `participant` confirmed (and thus `participant`'s
+                        // parent produced).  But we're stuck with it for earlier epochs.
+                        parent.streamed_tx_fees_produced()
+                    } else {
+                        participant.streamed_tx_fees_produced()
+                    },
+                    // tx_fees_streamed_confirmed
                     if !punished {
                         participant.streamed_tx_fees_confirmed()
                     } else {
@@ -630,9 +1217,11 @@ impl StacksChainState {
             };
 
         debug!(
-            "{}: {} coinbase, {} anchored fees, {} streamed fees confirmed; {} has produced {} fees",
-            &recipient.to_string(),
+            "{} -> {}: {} coinbase (punished? {}), {} anchored fees, {} streamed fees confirmed; {} has produced {} fees",
+            &child_address,
+            &child_recipient,
             coinbase_reward,
+            punished,
             tx_fees_anchored,
             tx_fees_streamed_confirmed,
             &parent.address.to_string(),
@@ -641,6 +1230,7 @@ impl StacksChainState {
 
         let parent_miner_reward = MinerReward {
             address: parent.address.clone(),
+            recipient: parent.recipient.clone(),
             coinbase: 0,
             tx_fees_anchored: 0,
             tx_fees_streamed_produced: parent_tx_fees_streamed_produced,
@@ -649,32 +1239,35 @@ impl StacksChainState {
         };
 
         let miner_reward = MinerReward {
-            address: recipient,
+            address: child_address,
+            recipient: child_recipient,
             coinbase: coinbase_reward,
             tx_fees_anchored: tx_fees_anchored,
             tx_fees_streamed_produced: 0,
             tx_fees_streamed_confirmed: tx_fees_streamed_confirmed,
-            vtxindex: miner.vtxindex,
+            vtxindex: participant.vtxindex,
         };
 
         (parent_miner_reward, miner_reward)
     }
 
     /// Find the latest miner reward to mature, assuming that there are mature rewards.
-    /// Returns a list of payments to make to each address -- miners and user-support burners.
-    pub fn find_mature_miner_rewards<'a>(
-        clarity_tx: &mut ClarityTx<'a>,
+    /// Returns a list of payments to make to each address -- miners and user-support burners -- as
+    /// well as an info struct about where the rewards took place on the chain.
+    pub fn find_mature_miner_rewards(
+        clarity_tx: &mut ClarityTx,
+        sortdb_conn: &Connection,
         tip: &StacksHeaderInfo,
         mut latest_matured_miners: Vec<MinerPaymentSchedule>,
         parent_miner: MinerPaymentSchedule,
     ) -> Result<Option<(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>, Error> {
         let mainnet = clarity_tx.config.mainnet;
-        if tip.block_height <= MINER_REWARD_MATURITY {
+        if tip.stacks_block_height <= MINER_REWARD_MATURITY {
             // no mature rewards exist
             return Ok(None);
         }
 
-        let reward_height = tip.block_height - MINER_REWARD_MATURITY;
+        let reward_height = tip.stacks_block_height - MINER_REWARD_MATURITY;
 
         assert!(latest_matured_miners.len() > 0);
         assert!(latest_matured_miners[0].vtxindex == 0);
@@ -688,7 +1281,18 @@ impl StacksChainState {
         let reward_info = MinerRewardInfo {
             from_stacks_block_hash: miner.block_hash.clone(),
             from_block_consensus_hash: miner.consensus_hash.clone(),
+            from_parent_stacks_block_hash: parent_miner.block_hash.clone(),
+            from_parent_block_consensus_hash: parent_miner.consensus_hash.clone(),
         };
+
+        // what epoch was the parent miner's block evaluated in?
+        let parent_evaluated_snapshot =
+            SortitionDB::get_block_snapshot_consensus(sortdb_conn, &parent_miner.consensus_hash)?
+                .expect("FATAL: no snapshot for evaluated block");
+
+        let parent_evaluated_epoch =
+            SortitionDB::get_stacks_epoch(sortdb_conn, parent_evaluated_snapshot.block_height)?
+                .expect("FATAL: no epoch for evaluated block");
 
         // was this block penalized for mining a forked microblock stream?
         // If so, find the principal that detected the poison, and reward them instead.
@@ -709,6 +1313,7 @@ impl StacksChainState {
         // calculate miner reward
         let (parent_miner_reward, miner_reward) = StacksChainState::calculate_miner_reward(
             mainnet,
+            parent_evaluated_epoch.epoch_id,
             &miner,
             &miner,
             &users,
@@ -721,6 +1326,7 @@ impl StacksChainState {
         for user_reward in users.iter() {
             let (parent_reward, reward) = StacksChainState::calculate_miner_reward(
                 mainnet,
+                parent_evaluated_epoch.epoch_id,
                 user_reward,
                 &miner,
                 &users,
@@ -742,16 +1348,18 @@ impl StacksChainState {
 
 #[cfg(test)]
 mod test {
-    use burnchains::*;
-    use chainstate::burn::*;
-    use chainstate::stacks::db::test::*;
-    use chainstate::stacks::index::*;
-    use chainstate::stacks::Error;
-    use chainstate::stacks::*;
-    use util::hash::*;
-    use vm::costs::ExecutionCost;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::db::test::*;
+    use crate::chainstate::stacks::index::*;
+    use crate::chainstate::stacks::Error;
+    use crate::chainstate::stacks::*;
+    use crate::core::StacksEpochId;
+    use clarity::vm::costs::ExecutionCost;
+    use stacks_common::util::hash::*;
 
     use crate::types::chainstate::BurnchainHeaderHash;
+    use clarity::vm::types::StacksAddressExtensions;
 
     use super::*;
 
@@ -765,6 +1373,7 @@ mod test {
     ) -> MinerPaymentSchedule {
         MinerPaymentSchedule {
             address: addr.clone(),
+            recipient: addr.clone().to_account_principal(),
             block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
             parent_block_hash: FIRST_STACKS_BLOCK_HASH.clone(),
@@ -829,7 +1438,7 @@ mod test {
         new_tip.anchored_header.total_work.work =
             parent_header_info.anchored_header.total_work.work + 1;
         new_tip.microblock_tail = None;
-        new_tip.block_height = parent_header_info.block_height + 1;
+        new_tip.stacks_block_height = parent_header_info.stacks_block_height + 1;
         new_tip.consensus_hash = ConsensusHash(
             Hash160::from_data(
                 &Sha512Trunc256Sum::from_data(&parent_header_info.consensus_hash.0).0,
@@ -864,9 +1473,14 @@ mod test {
             new_tip.microblock_tail.clone(),
             &block_reward,
             &user_burns,
+            None,
             &ExecutionCost::zero(),
             123,
             false,
+            vec![],
+            vec![],
+            vec![],
+            parent_header_info.anchored_header.total_work.work + 1,
         )
         .unwrap();
         tx.commit().unwrap();
@@ -875,7 +1489,7 @@ mod test {
 
     #[test]
     fn get_tip_ancestor() {
-        let mut chainstate = instantiate_chainstate(false, 0x80000000, "get_tip_ancestor_test");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
@@ -926,8 +1540,8 @@ mod test {
 
             assert!(ancestor_1.is_some());
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 0); // block 0 is the boot block
-            assert_eq!(ancestor_1.unwrap().block_height, 1);
+            assert_eq!(ancestor_0.unwrap().stacks_block_height, 0); // block 0 is the boot block
+            assert_eq!(ancestor_1.unwrap().stacks_block_height, 1);
         }
 
         let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
@@ -939,18 +1553,17 @@ mod test {
             let ancestor_0 = StacksChainState::get_tip_ancestor(&mut tx, &tip, 0).unwrap();
 
             assert!(ancestor_2.is_some());
-            assert_eq!(ancestor_2.unwrap().block_height, 2);
+            assert_eq!(ancestor_2.unwrap().stacks_block_height, 2);
             assert!(ancestor_1.is_some());
-            assert_eq!(ancestor_1.unwrap().block_height, 1);
+            assert_eq!(ancestor_1.unwrap().stacks_block_height, 1);
             assert!(ancestor_0.is_some());
-            assert_eq!(ancestor_0.unwrap().block_height, 0); // block 0 is the boot block
+            assert_eq!(ancestor_0.unwrap().stacks_block_height, 0); // block 0 is the boot block
         }
     }
 
     #[test]
     fn load_store_miner_payment_schedule() {
-        let mut chainstate =
-            instantiate_chainstate(false, 0x80000000, "load_store_miner_payment_schedule");
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
                 .unwrap();
@@ -1013,6 +1626,57 @@ mod test {
     }
 
     #[test]
+    fn load_store_miner_payment_schedule_pay_contract() {
+        let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+        let miner_1 =
+            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
+                .unwrap();
+
+        let mut miner_reward = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        miner_reward.recipient = PrincipalData::Contract(QualifiedContractIdentifier::transient());
+
+        let initial_tip = StacksHeaderInfo::regtest_genesis();
+
+        let parent_tip = advance_tip(
+            &mut chainstate,
+            &StacksHeaderInfo::regtest_genesis(),
+            &mut miner_reward,
+            &mut vec![],
+        );
+
+        // dummy reward
+        let mut tip_reward = make_dummy_miner_payment_schedule(
+            &StacksAddress {
+                version: 0,
+                bytes: Hash160([0u8; 20]),
+            },
+            0,
+            0,
+            0,
+            0,
+            0,
+        );
+        let tip = advance_tip(&mut chainstate, &parent_tip, &mut tip_reward, &mut vec![]);
+
+        {
+            let mut tx = chainstate.index_tx_begin().unwrap();
+            let payments_0 =
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 0)
+                    .unwrap();
+            let payments_1 =
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 1)
+                    .unwrap();
+            let payments_2 =
+                StacksChainState::get_scheduled_block_rewards_in_fork_at_height(&mut tx, &tip, 2)
+                    .unwrap();
+
+            assert_eq!(payments_0, vec![]);
+            assert_eq!(payments_1, vec![miner_reward]);
+            assert_eq!(payments_2, vec![tip_reward]);
+        };
+    }
+
+    #[test]
     fn miner_reward_one_miner_no_tx_fees_no_users() {
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
@@ -1021,6 +1685,7 @@ mod test {
 
         let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
             false,
+            StacksEpochId::Epoch2_05,
             &participant,
             &participant,
             &vec![],
@@ -1042,6 +1707,45 @@ mod test {
     }
 
     #[test]
+    fn miner_reward_one_miner_no_tx_fees_no_users_pay_contract() {
+        let miner_1 =
+            StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
+                .unwrap();
+        let mut participant = make_dummy_miner_payment_schedule(&miner_1, 500, 0, 0, 1000, 1000);
+        participant.recipient = PrincipalData::Contract(QualifiedContractIdentifier::transient());
+
+        let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
+            false,
+            StacksEpochId::Epoch2_05,
+            &participant,
+            &participant,
+            &vec![],
+            &MinerPaymentSchedule::genesis(true),
+            None,
+        );
+
+        // miner should have received the entire coinbase
+        assert_eq!(miner_reward.coinbase, 500);
+        assert_eq!(miner_reward.tx_fees_anchored, 0);
+        assert_eq!(miner_reward.tx_fees_streamed_produced, 0);
+        assert_eq!(miner_reward.tx_fees_streamed_confirmed, 0);
+        assert_eq!(
+            miner_reward.recipient,
+            PrincipalData::Contract(QualifiedContractIdentifier::transient())
+        );
+
+        // parent gets nothing -- no tx fees
+        assert_eq!(parent_reward.coinbase, 0);
+        assert_eq!(parent_reward.tx_fees_anchored, 0);
+        assert_eq!(parent_reward.tx_fees_streamed_produced, 0);
+        assert_eq!(parent_reward.tx_fees_streamed_confirmed, 0);
+        assert_eq!(
+            parent_reward.recipient,
+            parent_reward.address.to_account_principal()
+        );
+    }
+
+    #[test]
     fn miner_reward_one_miner_one_user_no_tx_fees() {
         let miner_1 =
             StacksAddress::from_string(&"SP1A2K3ENNA6QQ7G8DVJXM24T6QMBDVS7D0TRTAR5".to_string())
@@ -1055,6 +1759,7 @@ mod test {
 
         let (parent_miner_1, reward_miner_1) = StacksChainState::calculate_miner_reward(
             false,
+            StacksEpochId::Epoch2_05,
             &miner,
             &miner,
             &vec![user.clone()],
@@ -1063,6 +1768,7 @@ mod test {
         );
         let (parent_user_1, reward_user_1) = StacksChainState::calculate_miner_reward(
             false,
+            StacksEpochId::Epoch2_05,
             &user,
             &miner,
             &vec![user.clone()],
@@ -1103,6 +1809,7 @@ mod test {
 
         let (parent_reward, miner_reward) = StacksChainState::calculate_miner_reward(
             false,
+            StacksEpochId::Epoch2_05,
             &participant,
             &participant,
             &vec![],

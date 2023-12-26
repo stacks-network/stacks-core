@@ -28,45 +28,46 @@ use rand;
 use rand::thread_rng;
 use rand::Rng;
 
-use burnchains::Burnchain;
-use burnchains::BurnchainView;
-use burnchains::PublicKey;
-use chainstate::burn::db::sortdb;
-use chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
-use chainstate::stacks::db::StacksChainState;
-use chainstate::stacks::StacksPublicKey;
-use monitoring;
-use net::asn::ASEntry4;
-use net::codec::*;
-use net::connection::ConnectionOptions;
-use net::connection::ConnectionP2P;
-use net::connection::ReplyHandleP2P;
-use net::db::PeerDB;
-use net::db::*;
-use net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
-use net::relay::*;
-use net::Error as net_error;
-use net::GetBlocksInv;
-use net::GetPoxInv;
-use net::Neighbor;
-use net::NeighborKey;
-use net::PeerAddress;
-use net::StacksMessage;
-use net::StacksP2P;
-use net::GETPOXINV_MAX_BITLEN;
-use net::*;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainView;
+use crate::burnchains::PublicKey;
+use crate::chainstate::burn::db::sortdb;
+use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB};
+use crate::chainstate::stacks::db::StacksChainState;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::core::PEER_VERSION_EPOCH_2_2;
+use crate::core::PEER_VERSION_EPOCH_2_3;
+use crate::monitoring;
+use crate::net::asn::ASEntry4;
+use crate::net::codec::*;
+use crate::net::connection::ConnectionOptions;
+use crate::net::connection::ConnectionP2P;
+use crate::net::connection::ReplyHandleP2P;
+use crate::net::db::PeerDB;
+use crate::net::db::*;
+use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
+use crate::net::relay::*;
+use crate::net::Error as net_error;
+use crate::net::GetBlocksInv;
+use crate::net::GetPoxInv;
+use crate::net::Neighbor;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::StacksMessage;
+use crate::net::StacksP2P;
+use crate::net::GETPOXINV_MAX_BITLEN;
+use crate::net::*;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use crate::core::StacksEpoch;
 use crate::types::chainstate::PoxId;
-use crate::types::chainstate::StacksBlockHeader;
 use crate::types::StacksPublicKeyBuffer;
-use core::StacksEpoch;
 
 // did we or did we not successfully send a message?
 #[derive(Debug, Clone)]
@@ -87,7 +88,9 @@ impl Default for NeighborHealthPoint {
 pub const NUM_HEALTH_POINTS: usize = 32;
 pub const HEALTH_POINT_LIFETIME: u64 = 12 * 3600; // 12 hours
 
+/// The max number of data points to gather for block/microblock/transaction push messages from a neighbor
 pub const NUM_BLOCK_POINTS: usize = 32;
+/// The number of seconds a block data point is valid for the purpose of computing stats
 pub const BLOCK_POINT_LIFETIME: u64 = 600;
 
 pub const MAX_PEER_HEARTBEAT_INTERVAL: usize = 3600 * 6; // 6 hours
@@ -135,9 +138,9 @@ pub struct NeighborStats {
     pub msgs_err: u64,
     pub healthpoints: VecDeque<NeighborHealthPoint>,
     pub msg_rx_counts: HashMap<StacksMessageID, u64>,
-    pub block_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
-    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
-    pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (count, num bytes)
+    pub block_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    pub microblocks_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
+    pub transaction_push_rx_counts: VecDeque<(u64, u64)>, // (timestamp, num bytes)
     pub relayed_messages: HashMap<NeighborAddress, RelayStats>,
 }
 
@@ -309,7 +312,7 @@ pub struct ConversationP2P {
 
     pub data_url: UrlString, // where does this peer's data live?  Set to a 0-length string if not known.
 
-    // highest block height and consensus hash this peer has seen
+    // highest burnchain block height and burnchain block hash this peer has seen
     pub burnchain_tip_height: u64,
     pub burnchain_tip_burn_header_hash: BurnchainHeaderHash,
     pub burnchain_stable_tip_height: u64,
@@ -380,7 +383,10 @@ impl Neighbor {
         conn: &DBConn,
         handshake_data: &HandshakeData,
     ) -> Result<(), net_error> {
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
         let asn_opt =
             PeerDB::asn_lookup(conn, &handshake_data.addrbytes).map_err(net_error::DBError)?;
 
@@ -408,7 +414,10 @@ impl Neighbor {
         handshake_data: &HandshakeData,
     ) -> Result<Neighbor, net_error> {
         let addr = NeighborKey::from_handshake(peer_version, network_id, handshake_data);
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         let peer_opt = PeerDB::get_peer(conn, network_id, &addr.addrbytes, addr.port)
             .map_err(net_error::DBError)?;
@@ -705,18 +714,30 @@ impl ConversationP2P {
             return true;
         }
 
+        // be a little more permissive with epochs 2.3 and 2.2, because 2.3.0.0.0 shipped with
+        //  PEER_VERSION_MAINNET = 0x18000007 and PEER_VERSION_TESTNET = 0xfacade07
+        if cur_epoch == PEER_VERSION_EPOCH_2_3 && remote_epoch == PEER_VERSION_EPOCH_2_2 {
+            debug!(
+                "Remote peer has epoch {} and current epoch is {}, but we're permissive about 2.2/2.3 boundary",
+                remote_epoch,
+                cur_epoch
+            );
+            return true;
+        }
+
         return false;
     }
 
     /// Validate an inbound message's preamble against our knowledge of the burn chain.
-    /// Return Ok(()) if we can proceed
+    /// Return Ok(true) if we can proceed
+    /// Return Ok(false) if we can't proceed, but the remote peer is not in violation of the protocol
     /// Return Err(net_error::InvalidMessage) if the remote peer returns an invalid message in
     ///     violation of the protocol
     pub fn is_preamble_valid(
         &self,
         msg: &StacksMessage,
         chain_view: &BurnchainView,
-    ) -> Result<(), net_error> {
+    ) -> Result<bool, net_error> {
         if msg.preamble.network_id != self.network_id {
             // not on our network
             debug!(
@@ -781,7 +802,7 @@ impl ConversationP2P {
             return Err(net_error::InvalidMessage);
         }
 
-        Ok(())
+        Ok(true)
     }
 
     /// Get next message sequence number
@@ -1031,7 +1052,10 @@ impl ConversationP2P {
         preamble: &Preamble,
         handshake_data: &HandshakeData,
     ) -> Result<bool, net_error> {
-        let pubk = handshake_data.node_public_key.to_public_key()?;
+        let pubk = handshake_data
+            .node_public_key
+            .to_public_key()
+            .map_err(|e| net_error::DeserializeError(e.into()))?;
 
         self.peer_version = preamble.peer_version;
         self.peer_network_id = preamble.network_id;
@@ -1064,7 +1088,6 @@ impl ConversationP2P {
     /// Handle an inbound NAT-punch request -- just tell the peer what we think their IP/port are.
     /// No authentication from the peer is necessary.
     fn handle_natpunch_request(&self, chain_view: &BurnchainView, nonce: u32) -> StacksMessage {
-        // monitoring::increment_p2p_msg_nat_punch_request_received_counter();
         monitoring::increment_msg_counter("p2p_nat_punch_request".to_string());
 
         let natpunch_data = NatPunchData {
@@ -1429,9 +1452,25 @@ impl ConversationP2P {
         // update cache
         SortitionDB::merge_block_header_cache(header_cache, &block_hashes);
 
-        let blocks_inv_data: BlocksInvData = chainstate
-            .get_blocks_inventory(&block_hashes)
+        let reward_cycle = burnchain
+            .block_height_to_reward_cycle(base_snapshot.block_height)
+            .expect("FATAL: no reward cycle for a valid BlockSnapshot");
+        let blocks_inv_data = chainstate
+            .get_blocks_inventory_for_reward_cycle(burnchain, reward_cycle, &block_hashes)
             .map_err(|e| net_error::from(e))?;
+
+        if cfg!(test) {
+            // make *sure* the behavior stays the same
+            let original_blocks_inv_data: BlocksInvData =
+                chainstate.get_blocks_inventory(&block_hashes)?;
+
+            if original_blocks_inv_data != blocks_inv_data {
+                warn!(
+                    "For reward cycle {}: {:?} != {:?}",
+                    reward_cycle, &original_blocks_inv_data, &blocks_inv_data
+                );
+            }
+        }
 
         Ok(StacksMessageType::BlocksInv(blocks_inv_data))
     }
@@ -1448,7 +1487,6 @@ impl ConversationP2P {
         preamble: &Preamble,
         get_blocks_inv: &GetBlocksInv,
     ) -> Result<ReplyHandleP2P, net_error> {
-        // monitoring::increment_p2p_msg_get_blocks_inv_received_counter();
         monitoring::increment_msg_counter("p2p_get_blocks_inv".to_string());
 
         let mut response = ConversationP2P::make_getblocksinv_response(
@@ -1600,7 +1638,7 @@ impl ConversationP2P {
 
     /// Verify that there are no cycles in our relayers list.
     /// Identify relayers by public key hash
-    fn check_relayer_cycles(relayers: &Vec<RelayData>) -> bool {
+    fn check_relayer_cycles(relayers: &[RelayData]) -> bool {
         let mut addrs = HashSet::new();
         for r in relayers.iter() {
             if addrs.contains(&r.peer.public_key_hash) {
@@ -1612,7 +1650,7 @@ impl ConversationP2P {
     }
 
     /// Verify that we aren't in this relayers list
-    fn check_relayers_remote(local_peer: &LocalPeer, relayers: &Vec<RelayData>) -> bool {
+    fn check_relayers_remote(local_peer: &LocalPeer, relayers: &[RelayData]) -> bool {
         let addr = local_peer.to_neighbor_addr();
         for r in relayers.iter() {
             if r.peer.public_key_hash == addr.public_key_hash {
@@ -1630,7 +1668,7 @@ impl ConversationP2P {
         &mut self,
         local_peer: &LocalPeer,
         preamble: &Preamble,
-        relayers: &Vec<RelayData>,
+        relayers: &[RelayData],
     ) -> bool {
         if !ConversationP2P::check_relayer_cycles(relayers) {
             debug!(
@@ -2012,7 +2050,6 @@ impl ConversationP2P {
         // already have public key; match payload
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                // monitoring::increment_p2p_msg_authenticated_handshake_received_counter();
                 monitoring::increment_msg_counter("p2p_authenticated_handshake".to_string());
 
                 debug!("{:?}: Got Handshake", &self);
@@ -2084,7 +2121,6 @@ impl ConversationP2P {
         let solicited = self.connection.is_solicited(&msg);
         let reply_opt = match msg.payload {
             StacksMessageType::Handshake(_) => {
-                // monitoring::increment_p2p_msg_unauthenticated_handshake_received_counter();
                 monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
                 let (reply_opt, handled) =
@@ -2160,7 +2196,6 @@ impl ConversationP2P {
                     nack_payload,
                 );
 
-                // monitoring::increment_p2p_msg_nack_sent_counter();
                 monitoring::increment_msg_counter("p2p_nack_sent".to_string());
 
                 // unauthenticated, so don't forward it (but do consume it, and do nack it)
@@ -2374,25 +2409,24 @@ mod test {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
 
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::burnchain::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::*;
-    use chainstate::stacks::db::ChainStateBootData;
-    use chainstate::*;
-    use core::*;
-    use net::connection::*;
-    use net::db::*;
-    use net::p2p::*;
-    use net::test::*;
-    use net::*;
-    use util::pipe::*;
-    use util::secp256k1::*;
-    use util::test::*;
-    use util::uint::*;
-    use vm::costs::ExecutionCost;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::burnchain::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::db::ChainStateBootData;
+    use crate::chainstate::*;
+    use crate::core::*;
+    use crate::net::connection::*;
+    use crate::net::db::*;
+    use crate::net::p2p::*;
+    use crate::net::test::*;
+    use crate::net::*;
+    use crate::util_lib::test::*;
+    use clarity::vm::costs::ExecutionCost;
+    use stacks_common::util::pipe::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::uint::*;
 
     use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId};
 
@@ -2441,6 +2475,7 @@ mod test {
             &burnchain.first_block_hash,
             get_epoch_time_secs(),
             &StacksEpoch::unit_test_pre_2_05(burnchain.first_block_height),
+            burnchain.pox_constants.clone(),
             true,
         )
         .unwrap();
@@ -2455,6 +2490,7 @@ mod test {
             network_id,
             &chainstate_path,
             Some(&mut boot_data),
+            None,
         )
         .unwrap();
 
@@ -4270,7 +4306,10 @@ mod test {
                 .unwrap();
 
             // considered valid as long as the stable burn header hash is valid
-            assert_eq!(convo_bad.is_preamble_valid(&ping_bad, &chain_view), Ok(()));
+            assert_eq!(
+                convo_bad.is_preamble_valid(&ping_bad, &chain_view),
+                Ok(true)
+            );
         }
 
         // stable burn header hash mismatch
@@ -4361,7 +4400,10 @@ mod test {
                     StacksMessageType::Ping(ping_data.clone()),
                 )
                 .unwrap();
-            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(()));
+            assert_eq!(
+                convo_bad.is_preamble_valid(&ping_good, &chain_view),
+                Ok(true)
+            );
 
             // give ping a newer epoch than we support
             convo_bad.version = 0x18000006;
@@ -4373,7 +4415,10 @@ mod test {
                 )
                 .unwrap();
             convo_bad.version = 0x18000005;
-            assert_eq!(convo_bad.is_preamble_valid(&ping_good, &chain_view), Ok(()));
+            assert_eq!(
+                convo_bad.is_preamble_valid(&ping_good, &chain_view),
+                Ok(true)
+            );
 
             // give ping an older version, but test with a block in which the ping's version is
             // valid
@@ -4396,7 +4441,7 @@ mod test {
             );
             assert_eq!(
                 convo_bad.is_preamble_valid(&ping_old, &old_chain_view),
-                Ok(())
+                Ok(true)
             );
         }
     }

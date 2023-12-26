@@ -1,4 +1,4 @@
-use deps::ctrlc::platform;
+use crate::deps::ctrlc::platform;
 use std::fmt;
 
 /// Ctrl-C error.

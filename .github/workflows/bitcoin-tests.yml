@@ -1,119 +1,93 @@
-name: stacks-bitcoin-integration-tests
+## Github workflow to run bitcoin tests
 
-# Only run when:
-#   - PRs are opened
+name: Tests::Bitcoin
+
 on:
-  pull_request:
+  workflow_call:
+
+## env vars are transferred to composite action steps
+env:
+  BITCOIND_TEST: 1
+  RUST_BACKTRACE: full
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: 15
+  TEST_TIMEOUT: 30
 
 concurrency:
-  group: stacks-bitcoin-integration-tests-${{ github.ref }}
-  # Only cancel in progress if this is for a PR
+  group: bitcoin-tests-${{ github.head_ref || github.ref || github.run_id}}
+  ## Only cancel in progress if this is for a PR
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  build-integration-image:
+  # Bitcoin integration tests with code coverage
+  integration-tests:
+    name: Integration Tests
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Build bitcoin integration testing image
-        env:
-          DOCKER_BUILDKIT: 1
-        # Remove .dockerignore file so codecov has access to git info
-        run: |
-          rm .dockerignore
-          docker build -f ./.github/actions/bitcoin-int-tests/Dockerfile.generic.bitcoin-tests -t stacks-node:integrations .
-      - name: Export docker image as tarball
-        run: docker save -o integration-image.tar stacks-node:integrations
-      - name: Upload built docker image
-        uses: actions/upload-artifact@v2
-        with:
-          name: integration-image.tar
-          path: integration-image.tar
-  # Run integration tests using sampled genesis block
-  sampled-genesis:
-    runs-on: ubuntu-latest
-    needs:
-      - build-integration-image
     strategy:
+      ## Continue with the test matrix even if we've had a failure
       fail-fast: false
+      ## Run a maximum of 32 concurrent tests from the test matrix
+      max-parallel: 32
       matrix:
         test-name:
-          - tests::neon_integrations::microblock_integration_test
-          - tests::neon_integrations::size_check_integration_test
-          - tests::neon_integrations::cost_voting_integration
-          - tests::integrations::integration_test_get_info
-          - tests::neon_integrations::bitcoind_integration_test
-          - tests::neon_integrations::liquid_ustx_integration
-          - tests::neon_integrations::stx_transfer_btc_integration_test
-          - tests::neon_integrations::bitcoind_forking_test
-          - tests::neon_integrations::should_fix_2771
-          - tests::neon_integrations::pox_integration_test
-          - tests::neon_integrations::mining_events_integration_test
           - tests::bitcoin_regtest::bitcoind_integration_test
-          - tests::should_succeed_handling_malformed_and_valid_txs
+          - tests::integrations::integration_test_get_info
+          - tests::neon_integrations::antientropy_integration_test ## forced failure
+          - tests::neon_integrations::bad_microblock_pubkey
+          - tests::neon_integrations::bitcoind_forking_test
+          - tests::neon_integrations::bitcoind_integration_test
+          - tests::neon_integrations::block_large_tx_integration_test
+          - tests::neon_integrations::block_limit_hit_integration_test
+          - tests::neon_integrations::cost_voting_integration
+          - tests::neon_integrations::filter_long_runtime_tx_integration_test
+          - tests::neon_integrations::filter_low_fee_tx_integration_test
+          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
+          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
+          - tests::neon_integrations::liquid_ustx_integration
+          - tests::neon_integrations::microblock_fork_poison_integration_test
+          - tests::neon_integrations::microblock_integration_test
+          - tests::neon_integrations::microblock_large_tx_integration_test_FLAKY
+          - tests::neon_integrations::microblock_limit_hit_integration_test
+          - tests::neon_integrations::miner_submit_twice
+          - tests::neon_integrations::mining_events_integration_test
+          - tests::neon_integrations::pox_integration_test
+          - tests::neon_integrations::push_boot_receipts
+          - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
+          - tests::neon_integrations::should_fix_2771
+          - tests::neon_integrations::size_check_integration_test
+          - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
           - tests::neon_integrations::size_overflow_unconfirmed_microblocks_integration_test
           - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
-          - tests::neon_integrations::size_overflow_unconfirmed_invalid_stream_microblocks_integration_test
-          - tests::neon_integrations::runtime_overflow_unconfirmed_microblocks_integration_test
-          - tests::neon_integrations::antientropy_integration_test
-          - tests::neon_integrations::filter_low_fee_tx_integration_test
-          - tests::neon_integrations::filter_long_runtime_tx_integration_test
-          - tests::neon_integrations::mining_transactions_is_fair
-          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window5
-          - tests::neon_integrations::fuzzed_median_fee_rate_estimation_test_window10
-          - tests::neon_integrations::use_latest_tip_integration_test
+          - tests::neon_integrations::stx_delegate_btc_integration_test
+          - tests::neon_integrations::stx_transfer_btc_integration_test
+          - tests::neon_integrations::test_chainwork_first_intervals
+          - tests::neon_integrations::test_chainwork_partial_interval
           - tests::neon_integrations::test_flash_block_skip_tenure
-          - tests::epoch_205::test_dynamic_db_method_costs
-          - tests::epoch_205::transition_empty_blocks
-          - tests::epoch_205::test_cost_limit_switch_version205
-          - tests::epoch_205::test_exact_block_costs
-          - tests::epoch_205::bigger_microblock_streams_in_2_05
+          - tests::neon_integrations::test_problematic_blocks_are_not_mined
+          - tests::neon_integrations::test_problematic_blocks_are_not_relayed_or_stored
+          - tests::neon_integrations::test_problematic_microblocks_are_not_mined
+          - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
+          - tests::neon_integrations::test_problematic_txs_are_not_stored
+          - tests::neon_integrations::use_latest_tip_integration_test
+          - tests::should_succeed_handling_malformed_and_valid_txs
     steps:
-      - uses: actions/checkout@v2
-      - name: Download docker image
-        uses: actions/download-artifact@v2
+      ## Setup test environment
+      - name: Setup Test Environment
+        id: setup_tests
+        uses: stacks-network/actions/stacks-core/testenv@main
+
+      ## Run test matrix using restored cache of archive file
+      ##   - Test will timeout after env.TEST_TIMEOUT minutes
+      - name: Run Tests
+        id: run_tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: stacks-network/actions/stacks-core/run-tests@main
         with:
-          name: integration-image.tar
-      - name: Load docker image
-        run: docker load -i integration-image.tar && rm integration-image.tar
-      - name: All integration tests with sampled genesis
-        timeout-minutes: 30
-        env:
-          DOCKER_BUILDKIT: 1
-          TEST_NAME: ${{ matrix.test-name }}
-        run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v2
+          test-name: ${{ matrix.test-name }}
+          threads: 1
+
+      ## Create and upload code coverage file
+      - name: Code Coverage
+        id: codecov
+        uses: stacks-network/actions/codecov@main
         with:
-          files: ./coverage-output/lcov.info
-          name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
-  atlas-test:
-    if: ${{ true }}
-    runs-on: ubuntu-latest
-    needs:
-      - build-integration-image
-    strategy:
-      fail-fast: false
-      matrix:
-        test-name:
-          - tests::neon_integrations::atlas_integration_test
-          - tests::neon_integrations::atlas_stress_integration_test
-    steps:
-      - uses: actions/checkout@v2
-      - name: Download docker image
-        uses: actions/download-artifact@v2
-        with:
-          name: integration-image.tar
-      - name: Load docker image
-        run: docker load -i integration-image.tar && rm integration-image.tar
-      - name: Atlas integration tests
-        timeout-minutes: 40
-        env:
-          DOCKER_BUILDKIT: 1
-          TEST_NAME: ${{ matrix.test-name }}
-        run: docker build -o coverage-output --build-arg test_name=${{ matrix.test-name }} -f ./.github/actions/bitcoin-int-tests/Dockerfile.bitcoin-tests .
-      - uses: codecov/codecov-action@v2
-        with:
-          files: ./coverage-output/lcov.info
-          name: ${{ matrix.test-name }}
-          fail_ci_if_error: true
+          test-name: ${{ matrix.test-name }}

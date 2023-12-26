@@ -5,6 +5,345 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.4.0.0.4]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.3]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.2]
+
+This is a hotfix that changes the logging failure behavior from panicking to dropping
+the log message (PR #3784).
+
+## [2.4.0.0.1]
+
+This is a minor change to add `txid` fields into the log messages from failing
+contract deploys. This will help tools (and users) more easily find the log
+messages to determine what went wrong.
+
+## [2.4.0.0.0]
+This is a **consensus-breaking** release to revert consensus to PoX, and is the second fork proposed in SIP-022.
+
+- [SIP-022](https://github.com/stacksgov/sips/blob/main/sips/sip-022/sip-022-emergency-pox-fix.md)
+- [SIP-024](https://github.com/stacksgov/sips/blob/main/sips/sip-024/sip-024-least-supertype-fix.md)
+
+### Fixed
+- PoX is re-enabled and stacking resumes starting at Bitcoin block `791551`
+- Peer network id is updated to `0x18000009`
+- Adds the type sanitization described in SIP-024
+
+This release is compatible with chainstate directories from 2.1.0.0.x and 2.3.0.0.x
+
+## [2.3.0.0.2]
+
+This is a high-priority hotfix release to address a bug in the
+stacks-node miner logic which could impact miner availability.
+
+This release is compatible with chainstate directories from 2.3.0.0.x and 2.1.0.0.x
+
+## [2.3.0.0.1]
+
+This is a hotfix release to update:
+- peer version identifier used by the stacks-node p2p network.
+- yield interpreter errors in deser_hex
+
+This release is compatible with chainstate directories from 2.3.0.0.x and 2.1.0.0.x
+
+## [2.3.0.0.0]
+
+This is a **consensus-breaking** release to address a Clarity VM bug discovered in 2.2.0.0.1.
+Tx and read-only calls to functions with traits as parameters are rejected with unchecked TypeValueError.
+Additional context and rationale can be found in [SIP-023](https://github.com/stacksgov/sips/blob/main/sips/sip-023/sip-023-emergency-fix-traits.md).
+
+This release is compatible with chainstate directories from 2.1.0.0.x.
+
+## [2.2.0.0.1]
+
+This is a **consensus-breaking** release to address a bug and DoS vector in pox-2's `stack-increase` function.
+Additional context and rationale can be found in [SIP-022](https://github.com/stacksgov/sips/blob/main/sips/sip-022/sip-022-emergency-pox-fix.md).
+
+This release is compatible with chainstate directories from 2.1.0.0.x.
+
+## [2.1.0.0.3]
+
+This is a high-priority hotfix release to address a bug in the
+stacks-node miner logic which could impact miner availability. This
+release's chainstate directory is compatible with chainstate
+directories from 2.1.0.0.2.
+
+## [2.1.0.0.2]
+
+This software update is a hotfix to resolve improper unlock handling
+in mempool admission. This release's chainstate directory is
+compatible with chainstate directories from 2.1.0.0.1.
+
+### Fixed
+
+- Fix mempool admission logic's improper handling of PoX unlocks. This would
+  cause users to get spurious `NotEnoughFunds` rejections when trying to submit
+  their transactions (#3623)
+
+## [2.1.0.0.1]
+
+### Fixed
+
+- Handle the case where a bitcoin node returns zero headers (#3588)
+- The default value for `always_use_affirmation_maps` is now set to `false`,
+  instead of `true`.  This was preventing testnet nodes from reaching the chain
+  tip with the default configuration.
+- Reduce default poll time of the `chain-liveness` thread which reduces the
+  possibility that a miner thread will get interrupted (#3610).
+
+## [2.1]
+
+This is a **consensus-breaking** release that introduces a _lot_ of new
+functionality.  Details on the how and why can be found in [SIP-015](https://github.com/stacksgov/sips/blob/feat/sip-015/sips/sip-015/sip-015-network-upgrade.md),
+[SIP-018](https://github.com/MarvinJanssen/sips/blob/feat/signed-structured-data/sips/sip-018/sip-018-signed-structured-data.md),
+and [SIP-20](https://github.com/obycode/sips/blob/bitwise-ops/sips/sip-020/sip-020-bitwise-ops.md).
+
+The changelog for this release is a high-level summary of these SIPs.
+
+### Added
+
+- There is a new `.pox-2` contract for implementing proof-of-transfer.  This PoX
+  contract enables re-stacking while the user's STX are locked, and incrementing
+the amount stacked on top of a locked batch of STX.
+- The Clarity function `stx-account` has been added, which returns the account's
+  locked and unlocked balances.
+- The Clarity functions `principal-destruct` and `principal-construct?`
+  functions have been added, which provide the means to convert between a
+`principal` instance and the `buff`s and `string-ascii`s that constitute it.
+- The Clarity function `get-burn-block-info?` has been added to support
+  fetching the burnchain header hash of _any_ burnchain block starting from the
+sortition height of the Stacks genesis block, and to support fetching the PoX
+addresses and rewards paid by miners for a particular burnchain block height.
+- The Clarity function `slice` has been added for obtaining a sub-sequence of a
+  `buff`, `string-ascii`, `string-utf8`, or `list`.
+- Clarity functions for converting between `string-ascii`, `string-utf8`,
+  `uint`, and `int` have been added.
+- Clarity functions for converting between big- and little-endian
+`buff`  representations of `int` and `uint` have been added.
+- The Clarity function `stx-transfer-memo?` has been added, which behaves the
+  same as `stx-transfer?` but also takes a memo argument.
+- The Clarity function `is-standard` has been added to identify whether or not a
+  `principal` instance is a standard or contract principal.
+- Clarity functions have been added for converting an arbitrary Clarity type to
+  and from its canonical byte string representation.
+- The Clarity function `replace-at?` has been added for replacing a single item
+  in a `list`, `string-ascii`, `string-utf8`, or `buff`.
+- The Clarity global variable `tx-sponsor?` has been added, which evaluates to
+  the sponsor of the transaction if the transaction is sponsored.
+- The Clarity global variable `chain-id` has been added, which evaluates to the
+  4-byte chain ID of this Stacks network.
+- The Clarity parser has been rewritten to be about 3x faster than the parser in
+  Stacks 2.05.x.x.x.
+- Clarity trait semantics have been refined and made more explicit, so as to
+  avoid certain corner cases where a trait reference might be downgraded to a
+`principal` in Clarity 1.
+  * Trait values can be passed to compatible sub-trait types
+  * Traits can be embedded in compound types, e.g. `(optional <my-trait>)`
+  * Traits can be assigned to a let-variable
+- Fixes to unexpected behavior in traits
+  * A trait with duplicate function names is now an error
+  * Aliased trait names do not interfere with local trait definitions
+- The comparison functions `<`, `<=`, `>`, and `>=` now work on `string-ascii`,
+  `string-utf8`, and `buff` based on byte-by-byte comparison (note that this is
+_not_ lexicographic comparison).
+- It is now possible to call `delegate-stx` from a burnchain transaction, just
+  as it is for `stack-stx` and `transfer-stx`.
+
+### Changed
+
+- The `delegate-stx` function in `.pox-2` can be called while the user's STX are
+  locked.
+- If a batch of STX is not enough to clinch even a single reward slot, then the
+  STX are automatically unlocked at the start of the reward cycle in which they
+are rendered useless in this capacity.
+- The PoX sunset has been removed.  PoX rewards will continue in perpetuity.
+- Support for segwit and taproot addresses (v0 and v1 witness programs) has been
+  added for Stacking.
+- The Clarity function `get-block-info?` now supports querying a block's total
+  burnchain spend by miners who tried to mine it, the spend by the winner, and
+the total block reward (coinbase plus transaction fees).
+- A block's coinbase transaction may specify an alternative recipient principal,
+  which can be either a standard or contract principal.
+- A smart contract transaction can specify which version of Clarity to use.  If
+  no version is given, then the epoch-default version will be used (in Stacks
+2.1, this is Clarity 2).
+- The Stacks node now includes the number of PoX anchor blocks in its
+  fork-choice rules. The best Stacks fork is the fork that (1) is on the best
+Bitcoin fork, (2) has the most PoX anchor blocks known, and (3) is the longest.
+- On-burnchain operations -- `stack-stx`, `delegate-stx`, and `transfer-stx` --
+  can take effect within six (6) burnchain blocks in which they are mined,
+instead of one.
+- Transaction fees are debited from accounts _before_ the transaction is
+  processed.
+- All smart contract analysis errors are now treated as runtime errors, meaning
+  that smart contract transactions which don't pass analysis will still be mined
+(so miners get paid for partially validating them).
+- The default Clarity version is now 2.  Users can opt for version 1 by using
+  the new smart contract transaction wire format and explicitly setting version
+
+### Fixed
+
+- The authorization of a `contract-caller` in `.pox-2` for stacking will now
+  expire at the user-specified height, if given.
+- The Clarity function `principal-of?` now works on mainnet.
+- One or more late block-commits no longer result in the miner losing its
+  sortition weight.
+- Documentation will indicate explicitly which Clarity version introduced each
+  keyword or function. 
+
+## [2.05.0.6.0]
+
+### Changed
+
+- The `/v2/neighbors` endpoint now reports a node's bootstrap peers, so other
+  nodes can find high-quality nodes to boot from (#3401)
+- If there are two or more Stacks chain tips that are tied for the canonical
+  tip, the node deterministically chooses one _independent_ of the arrival order
+(#3419). 
+- If Stacks blocks for a different fork arrive out-of-order and, in doing so,
+  constitute a better fork than the fork the node considers canonical, the node
+will update the canonical Stacks tip pointer in the sortition DB before
+processing the next sortition (#3419).
+
+### Fixed
+
+- The node keychain no longer maintains any internal state, but instead derives
+  keys based on the chain tip the miner is building off of.  This prevents the
+node from accidentally producing an invalid block that reuses a microblock
+public key hash (#3387).
+- If a node mines an invalid block for some reason, it will no longer stall
+  forever.  Instead, it will detect that its last-mined block is not the chain
+tip, and resume mining (#3406).
+
+## [2.05.0.5.0]
+
+### Changed
+
+- The new minimum Rust version is 1.61
+- The act of walking the mempool will now cache address nonces in RAM and to a
+  temporary mempool table used for the purpose, instead of unconditionally
+querying them from the chainstate MARF.  This builds upon improvements to mempool
+goodput over 2.05.0.4.0 (#3337).
+- The node and miner implementation has been refactored to remove write-lock
+  contention that can arise when the node's chains-coordinator thread attempts to store and
+process newly-discovered (or newly-mined) blocks, and when the node's relayer
+thread attempts to mine a new block.  In addition, the miner logic has been
+moved to a separate thread in order to avoid starving the relayer thread (which
+must handle block and transaction propagation, as well as block-processing).
+The refactored miner thread will be preemptively terminated and restarted
+by the arrival of new Stacks blocks or burnchain blocks, which further
+prevents the miner from holding open write-locks in the underlying
+chainstate databases when there is new chain data to discover (which would
+invalidate the miner's work anyway).  (#3335).
+
+### Fixed
+
+- Fixed `pow` documentation in Clarity (#3338).
+- Backported unit tests that were omitted in the 2.05.0.3.0 release (#3348).
+
+## [2.05.0.4.0]
+
+### Fixed
+
+- Denormalize the mempool database so as to remove a `LEFT JOIN` from the SQL
+  query for choosing transactions in order by estimated fee rate.  This
+drastically speeds up mempool transaction iteration in the miner (#3314)
+
+
+## [2.05.0.3.0]
+
+### Added
+
+- Added prometheus output for "transactions in last block" (#3138).
+- Added envrionement variable STACKS_LOG_FORMAT_TIME to set the time format
+  stacks-node uses for logging. (#3219)
+  Example: STACKS_LOG_FORMAT_TIME="%Y-%m-%d %H:%M:%S" cargo stacks-node
+- Added mock-miner sample config (#3225)
+
+### Changed
+
+- Updates to the logging of transaction events (#3139).
+- Moved puppet-chain to `./contrib/tools` directory and disabled compiling by default (#3200)
+
+### Fixed
+
+- Make it so that a new peer private key in the config file will propagate to
+  the peer database (#3165).
+- Fixed default miner behavior regarding block assembly
+  attempts. Previously, the miner would only attempt to assemble a
+  larger block after their first attempt (by Bitcoin RBF) if new
+  microblock or block data arrived. This changes the miner to always
+  attempt a second block assembly (#3184).
+- Fixed a bug in the node whereby the node would encounter a deadlock when
+  processing attachment requests before the P2P thread had started (#3236).
+- Fixed a bug in the P2P state machine whereby it would not absorb all transient errors
+  from sockets, but instead propagate them to the outer caller. This would lead
+  to a node crash in nodes connected to event observers, which expect the P2P
+  state machine to only report fatal errors (#3228)
+- Spawn the p2p thread before processing number of sortitions. Fixes issue (#3216) where sync from genesis paused (#3236)
+- Drop well-formed "problematic" transactions that result in miner performance degradation (#3212)
+- Ignore blocks that include problematic transactions
+
+
+## [2.05.0.2.1]
+
+### Fixed
+- Fixed a security bug in the SPV client whereby the chain work was not being
+  considered at all when determining the canonical Bitcoin fork.  The SPV client
+  now only accepts a new Bitcoin fork if it has a higher chain work than any other
+  previously-seen chain (#3152).
+
+## [2.05.0.2.0]
+
+### IMPORTANT! READ THIS FIRST
+
+Please read the following **WARNINGs** in their entirety before upgrading.
+
+WARNING: Please be aware that using this node on chainstate prior to this release will cause
+the node to spend **up to 30 minutes** migrating the data to a new schema.
+Depending on the storage medium, this may take even longer.
+
+WARNING: This migration process cannot be interrupted. If it is, the chainstate
+will be **irrecovarably corrupted and require a sync from genesis.**
+
+WARNING: You will need **at least 2x the disk space** for the migration to work.
+This is because a copy of the chainstate will be made in the same directory in
+order to apply the new schema.
+
+It is highly recommended that you **back up your chainstate** before running
+this version of the software on it.
+
+### Changed
+- The MARF implementation will now defer calculating the root hash of a new trie
+  until the moment the trie is committed to disk.  This avoids gratuitous hash
+  calculations, and yields a performance improvement of anywhere between 10x and
+  200x (#3041).
+- The MARF implementation will now store tries to an external file for instances
+  where the tries are expected to exceed the SQLite page size (namely, the
+  Clarity database). This improves read performance by a factor of 10x to 14x
+  (#3059).
+- The MARF implementation may now cache trie nodes in RAM if directed to do so
+  by an environment variable (#3042).
+- Sortition processing performance has been improved by about an order of
+  magnitude, by avoiding a slew of expensive database reads (#3045).
+- Updated chains coordinator so that before a Stacks block or a burn block is processed, 
+  an event is sent through the event dispatcher. This fixes #3015. 
+- Expose a node's public key and public key hash160 (i.e. what appears in
+  /v2/neighbors) via the /v2/info API endpoint (#3046)
+- Reduced the default subsequent block attempt timeout from 180 seconds to 30
+  seconds, based on benchmarking the new MARF performance data during a period
+  of network congestion (#3098)
+- The `blockstack-core` binary has been renamed to `stacks-inspect`.
+  This binary provides CLI tools for chain and mempool inspection.
+
 ## [2.05.0.1.0]
 
 ### Added 
@@ -13,8 +352,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   forget past estimates instead of exponential averaging, 2) use weighted
   percentiles, so that bigger transactions influence the estimates more, 3)
   assess empty space in blocks as having paid the "minimum fee", so that empty
-  space is accounted for, 4) use random "fuzz" so that in busy times we will
-  not have ties. (#2972)
+  space is accounted for, 4) use random "fuzz" so that in busy times the fees can
+  change dynamically. (#2972)
 - Implements anti-entropy protocol for querying transactions from other 
   nodes' mempools. Before, nodes wouldn't sync mempool contents with one another.
   (#2884)
@@ -32,6 +371,11 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   this PR adds to represent this data). (#2862)
 - Adds the /v2/data_var endpoint, which returns a contract's data variable 
   value and a MARF proof of its existence. (#2862)
+- Fixed a bug in the unconfirmed state processing logic that could lead to a
+  denial of service (node crash) for nodes that mine microblocks (#2970)
+- Added prometheus metric that tracks block fullness by logging the percentage of each
+  cost dimension that is consumed in a given block (#3025).  
+  
 
 ### Changed
 - Updated the mined block event. It now includes information on transaction 
@@ -63,11 +407,17 @@ half (#2989, #3005).
   burnchain reorg can get stuck, and be rendered unable to process further
 sortitions.  This has never happened in production, but it can be replicated in
 tests (#2989).
+- Updated what indices are created, and ensures that indices are created even 
+  after the database is initialized (#3029).
 
 ### Fixed 
 - Updates the lookup key for contracts in the pessimistic cost estimator. Before, contracts
   published by different principals with the same name would have had the same 
   key in the cost estimator. (#2984)
+- Fixed a few prometheus metrics to be more accurate compared to `/v2` endpoints 
+  when polling data (#2987)
+- Fixed an error message from the type-checker that shows up when the type of a
+  parameter refers to a trait defined in the same contract (#3064).
 
 ## [2.05.0.0.0]
 

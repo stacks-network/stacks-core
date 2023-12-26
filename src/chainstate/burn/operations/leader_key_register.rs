@@ -16,31 +16,31 @@
 
 use std::io::{Read, Write};
 
-use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::chainstate::StacksAddress;
-use crate::types::proof::TrieHash;
-use address::AddressHashMode;
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainBlockHeader;
-use burnchains::BurnchainTransaction;
-use burnchains::PublicKey;
-use burnchains::Txid;
-use chainstate::burn::db::sortdb::SortitionHandleTx;
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::{
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::BurnchainTransaction;
+use crate::burnchains::PublicKey;
+use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::{
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
 };
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-use chainstate::stacks::StacksPrivateKey;
-use chainstate::stacks::StacksPublicKey;
-use net::Error as net_error;
-use util::db::DBConn;
-use util::db::DBTx;
-use util::hash::DoubleSha256;
-use util::log;
-use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::StacksPrivateKey;
+use crate::chainstate::stacks::StacksPublicKey;
+use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use crate::net::Error as net_error;
+use crate::types::chainstate::StacksAddress;
+use crate::types::chainstate::TrieHash;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::DBTx;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::DoubleSha256;
+use stacks_common::util::log;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 use crate::types::chainstate::BlockHeaderHash;
 use crate::types::chainstate::BurnchainHeaderHash;
@@ -53,11 +53,10 @@ pub struct ParsedData {
 
 impl LeaderKeyRegisterOp {
     #[cfg(test)]
-    pub fn new(sender: &StacksAddress, public_key: &VRFPublicKey) -> LeaderKeyRegisterOp {
+    pub fn new(public_key: &VRFPublicKey) -> LeaderKeyRegisterOp {
         LeaderKeyRegisterOp {
             public_key: public_key.clone(),
             memo: vec![],
-            address: sender.clone(),
 
             // will be filled in
             consensus_hash: ConsensusHash([0u8; 20]),
@@ -70,28 +69,12 @@ impl LeaderKeyRegisterOp {
 
     #[cfg(test)]
     pub fn new_from_secrets(
-        privks: &Vec<StacksPrivateKey>,
         num_sigs: u16,
         hash_mode: &AddressHashMode,
         prover_key: &VRFPrivateKey,
     ) -> Option<LeaderKeyRegisterOp> {
-        let pubks = privks
-            .iter()
-            .map(|ref pk| StacksPublicKey::from_private(pk))
-            .collect();
-        let addr = match StacksAddress::from_public_keys(
-            hash_mode.to_version_testnet(),
-            hash_mode,
-            num_sigs as usize,
-            &pubks,
-        ) {
-            Some(a) => a,
-            None => {
-                return None;
-            }
-        };
         let prover_pubk = VRFPublicKey::from_private(prover_key);
-        Some(LeaderKeyRegisterOp::new(&addr, &prover_pubk))
+        Some(LeaderKeyRegisterOp::new(&prover_pubk))
     }
 
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
@@ -140,23 +123,23 @@ impl LeaderKeyRegisterOp {
         tx: &BurnchainTransaction,
     ) -> Result<LeaderKeyRegisterOp, op_error> {
         // can't be too careful...
-        let inputs = tx.get_signers();
-        let outputs = tx.get_recipients();
+        let num_inputs = tx.num_signers();
+        let num_outputs = tx.num_recipients();
 
-        if inputs.len() == 0 {
+        if num_inputs == 0 {
             test_debug!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
-                outputs.len()
+                num_inputs,
+                num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() < 1 {
+        if num_outputs < 1 {
             test_debug!(
                 "Invalid tx: inputs: {}, outputs: {}",
-                inputs.len(),
-                outputs.len()
+                num_inputs,
+                num_outputs
             );
             return Err(op_error::InvalidInput);
         }
@@ -174,13 +157,10 @@ impl LeaderKeyRegisterOp {
             }
         };
 
-        let address = outputs[0].address.clone();
-
         Ok(LeaderKeyRegisterOp {
             consensus_hash: data.consensus_hash,
             public_key: data.public_key,
             memo: data.memo,
-            address: address,
 
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
@@ -253,21 +233,24 @@ impl LeaderKeyRegisterOp {
 
 #[cfg(test)]
 pub mod tests {
-    use burnchains::bitcoin::address::BitcoinAddress;
-    use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::BitcoinNetworkType;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::operations::{
+    use crate::burnchains::bitcoin::address::BitcoinAddress;
+    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::BitcoinNetworkType;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
     };
-    use chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::serialize::deserialize;
-    use util::get_epoch_time_secs;
-    use util::hash::{hex_bytes, to_hex};
-    use util::log;
+    use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::index::TrieHashExtension;
+    use crate::core::StacksEpochId;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::{hex_bytes, to_hex};
+    use stacks_common::util::log;
 
     use crate::types::chainstate::SortitionId;
 
@@ -303,7 +286,6 @@ pub mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
 
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
                     vtxindex: vtxindex,
@@ -318,7 +300,6 @@ pub mod tests {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
                     memo: vec![],
-                    address: StacksAddress::from_bitcoin_address(&BitcoinAddress::from_scriptpubkey(BitcoinNetworkType::Testnet, &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap()).unwrap()),
 
                     txid: Txid::from_bytes_be(&hex_bytes("2fbf8d5be32dce49790d203ba59acbb0929d5243413174ff5d26a5c6f23dea65").unwrap()).unwrap(),
                     vtxindex: vtxindex,
@@ -384,8 +365,11 @@ pub mod tests {
                     timestamp: get_epoch_time_secs(),
                 },
             };
-            let burnchain_tx =
-                BurnchainTransaction::Bitcoin(parser.parse_tx(&tx, vtxindex as usize).unwrap());
+            let burnchain_tx = BurnchainTransaction::Bitcoin(
+                parser
+                    .parse_tx(&tx, vtxindex as usize, StacksEpochId::Epoch2_05)
+                    .unwrap(),
+            );
             let op = LeaderKeyRegisterOp::from_tx(&header, &burnchain_tx);
 
             match (op, tx_fixture.result) {
@@ -509,13 +493,6 @@ pub mod tests {
             )
             .unwrap(),
             memo: vec![01, 02, 03, 04, 05],
-            address: StacksAddress::from_bitcoin_address(
-                &BitcoinAddress::from_scriptpubkey(
-                    BitcoinNetworkType::Testnet,
-                    &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac").unwrap(),
-                )
-                .unwrap(),
-            ),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -612,6 +589,7 @@ pub mod tests {
                     canonical_stacks_tip_height: 0,
                     canonical_stacks_tip_hash: BlockHeaderHash([0u8; 32]),
                     canonical_stacks_tip_consensus_hash: ConsensusHash([0u8; 20]),
+                    ..BlockSnapshot::initial(0, &first_burn_hash, 0)
                 };
                 let mut tx =
                     SortitionHandleTx::begin(&mut db, &prev_snapshot.sortition_id).unwrap();
@@ -651,14 +629,6 @@ pub mod tests {
                     )
                     .unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(
-                        &BitcoinAddress::from_scriptpubkey(
-                            BitcoinNetworkType::Testnet,
-                            &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac")
-                                .unwrap(),
-                        )
-                        .unwrap(),
-                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -688,14 +658,6 @@ pub mod tests {
                     )
                     .unwrap(),
                     memo: vec![01, 02, 03, 04, 05],
-                    address: StacksAddress::from_bitcoin_address(
-                        &BitcoinAddress::from_scriptpubkey(
-                            BitcoinNetworkType::Testnet,
-                            &hex_bytes("76a9140be3e286a15ea85882761618e366586b5574100d88ac")
-                                .unwrap(),
-                        )
-                        .unwrap(),
-                    ),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(

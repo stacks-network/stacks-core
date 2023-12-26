@@ -1,0 +1,17 @@
+FROM rust:bullseye
+
+WORKDIR /src
+
+COPY . .
+
+RUN cargo test --no-run --workspace
+
+RUN cd / && wget https://bitcoin.org/bin/bitcoin-core-0.20.0/bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
+RUN cd / && tar -xvzf bitcoin-0.20.0-x86_64-linux-gnu.tar.gz
+
+RUN ln -s /bitcoin-0.20.0/bin/bitcoind /bin/
+
+ENV BITCOIND_TEST 1
+WORKDIR /src/testnet/stacks-node
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::atlas_integration_test
+RUN cargo test -- --test-threads 1 --ignored tests::neon_integrations::atlas_stress_integration_test

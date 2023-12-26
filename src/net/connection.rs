@@ -36,38 +36,38 @@ use mio::net as mio_net;
 
 use crate::codec::StacksMessageCodec;
 use crate::codec::MAX_MESSAGE_LEN;
-use core::mempool::MAX_BLOOM_COUNTER_TXS;
-use net::codec::*;
-use net::Error as net_error;
-use net::HttpRequestPreamble;
-use net::HttpResponsePreamble;
-use net::MessageSequence;
-use net::PeerAddress;
-use net::Preamble;
-use net::ProtocolFamily;
-use net::RelayData;
-use net::StacksHttp;
-use net::StacksP2P;
+use crate::core::mempool::MAX_BLOOM_COUNTER_TXS;
+use crate::net::codec::*;
+use crate::net::Error as net_error;
+use crate::net::HttpRequestPreamble;
+use crate::net::HttpResponsePreamble;
+use crate::net::MessageSequence;
+use crate::net::PeerAddress;
+use crate::net::Preamble;
+use crate::net::ProtocolFamily;
+use crate::net::RelayData;
+use crate::net::StacksHttp;
+use crate::net::StacksP2P;
 
-use net::download::BLOCK_DOWNLOAD_INTERVAL;
-use net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
-use net::neighbors::{
+use crate::net::download::BLOCK_DOWNLOAD_INTERVAL;
+use crate::net::inv::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
+use crate::net::neighbors::{
     NEIGHBOR_REQUEST_TIMEOUT, NEIGHBOR_WALK_INTERVAL, NUM_INITIAL_WALKS, WALK_MAX_DURATION,
     WALK_MIN_DURATION, WALK_RESET_INTERVAL, WALK_RESET_PROB, WALK_RETRY_COUNT, WALK_STATE_TIMEOUT,
 };
 
-use vm::{costs::ExecutionCost, types::BOUND_VALUE_SERIALIZATION_HEX};
+use clarity::vm::{costs::ExecutionCost, types::BOUND_VALUE_SERIALIZATION_HEX};
 
-use chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::ConsensusHash;
 
-use util::get_epoch_time_secs;
-use util::hash::to_hex;
-use util::log;
-use util::pipe::*;
-use util::secp256k1::Secp256k1PublicKey;
-use util::sleep_ms;
+use stacks_common::util::get_epoch_time_secs;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::pipe::*;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
 
-use monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
+use crate::monitoring::{update_inbound_bandwidth, update_outbound_bandwidth};
 
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
@@ -1396,25 +1396,25 @@ pub type ReplyHandleHttp = NetworkReplyHandle<StacksHttp>;
 #[cfg(test)]
 mod test {
     use super::*;
-    use net::*;
+    use crate::net::*;
     use rand;
     use rand::RngCore;
+    use stacks_common::util::pipe::*;
+    use stacks_common::util::secp256k1::*;
+    use stacks_common::util::*;
     use std::io;
     use std::io::prelude::*;
     use std::io::{Read, Write};
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use util::pipe::*;
-    use util::secp256k1::*;
-    use util::*;
 
-    use net::test::make_tcp_sockets;
-    use net::test::NetCursor;
+    use crate::net::test::make_tcp_sockets;
+    use crate::net::test::NetCursor;
 
-    use chainstate::stacks::test::make_codec_test_block;
-    use net::http::*;
+    use crate::chainstate::stacks::test::make_codec_test_block;
+    use crate::net::http::*;
 
-    use util::test::*;
+    use crate::util_lib::test::*;
 
     fn test_connection_relay_producer_consumer<P, F>(
         mut protocol: P,

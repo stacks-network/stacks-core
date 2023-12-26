@@ -14,6 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use util::secp256k1;
+use stacks_common::util::secp256k1;
 
 pub type BitcoinPublicKey = secp256k1::Secp256k1PublicKey;

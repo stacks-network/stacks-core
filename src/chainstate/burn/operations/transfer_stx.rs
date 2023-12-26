@@ -16,27 +16,29 @@
 
 use std::io::{Read, Write};
 
+use crate::burnchains::Address;
+use crate::burnchains::Burnchain;
+use crate::burnchains::BurnchainBlockHeader;
+use crate::burnchains::BurnchainRecipient;
+use crate::burnchains::Txid;
+use crate::burnchains::{BurnchainTransaction, PublicKey};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
+use crate::chainstate::burn::operations::Error as op_error;
+use crate::chainstate::burn::operations::{
+    parse_u128_from_be, BlockstackOperationType, TransferStxOp,
+};
+use crate::chainstate::burn::ConsensusHash;
+use crate::chainstate::burn::Opcodes;
+use crate::chainstate::stacks::index::storage::TrieFileStorage;
+use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
 use crate::codec::{write_next, Error as codec_error, StacksMessageCodec};
-use crate::types::proof::TrieHash;
-use address::AddressHashMode;
-use burnchains::Address;
-use burnchains::Burnchain;
-use burnchains::BurnchainBlockHeader;
-use burnchains::Txid;
-use burnchains::{BurnchainRecipient, BurnchainSigner};
-use burnchains::{BurnchainTransaction, PublicKey};
-use chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
-use chainstate::burn::operations::Error as op_error;
-use chainstate::burn::operations::{parse_u128_from_be, BlockstackOperationType, TransferStxOp};
-use chainstate::burn::ConsensusHash;
-use chainstate::burn::Opcodes;
-use chainstate::stacks::index::storage::TrieFileStorage;
-use chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
-use core::POX_MAX_NUM_CYCLES;
-use net::Error as net_error;
-use util::hash::to_hex;
-use util::log;
-use util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
+use crate::core::POX_MAX_NUM_CYCLES;
+use crate::net::Error as net_error;
+use crate::types::chainstate::TrieHash;
+use stacks_common::address::AddressHashMode;
+use stacks_common::util::hash::to_hex;
+use stacks_common::util::log;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
 use crate::types::chainstate::VRFSeed;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksAddress};
@@ -140,7 +142,7 @@ impl TransferStxOp {
         )
     }
 
-    /// parse a StackStxOp
+    /// parse a TransferStxOp
     pub fn parse_from_tx(
         block_height: u64,
         block_hash: &BurnchainHeaderHash,
@@ -148,22 +150,22 @@ impl TransferStxOp {
         sender: &StacksAddress,
     ) -> Result<TransferStxOp, op_error> {
         // can't be too careful...
-        let outputs = tx.get_recipients();
+        let num_outputs = tx.num_recipients();
 
         if tx.num_signers() == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
-                outputs.len()
+                num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
 
-        if outputs.len() == 0 {
+        if num_outputs == 0 {
             warn!(
                 "Invalid tx: inputs: {}, outputs: {}",
                 tx.num_signers(),
-                outputs.len()
+                num_outputs,
             );
             return Err(op_error::InvalidInput);
         }
@@ -178,9 +180,26 @@ impl TransferStxOp {
             op_error::ParseError
         })?;
 
+        let outputs = tx.get_recipients();
+        assert!(outputs.len() > 0);
+
+        let output = outputs[0]
+            .as_ref()
+            .ok_or_else(|| {
+                warn!("Invalid tx: could not decode the first output");
+                op_error::InvalidInput
+            })?
+            .address
+            .clone()
+            .try_into_stacks_address()
+            .ok_or_else(|| {
+                warn!("Invalid tx: output must be representable as a StacksAddress");
+                op_error::InvalidInput
+            })?;
+
         Ok(TransferStxOp {
             sender: sender.clone(),
-            recipient: outputs[0].address,
+            recipient: output,
             transfered_ustx: data.transfered_ustx,
             memo: data.memo,
             txid: tx.txid(),
@@ -226,23 +245,24 @@ impl TransferStxOp {
 
 #[cfg(test)]
 mod tests {
-    use address::AddressHashMode;
-    use burnchains::bitcoin::address::*;
-    use burnchains::bitcoin::blocks::BitcoinBlockParser;
-    use burnchains::bitcoin::keys::BitcoinPublicKey;
-    use burnchains::bitcoin::*;
-    use burnchains::*;
-    use chainstate::burn::db::sortdb::*;
-    use chainstate::burn::db::*;
-    use chainstate::burn::operations::*;
-    use chainstate::burn::ConsensusHash;
-    use chainstate::burn::*;
-    use chainstate::stacks::StacksPublicKey;
-    use deps::bitcoin::blockdata::transaction::Transaction;
-    use deps::bitcoin::network::serialize::{deserialize, serialize_hex};
-    use util::get_epoch_time_secs;
-    use util::hash::*;
-    use util::vrf::VRFPublicKey;
+    use crate::burnchains::bitcoin::address::*;
+    use crate::burnchains::bitcoin::blocks::BitcoinBlockParser;
+    use crate::burnchains::bitcoin::keys::BitcoinPublicKey;
+    use crate::burnchains::bitcoin::*;
+    use crate::burnchains::*;
+    use crate::chainstate::burn::db::sortdb::*;
+    use crate::chainstate::burn::db::*;
+    use crate::chainstate::burn::operations::*;
+    use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::burn::*;
+    use crate::chainstate::stacks::address::StacksAddressExtensions;
+    use crate::chainstate::stacks::StacksPublicKey;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction;
+    use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
+    use stacks_common::util::get_epoch_time_secs;
+    use stacks_common::util::hash::*;
+    use stacks_common::util::vrf::VRFPublicKey;
 
     use crate::types::chainstate::StacksAddress;
     use crate::types::chainstate::{BlockHeaderHash, VRFSeed};
@@ -257,36 +277,37 @@ mod tests {
             opcode: Opcodes::TransferStx as u8,
             data: vec![1; 77],
             data_amt: 0,
-            inputs: vec![BitcoinTxInput {
+            inputs: vec![BitcoinTxInputStructured {
                 keys: vec![],
                 num_required: 0,
                 in_type: BitcoinInputType::Standard,
                 tx_ref: (Txid([0; 32]), 0),
-            }],
+            }
+            .into()],
             outputs: vec![
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([1; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 10,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([2; 20]),
-                    },
+                    }),
                 },
                 BitcoinTxOutput {
                     units: 30,
-                    address: BitcoinAddress {
-                        addrtype: BitcoinAddressType::PublicKeyHash,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
                         network_id: BitcoinNetworkType::Mainnet,
                         bytes: Hash160([0; 20]),
-                    },
+                    }),
                 },
             ],
         };
@@ -306,7 +327,9 @@ mod tests {
         assert_eq!(&op.sender, &sender);
         assert_eq!(
             &op.recipient,
-            &StacksAddress::from_bitcoin_address(&tx.outputs[0].address)
+            &StacksAddress::from_legacy_bitcoin_address(
+                &tx.outputs[0].address.clone().expect_legacy()
+            )
         );
         assert_eq!(op.transfered_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.memo, vec![1; 61]);

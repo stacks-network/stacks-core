@@ -1,0 +1,24 @@
+FROM --platform=${TARGETPLATFORM} alpine as builder
+# Use a small image to download and extract the release archive
+
+ARG TAG
+ARG BIN_ARCH
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG REPO=stacks-network/stacks-core
+
+RUN case ${TARGETARCH} in \
+    "amd64")  BIN_ARCH=linux-musl-x64  ;; \
+    "arm64")  BIN_ARCH=linux-musl-arm64  ;; \
+    "arm")  BIN_ARCH=linux-musl-armv7  ;; \
+    "*") exit 1 ;; \
+    esac \
+    && echo "wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip" \
+    && wget  -q https://github.com/${REPO}/releases/download/${TAG}/${BIN_ARCH}.zip -O /${BIN_ARCH}.zip \
+    && unzip ${BIN_ARCH}.zip -d /out
+
+FROM --platform=${TARGETPLATFORM} debian:bullseye
+COPY --from=builder /out/stacks-node /bin/
+CMD ["stacks-node", "mainnet"]

@@ -1,0 +1,226 @@
+## The main Github Actions workflow
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+      - next
+    paths-ignore:
+      - "**.md"
+      - "**.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The tag to create (optional)"
+        required: false
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+    paths-ignore:
+      - "**.md"
+      - "**.yml"
+    ## might be better to use inclusive v exclusive paths here, ex:
+    # paths:
+    #   - "**.rs"
+    #   - "**.clar"
+  pull_request_review:
+    types:
+      - submitted
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref || github.run_id }}
+  ## Always cancel duplicate jobs
+  cancel-in-progress: true
+
+run-name: ${{ inputs.tag }}
+
+jobs:
+  ##
+  ## Jobs to execute everytime workflow runs
+  ##   do not run if the trigger is any of the following:
+  ##   - PR review submitted (not approved)
+  ##   and any of:
+  ##     - PR review comment
+  ##     - PR change is requested
+  rustfmt:
+    if: |
+      !(
+        github.event_name == 'pull_request_review' && 
+        github.event.action == 'submitted' && 
+        (
+          github.event.review.state == 'commented' ||
+          github.event.review.state == 'changes_requested'
+        )
+      )
+    name: Rust Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the latest code
+        id: git_checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Setup Rust Toolchain
+        id: setup_rust_toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@f3c84ee10bf5a86e7a5d607d487bf17d57670965 # v1.5.0
+        with:
+          components: rustfmt
+          cache: false
+
+      - name: Rustfmt
+        id: rustfmt
+        uses: actions-rust-lang/rustfmt@2d1d4e9f72379428552fa1def0b898733fb8472d # v1.1.0
+
+  ######################################################################################
+  ## Create a tagged github release
+  ##
+  ## Runs when the following is true:
+  ##  - tag is provided
+  ##  - workflow is building default branch (master)
+  create-release:
+    if: |
+      inputs.tag != '' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    name: Create Release
+    needs:
+      - rustfmt
+    uses: ./.github/workflows/github-release.yml
+    with:
+      tag: ${{ inputs.tag }}
+    secrets: inherit
+
+  ## Build and push Debian image built from source
+  ##
+  ## Runs when:
+  ##   - tag is not provided
+  ##   and the following are not true:
+  ##     - PR review submitted (not approved)
+  ##     and any of:
+  ##       - PR review comment
+  ##       - PR change is requested
+  docker-image:
+    if: |
+      inputs.tag == '' &&
+      !(
+        github.event_name == 'pull_request_review' &&
+        github.event.action == 'submitted' &&
+        (
+          github.event.review.state == 'commented' ||
+          github.event.review.state == 'changes_requested'
+        )
+      )
+    name: Docker Image (Source)
+    uses: ./.github/workflows/image-build-source.yml
+    needs:
+      - rustfmt
+    secrets: inherit
+
+  ## Create a reusable cache for tests
+  ##
+  ## Runs when:
+  ##   - tag is provided
+  ##   or:
+  ##     - no tag provided
+  ##       and any of:
+  ##         - PR is approved (any approval will trigger)
+  ##         - this workflow is called manually
+  ##         - PR is opened
+  ##         - commit to either (development, master) branch
+  create-cache:
+    if: |
+      inputs.tag != '' || (
+        inputs.tag == '' && (
+          (
+            github.event_name == 'pull_request_review' &&
+            github.event.action == 'submitted' &&
+            github.event.review.state == 'approved'
+          ) ||
+          github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'pull_request' ||
+          (
+            contains('
+              refs/heads/master
+              refs/heads/develop
+              refs/heads/next
+            ', github.event.pull_request.head.ref) &&
+            github.event_name == 'push'
+          )
+        )
+      )
+    name: Create Test Cache
+    needs:
+      - rustfmt
+    uses: ./.github/workflows/create-cache.yml
+
+  ## Tests to run regularly
+  ##
+  ## Runs when:
+  ##   - tag is provided
+  ##   either or of the following:
+  ##     - tag is not provided
+  ##     - PR is approved
+  stacks-core-tests:
+    if: |
+      inputs.tag != '' || (
+        inputs.tag == '' || (
+          github.event_name == 'pull_request_review' &&
+          github.event.action == 'submitted' &&
+          github.event.review.state == 'approved'
+        )
+      )
+    name: Stacks Core Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: ./.github/workflows/stacks-core-tests.yml
+
+  bitcoin-tests:
+    if: |
+      inputs.tag != '' || (
+        inputs.tag == '' || (
+          github.event_name == 'pull_request_review' &&
+          github.event.action == 'submitted' &&
+          github.event.review.state == 'approved'
+        )
+      )
+    name: Bitcoin Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: ./.github/workflows/bitcoin-tests.yml
+
+  ## Test to run on a tagged release
+  ##
+  ## Runs when:
+  ##   - tag is provided
+  atlas-tests:
+    if: inputs.tag != ''
+    name: Atlas Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: ./.github/workflows/atlas-tests.yml
+
+  epoch-tests:
+    if: inputs.tag != ''
+    name: Epoch Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: ./.github/workflows/epoch-tests.yml
+
+  slow-tests:
+    if: inputs.tag != ''
+    name: Slow Tests
+    needs:
+      - rustfmt
+      - create-cache
+    uses: ./.github/workflows/slow-tests.yml

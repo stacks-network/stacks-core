@@ -25,42 +25,44 @@ use std::convert::From;
 use std::convert::TryFrom;
 use std::fs;
 
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate;
-use util::db::DBConn;
-use util::db::Error as db_error;
-use util::db::{query_count, query_row, query_rows, u64_to_sql, FromColumn, FromRow};
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::tx_begin_immediate;
+use crate::util_lib::db::DBConn;
+use crate::util_lib::db::Error as db_error;
+use crate::util_lib::db::{query_count, query_row, query_rows, u64_to_sql, FromColumn, FromRow};
 
-use util;
-use util::hash::{bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
-use util::log;
-use util::macros::is_big_endian;
-use util::secp256k1::Secp256k1PrivateKey;
-use util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util;
+use stacks_common::util::hash::{
+    bin_bytes, hex_bytes, to_bin, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum,
+};
+use stacks_common::util::log;
+use stacks_common::util::macros::is_big_endian;
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
-use util::db::tx_busy_handler;
+use crate::util_lib::db::tx_busy_handler;
 
-use chainstate::stacks::StacksPrivateKey;
-use chainstate::stacks::StacksPublicKey;
+use crate::chainstate::stacks::StacksPrivateKey;
+use crate::chainstate::stacks::StacksPublicKey;
 
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::Rng;
 use rand::RngCore;
 
-use net::asn::ASEntry4;
-use net::Neighbor;
-use net::NeighborAddress;
-use net::NeighborKey;
-use net::PeerAddress;
-use net::ServiceFlags;
+use crate::net::asn::ASEntry4;
+use crate::net::Neighbor;
+use crate::net::NeighborAddress;
+use crate::net::NeighborKey;
+use crate::net::PeerAddress;
+use crate::net::ServiceFlags;
 
-use burnchains::PrivateKey;
-use burnchains::PublicKey;
+use crate::burnchains::PrivateKey;
+use crate::burnchains::PublicKey;
 
-use core::NETWORK_P2P_PORT;
+use crate::core::NETWORK_P2P_PORT;
 
-use util::strings::UrlString;
+use crate::util_lib::strings::UrlString;
 
 pub const PEERDB_VERSION: &'static str = "1";
 
@@ -323,7 +325,6 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
 
         PRIMARY KEY(slot)
     );"#,
-    "CREATE INDEX peer_address_index ON frontier(network_id,addrbytes,port);",
     r#"
     CREATE TABLE asn4(
         prefix INTEGER NOT NULL,
@@ -358,6 +359,9 @@ const PEERDB_INITIAL_SCHEMA: &'static [&'static str] = &[
         mask INTEGER NOT NULL
     );"#,
 ];
+
+const PEERDB_INDEXES: &'static [&'static str] =
+    &["CREATE INDEX IF NOT EXISTS peer_address_index ON frontier(network_id,addrbytes,port);"];
 
 #[derive(Debug)]
 pub struct PeerDB {
@@ -439,6 +443,16 @@ impl PeerDB {
 
         tx.commit().map_err(db_error::SqliteError)?;
 
+        self.add_indexes()?;
+        Ok(())
+    }
+
+    fn add_indexes(&mut self) -> Result<(), db_error> {
+        let tx = self.tx_begin()?;
+        for row_text in PEERDB_INDEXES {
+            tx.execute_batch(row_text).map_err(db_error::SqliteError)?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -470,7 +484,7 @@ impl PeerDB {
     }
 
     fn reset_allows<'a>(tx: &mut Transaction<'a>) -> Result<(), db_error> {
-        tx.execute("UPDATE frontier SET allowed = -1", NO_PARAMS)
+        tx.execute("UPDATE frontier SET allowed = 0", NO_PARAMS)
             .map_err(db_error::SqliteError)?;
         Ok(())
     }
@@ -573,6 +587,9 @@ impl PeerDB {
                 PeerDB::refresh_allows(&mut tx)?;
                 PeerDB::refresh_denies(&mut tx)?;
                 PeerDB::clear_initial_peers(&mut tx)?;
+                if let Some(privkey) = privkey_opt {
+                    PeerDB::set_local_private_key(&mut tx, &privkey, key_expires)?;
+                }
 
                 if let Some(neighbors) = initial_neighbors {
                     for neighbor in neighbors {
@@ -587,6 +604,9 @@ impl PeerDB {
 
                 tx.commit()?;
             }
+        }
+        if readwrite {
+            db.add_indexes()?;
         }
         Ok(db)
     }
@@ -1398,9 +1418,9 @@ impl PeerDB {
 #[cfg(test)]
 mod test {
     use super::*;
-    use net::Neighbor;
-    use net::NeighborKey;
-    use net::PeerAddress;
+    use crate::net::Neighbor;
+    use crate::net::NeighborKey;
+    use crate::net::PeerAddress;
 
     #[test]
     fn test_local_peer() {
@@ -2305,7 +2325,71 @@ mod test {
         assert_eq!(n1.denied, i64::MAX);
         assert_eq!(n2.denied, 0); // refreshed; no longer denied
 
-        assert_eq!(n1.allowed, -1);
-        assert_eq!(n2.allowed, -1);
+        assert_eq!(n1.allowed, 0);
+        assert_eq!(n2.allowed, 0);
+    }
+
+    #[test]
+    fn test_connect_new_key() {
+        let key1 = Secp256k1PrivateKey::new();
+        let key2 = Secp256k1PrivateKey::new();
+
+        let path = "/tmp/test-connect-new-key.db".to_string();
+        if fs::metadata(&path).is_ok() {
+            fs::remove_file(&path).unwrap();
+        }
+
+        let db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            Some(key1.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+        )
+        .unwrap();
+        let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
+        assert_eq!(local_peer.private_key, key1);
+
+        assert!(fs::metadata(&path).is_ok());
+
+        let db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            None,
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+        )
+        .unwrap();
+        let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
+        assert_eq!(local_peer.private_key, key1);
+
+        let db = PeerDB::connect(
+            &path,
+            true,
+            0x80000000,
+            0,
+            Some(key2.clone()),
+            i64::MAX as u64,
+            PeerAddress::from_ipv4(127, 0, 0, 1),
+            12345,
+            UrlString::try_from("http://foo.com").unwrap(),
+            &vec![],
+            None,
+        )
+        .unwrap();
+        let local_peer = PeerDB::get_local_peer(db.conn()).unwrap();
+        assert_eq!(local_peer.private_key, key2);
     }
 }

@@ -8,6 +8,9 @@ miner = true
 wait_time_for_microblocks = 10000
 use_test_genesis_chainstate = true
 
+[connection_options]
+public_ip_address = "127.0.0.1:20444"
+
 [burnchain]
 chain = "bitcoin"
 mode = "mocknet"

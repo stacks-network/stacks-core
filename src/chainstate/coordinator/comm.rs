@@ -89,34 +89,40 @@ pub struct CoordinatorReceivers {
 ///   for setting up the coordinator channels
 pub struct CoordinatorCommunication;
 
+#[repr(u8)]
 pub enum CoordinatorEvents {
-    NEW_STACKS_BLOCK,
-    NEW_BURN_BLOCK,
-    STOP,
-    TIMEOUT,
+    NEW_STACKS_BLOCK = 0x01,
+    NEW_BURN_BLOCK = 0x02,
+    STOP = 0x04,
+    TIMEOUT = 0x08,
 }
 
 impl SignalBools {
     fn activated_signal(&self) -> bool {
         self.stop || self.new_stacks_block || self.new_burn_block
     }
-    fn receive_signal(&mut self) -> CoordinatorEvents {
+    fn receive_signal(&mut self) -> u8 {
+        let mut bits = 0;
         if self.stop {
-            return CoordinatorEvents::STOP;
-        } else if self.new_burn_block {
-            self.new_burn_block = false;
-            return CoordinatorEvents::NEW_BURN_BLOCK;
-        } else if self.new_stacks_block {
-            self.new_stacks_block = false;
-            return CoordinatorEvents::NEW_STACKS_BLOCK;
-        } else {
-            return CoordinatorEvents::TIMEOUT;
+            bits |= CoordinatorEvents::STOP as u8;
         }
+        if self.new_burn_block {
+            bits |= CoordinatorEvents::NEW_BURN_BLOCK as u8;
+            self.new_burn_block = false;
+        }
+        if self.new_stacks_block {
+            bits |= CoordinatorEvents::NEW_STACKS_BLOCK as u8;
+            self.new_stacks_block = false;
+        }
+        if bits == 0 {
+            bits = CoordinatorEvents::TIMEOUT as u8;
+        }
+        bits
     }
 }
 
 impl CoordinatorReceivers {
-    pub fn wait_on(&self) -> CoordinatorEvents {
+    pub fn wait_on(&self) -> u8 {
         let mut signal_bools = self.signal_bools.lock().unwrap();
         if !signal_bools.activated_signal() {
             signal_bools = self.signal_wakeup.wait(signal_bools).unwrap();
@@ -130,6 +136,7 @@ impl CoordinatorChannels {
         let mut bools = self.signal_bools.lock().unwrap();
         bools.new_stacks_block = true;
         self.signal_wakeup.notify_all();
+        debug!("Announce new stacks block");
         !bools.stop
     }
 
@@ -137,6 +144,7 @@ impl CoordinatorChannels {
         let mut bools = self.signal_bools.lock().unwrap();
         bools.new_burn_block = true;
         self.signal_wakeup.notify_all();
+        debug!("Announce new burn block");
         !bools.stop
     }
 
@@ -144,6 +152,7 @@ impl CoordinatorChannels {
         let mut bools = self.signal_bools.lock().unwrap();
         bools.stop = true;
         self.signal_wakeup.notify_all();
+        debug!("Stop chains coordinator");
         false
     }
 
@@ -162,24 +171,42 @@ impl CoordinatorChannels {
 
     pub fn wait_for_sortitions_processed(&self, current: u64, timeout_millis: u64) -> bool {
         let start = Instant::now();
+        let mut ctr = 0;
         while self.get_sortitions_processed() <= current {
             if start.elapsed() > Duration::from_millis(timeout_millis) {
                 return false;
             }
             thread::sleep(Duration::from_millis(100));
             std::hint::spin_loop();
+            if ctr % 10 == 0 {
+                debug!(
+                    "Wait for sortitions processed (processed = {}, current = {}))",
+                    self.get_sortitions_processed(),
+                    current
+                );
+            }
+            ctr += 1;
         }
         return true;
     }
 
     pub fn wait_for_stacks_blocks_processed(&self, current: u64, timeout_millis: u64) -> bool {
         let start = Instant::now();
+        let mut ctr = 0;
         while self.get_stacks_blocks_processed() <= current {
             if start.elapsed() > Duration::from_millis(timeout_millis) {
                 return false;
             }
             thread::sleep(Duration::from_millis(100));
             std::hint::spin_loop();
+            if ctr % 10 == 0 {
+                debug!(
+                    "Wait for stacks blocks processed (processed = {}, current = {}))",
+                    self.get_stacks_blocks_processed(),
+                    current
+                );
+            }
+            ctr += 1;
         }
         return true;
     }

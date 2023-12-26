@@ -9,18 +9,18 @@ use rusqlite::{
 };
 use serde_json::Value as JsonValue;
 
-use chainstate::stacks::TransactionPayload;
-use util::db::sqlite_open;
-use util::db::tx_begin_immediate_sqlite;
-use util::db::u64_to_sql;
+use crate::chainstate::stacks::TransactionPayload;
+use crate::util_lib::db::sqlite_open;
+use crate::util_lib::db::tx_begin_immediate_sqlite;
+use crate::util_lib::db::u64_to_sql;
 
-use vm::costs::ExecutionCost;
+use clarity::vm::costs::ExecutionCost;
 
-use chainstate::stacks::db::StacksEpochReceipt;
-use chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::db::StacksEpochReceipt;
+use crate::chainstate::stacks::events::TransactionOrigin;
 
-use crate::util::db::sql_pragma;
-use crate::util::db::table_exists;
+use crate::util_lib::db::sql_pragma;
+use crate::util_lib::db::table_exists;
 
 use super::metrics::CostMetric;
 use super::FeeRateEstimate;
@@ -172,13 +172,13 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                         // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
                         self.metric.from_len(tx_size)
                     }
-                    TransactionPayload::Coinbase(_) => {
+                    TransactionPayload::Coinbase(..) => {
                         // Coinbase txs are "free", so they don't factor into the fee market.
                         return None;
                     }
                     TransactionPayload::PoisonMicroblock(_, _)
                     | TransactionPayload::ContractCall(_)
-                    | TransactionPayload::SmartContract(_) => {
+                    | TransactionPayload::SmartContract(..) => {
                         // These transaction payload types all "work" the same: they have associated ExecutionCosts
                         // and contibute to the block length limit with their tx_len
                         self.metric.from_cost_and_len(

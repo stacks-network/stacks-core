@@ -18,6 +18,7 @@ use std::env;
 use std::process;
 
 use cost_estimates::metrics::UnitMetric;
+use stacks::burnchains::PoxConstants;
 use stacks::cost_estimates::UnitEstimator;
 
 use clarity_vm::clarity::UnlimitedBlockLimitFns;
@@ -47,7 +48,7 @@ impl PrintDebugEventDispatcher {
 
 impl MemPoolEventDispatcher for PrintDebugEventDispatcher {
     fn mempool_txs_dropped(&self, _txids: Vec<Txid>, _reason: MemPoolDropReason) {
-        warn!("`mempool_txs_dropped` was called.");
+        println!("`mempool_txs_dropped` was called.");
     }
     fn mined_block_event(
         &self,
@@ -106,13 +107,14 @@ fn main() {
     };
     eprintln!("mempool_analyzer: max_time {}", max_time);
 
-    let sort_db = SortitionDB::open(&sort_db_path, false)
+    let sort_db = SortitionDB::open(&sort_db_path, false, PoxConstants::mainnet_default())
         .expect(&format!("Failed to open {}", &sort_db_path));
     let chain_id = core::CHAIN_ID_MAINNET;
     let (chain_state, _) = StacksChainState::open_and_exec_with_limits(
         true,
         chain_id,
         &chain_state_path,
+        None,
         None,
         UnlimitedBlockLimitFns(),
     )
@@ -142,7 +144,7 @@ fn main() {
     let mut coinbase_tx = StacksTransaction::new(
         TransactionVersion::Mainnet,
         tx_auth,
-        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32])),
+        TransactionPayload::Coinbase(CoinbasePayload([0u8; 32]), None),
     );
 
     coinbase_tx.chain_id = chain_id;
