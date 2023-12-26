@@ -1396,13 +1396,13 @@ impl BlockMinerThread {
 
     /// Determine which attempt this will be when mining a block, and whether or not an attempt
     /// should even be made.
-    /// Returns Some(attempt) if we should attempt to mine (and what attempt it will be)
+    /// Returns Some(attempt, max-txs) if we should attempt to mine (and what attempt it will be)
     /// Returns None if we should not mine.
     fn get_mine_attempt(
         &self,
         chain_state: &StacksChainState,
         parent_block_info: &ParentStacksBlockInfo,
-    ) -> Option<u64> {
+    ) -> Option<(u64, u64)> {
         let parent_consensus_hash = &parent_block_info.parent_consensus_hash;
         let stacks_parent_header = &parent_block_info.stacks_parent_header;
         let parent_block_burn_height = parent_block_info.parent_block_burn_height;
@@ -1411,16 +1411,22 @@ impl BlockMinerThread {
             Self::find_inflight_mined_blocks(self.burn_block.block_height, &self.last_mined_blocks);
 
         // has the tip changed from our previously-mined block for this epoch?
-        let attempt = if last_mined_blocks.len() <= 1 {
+        let (attempt, max_txs) = if last_mined_blocks.len() <= 1 {
             // always mine if we've not mined a block for this epoch yet, or
             // if we've mined just one attempt, unconditionally try again (so we
             // can use `subsequent_miner_time_ms` in this attempt)
             if last_mined_blocks.len() == 1 {
                 debug!("Have only attempted one block; unconditionally trying again");
             }
-            last_mined_blocks.len() as u64 + 1
+            let attempt = last_mined_blocks.len() as u64 + 1;
+            let mut max_txs = 0;
+            for last_mined_block in last_mined_blocks.iter() {
+                max_txs = cmp::max(max_txs, last_mined_block.anchored_block.txs.len());
+            }
+            (attempt, max_txs)
         } else {
             let mut best_attempt = 0;
+            let mut max_txs = 0;
             debug!(
                 "Consider {} in-flight Stacks tip(s)",
                 &last_mined_blocks.len()
@@ -1434,6 +1440,7 @@ impl BlockMinerThread {
                     &prev_block.my_burn_hash,
                     &prev_block.anchored_block.txs.len()
                 );
+                max_txs = cmp::max(max_txs, prev_block.anchored_block.txs.len());
 
                 if prev_block.anchored_block.txs.len() == 1 && prev_block.attempt == 1 {
                     // Don't let the fact that we've built an empty block during this sortition
@@ -1507,9 +1514,9 @@ impl BlockMinerThread {
                     }
                 }
             }
-            best_attempt + 1
+            (best_attempt + 1, max_txs)
         };
-        Some(attempt)
+        Some((attempt, u64::try_from(max_txs).expect("too many txs")))
     }
 
     /// Generate the VRF proof for the block we're going to build.
@@ -1852,7 +1859,7 @@ impl BlockMinerThread {
                 .expect("FATAL: no epoch defined")
                 .epoch_id;
         let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
-        let attempt = self.get_mine_attempt(&chain_state, &parent_block_info)?;
+        let (attempt, max_txs) = self.get_mine_attempt(&chain_state, &parent_block_info)?;
         let vrf_proof = self.make_vrf_proof()?;
 
         // Generates a new secret key for signing the trail of microblocks
@@ -1971,6 +1978,13 @@ impl BlockMinerThread {
                 < self.config.miner.min_tx_count
         {
             info!("Relayer: Succeeded assembling subsequent block with {} txs, but expected at least {}", anchored_block.txs.len(), self.config.miner.min_tx_count);
+            return None;
+        }
+
+        if self.config.miner.only_increase_tx_count
+            && max_txs > u64::try_from(anchored_block.txs.len()).expect("too many txs")
+        {
+            info!("Relayer: Succeeded assembling subsequent block with {} txs, but had previously produced a block with {} txs", anchored_block.txs.len(), max_txs);
             return None;
         }
 

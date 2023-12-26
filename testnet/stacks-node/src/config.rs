@@ -900,6 +900,7 @@ impl Config {
                     .unprocessed_block_deadline_secs
                     .unwrap_or(miner_default_config.unprocessed_block_deadline_secs),
                 min_tx_count: miner.min_tx_count.unwrap_or(0),
+                only_increase_tx_count: miner.only_increase_tx_count.unwrap_or(false),
             },
             None => miner_default_config,
         };
@@ -1882,6 +1883,7 @@ pub struct MinerConfig {
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
     pub min_tx_count: u64,
+    pub only_increase_tx_count: bool,
 }
 
 impl MinerConfig {
@@ -1899,6 +1901,7 @@ impl MinerConfig {
             candidate_retry_cache_size: 10_000,
             unprocessed_block_deadline_secs: 30,
             min_tx_count: 0,
+            only_increase_tx_count: false,
         }
     }
 }
@@ -2016,6 +2019,7 @@ pub struct MinerConfigFile {
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
     pub min_tx_count: Option<u64>,
+    pub only_increase_tx_count: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
