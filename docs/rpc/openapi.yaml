@@ -566,12 +566,28 @@ paths:
       responses:
         202:
           description: Block proposal is valid
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/post-block-proposal-response.schema.json
         400:
-          description: Bad request
+          description: Block proposal not valid
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/post-block-proposal-error.schema.json
         403:
           description: Request not over loopback interface
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/post-block-proposal-error.schema.json
         429:
           description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: ./api/core-node/post-block-proposal-error.schema.json
       parameters:
         - name: block
           in: query
