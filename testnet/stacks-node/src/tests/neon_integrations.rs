@@ -10721,6 +10721,7 @@ fn min_txs() {
     });
 
     conf.miner.min_tx_count = 4;
+    conf.miner.first_attempt_time_ms = 0;
 
     let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
 
@@ -10789,6 +10790,7 @@ fn min_txs() {
     for block in blocks {
         let transactions = block.get("transactions").unwrap().as_array().unwrap();
         if transactions.len() > 1 {
+            debug!("Got block: {:?}", &block);
             assert!(transactions.len() >= 4);
         }
     }
