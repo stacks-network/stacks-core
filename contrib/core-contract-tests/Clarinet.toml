@@ -27,3 +27,6 @@ path = "../../stackslib/src/chainstate/stacks/boot/signers-voting.clar"
 depends_on = []
 clarity = 2
 epoch = 2.4
+
+[contracts.bns_test]
+path = "./tests/bns_test.clar"
