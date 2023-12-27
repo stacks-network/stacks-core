@@ -1972,7 +1972,7 @@ impl BlockMinerThread {
             }
         };
 
-        if attempt >= 1
+        if attempt > 1
             && self.config.miner.min_tx_count > 0
             && u64::try_from(anchored_block.txs.len()).expect("too many txs")
                 < self.config.miner.min_tx_count
