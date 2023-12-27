@@ -12,6 +12,7 @@
     "@hirosystems/clarinet-sdk": "^1.1.0",
     "@stacks/transactions": "^6.9.0",
     "chokidar-cli": "^3.0.0",
+    "clarunit": "github:MarvinJanssen/clarunit#a5c042a",
     "typescript": "^5.2.2",
     "vite": "^4.4.9",
     "vitest": "^0.34.4",
