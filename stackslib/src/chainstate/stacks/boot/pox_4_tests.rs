@@ -1303,6 +1303,77 @@ fn stack_stx_signer_key() {
 }
 
 #[test]
+fn stack_stx_signer_key_no_reuse() {
+    let lock_period = 2;
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
+        prepare_pox4_test(function_name!());
+
+    let first_stacker_nonce = 0;
+    let second_stacker_nonce = 0;
+    let first_stacker_key = &keys[0];
+    let second_stacker_key = &keys[1];
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+
+    let pox_addr = make_pox_addr(
+        AddressHashMode::SerializeP2WSH,
+        key_to_stacks_addr(first_stacker_key).bytes,
+    );
+    let signer_key_val = Value::buff_from(vec![
+        0x03, 0xa0, 0xf9, 0x81, 0x8e, 0xa8, 0xc1, 0x4a, 0x82, 0x7b, 0xb1, 0x44, 0xae, 0xc9, 0xcf,
+        0xba, 0xeb, 0xa2, 0x25, 0xaf, 0x22, 0xbe, 0x18, 0xed, 0x78, 0xa2, 0xf2, 0x98, 0x10, 0x6f,
+        0x4e, 0x28, 0x1b,
+    ])
+    .unwrap();
+    let txs = vec![
+        make_pox_4_contract_call(
+            first_stacker_key,
+            first_stacker_nonce,
+            "stack-stx",
+            vec![
+                Value::UInt(min_ustx),
+                pox_addr.clone(),
+                Value::UInt(block_height as u128),
+                Value::UInt(2),
+                signer_key_val.clone(),
+            ],
+        ),
+        make_pox_4_contract_call(
+            second_stacker_key,
+            second_stacker_nonce,
+            "stack-stx",
+            vec![
+                Value::UInt(min_ustx),
+                pox_addr,
+                Value::UInt(block_height as u128),
+                Value::UInt(2),
+                signer_key_val.clone(),
+            ],
+        ),
+    ];
+
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let first_stacking_state = get_stacking_state_pox_4(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(first_stacker_key).to_account_principal(),
+    )
+    .expect("No stacking state, stack-stx failed")
+    .expect_tuple();
+
+    let state_signer_key = first_stacking_state.get("signer-key").unwrap();
+    assert_eq!(state_signer_key.to_string(), signer_key_val.to_string());
+    assert!(
+        get_stacking_state_pox_4(
+            &mut peer,
+            &latest_block,
+            &key_to_stacks_addr(second_stacker_key).to_account_principal(),
+        )
+        .is_none(),
+        "second stacking state should have been none"
+    );
+}
+
+#[test]
 fn stack_extend_signer_key() {
     let lock_period = 2;
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =

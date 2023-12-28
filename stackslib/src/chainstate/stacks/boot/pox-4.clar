@@ -28,7 +28,7 @@
 (define-constant ERR_STACKING_IS_DELEGATED 30)
 (define-constant ERR_STACKING_NOT_DELEGATED 31)
 (define-constant ERR_INVALID_SIGNER_KEY 32)
-(define-constant ERR_REQUESTED_SIGNER_KEY_MISMATCH 33)
+(define-constant ERR_REUSED_SIGNER_KEY 33)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -186,6 +186,9 @@
     }
     { stacked-amount: uint }
 )
+
+;; Stackers' signer keys that have been used before.
+ (define-map used-signer-keys (buff 33) uint)
 
 ;; The stackers' aggregate public key
 ;;   for the given reward cycle
@@ -579,8 +582,8 @@
       ;; ensure that stacking can be performed
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
-      ;; ensure the signer key is valid
-      (try! (is-signer-key-valid signer-key))
+      ;; ensure the signer key can be used
+      (try! (insert-signer-key signer-key))
 
       ;; register the PoX address with the amount stacked
       (let ((reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx tx-sender))))
@@ -836,8 +839,8 @@
       (asserts! (>= (stx-get-balance stacker) amount-ustx)
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
-      ;; ensure the signer key is valid
-      (try! (is-signer-key-valid signer-key))
+      ;; ensure the signer key can be used
+      (try! (insert-signer-key signer-key))
 
       ;; ensure that stacking can be performed
       (try! (minimal-can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
@@ -984,8 +987,8 @@
     (asserts! (is-none (get delegated-to stacker-state))
               (err ERR_STACKING_IS_DELEGATED))
 
-    ;; ensure the signer key is valid
-    (try! (is-signer-key-valid signer-key))
+    ;; ensure the signer key can be used
+    (try! (insert-signer-key signer-key))
 
     ;; TODO: add more assertions to sanity check the `stacker-info` values with
     ;;       the `stacker-state` values
@@ -1273,6 +1276,10 @@
 
 ;; Check if a provided signer key is valid. For now it only asserts length.
 ;; *New in Stacks 3.0*
-(define-read-only (is-signer-key-valid (signer-key (buff 33)))
-    (ok (asserts! (is-eq (len signer-key) u33) (err ERR_INVALID_SIGNER_KEY)))
+(define-private (insert-signer-key (signer-key (buff 33)))
+    (begin
+      (asserts! (is-eq (len signer-key) u33) (err ERR_INVALID_SIGNER_KEY))
+      (asserts! (map-insert used-signer-keys signer-key burn-block-height) (err ERR_REUSED_SIGNER_KEY))
+      (ok true)
+    )
 )
