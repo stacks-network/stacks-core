@@ -3126,6 +3126,45 @@ impl NakamotoChainState {
         })
     }
 
+    /// Get the slot number for the given miner's public key.
+    /// Returns Some(u32) if the miner is in the StackerDB config.
+    /// Returns None if the miner is not in the StackerDB config.
+    /// Returns an error if the miner is in the StackerDB config but the slot number is invalid.
+    pub fn get_miner_slot(
+        sortdb: &SortitionDB,
+        miner_pubkey: &StacksPublicKey,
+    ) -> Result<Option<u32>, ChainstateError> {
+        let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
+        let stackerdb_config = Self::make_miners_stackerdb_config(sortdb)?;
+
+        // find out which slot we're in
+        let Some(slot_id_res) =
+            stackerdb_config
+                .signers
+                .iter()
+                .enumerate()
+                .find_map(|(i, (addr, _))| {
+                    if addr.bytes == miner_hash160 {
+                        Some(u32::try_from(i).map_err(|_| {
+                            CodecError::OverflowError(
+                                "stackerdb config slot ID cannot fit into u32".into(),
+                            )
+                        }))
+                    } else {
+                        None
+                    }
+                })
+        else {
+            // miner key does not match any slot
+            warn!("Miner is not in the miners StackerDB config";
+                  "miner" => %miner_hash160,
+                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+
+            return Ok(None);
+        };
+        Ok(Some(slot_id_res?))
+    }
+
     /// Boot code instantiation for the aggregate public key.
     /// TODO: This should be removed once it's possible for stackers to vote on the aggregate
     /// public key

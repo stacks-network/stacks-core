@@ -28,7 +28,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::TypeSignature;
+use clarity::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use libstackerdb::StackerDBChunkData;
 use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
@@ -48,6 +48,7 @@ use crate::chainstate::nakamoto::{
     MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::transactions::{
@@ -72,6 +73,9 @@ use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
 use crate::net::relay::Relayer;
+use crate::net::stackerdb::StackerDBs;
+use crate::net::Error as net_error;
+use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
 
 /// Nakamaoto tenure information
@@ -506,50 +510,31 @@ impl NakamotoBlockBuilder {
 
     /// Make a StackerDB chunk message containing a proposed block.
     /// Sign it with the miner's private key.
-    /// Automatically determine which StackerDB slot to use.
+    /// Automatically determine which StackerDB slot and version number to use.
     /// Returns Some(chunk) if the given key corresponds to one of the expected miner slots
     /// Returns None if not
     /// Returns an error on signing or DB error
     pub fn make_stackerdb_block_proposal(
         sortdb: &SortitionDB,
-        write_count: u32,
+        stackerdbs: &StackerDBs,
         block: &NakamotoBlock,
         miner_privkey: &StacksPrivateKey,
+        miners_contract_id: &QualifiedContractIdentifier,
     ) -> Result<Option<StackerDBChunkData>, Error> {
         let miner_pubkey = StacksPublicKey::from_private(&miner_privkey);
-        let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
-        let stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(sortdb)?;
-
-        // find out which slot we're in
-        let Some(slot_id_res) =
-            stackerdb_config
-                .signers
-                .iter()
-                .enumerate()
-                .find_map(|(i, (addr, _))| {
-                    if addr.bytes == miner_hash160 {
-                        Some(u32::try_from(i).map_err(|_| {
-                            CodecError::OverflowError(
-                                "stackerdb config slot ID cannot fit into u32".into(),
-                            )
-                        }))
-                    } else {
-                        None
-                    }
-                })
-        else {
-            // miner key does not match any slot
-            warn!("Miner is not in the miners StackerDB config";
-                  "miner" => %miner_hash160,
-                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
-
+        let Some(slot_id) = NakamotoChainState::get_miner_slot(sortdb, &miner_pubkey)? else {
+            // No slot exists for this miner
             return Ok(None);
         };
-
-        let slot_id = slot_id_res?;
+        // Get the LAST slot version number written to the DB. If not found, use 0.
+        // Add 1 to get the NEXT version number
+        // Note: we already check above for the slot's existence
+        let slot_version = stackerdbs
+            .get_slot_version(&miners_contract_id, slot_id)?
+            .unwrap_or(0)
+            .saturating_add(1);
         let block_bytes = block.serialize_to_vec();
-        let mut chunk =
-            StackerDBChunkData::new(slot_id, write_count.saturating_add(1), block_bytes);
+        let mut chunk = StackerDBChunkData::new(slot_id, slot_version, block_bytes);
         chunk
             .sign(miner_privkey)
             .map_err(|_| net_error::SigningError("Failed to sign StackerDB chunk".into()))?;

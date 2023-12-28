@@ -2135,6 +2135,25 @@ pub mod test {
             test_path
         }
 
+        /// Initialize the .miners StackerDB instance
+        pub fn init_stacker_db_miners(&mut self) {
+            let miner_contract_id = boot_code_id(MINERS_NAME, false);
+            let miner_stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(
+                self.sortdb.as_mut().expect("No sortition DB found"),
+            )
+            .expect("Could not make {MINERS_NAME} StackerDB config");
+            let tx = self
+                .network
+                .stackerdbs
+                .tx_begin(miner_stackerdb_config.clone())
+                .expect("Could not begin {MINERS_NAME} StackerDB transaction");
+
+            tx.create_stackerdb(&miner_contract_id, &miner_stackerdb_config.signers)
+                .expect("Could not create {MINERS_NAME} StackerDB");
+            tx.commit()
+                .expect("Could not commit {MINERS_NAME} StackerDB transaction");
+        }
+
         fn init_stacker_dbs(
             root_path: &str,
             peerdb: &PeerDB,

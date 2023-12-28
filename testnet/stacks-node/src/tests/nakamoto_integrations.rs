@@ -27,6 +27,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::NakamotoChainState;
+use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
@@ -39,6 +40,7 @@ use stacks::core::{
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
+use stacks::util_lib::boot::boot_code_id;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
@@ -168,6 +170,9 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
+    conf.node
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, conf.is_mainnet()));
     conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.username = Some("neon-tester".into());
