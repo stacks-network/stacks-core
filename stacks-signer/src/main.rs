@@ -66,6 +66,7 @@ struct SpawnedSigner {
     running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
     cmd_send: Sender<RunLoopCommand>,
     res_recv: Receiver<Vec<OperationResult>>,
+    ping_recv: Receiver<(u64, Duration)>,
 }
 
 /// Create a new stacker db session
@@ -97,7 +98,8 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
         vec![config.stackerdb_contract_id.clone()],
         config.network.is_mainnet(),
     );
-    let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
+    let mut runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
+    let ping_recv = runloop.subscribe_ping_collector();
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
@@ -109,6 +111,7 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
         running_signer,
         cmd_send,
         res_recv,
+        ping_recv,
     }
 }
 
@@ -263,6 +266,7 @@ fn handle_run(args: RunArgs) {
             spawned_signer.cmd_send.clone(),
             Duration::from_millis(millis),
             args.ping_payload_size.unwrap_or(0),
+            spawned_signer.ping_recv,
         );
     }
 
