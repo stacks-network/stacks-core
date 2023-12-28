@@ -2318,12 +2318,34 @@ impl Relayer {
 
         // Process Nakamoto blocks
         // TODO
-        let mut num_new_nakamoto_blocks = 0;
-        match Relayer::process_new_nakamoto_blocks(network_result, sortdb, chainstate, coord_comms)
-        {
-            Ok(_) => {}
-            Err(_) => {}
-        }
+        let num_new_nakamoto_blocks = match Relayer::process_new_nakamoto_blocks(
+            network_result,
+            sortdb,
+            chainstate,
+            coord_comms,
+        ) {
+            Ok((new_blocks, bad_block_neighbors)) => {
+                // attempt to relay messages (note that this is all best-effort).
+                // punish bad peers
+                if bad_block_neighbors.len() > 0 {
+                    debug!("{_local_peer:?}: Ban {} peers", bad_block_neighbors.len());
+                    if let Err(e) = self.p2p.ban_peers(bad_block_neighbors) {
+                        warn!("Failed to ban bad-block peers: {e:?}");
+                    }
+                }
+
+                if !ibd {
+                    // TODO: Advertise blocks once `advertize_nakamoto_blocks()` is implemented
+                }
+
+                u64::try_from(new_blocks.len())
+                    .map_err(|_| net_error::OverflowError("Too many Nakamoto blocks".into()))?
+            }
+            Err(e) => {
+                warn!("Failed to process new Nakamoto blocks: {e:?}");
+                0
+            }
+        };
 
         let mut mempool_txs_added = vec![];
 
