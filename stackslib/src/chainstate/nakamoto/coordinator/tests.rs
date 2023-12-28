@@ -35,6 +35,7 @@ use crate::chainstate::nakamoto::tests::node::TestSigners;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{make_pox_4_aggregate_key, make_pox_4_lockup};
+use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
@@ -44,7 +45,9 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
 use crate::net::relay::Relayer;
+use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestPeer, TestPeerConfig};
+use crate::util_lib::boot::boot_code_id;
 
 /// Bring a TestPeer into the Nakamoto Epoch
 fn advance_to_nakamoto(peer: &mut TestPeer) {
@@ -84,8 +87,8 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
 
         peer.tenure_with_txs(&txs, &mut peer_nonce);
     }
-
     // peer is at the start of cycle 8
+    peer.init_stacker_db_miners();
 }
 
 /// Make a peer and transition it into the Nakamoto epoch.
@@ -117,7 +120,6 @@ pub fn boot_nakamoto(
     peer_config.burnchain.pox_constants.pox_3_activation_height = 26;
     peer_config.burnchain.pox_constants.v3_unlock_height = 27;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
-
     let mut peer = TestPeer::new(peer_config);
     advance_to_nakamoto(&mut peer);
     peer

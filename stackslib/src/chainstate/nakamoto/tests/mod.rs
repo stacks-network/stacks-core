@@ -55,6 +55,7 @@ use crate::chainstate::nakamoto::tests::node::TestSigners;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, FIRST_STACKS_BLOCK_ID,
 };
+use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{
     ChainStateBootData, ChainstateAccountBalance, ChainstateAccountLockup, ChainstateBNSName,
     ChainstateBNSNamespace, StacksAccount, StacksBlockHeaderTypes, StacksChainState,
@@ -68,6 +69,7 @@ use crate::chainstate::stacks::{
 use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
+use crate::util_lib::boot::boot_code_id;
 
 /// Get an address's account
 pub fn get_account(
@@ -1675,10 +1677,12 @@ fn test_make_miners_stackerdb_config() {
 
     debug!("miners = {:#?}", &miner_hash160s);
 
-    // extract chainstate and sortdb -- we don't need the peer anymore
+    // extract chainstate, sortdb, and stackerdbs -- we don't need the peer anymore
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
     let sort_db = peer.sortdb.as_mut().unwrap();
     let mut last_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+    let stackerdbs = peer.network.stackerdbs;
+    let miners_contract_id = boot_code_id(MINERS_NAME, false);
 
     // make two leader keys (miner 1 and miner 2)
     let mut miners = vec![];
@@ -1842,21 +1846,23 @@ fn test_make_miners_stackerdb_config() {
             if sortition {
                 let chunk = NakamotoBlockBuilder::make_stackerdb_block_proposal(
                     &sort_db,
-                    i as u32,
+                    &stackerdbs,
                     &block,
                     &miner_keys[i - 3],
+                    &miners_contract_id,
                 )
                 .unwrap()
                 .unwrap();
-                assert_eq!(chunk.slot_version, (i + 1) as u32);
+                assert_eq!(chunk.slot_version, 1);
                 assert_eq!(chunk.data, block.serialize_to_vec());
                 stackerdb_chunks.push(chunk);
             } else {
                 assert!(NakamotoBlockBuilder::make_stackerdb_block_proposal(
                     &sort_db,
-                    i as u32,
+                    &stackerdbs,
                     &block,
-                    &miner_keys[i - 3]
+                    &miner_keys[i - 3],
+                    &miners_contract_id,
                 )
                 .unwrap()
                 .is_none());
