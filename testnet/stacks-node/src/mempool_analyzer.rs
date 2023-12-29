@@ -184,7 +184,8 @@ fn main() {
         let cost_limits = BLOCK_LIMIT_MAINNET_21;
         println!(
             r#"
-Block {}:
+Unlimited Block:
+  {transaction_count} transactions
   {total_fees} uSTX fees
   {size} bytes ({size_percent}%)
   Costs:
@@ -194,7 +195,7 @@ Block {}:
     read_count:   {read_count} ({read_count_percent:.2}%)
     runtime:      {runtime} ({runtime_percent:.2}%)
         "#,
-            block.block_hash(),
+            transaction_count = block.txs.len(),
             total_fees = total_fees,
             size = size,
             size_percent = (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
@@ -220,7 +221,7 @@ Block {}:
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
-                <title>Block Details</title>
+                <title>Mempool Analysis</title>
                 <style>
                     body {{ font-family: Arial, sans-serif; }}
                     .block-info {{ margin-bottom: 20px; }}
@@ -230,22 +231,25 @@ Block {}:
             </head>
             <body>
                 <div class="block-info">
-                    <h2>Block {}: </h2>
-                    <p>{total_fees} uSTX fees</p>
-                    <p>{size} bytes ({size_percent:.2}%)</p>
-                    <p>Costs:</p>
+                    <h2>Unlimited Block</h2>
                     <ul>
-                        <li>write_length: {write_length} ({write_length_percent:.2}%)</li>
-                        <li>write_count:  {write_count} ({write_count_percent:.2}%)</li>
-                        <li>read_length:  {read_length} ({read_length_percent:.2}%)</li>
-                        <li>read_count:   {read_count} ({read_count_percent:.2}%)</li>
-                        <li>runtime:      {runtime} ({runtime_percent:.2}%)</li>
+                        <li>{transaction_count} transactions</li>
+                        <li>{total_fees} uSTX fees</li>
+                        <li>{size} bytes ({size_percent:.2}%)</li>
+                        <li>Costs:</li>
+                        <ul>
+                            <li>write_length: {write_length} ({write_length_percent:.2}%)</li>
+                            <li>write_count:  {write_count} ({write_count_percent:.2}%)</li>
+                            <li>read_length:  {read_length} ({read_length_percent:.2}%)</li>
+                            <li>read_count:   {read_count} ({read_count_percent:.2}%)</li>
+                            <li>runtime:      {runtime} ({runtime_percent:.2}%)</li>
+                        </ul>
                     </ul>
                 </div>
             </body>
             </html>
             "#,
-            block.block_hash(),
+            transaction_count = block.txs.len(),
             total_fees = total_fees,
             size = size,
             size_percent = (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
