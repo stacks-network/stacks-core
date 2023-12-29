@@ -15,6 +15,8 @@ extern crate stacks;
 #[macro_use(slog_warn)]
 extern crate slog;
 use std::env;
+use std::fs::File;
+use std::io::Write;
 use std::process;
 
 use cost_estimates::metrics::UnitMetric;
@@ -183,14 +185,14 @@ fn main() {
         println!(
             r#"
 Block {}:
-  {total_fees} uSTX fees,
-  {size} bytes ({size_percent}%),
+  {total_fees} uSTX fees
+  {size} bytes ({size_percent}%)
   Costs:
-    write_length: {write_length} ({write_length_percent:.2}%),
-    write_count:  {write_count} ({write_count_percent:.2}%),
-    read_length:  {read_length} ({read_length_percent:.2}%),
-    read_count:   {read_count} ({read_count_percent:.2}%),
-    runtime:      {runtime} ({runtime_percent:.2}%),
+    write_length: {write_length} ({write_length_percent:.2}%)
+    write_count:  {write_count} ({write_count_percent:.2}%)
+    read_length:  {read_length} ({read_length_percent:.2}%)
+    read_count:   {read_count} ({read_count_percent:.2}%)
+    runtime:      {runtime} ({runtime_percent:.2}%)
         "#,
             block.block_hash(),
             total_fees = total_fees,
@@ -211,5 +213,60 @@ Block {}:
             runtime = execution_cost.runtime,
             runtime_percent = (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
         );
+
+        let html_content = format!(
+            r#"
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <title>Block Details</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; }}
+                    .block-info {{ margin-bottom: 20px; }}
+                    .block-info h2 {{ color: #333366; }}
+                    .block-info p {{ color: #666; }}
+                </style>
+            </head>
+            <body>
+                <div class="block-info">
+                    <h2>Block {}: </h2>
+                    <p>{total_fees} uSTX fees</p>
+                    <p>{size} bytes ({size_percent:.2}%)</p>
+                    <p>Costs:</p>
+                    <ul>
+                        <li>write_length: {write_length} ({write_length_percent:.2}%)</li>
+                        <li>write_count:  {write_count} ({write_count_percent:.2}%)</li>
+                        <li>read_length:  {read_length} ({read_length_percent:.2}%)</li>
+                        <li>read_count:   {read_count} ({read_count_percent:.2}%)</li>
+                        <li>runtime:      {runtime} ({runtime_percent:.2}%)</li>
+                    </ul>
+                </div>
+            </body>
+            </html>
+            "#,
+            block.block_hash(),
+            total_fees = total_fees,
+            size = size,
+            size_percent = (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
+            write_length = execution_cost.write_length,
+            write_length_percent =
+                (execution_cost.write_length as f64 / cost_limits.write_length as f64 * 100.0),
+            write_count = execution_cost.write_count,
+            write_count_percent =
+                (execution_cost.write_count as f64 / cost_limits.write_count as f64 * 100.0),
+            read_length = execution_cost.read_length,
+            read_length_percent =
+                (execution_cost.read_length as f64 / cost_limits.read_length as f64 * 100.0),
+            read_count = execution_cost.read_count,
+            read_count_percent =
+                (execution_cost.read_count as f64 / cost_limits.read_count as f64 * 100.0),
+            runtime = execution_cost.runtime,
+            runtime_percent = (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
+        );
+
+        let mut file = File::create("block_details.html").expect("Could not create file");
+        file.write_all(html_content.as_bytes())
+            .expect("Could not write to file");
     }
 }
