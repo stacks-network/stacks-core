@@ -269,7 +269,7 @@ Unlimited Block:
             runtime_percent = (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
         );
 
-        let mut file = File::create("block_details.html").expect("Could not create file");
+        let mut file = File::create("mempool.html").expect("Could not create file");
         file.write_all(html_content.as_bytes())
             .expect("Could not write to file");
     }
