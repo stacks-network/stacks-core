@@ -19,6 +19,8 @@ use std::process;
 
 use cost_estimates::metrics::UnitMetric;
 use stacks::burnchains::PoxConstants;
+use stacks::clarity_vm::clarity::ProductionBlockLimitFns;
+use stacks::core::BLOCK_LIMIT_MAINNET_21;
 use stacks::cost_estimates::UnitEstimator;
 
 use clarity_vm::clarity::UnlimitedBlockLimitFns;
@@ -176,12 +178,38 @@ fn main() {
         for tx in block.txs.iter() {
             total_fees += tx.get_tx_fee();
         }
+        let standard_limits = ProductionBlockLimitFns();
+        let cost_limits = BLOCK_LIMIT_MAINNET_21;
         println!(
-            "Block {}: {} uSTX fees, {} bytes, cost {:?}",
+            r#"
+Block {}:
+  {total_fees} uSTX fees,
+  {size} bytes ({size_percent}%),
+  Costs:
+    write_length: {write_length} ({write_length_percent:.2}%),
+    write_count:  {write_count} ({write_count_percent:.2}%),
+    read_length:  {read_length} ({read_length_percent:.2}%),
+    read_count:   {read_count} ({read_count_percent:.2}%),
+    runtime:      {runtime} ({runtime_percent:.2}%),
+        "#,
             block.block_hash(),
-            total_fees,
-            size,
-            &execution_cost
+            total_fees = total_fees,
+            size = size,
+            size_percent = (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
+            write_length = execution_cost.write_length,
+            write_length_percent =
+                (execution_cost.write_length as f64 / cost_limits.write_length as f64 * 100.0),
+            write_count = execution_cost.write_count,
+            write_count_percent =
+                (execution_cost.write_count as f64 / cost_limits.write_count as f64 * 100.0),
+            read_length = execution_cost.read_length,
+            read_length_percent =
+                (execution_cost.read_length as f64 / cost_limits.read_length as f64 * 100.0),
+            read_count = execution_cost.read_count,
+            read_count_percent =
+                (execution_cost.read_count as f64 / cost_limits.read_count as f64 * 100.0),
+            runtime = execution_cost.runtime,
+            runtime_percent = (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
         );
     }
 }
