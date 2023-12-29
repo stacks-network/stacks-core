@@ -33,7 +33,7 @@ use stacks::core::{
 };
 use stacks_common::address::AddressHashMode;
 use stacks_common::consts::STACKS_EPOCH_MAX;
-use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
@@ -303,6 +303,7 @@ fn boot_to_epoch_3(
     naka_conf: &Config,
     blocks_processed: &RunLoopCounter,
     stacker_sk: Secp256k1PrivateKey,
+    signer_pk: StacksPublicKey,
     btc_regtest_controller: &mut BitcoinRegtestController,
 ) {
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
@@ -337,7 +338,7 @@ fn boot_to_epoch_3(
             pox_addr_tuple,
             clarity::vm::Value::UInt(205),
             clarity::vm::Value::UInt(12),
-            clarity::vm::Value::buff_from(vec![0; 33]).unwrap(), // TODO: replace once signer key calculation is implemented
+            clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
         ],
     );
 
@@ -373,6 +374,7 @@ fn simple_neon_integration() {
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
+    let sender_signer_key = StacksPublicKey::new();
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
@@ -413,6 +415,7 @@ fn simple_neon_integration() {
         &naka_conf,
         &blocks_processed,
         stacker_sk,
+        sender_signer_key,
         &mut btc_regtest_controller,
     );
 
@@ -553,6 +556,7 @@ fn mine_multiple_per_tenure_integration() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
+    let sender_signer_key = StacksPublicKey::new();
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -601,6 +605,7 @@ fn mine_multiple_per_tenure_integration() {
         &naka_conf,
         &blocks_processed,
         stacker_sk,
+        sender_signer_key,
         &mut btc_regtest_controller,
     );
 

@@ -63,7 +63,7 @@ use crate::chainstate::stacks::boot::{
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
 };
-use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::tests::make_coinbase;
@@ -77,6 +77,8 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, FromRow};
 
 const USTX_PER_HOLDER: u128 = 1_000_000;
+
+const ERR_REUSED_SIGNER_KEY: i128 = 33;
 
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
@@ -1255,7 +1257,7 @@ fn balances_from_keys(
 fn stack_stx_signer_key() {
     let lock_period = 2;
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!());
+        prepare_pox4_test(function_name!(), None);
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -1305,13 +1307,15 @@ fn stack_stx_signer_key() {
 #[test]
 fn stack_stx_signer_key_no_reuse() {
     let lock_period = 2;
+    let observer = TestEventObserver::new();
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!());
+        prepare_pox4_test(function_name!(), Some(&observer));
 
     let first_stacker_nonce = 0;
     let second_stacker_nonce = 0;
     let first_stacker_key = &keys[0];
     let second_stacker_key = &keys[1];
+    let second_stacker_address = key_to_stacks_addr(second_stacker_key);
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
 
     let pox_addr = make_pox_addr(
@@ -1343,7 +1347,7 @@ fn stack_stx_signer_key_no_reuse() {
             "stack-stx",
             vec![
                 Value::UInt(min_ustx),
-                pox_addr,
+                pox_addr.clone(),
                 Value::UInt(block_height as u128),
                 Value::UInt(2),
                 signer_key_val.clone(),
@@ -1360,24 +1364,24 @@ fn stack_stx_signer_key_no_reuse() {
     .expect("No stacking state, stack-stx failed")
     .expect_tuple();
 
-    let state_signer_key = first_stacking_state.get("signer-key").unwrap();
-    assert_eq!(state_signer_key.to_string(), signer_key_val.to_string());
-    assert!(
-        get_stacking_state_pox_4(
-            &mut peer,
-            &latest_block,
-            &key_to_stacks_addr(second_stacker_key).to_account_principal(),
-        )
-        .is_none(),
-        "second stacking state should have been none"
-    );
+    let second_stacker_transactions =
+        get_last_block_sender_transactions(&observer, second_stacker_address);
+
+    assert_eq!(second_stacker_transactions.len(), 1);
+    assert_eq!(
+        second_stacker_transactions
+            .get(0)
+            .expect("Stacker should have one transaction")
+            .result,
+        Value::error(Value::Int(ERR_REUSED_SIGNER_KEY)).unwrap()
+    )
 }
 
 #[test]
 fn stack_extend_signer_key() {
     let lock_period = 2;
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!());
+        prepare_pox4_test(function_name!(), None);
 
     let mut stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -1459,7 +1463,7 @@ fn stack_extend_signer_key() {
 fn delegate_stack_stx_signer_key() {
     let lock_period = 2;
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!());
+        prepare_pox4_test(function_name!(), None);
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -1589,6 +1593,7 @@ pub fn get_stacking_minimum(peer: &mut TestPeer, latest_block: &StacksBlockId) -
 
 pub fn prepare_pox4_test<'a>(
     test_name: &str,
+    observer: Option<&'a TestEventObserver>,
 ) -> (
     Burnchain,
     TestPeer<'a>,
@@ -1606,7 +1611,7 @@ pub fn prepare_pox4_test<'a>(
     burnchain.pox_constants = pox_constants.clone();
 
     let (mut peer, keys) =
-        instantiate_pox_peer_with_epoch(&burnchain, test_name, Some(epochs.clone()), None);
+        instantiate_pox_peer_with_epoch(&burnchain, test_name, Some(epochs.clone()), observer);
 
     assert_eq!(burnchain.pox_constants.reward_slots(), 6);
     let mut coinbase_nonce = 0;
@@ -1634,4 +1639,23 @@ pub fn prepare_pox4_test<'a>(
         block_height,
         coinbase_nonce,
     )
+}
+pub fn get_last_block_sender_transactions(
+    observer: &TestEventObserver,
+    address: StacksAddress,
+) -> Vec<StacksTransactionReceipt> {
+    observer
+        .get_blocks()
+        .last()
+        .unwrap()
+        .clone()
+        .receipts
+        .into_iter()
+        .filter(|receipt| {
+            if let TransactionOrigin::Stacks(ref transaction) = receipt.transaction {
+                return transaction.auth.origin().address_testnet() == address;
+            }
+            false
+        })
+        .collect::<Vec<_>>()
 }
