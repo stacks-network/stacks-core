@@ -465,9 +465,3 @@ impl StacksHttpRequest {
         .expect("FATAL: failed to construct request from infallible data")
     }
 }
-
-impl StacksHttpResponse {
-    pub fn decode_stacks_block_proposal_accepted(self) -> Result<BlockValidateResponse, NetError> {
-        todo!()
-    }
-}
