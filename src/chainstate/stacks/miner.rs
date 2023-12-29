@@ -1575,9 +1575,9 @@ impl StacksBlockBuilder {
         limit_behavior: &BlockLimitFunction,
         ast_rules: ASTRules,
     ) -> TransactionResult {
-        if self.bytes_so_far + tx_len >= self.block_limits_fns.output_length_limit.into() {
-            return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
-        }
+        // if self.bytes_so_far + tx_len >= self.block_limits_fns.output_length_limit.into() {
+        //     return TransactionResult::skipped_due_to_error(&tx, Error::BlockTooBigError);
+        // }
 
         match limit_behavior {
             BlockLimitFunction::CONTRACT_LIMIT_HIT => {
