@@ -208,6 +208,7 @@ use stacks::vm::costs::ExecutionCost;
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::burnchains::make_bitcoin_indexer;
+use crate::config::MinerConfig;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
 use crate::run_loop::RegisteredKey;
@@ -1216,6 +1217,18 @@ impl MicroblockMinerThread {
     }
 }
 
+fn reload_miner_config(config: &Config) -> MinerConfig {
+    let miner_config = if let Ok(miner_config) = config.get_miner_config().map_err(|e| {
+        warn!("Failed to load miner config: {:?}", &e);
+        e
+    }) {
+        miner_config
+    } else {
+        config.miner.clone()
+    };
+    miner_config
+}
+
 impl BlockMinerThread {
     /// Instantiate the miner thread from its parent RelayerThread
     pub fn from_relayer_thread(
@@ -1238,11 +1251,12 @@ impl BlockMinerThread {
 
     /// Get the coinbase recipient address, if set in the config and if allowed in this epoch
     fn get_coinbase_recipient(&self, epoch_id: StacksEpochId) -> Option<PrincipalData> {
-        if epoch_id < StacksEpochId::Epoch21 && self.config.miner.block_reward_recipient.is_some() {
+        let miner_config = reload_miner_config(&self.config);
+        if epoch_id < StacksEpochId::Epoch21 && miner_config.block_reward_recipient.is_some() {
             warn!("Coinbase pay-to-contract is not supported in the current epoch");
             None
         } else {
-            self.config.miner.block_reward_recipient.clone()
+            miner_config.block_reward_recipient.clone()
         }
     }
 
@@ -1716,7 +1730,6 @@ impl BlockMinerThread {
             }
         };
 
-        // let burn_fee_cap = self.config.burnchain.burn_fee_cap;
         let burn_fee_cap = get_mining_spend_amount(self.globals.get_miner_status());
         let sunset_burn = self.burnchain.expected_sunset_burn(
             self.burn_block.block_height + 1,
@@ -1825,6 +1838,7 @@ impl BlockMinerThread {
 
         let burn_db_path = self.config.get_burn_db_file_path();
         let stacks_chainstate_path = self.config.get_chainstate_path_str();
+        let miner_config = reload_miner_config(&self.config);
 
         let cost_estimator = self
             .config
@@ -2024,7 +2038,7 @@ impl BlockMinerThread {
                 &self.burnchain,
                 &burn_db,
                 &chain_state,
-                self.config.miner.unprocessed_block_deadline_secs,
+                miner_config.unprocessed_block_deadline_secs,
             );
             if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
@@ -2986,11 +3000,13 @@ impl RelayerThread {
             return None;
         }
 
+        let miner_config = reload_miner_config(&self.config);
+
         let has_unprocessed = BlockMinerThread::unprocessed_blocks_prevent_mining(
             &self.burnchain,
             self.sortdb_ref(),
             self.chainstate_ref(),
-            self.config.miner.unprocessed_block_deadline_secs,
+            miner_config.unprocessed_block_deadline_secs,
         );
         if has_unprocessed {
             debug!(

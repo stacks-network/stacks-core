@@ -628,11 +628,16 @@ impl RunLoop {
         sortdb: &SortitionDB,
         last_stacks_pox_reorg_recover_time: &mut u128,
     ) {
+        let miner_config = if let Ok(miner_config) = config.get_miner_config() {
+            miner_config
+        } else {
+            config.miner.clone()
+        };
         let delay = cmp::max(
             config.node.chain_liveness_poll_time_secs,
             cmp::max(
-                config.miner.first_attempt_time_ms,
-                config.miner.subsequent_attempt_time_ms,
+                miner_config.first_attempt_time_ms,
+                miner_config.subsequent_attempt_time_ms,
             ) / 1000,
         );
 
@@ -748,11 +753,16 @@ impl RunLoop {
         last_burn_pox_reorg_recover_time: &mut u128,
         last_announce_time: &mut u128,
     ) {
+        let miner_config = if let Ok(miner_config) = config.get_miner_config() {
+            miner_config
+        } else {
+            config.miner.clone()
+        };
         let delay = cmp::max(
             config.node.chain_liveness_poll_time_secs,
             cmp::max(
-                config.miner.first_attempt_time_ms,
-                config.miner.subsequent_attempt_time_ms,
+                miner_config.first_attempt_time_ms,
+                miner_config.subsequent_attempt_time_ms,
             ) / 1000,
         );
 
