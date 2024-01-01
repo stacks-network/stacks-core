@@ -139,7 +139,7 @@ def update_config_fee(toml_file_location: str, polling_delay_seconds: int):
         with open(toml_file_location, 'w') as toml_file:
             toml.dump(toml_data, toml_file)
 
-        time.sleep()
+        time.sleep(polling_delay_seconds)
 
 def read_config(config_location: str):
     """
