@@ -370,6 +370,8 @@ fn simple_neon_integration() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let prom_bind = format!("{}:{}", "127.0.0.1", 6000);
+    naka_conf.node.prometheus_bind = Some(prom_bind.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
@@ -436,6 +438,21 @@ fn simple_neon_integration() {
             .unwrap()
             .unwrap()
             .stacks_block_height;
+
+    // query for prometheus metrics
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let prom_http_origin = format!("http://{}", prom_bind);
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        let expected_result = format!("stacks_node_stacks_tip_height {block_height_pre_3_0}");
+        assert!(res.contains(&expected_result));
+    }
 
     info!("Nakamoto miner started...");
     // first block wakes up the run loop, wait until a key registration has been submitted.
@@ -528,6 +545,21 @@ fn simple_neon_integration() {
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
+
+    // make sure prometheus returns an updated height
+    #[cfg(feature = "monitoring_prom")]
+    {
+        let prom_http_origin = format!("http://{}", prom_bind);
+        let client = reqwest::blocking::Client::new();
+        let res = client
+            .get(&prom_http_origin)
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        let expected_result = format!("stacks_node_stacks_tip_height {}", tip.stacks_block_height);
+        assert!(res.contains(&expected_result));
+    }
 
     coord_channel
         .lock()
