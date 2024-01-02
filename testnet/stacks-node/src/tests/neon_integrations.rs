@@ -1169,15 +1169,10 @@ pub fn get_account<F: std::fmt::Display>(http_origin: &str, account: &F) -> Acco
     }
 }
 
-pub fn get_pox_info(http_origin: &str) -> RPCPoxInfoData {
+pub fn get_pox_info(http_origin: &str) -> Option<RPCPoxInfoData> {
     let client = reqwest::blocking::Client::new();
     let path = format!("{}/v2/pox", http_origin);
-    client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPoxInfoData>()
-        .unwrap()
+    client.get(&path).send().ok()?.json::<RPCPoxInfoData>().ok()
 }
 
 fn get_chain_tip(http_origin: &str) -> (ConsensusHash, BlockHeaderHash) {
@@ -6067,7 +6062,7 @@ fn pox_integration_test() {
     assert_eq!(account.balance, first_bal as u128);
     assert_eq!(account.nonce, 0);
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     assert_eq!(
         &pox_info.contract_id,
@@ -6135,7 +6130,7 @@ fn pox_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     assert_eq!(
         &pox_info.contract_id,
@@ -6266,7 +6261,7 @@ fn pox_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     assert_eq!(
         &pox_info.contract_id,
@@ -6321,7 +6316,7 @@ fn pox_integration_test() {
         eprintln!("Sort height: {}", sort_height);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     assert_eq!(
         &pox_info.contract_id,
