@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+- All miner-related settings can be changed in the config file and take effect
+  without a node restart (#4223)
+
 ## [2.4.0.0.4]
 
 This is a high-priority hotfix that addresses a bug in transaction processing which
