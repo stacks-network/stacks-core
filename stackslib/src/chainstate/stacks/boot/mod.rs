@@ -244,12 +244,12 @@ impl StacksChainState {
                         &format!(r#"
                             (unwrap-panic (map-get? stacking-state {{ stacker: '{unlocked_principal} }}))
                             "#,
-                            unlocked_principal = Value::Principal(principal.clone())
+                                 unlocked_principal = Value::Principal(principal.clone())
                         ),
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                 })
-                .expect("FATAL: failed to query unlocked principal");
+            .expect("FATAL: failed to query unlocked principal");
 
         user_stacking_state.expect_tuple()
     }
@@ -1267,7 +1267,7 @@ pub mod test {
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[],
-                liquid
+                liquid,
             )
             .0,
             POX_THRESHOLD_STEPS_USTX
@@ -1278,9 +1278,9 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
-                    stacker: None
+                    stacker: None,
                 }],
-                liquid
+                liquid,
             )
             .0,
             POX_THRESHOLD_STEPS_USTX
@@ -1292,7 +1292,7 @@ pub mod test {
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[],
-                liquid
+                liquid,
             )
             .0,
             50_000 * MICROSTACKS_PER_STACKS as u128
@@ -1304,9 +1304,9 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid / 4,
-                    stacker: None
+                    stacker: None,
                 }],
-                liquid
+                liquid,
             )
             .0,
             50_000 * MICROSTACKS_PER_STACKS as u128
@@ -1319,15 +1319,15 @@ pub mod test {
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
-                        stacker: None
+                        stacker: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: 10_000_000 * (MICROSTACKS_PER_STACKS as u128),
-                        stacker: None
+                        stacker: None,
                     },
                 ],
-                liquid
+                liquid,
             )
             .0,
             60_000 * MICROSTACKS_PER_STACKS as u128
@@ -1341,15 +1341,15 @@ pub mod test {
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
-                        stacker: None
+                        stacker: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: MICROSTACKS_PER_STACKS as u128,
-                        stacker: None
+                        stacker: None,
                     },
                 ],
-                liquid
+                liquid,
             )
             .0,
             60_000 * MICROSTACKS_PER_STACKS as u128
@@ -1362,9 +1362,9 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
-                    stacker: None
+                    stacker: None,
                 }],
-                liquid
+                liquid,
             )
             .0,
             200_000 * MICROSTACKS_PER_STACKS as u128
@@ -1638,20 +1638,15 @@ pub mod test {
         make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_3_NAME)
     }
 
-    /// TODO: add signer key
     pub fn make_pox_4_lockup(
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
         addr: PoxAddress,
         lock_period: u128,
+        signer_key: StacksPublicKey,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // ;; TODO: add signer key
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
@@ -1662,6 +1657,7 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
         .unwrap();
@@ -1774,13 +1770,18 @@ pub mod test {
         nonce: u64,
         addr: PoxAddress,
         lock_period: u128,
+        signer_key: StacksPublicKey,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-extend",
-            vec![Value::UInt(lock_period), addr_tuple],
+            vec![
+                Value::UInt(lock_period),
+                addr_tuple,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
         )
         .unwrap();
 
@@ -1849,6 +1850,23 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_3_NAME,
+            function_name,
+            args,
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
             function_name,
             args,
         )
@@ -2349,7 +2367,6 @@ pub mod test {
                     let tx = make_tx(&alice, 7, 0, cc_payload.clone()); // should be allowed!
                     block_txs.push(alice_allowance);
                     block_txs.push(tx);
-
                 }
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
@@ -4243,7 +4260,7 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into()
+                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     )
                     .is_none());
 
@@ -4376,7 +4393,7 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into()
+                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     )
                     .is_none());
 
@@ -4752,7 +4769,7 @@ pub mod test {
                 // alice did _NOT_ spend
                 assert!(get_contract(
                     &mut peer,
-                    &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-spend").into()
+                    &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-spend").into(),
                 )
                 .is_none());
             }
@@ -4941,12 +4958,12 @@ pub mod test {
                     // Charlie tries to stack, but it should fail.
                     // Specifically, (stack-stx) should fail with (err 17).
                     let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                           &format!(
+                                                               "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 17)
                                (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1))))",
-                               boot_code_test_addr()));
+                                                               boot_code_test_addr()));
 
                     block_txs.push(charlie_stack);
 
@@ -4955,24 +4972,24 @@ pub mod test {
                     // stacked.
                     // If it's the case, then this tx will NOT be mined
                     let alice_reject = make_bare_contract(&alice, 1, 0, "alice-try-reject",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                          &format!(
+                                                              "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 3)
                                (print (contract-call? '{}.pox reject-pox))))",
-                               boot_code_test_addr()));
+                                                              boot_code_test_addr()));
 
                     block_txs.push(alice_reject);
 
                     // Charlie tries to reject again, but it should fail.
                     // Specifically, (reject-pox) should fail with (err 17).
                     let charlie_reject = make_bare_contract(&charlie, 3, 0, "charlie-try-reject",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                            &format!(
+                                                                "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 17)
                                (print (contract-call? '{}.pox reject-pox))))",
-                               boot_code_test_addr()));
+                                                                boot_code_test_addr()));
 
                     block_txs.push(charlie_reject);
                 }
@@ -5022,7 +5039,7 @@ pub mod test {
             })
             .unwrap();
 
-            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\ntotal-stacked next: {}\n", 
+            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\ntotal-stacked next: {}\n",
                       tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked, total_stacked_next);
 
             if tenure_id <= 1 {
