@@ -606,7 +606,10 @@ pub fn get_type_size(ty: &TypeSignature) -> i32 {
     match ty {
         TypeSignature::IntType | TypeSignature::UIntType => 16, // low: i64, high: i64
         TypeSignature::BoolType => 4,                           // i32
-        TypeSignature::PrincipalType | TypeSignature::SequenceType(_) => 8, // offset: i32, length: i32
+        TypeSignature::PrincipalType
+        | TypeSignature::SequenceType(_)
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => 8, // offset: i32, length: i32
         TypeSignature::OptionalType(inner) => 4 + get_type_size(inner), // indicator: i32, value: inner
         TypeSignature::TupleType(tuple_ty) => {
             let mut size = 0;
@@ -620,9 +623,9 @@ pub fn get_type_size(ty: &TypeSignature) -> i32 {
             4 + get_type_size(&inner_types.0) + get_type_size(&inner_types.1)
         }
         TypeSignature::NoType => 4, // i32
-        TypeSignature::CallableType(_)
-        | TypeSignature::ListUnionType(_)
-        | TypeSignature::TraitReferenceType(_) => unreachable!("not a value type"),
+        TypeSignature::ListUnionType(_) => {
+            unreachable!("not a value type")
+        }
     }
 }
 
