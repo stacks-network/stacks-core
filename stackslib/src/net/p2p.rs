@@ -5336,35 +5336,23 @@ impl PeerNetwork {
             let mut new_stackerdb_configs = HashMap::new();
             let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
             for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
-                let new_config =
-                    if stackerdb_contract_id == boot_code_id(MINERS_NAME, chainstate.mainnet) {
-                        // .miners contract -- directly generate the config
-                        let miners_config =
-                            match NakamotoChainState::make_miners_stackerdb_config(sortdb) {
-                                Ok(config) => config,
-                                Err(e) => {
-                                    warn!("Failed to generate .miners config: {:?}", &e);
-                                    continue;
-                                }
-                            };
-                        miners_config
-                    } else {
-                        // normal stackerdb contract
-                        match StackerDBConfig::from_smart_contract(
-                            chainstate,
-                            sortdb,
-                            &stackerdb_contract_id,
-                        ) {
-                            Ok(config) => config,
-                            Err(e) => {
-                                warn!(
-                                    "Failed to load StackerDB config for {}: {:?}",
-                                    &stackerdb_contract_id, &e
-                                );
-                                StackerDBConfig::noop()
-                            }
-                        }
-                    };
+                let new_config = if stackerdb_contract_id
+                    == boot_code_id(MINERS_NAME, chainstate.mainnet)
+                {
+                    // .miners contract -- directly generate the config
+                    NakamotoChainState::make_miners_stackerdb_config(sortdb)?
+                } else {
+                    // normal stackerdb contract
+                    StackerDBConfig::from_smart_contract(chainstate, sortdb, &stackerdb_contract_id)
+                        .unwrap_or_else(|e| {
+                            warn!(
+                                "Failed to load StackerDB config";
+                                "contract" => %stackerdb_contract_id,
+                                "err" => ?e,
+                            );
+                            StackerDBConfig::noop()
+                        })
+                };
                 if new_config != stackerdb_config && new_config.signers.len() > 0 {
                     if let Err(e) =
                         self.create_or_reconfigure_stackerdb(&stackerdb_contract_id, &new_config)
