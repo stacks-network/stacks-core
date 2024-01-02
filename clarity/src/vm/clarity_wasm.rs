@@ -1324,7 +1324,7 @@ fn write_to_wasm(
         }
         TypeSignature::PrincipalType
         | TypeSignature::CallableType(_)
-        | TypeSignature::TraitReferenceType(_trait_id) => {
+        | TypeSignature::TraitReferenceType(_) => {
             let principal = value_as_principal(&value)?;
             let (standard, contract_name) = match principal {
                 PrincipalData::Standard(s) => (s, ""),
@@ -1765,7 +1765,7 @@ fn wasm_to_clarity_value(
         }
         TypeSignature::PrincipalType
         | TypeSignature::CallableType(_)
-        | TypeSignature::TraitReferenceType(_t) => {
+        | TypeSignature::TraitReferenceType(_) => {
             let offset = buffer[value_index]
                 .i32()
                 .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
