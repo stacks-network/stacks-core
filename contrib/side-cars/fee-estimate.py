@@ -23,7 +23,7 @@ from sys import argv
 FEE_ESTIMATIONS = [
     # Bitcoiner Live API
     (
-        'https://bitcoiner.live/api/fees/estimates/latest',
+        'https://bitcoiner.live/api/fees/estimates/latest?confidence=0.9',
         lambda response_json: response_json["estimates"]["30"]["sat_per_vbyte"],
     ),
 
