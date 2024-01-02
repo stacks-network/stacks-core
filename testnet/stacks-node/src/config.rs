@@ -410,14 +410,24 @@ impl Config {
     }
 
     /// get the up-to-date miner options from the config
-    pub fn get_miner_config(&self) -> Result<MinerConfig, String> {
-        if let Some(path) = &self.config_path {
-            let config_file = ConfigFile::from_path(path.as_str())?;
-            let config = Config::from_config_file(config_file)?;
-            Ok(config.miner)
-        } else {
-            Ok(self.miner.clone())
-        }
+    /// re-read an up-to-date config from this config file's path, or if there is no path,
+    /// just return a clone of the current config.
+    fn reload_config(&self) -> Result<Config, String> {
+        let Some(path) = &self.config_path else {
+            return self.clone()
+        };
+        let config_file = ConfigFile::from_path(path.as_str())?;
+        Config::from_config_file(config_file)
+    }
+    
+    /// re-read the up-to-date miner options from the config file's path, or if there is 
+    /// no path or it is unreadable, just return the current miner config.
+    pub fn get_miner_config(&self) -> MinerConfig {
+        let config = self.reload_config().unwrap_or_else(|e| {
+             warn!("Failed to reload miner config: {e}");
+             self.clone()
+        });
+        config.miner
     }
 
     /// Apply any test settings to this burnchain config struct
