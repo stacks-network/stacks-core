@@ -5972,6 +5972,54 @@ mod test {
     }
 
     #[test]
+    fn test_neighbor_stats_nakamoto_block_push_bandwidth() {
+        let mut stats = NeighborStats::new(false);
+
+        assert_eq!(stats.get_nakamoto_block_push_bandwidth(), 0.0);
+
+        stats.add_nakamoto_block_push(100);
+        assert_eq!(stats.get_nakamoto_block_push_bandwidth(), 0.0);
+
+        // this should all happen in one second
+        let bw_stats = loop {
+            let mut bw_stats = stats.clone();
+            let start = get_epoch_time_secs();
+
+            for _ in 0..(NUM_BANDWIDTH_POINTS - 1) {
+                bw_stats.add_nakamoto_block_push(100);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start {
+                break bw_stats;
+            }
+        };
+
+        assert_eq!(
+            bw_stats.get_nakamoto_block_push_bandwidth(),
+            (NUM_BANDWIDTH_POINTS as f64) * 100.0
+        );
+
+        // space some out; make sure it takes 11 seconds
+        let bw_stats = loop {
+            let mut bw_stats = NeighborStats::new(false);
+            let start = get_epoch_time_secs();
+            for _ in 0..11 {
+                bw_stats.add_nakamoto_block_push(100);
+                sleep_ms(1001);
+            }
+
+            let end = get_epoch_time_secs();
+            if end == start + 11 {
+                break bw_stats;
+            }
+        };
+
+        // 100 bytes/sec
+        assert_eq!(bw_stats.get_nakamoto_block_push_bandwidth(), 110.0);
+    }
+
+    #[test]
     fn test_neighbor_stats_transaction_push_bandwidth() {
         let mut stats = NeighborStats::new(false);
 
