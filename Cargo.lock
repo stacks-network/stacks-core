@@ -805,7 +805,7 @@ checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/clarity-wasm.git?branch=devnet#b1e627d91842ed17eb98998fe3e5149b463966b2"
+source = "git+https://github.com/stacks-network/clarity-wasm.git?branch=devnet#c5901418376355b94992235efb420e050c5e9845"
 dependencies = [
  "chrono",
  "clap 4.4.11",
@@ -845,7 +845,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.2.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#551bc3cc6d75f0fc0a0ab04690c91380d813da74"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#7323cdd7b8366696450587792a1925de99d8efa5"
 dependencies = [
  "integer-sqrt",
  "lazy_static",
@@ -4085,7 +4085,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#551bc3cc6d75f0fc0a0ab04690c91380d813da74"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#7323cdd7b8366696450587792a1925de99d8efa5"
 dependencies = [
  "chrono",
  "curve25519-dalek",
