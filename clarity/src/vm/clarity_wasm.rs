@@ -923,7 +923,7 @@ fn read_from_wasm(
                 buffer.push(elem);
                 current_offset += elem_length;
             }
-            Value::list_with_type(&epoch, buffer, list.clone())
+            Value::cons_list_unsanitized(buffer)
         }
         TypeSignature::BoolType => {
             debug_assert!(
