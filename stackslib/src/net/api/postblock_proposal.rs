@@ -108,18 +108,16 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
     }
 }
 
-impl From<ChainError> for BlockValidateReject {
-    fn from(value: ChainError) -> Self {
+impl<T> From<T> for BlockValidateReject
+where
+    T: Into<ChainError>,
+{
+    fn from(value: T) -> Self {
+        let ce: ChainError = value.into();
         BlockValidateReject {
-            reason: format!("Chainstate Error: {value}"),
+            reason: format!("Chainstate Error: {ce}"),
             reason_code: ValidateRejectCode::ChainstateError,
         }
-    }
-}
-
-impl From<DBError> for BlockValidateReject {
-    fn from(value: DBError) -> Self {
-        ChainError::from(value).into()
     }
 }
 
@@ -150,11 +148,12 @@ impl NakamotoBlockProposal {
     /// Test this block proposal against the current chain state and
     /// either accept or reject the proposal
     ///
-    /// This is done in 2 steps:
+    /// This is done in 3 stages:
     /// - Static validation of the block, which checks the following:
-    ///   - Block is well-formed
+    ///   - Block header is well-formed
     ///   - Transactions are well-formed
     ///   - Miner signature is valid
+    /// - Validate threshold signature of stackers
     /// - Validation of transactions by executing them agains current chainstate.
     ///   This is resource intensive, and therefore done only if previous checks pass
     pub fn validate(
@@ -180,7 +179,7 @@ impl NakamotoBlockProposal {
         let expected_burn =
             NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
 
-        // Static validation checks
+        // Stage 1: Static validation checks
         NakamotoChainState::validate_nakamoto_block_burnchain(
             &db_handle,
             expected_burn,
@@ -189,7 +188,39 @@ impl NakamotoBlockProposal {
             self.chain_id,
         )?;
 
-        // Validate block txs against chainstate
+        // Stage 2: Validate stacker threshold signature
+        let sort_handle = sortdb.index_handle(&sort_tip);
+        let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
+            chainstate,
+            &sortdb,
+            &sort_handle,
+            &self.block,
+        ) else {
+            warn!("Failed to get aggregate public key";
+                "block_hash" => %self.block.header.block_hash(),
+                "consensus_hash" => %self.block.header.consensus_hash,
+                "chain_length" => self.block.header.chain_length,
+            );
+            return Err(BlockValidateReject {
+                reason: "Failed to get aggregate public key".into(),
+                reason_code: ValidateRejectCode::ChainstateError,
+            });
+        };
+        if !db_handle.expects_signer_signature(
+            &self.block.header.consensus_hash,
+            &self.block.header.signer_signature.0,
+            &self.block.header.signer_signature_hash()?.0,
+            &aggregate_public_key,
+        )? {
+            return Err(BlockValidateReject {
+                reason:
+                    "Stacker signature does not match aggregate pubkey for current stacking cycle"
+                        .into(),
+                reason_code: ValidateRejectCode::InvalidBlock,
+            });
+        }
+
+        // Stage 3: Validate txs against chainstate
         let parent_stacks_header = NakamotoChainState::get_block_header(
             chainstate.db(),
             &self.block.header.parent_block_id,
@@ -325,7 +356,8 @@ impl RPCBlockProposalRequestHandler {
 
     /// Decode a JSON-encoded transaction
     fn parse_json(body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
-        serde_json::from_slice(body).map_err(|_| Error::DecodeError("Failed to parse body".into()))
+        serde_json::from_slice(body)
+            .map_err(|e| Error::DecodeError(format!("Failed to parse body: {e}")))
     }
 }
 
