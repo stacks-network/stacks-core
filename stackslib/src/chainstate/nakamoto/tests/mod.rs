@@ -1658,6 +1658,7 @@ fn test_make_miners_stackerdb_config() {
         test_signers.aggregate_public_key.clone(),
     );
 
+    let naka_miner_hash160 = peer.miner.nakamoto_miner_hash160();
     let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
     let miner_hash160s: Vec<_> = miner_keys
         .iter()
@@ -1790,85 +1791,79 @@ fn test_make_miners_stackerdb_config() {
             }
         };
 
-        {
-            let mut tx = SortitionHandleTx::begin(sort_db, &last_snapshot.sortition_id).unwrap();
-            let _index_root = tx
-                .append_chain_tip_snapshot(
-                    &last_snapshot,
-                    &snapshot,
-                    &winning_ops,
-                    &vec![],
-                    None,
-                    None,
-                    None,
-                )
-                .unwrap();
-            tx.test_update_canonical_stacks_tip(
-                &snapshot.sortition_id,
-                &snapshot.canonical_stacks_tip_consensus_hash,
-                &snapshot.canonical_stacks_tip_hash,
-                snapshot.canonical_stacks_tip_height,
+        let mut tx = SortitionHandleTx::begin(sort_db, &last_snapshot.sortition_id).unwrap();
+        let _index_root = tx
+            .append_chain_tip_snapshot(
+                &last_snapshot,
+                &snapshot,
+                &winning_ops,
+                &vec![],
+                None,
+                None,
+                None,
             )
             .unwrap();
-            tx.commit().unwrap();
-        }
+        tx.test_update_canonical_stacks_tip(
+            &snapshot.sortition_id,
+            &snapshot.canonical_stacks_tip_consensus_hash,
+            &snapshot.canonical_stacks_tip_hash,
+            snapshot.canonical_stacks_tip_height,
+        )
+        .unwrap();
+        tx.commit().unwrap();
 
         last_snapshot = SortitionDB::get_block_snapshot(sort_db.conn(), &snapshot.sortition_id)
             .unwrap()
             .unwrap();
 
-        if i > 0 {
-            // have block-commit
-            // check the stackerdb config as of this chain tip
-            let stackerdb_config =
-                NakamotoChainState::make_miners_stackerdb_config(sort_db).unwrap();
-            eprintln!(
-                "stackerdb_config at i = {} (sorition? {}): {:?}",
-                &i, sortition, &stackerdb_config
-            );
+        // check the stackerdb config as of this chain tip
+        let stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(sort_db).unwrap();
+        eprintln!(
+            "stackerdb_config at i = {} (sorition? {}): {:?}",
+            &i, sortition, &stackerdb_config
+        );
 
-            stackerdb_configs.push(stackerdb_config);
+        stackerdb_configs.push(stackerdb_config);
 
-            // make a stackerdb chunk for a hypothetical block
-            let header = NakamotoBlockHeader {
-                version: 1,
-                chain_length: 2,
-                burn_spent: 3,
-                consensus_hash: ConsensusHash([0x04; 20]),
-                parent_block_id: StacksBlockId([0x05; 32]),
-                tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
-                state_index_root: TrieHash([0x07; 32]),
-                miner_signature: MessageSignature::empty(),
-                signer_signature: ThresholdSignature::mock(),
-            };
-            let block = NakamotoBlock {
-                header,
-                txs: vec![],
-            };
-            if sortition {
-                let chunk = NakamotoBlockBuilder::make_stackerdb_block_proposal(
-                    &sort_db,
-                    &stackerdbs,
-                    &block,
-                    &miner_keys[i],
-                    &miners_contract_id,
-                )
-                .unwrap()
-                .unwrap();
-                assert_eq!(chunk.slot_version, 1);
-                assert_eq!(chunk.data, block.serialize_to_vec());
-                stackerdb_chunks.push(chunk);
-            } else {
-                assert!(NakamotoBlockBuilder::make_stackerdb_block_proposal(
-                    &sort_db,
-                    &stackerdbs,
-                    &block,
-                    &miner_keys[i],
-                    &miners_contract_id,
-                )
-                .unwrap()
-                .is_none());
-            }
+        // make a stackerdb chunk for a hypothetical block
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 2,
+            burn_spent: 3,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            parent_block_id: StacksBlockId([0x05; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+            state_index_root: TrieHash([0x07; 32]),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: ThresholdSignature::mock(),
+        };
+        let block = NakamotoBlock {
+            header,
+            txs: vec![],
+        };
+        if sortition {
+            let chunk = NakamotoBlockBuilder::make_stackerdb_block_proposal(
+                &sort_db,
+                &stackerdbs,
+                &block,
+                &miner_keys[i],
+                &miners_contract_id,
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(chunk.slot_version, 1);
+            assert_eq!(chunk.data, block.serialize_to_vec());
+            stackerdb_chunks.push(chunk);
+        } else {
+            assert!(NakamotoBlockBuilder::make_stackerdb_block_proposal(
+                &sort_db,
+                &stackerdbs,
+                &block,
+                &miner_keys[i],
+                &miners_contract_id,
+            )
+            .unwrap()
+            .is_none());
         }
     }
     // miners are "stable" across snapshots
@@ -1897,26 +1892,32 @@ fn test_make_miners_stackerdb_config() {
     assert!(stackerdb_chunks[4].verify(&miner_addrs[7]).unwrap());
     assert!(stackerdb_chunks[5].verify(&miner_addrs[8]).unwrap());
 
-    assert_eq!(miner_hashbytes[0].0, miner_hash160s[1]);
+    // There is no block commit associated with the first ever sortition.
+    // Both the first and second writers will be the same miner (the default for the test peer)
+    assert_eq!(miner_hashbytes[0].0, naka_miner_hash160);
+    assert_eq!(miner_hashbytes[0].1, naka_miner_hash160);
+    assert_eq!(miner_hashbytes[1].1, naka_miner_hash160);
+
     assert_eq!(miner_hashbytes[1].0, miner_hash160s[1]);
     assert_eq!(miner_hashbytes[2].0, miner_hash160s[1]);
+    assert_eq!(miner_hashbytes[3].0, miner_hash160s[1]);
 
-    assert_eq!(miner_hashbytes[1].1, miner_hash160s[2]);
     assert_eq!(miner_hashbytes[2].1, miner_hash160s[2]);
     assert_eq!(miner_hashbytes[3].1, miner_hash160s[2]);
+    assert_eq!(miner_hashbytes[4].1, miner_hash160s[2]);
 
-    assert_eq!(miner_hashbytes[3].0, miner_hash160s[4]);
     assert_eq!(miner_hashbytes[4].0, miner_hash160s[4]);
     assert_eq!(miner_hashbytes[5].0, miner_hash160s[4]);
+    assert_eq!(miner_hashbytes[6].0, miner_hash160s[4]);
 
-    assert_eq!(miner_hashbytes[4].1, miner_hash160s[5]);
     assert_eq!(miner_hashbytes[5].1, miner_hash160s[5]);
     assert_eq!(miner_hashbytes[6].1, miner_hash160s[5]);
+    assert_eq!(miner_hashbytes[7].1, miner_hash160s[5]);
 
-    assert_eq!(miner_hashbytes[6].0, miner_hash160s[7]);
     assert_eq!(miner_hashbytes[7].0, miner_hash160s[7]);
     assert_eq!(miner_hashbytes[8].0, miner_hash160s[7]);
+    assert_eq!(miner_hashbytes[9].0, miner_hash160s[7]);
 
-    assert_eq!(miner_hashbytes[7].1, miner_hash160s[8]);
     assert_eq!(miner_hashbytes[8].1, miner_hash160s[8]);
+    assert_eq!(miner_hashbytes[9].1, miner_hash160s[8]);
 }
