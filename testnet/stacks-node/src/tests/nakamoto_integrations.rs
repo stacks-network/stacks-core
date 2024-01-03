@@ -37,7 +37,8 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
 use stacks::net::api::postblock_proposal::{
-    BlockValidateOk, BlockValidateReject, NakamotoBlockProposal, ValidateRejectCode,
+    BlockValidateOk, BlockValidateReject, NakamotoBlockProposal,
+    ValidateRejectCode,
 };
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
@@ -953,7 +954,7 @@ fn block_proposal_api_endpoint() {
     }
 
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
-    let account_keys = add_initial_balances(&mut conf, 10, 1000000);
+    let account_keys = add_initial_balances(&mut conf, 10, 1_000_000);
     let stacker_sk = setup_stacker(&mut conf);
 
     test_observer::spawn();
@@ -1158,6 +1159,16 @@ fn block_proposal_api_endpoint() {
             HTTP_BADREQUEST,
             Some(ValidateRejectCode::InvalidBlock),
         ),
+        (
+            "Invalid `miner_signature`",
+            (|| {
+                let mut sp = sign(proposal.clone());
+                sp.block.header.miner_signature.0[1] ^= 0x80;
+                sp
+            })(),
+            HTTP_BADREQUEST,
+            Some(ValidateRejectCode::ChainstateError),
+        ),
     ];
 
     // Build HTTP client
@@ -1177,7 +1188,7 @@ fn block_proposal_api_endpoint() {
     ) in test_cases
     {
         eprintln!("block_proposal_api_endpoint(): {test_description}");
-        eprintln!("{block_proposal:?}");
+        eprintln!("block_proposal={block_proposal:?}");
 
         // Send POST request
         let response = client
@@ -1187,10 +1198,11 @@ fn block_proposal_api_endpoint() {
             .send()
             .expect("Failed to POST");
 
-        eprintln!("{response:?}");
+        eprintln!("response={response:?}");
         assert_eq!(response.status().as_u16(), expected_http_code);
 
         let response_text = response.text().expect("No response text");
+        eprintln!("response_text={response_text:?}");
         match expected_block_validate_reject_code {
             // If okay, check that response is same as block sent
             Some(reject_code) => {
