@@ -128,10 +128,6 @@ impl From<DBError> for BlockValidateReject {
 pub struct NakamotoBlockProposal {
     /// Proposed block
     pub block: NakamotoBlock,
-    // tenure ID -- this is the index block hash of the start block of the last tenure (i.e.
-    // the data we committed to in the block-commit).  If this is an epoch 2.x parent, then
-    // this is just the index block hash of the parent Stacks block.
-    pub tenure_start_block: StacksBlockId,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
 }
@@ -139,14 +135,12 @@ pub struct NakamotoBlockProposal {
 impl StacksMessageCodec for NakamotoBlockProposal {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &self.block)?;
-        write_next(fd, &self.tenure_start_block)?;
         write_next(fd, &self.chain_id)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         Ok(Self {
             block: read_next(fd)?,
-            tenure_start_block: read_next(fd)?,
             chain_id: read_next(fd)?,
         })
     }
