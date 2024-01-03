@@ -36,7 +36,9 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
-use stacks::net::api::postblock_proposal::NakamotoBlockProposal;
+use stacks::net::api::postblock_proposal::{
+    BlockValidateOk, BlockValidateReject, NakamotoBlockProposal, ValidateRejectCode,
+};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
@@ -1129,21 +1131,22 @@ fn block_proposal_api_endpoint() {
 
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_BADREQUEST: u16 = 400;
-    // TODO: Check error codes?
     let test_cases = [
         (
             "Valid Nakamoto block proposal",
             sign(proposal.clone()),
             HTTP_ACCEPTED,
+            None,
         ),
         (
-            "Corrupted (bit flipped after signing)",
+            "Corrupted message (bit flipped after signing)",
             (|| {
                 let mut sp = sign(proposal.clone());
                 sp.block.header.consensus_hash.0[3] ^= 0x07;
                 sp
             })(),
             HTTP_BADREQUEST,
+            Some(ValidateRejectCode::ChainstateError),
         ),
         (
             "Invalid `chain_id`",
@@ -1153,6 +1156,7 @@ fn block_proposal_api_endpoint() {
                 sign(p)
             })(),
             HTTP_BADREQUEST,
+            Some(ValidateRejectCode::InvalidBlock),
         ),
     ];
 
@@ -1160,13 +1164,19 @@ fn block_proposal_api_endpoint() {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))
         .build()
-        .expect("Failed to build reqwest::Client");
+        .expect("Failed to build `reqwest::Client`");
     // Build URL
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let path = format!("{http_origin}/v2/block_proposal");
 
-    for (test_description, block_proposal, expected_response) in test_cases {
-        eprintln!("test_block_proposal(): {test_description}");
+    for (
+        test_description,
+        block_proposal,
+        expected_http_code,
+        expected_block_validate_reject_code,
+    ) in test_cases
+    {
+        eprintln!("block_proposal_api_endpoint(): {test_description}");
         eprintln!("{block_proposal:?}");
 
         // Send POST request
@@ -1178,7 +1188,23 @@ fn block_proposal_api_endpoint() {
             .expect("Failed to POST");
 
         eprintln!("{response:?}");
-        assert_eq!(response.status().as_u16(), expected_response);
+        assert_eq!(response.status().as_u16(), expected_http_code);
+
+        let response_text = response.text().expect("No response text");
+        match expected_block_validate_reject_code {
+            // If okay, check that response is same as block sent
+            Some(reject_code) => {
+                let reject = serde_json::from_str::<BlockValidateReject>(&response_text)
+                    .expect("Expected response of type `BlockValidateReject`");
+                assert_eq!(reject.reason_code, reject_code);
+            }
+            // If okay, check that response is same as block sent
+            None => {
+                let ok = serde_json::from_str::<BlockValidateOk>(&response_text)
+                    .expect("Expected response of type `BlockValidateOk`");
+                assert_eq!(ok.block, block_proposal.block);
+            }
+        }
     }
 
     // Clean up
