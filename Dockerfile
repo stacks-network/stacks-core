@@ -20,4 +20,4 @@ FROM alpine
 
 COPY --from=build /out/ /bin/
 
-CMD ["stacks-node", "mainnet"]
+CMD ["mempool-analyzer", "/hirosystems/data", "600000"]
