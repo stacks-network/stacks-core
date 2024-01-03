@@ -29,7 +29,7 @@ use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
-use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
 use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -37,8 +37,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
 use stacks::net::api::postblock_proposal::{
-    BlockValidateOk, BlockValidateReject, NakamotoBlockProposal,
-    ValidateRejectCode,
+    BlockValidateOk, BlockValidateReject, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
@@ -988,6 +987,7 @@ fn block_proposal_api_endpoint() {
         &conf,
         &blocks_processed,
         stacker_sk,
+        StacksPublicKey::new(),
         &mut btc_regtest_controller,
     );
 
@@ -1168,6 +1168,16 @@ fn block_proposal_api_endpoint() {
             })(),
             HTTP_BADREQUEST,
             Some(ValidateRejectCode::ChainstateError),
+        ),
+        (
+            "Invalid `signer_signature`",
+            (|| {
+                let mut sp = sign(proposal.clone());
+                sp.block.header.signer_signature = ThresholdSignature::mock();
+                sp
+            })(),
+            HTTP_BADREQUEST,
+            Some(ValidateRejectCode::InvalidBlock),
         ),
     ];
 
