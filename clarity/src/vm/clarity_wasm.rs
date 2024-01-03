@@ -606,7 +606,10 @@ pub fn get_type_size(ty: &TypeSignature) -> i32 {
     match ty {
         TypeSignature::IntType | TypeSignature::UIntType => 16, // low: i64, high: i64
         TypeSignature::BoolType => 4,                           // i32
-        TypeSignature::PrincipalType | TypeSignature::SequenceType(_) => 8, // offset: i32, length: i32
+        TypeSignature::PrincipalType
+        | TypeSignature::SequenceType(_)
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => 8, // offset: i32, length: i32
         TypeSignature::OptionalType(inner) => 4 + get_type_size(inner), // indicator: i32, value: inner
         TypeSignature::TupleType(tuple_ty) => {
             let mut size = 0;
@@ -620,9 +623,9 @@ pub fn get_type_size(ty: &TypeSignature) -> i32 {
             4 + get_type_size(&inner_types.0) + get_type_size(&inner_types.1)
         }
         TypeSignature::NoType => 4, // i32
-        TypeSignature::CallableType(_)
-        | TypeSignature::ListUnionType(_)
-        | TypeSignature::TraitReferenceType(_) => unreachable!("not a value type"),
+        TypeSignature::ListUnionType(_) => {
+            unreachable!("not a value type")
+        }
     }
 }
 
@@ -637,7 +640,9 @@ pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
             }
             size
         }
-        TypeSignature::PrincipalType | TypeSignature::CallableType(_) => {
+        TypeSignature::PrincipalType
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => {
             // Standard principal is a 1 byte version and a 20 byte Hash160.
             // Then there is an int32 for the contract name length, followed by
             // the contract name, which has a max length of 128.
@@ -680,8 +685,7 @@ pub fn get_type_in_memory_size(ty: &TypeSignature, include_repr: bool) -> i32 {
             4 + get_type_in_memory_size(&res_types.0, true)
                 + get_type_in_memory_size(&res_types.1, true)
         }
-        TypeSignature::ListUnionType(_) => todo!(),
-        TypeSignature::TraitReferenceType(_) => todo!(),
+        TypeSignature::ListUnionType(_) => unreachable!("not a value type"),
     }
 }
 
@@ -696,10 +700,11 @@ pub fn is_in_memory_type(ty: &TypeSignature) -> bool {
         | TypeSignature::TupleType(_)
         | TypeSignature::OptionalType(_)
         | TypeSignature::ResponseType(_) => false,
-        TypeSignature::SequenceType(_) | TypeSignature::PrincipalType => true,
-        TypeSignature::CallableType(_)
-        | TypeSignature::ListUnionType(_)
-        | TypeSignature::TraitReferenceType(_) => unreachable!("not a value type"),
+        TypeSignature::SequenceType(_)
+        | TypeSignature::PrincipalType
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => true,
+        TypeSignature::ListUnionType(_) => unreachable!("not a value type"),
     }
 }
 
@@ -858,7 +863,9 @@ fn read_from_wasm(
                 .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
             Value::string_utf8_from_unicode_scalars(buffer)
         }
-        TypeSignature::PrincipalType => {
+        TypeSignature::PrincipalType
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => {
             debug_assert!(
                 length >= STANDARD_PRINCIPAL_BYTES as i32 && length <= PRINCIPAL_BYTES_MAX as i32
             );
@@ -916,7 +923,7 @@ fn read_from_wasm(
                 buffer.push(elem);
                 current_offset += elem_length;
             }
-            Value::list_with_type(&epoch, buffer, list.clone())
+            Value::cons_list_unsanitized(buffer)
         }
         TypeSignature::BoolType => {
             debug_assert!(
@@ -1004,9 +1011,7 @@ fn read_from_wasm(
             }
         }
         TypeSignature::NoType => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::CallableType(_subtype) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::ListUnionType(_subtypes) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
     }
 }
 
@@ -1317,7 +1322,9 @@ fn write_to_wasm(
             }
             Ok((written, in_mem_written))
         }
-        TypeSignature::PrincipalType => {
+        TypeSignature::PrincipalType
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => {
             let principal = value_as_principal(&value)?;
             let (standard, contract_name) = match principal {
                 PrincipalData::Standard(s) => (s, ""),
@@ -1414,8 +1421,7 @@ fn write_to_wasm(
 
             Ok((written, in_mem_written))
         }
-        TypeSignature::TraitReferenceType(_trait_id) => todo!("type not yet implemented: {:?}", ty),
-        TypeSignature::CallableType(_) | TypeSignature::ListUnionType(_) => {
+        TypeSignature::ListUnionType(_) => {
             unreachable!("not a value type")
         }
     }
@@ -1563,7 +1569,8 @@ fn reserve_space_for_return<T>(
         TypeSignature::NoType => Ok((vec![Val::I32(0)], offset)),
         TypeSignature::SequenceType(_)
         | TypeSignature::PrincipalType
-        | TypeSignature::CallableType(_) => {
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => {
             // All in-memory types return an offset and length.˝
             let length = get_type_in_memory_size(return_type, false);
 
@@ -1580,7 +1587,7 @@ fn reserve_space_for_return<T>(
             }
             Ok((vals, adjusted))
         }
-        TypeSignature::ListUnionType(_) | TypeSignature::TraitReferenceType(_) => {
+        TypeSignature::ListUnionType(_) => {
             unreachable!("not a valid return type");
         }
     }
@@ -1756,7 +1763,9 @@ fn wasm_to_clarity_value(
             let value = read_from_wasm(memory, store, type_sig, offset, length, epoch)?;
             Ok((Some(value), 2))
         }
-        TypeSignature::PrincipalType | TypeSignature::CallableType(_) => {
+        TypeSignature::PrincipalType
+        | TypeSignature::CallableType(_)
+        | TypeSignature::TraitReferenceType(_) => {
             let offset = buffer[value_index]
                 .i32()
                 .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
@@ -1814,9 +1823,6 @@ fn wasm_to_clarity_value(
             }
             let tuple = TupleData::from_data(data_map)?;
             Ok((Some(tuple.into()), index - value_index))
-        }
-        TypeSignature::TraitReferenceType(_t) => {
-            todo!("Wasm value type not implemented: {:?}", type_sig)
         }
         TypeSignature::ListUnionType(_lu) => {
             todo!("Wasm value type not implemented: {:?}", type_sig)
