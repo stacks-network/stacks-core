@@ -220,17 +220,7 @@ impl PeerAddress {
 
     /// Is this a local loopback address?
     pub fn is_loopback(&self) -> bool {
-        if self.is_ipv4() {
-            // 127.0.0.0/8
-            self.0[12] == 127
-        } else {
-            // ::1/128
-            *self
-                == PeerAddress([
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x01,
-                ])
-        }
+        self.to_socketaddr(0).ip().is_loopback()
     }
 
     pub fn to_bin(&self) -> String {

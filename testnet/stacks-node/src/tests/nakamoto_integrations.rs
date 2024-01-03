@@ -943,9 +943,6 @@ fn correct_burn_outs() {
 ///
 /// This endpoint allows miners to propose Nakamoto blocks to a node,
 /// and test if they would be accepted or rejected
-///
-/// Notes:
-/// - The `tenure_start_block` supplied doesn't seem to matter. It is required by `NakamotoBlockBuilder` but not used/checked?
 #[test]
 #[ignore]
 fn block_proposal_api_endpoint() {
@@ -1049,7 +1046,6 @@ fn block_proposal_api_endpoint() {
         .unwrap();
 
     let privk = conf.miner.mining_key.unwrap().clone();
-    let parent_block_id = tip.index_block_hash();
     // TODO: Get current `total_burn` from somewhere
     let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())
         .expect("Failed to get sortition tip");
@@ -1128,7 +1124,6 @@ fn block_proposal_api_endpoint() {
     // Construct a valid proposal. Make alterations to this to test failure cases
     let proposal = NakamotoBlockProposal {
         block,
-        tenure_start_block: parent_block_id,
         chain_id: chainstate.chain_id,
     };
 
@@ -1151,14 +1146,13 @@ fn block_proposal_api_endpoint() {
             HTTP_BADREQUEST,
         ),
         (
-            // FIXME: Why does `NakamotoBlockBuilder` not check this?
-            "Invalid `tenure_start_block`",
+            "Invalid `chain_id`",
             (|| {
                 let mut p = proposal.clone();
-                p.tenure_start_block.0[8] ^= 0x55;
+                p.chain_id ^= 0xFFFFFFFF;
                 sign(p)
             })(),
-            HTTP_ACCEPTED,
+            HTTP_BADREQUEST,
         ),
     ];
 

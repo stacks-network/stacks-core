@@ -582,23 +582,11 @@ paths:
             application/json:
               schema:
                 $ref: ./api/core-node/post-block-proposal-error.schema.json
-        429:
-          description: Too many requests
-          content:
-            application/json:
-              schema:
-                $ref: ./api/core-node/post-block-proposal-error.schema.json
       parameters:
         - name: block
           in: query
           required: true
           description: 'Proposed Block. Must match Rust struct `NakamotoBlock`'
-        - name: tenure_start_block
-          in: query
-          required: true
-          description: '`StacksBlockId` for block at the start of current mining tenure'
-          schema:
-            type: string
         - name: chain_id
           in: query
           required: true
