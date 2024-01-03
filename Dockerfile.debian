@@ -10,14 +10,13 @@ COPY . .
 
 RUN mkdir /out
 
-RUN apt update && apt install cron -y
 RUN cd testnet/stacks-node && cargo build --release --bin mempool-analyzer
 
 RUN cp target/release/mempool-analyzer /out
 
 FROM debian:bullseye-slim
 
-RUN apt update && apt install -y netcat
+RUN apt update && apt install -y netcat cron
 COPY --from=build /out/ /bin/
 
 CMD ["mempool-analyzer", "/hirosystems/data", "600000"]
