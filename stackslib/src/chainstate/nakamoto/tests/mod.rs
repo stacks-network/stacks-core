@@ -1658,7 +1658,7 @@ fn test_make_miners_stackerdb_config() {
         test_signers.aggregate_public_key.clone(),
     );
 
-    let miner_keys: Vec<_> = (3..13).map(|_| StacksPrivateKey::new()).collect();
+    let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();
     let miner_hash160s: Vec<_> = miner_keys
         .iter()
         .map(|miner_privkey| {
@@ -1684,17 +1684,18 @@ fn test_make_miners_stackerdb_config() {
     let stackerdbs = peer.network.stackerdbs;
     let miners_contract_id = boot_code_id(MINERS_NAME, false);
 
-    // make two leader keys (miner 1 and miner 2)
+    // make leader keys for each miner
     let mut miners = vec![];
-    for i in 3..13 {
+    for (i, miner_hash160) in miner_hash160s.iter().enumerate() {
+        let id = i as u8 + 1; // Add 1 to avoid 0-ed Txid.
         let vrf_privkey = VRFPrivateKey::new();
         let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
         let miner = LeaderKeyRegisterOp {
             consensus_hash: last_snapshot.consensus_hash.clone(),
             public_key: vrf_pubkey,
-            memo: miner_hash160s[i - 3].0.to_vec(),
-            txid: Txid([i as u8; 32]),
-            vtxindex: 1 + (i as u32),
+            memo: miner_hash160.0.to_vec(),
+            txid: Txid([id; 32]),
+            vtxindex: 1 + (id as u32),
             block_height: last_snapshot.block_height + 1,
             burn_header_hash: last_snapshot.burn_header_hash.clone(),
         };
@@ -1705,29 +1706,30 @@ fn test_make_miners_stackerdb_config() {
     let mut stackerdb_chunks = vec![];
 
     // synthesize some sortitions and corresponding winning block-commits
-    for i in 3..13 {
+    for (i, miner) in miners.iter().enumerate() {
         // no winner every 3rd sortition
-        let sortition = i > 3 && i % 3 != 0;
+        let sortition = i % 3 != 0;
+        let id = i as u8 + 1; // Add 1 to avoid 0-ed IDs.
         let winning_txid = if sortition {
-            Txid([(i as u8); 32])
+            Txid([id; 32])
         } else {
             Txid([0x00; 32])
         };
-        let winning_block_hash = BlockHeaderHash([(i as u8); 32]);
+        let winning_block_hash = BlockHeaderHash([id; 32]);
         let snapshot = BlockSnapshot {
             accumulated_coinbase_ustx: 0,
             pox_valid: true,
             block_height: last_snapshot.block_height + 1,
             burn_header_timestamp: get_epoch_time_secs(),
-            burn_header_hash: BurnchainHeaderHash([(i as u8); 32]),
-            sortition_id: SortitionId([(i as u8); 32]),
+            burn_header_hash: BurnchainHeaderHash([id; 32]),
+            sortition_id: SortitionId([id; 32]),
             parent_sortition_id: last_snapshot.sortition_id.clone(),
             parent_burn_header_hash: last_snapshot.burn_header_hash.clone(),
-            consensus_hash: ConsensusHash([(i as u8); 20]),
-            ops_hash: OpsHash([(i as u8); 32]),
+            consensus_hash: ConsensusHash([id; 20]),
+            ops_hash: OpsHash([id; 32]),
             total_burn: 0,
             sortition,
-            sortition_hash: SortitionHash([(i as u8); 32]),
+            sortition_hash: SortitionHash([id; 32]),
             winning_block_txid: winning_txid.clone(),
             winning_stacks_block_hash: winning_block_hash.clone(),
             index_root: TrieHash([0u8; 32]),
@@ -1736,19 +1738,19 @@ fn test_make_miners_stackerdb_config() {
             stacks_block_height: last_snapshot.stacks_block_height,
             arrival_index: 0,
             canonical_stacks_tip_height: last_snapshot.canonical_stacks_tip_height + 10,
-            canonical_stacks_tip_hash: BlockHeaderHash([((i + 1) as u8); 32]),
-            canonical_stacks_tip_consensus_hash: ConsensusHash([((i + 1) as u8); 20]),
+            canonical_stacks_tip_hash: BlockHeaderHash([id; 32]),
+            canonical_stacks_tip_consensus_hash: ConsensusHash([id; 20]),
             miner_pk_hash: None,
         };
         let winning_block_commit = LeaderBlockCommitOp {
             sunset_burn: 0,
-            block_header_hash: BlockHeaderHash([(i as u8); 32]),
-            new_seed: VRFSeed([(i as u8); 32]),
+            block_header_hash: BlockHeaderHash([id; 32]),
+            new_seed: VRFSeed([id; 32]),
             parent_block_ptr: last_snapshot.block_height as u32,
             parent_vtxindex: 1,
             // miners take turns winning
-            key_block_ptr: miners[i - 3].block_height as u32,
-            key_vtxindex: miners[i - 3].vtxindex as u16,
+            key_block_ptr: miner.block_height as u32,
+            key_vtxindex: miner.vtxindex as u16,
             memo: vec![STACKS_EPOCH_3_0_MARKER],
             commit_outs: vec![],
 
@@ -1770,7 +1772,7 @@ fn test_make_miners_stackerdb_config() {
             burn_header_hash: snapshot.burn_header_hash.clone(),
         };
 
-        let winning_ops = if i == 3 {
+        let winning_ops = if i == 0 {
             // first snapshot includes leader keys
             miners
                 .clone()
@@ -1815,7 +1817,7 @@ fn test_make_miners_stackerdb_config() {
             .unwrap()
             .unwrap();
 
-        if i > 3 {
+        if i > 0 {
             // have block-commit
             // check the stackerdb config as of this chain tip
             let stackerdb_config =
@@ -1848,7 +1850,7 @@ fn test_make_miners_stackerdb_config() {
                     &sort_db,
                     &stackerdbs,
                     &block,
-                    &miner_keys[i - 3],
+                    &miner_keys[i],
                     &miners_contract_id,
                 )
                 .unwrap()
@@ -1861,7 +1863,7 @@ fn test_make_miners_stackerdb_config() {
                     &sort_db,
                     &stackerdbs,
                     &block,
-                    &miner_keys[i - 3],
+                    &miner_keys[i],
                     &miners_contract_id,
                 )
                 .unwrap()
