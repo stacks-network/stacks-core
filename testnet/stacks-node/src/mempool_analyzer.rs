@@ -12,14 +12,20 @@
 /// [max-time] optionally gives an amount of time to stop mining after, useful for debugging.
 extern crate stacks;
 
-#[macro_use(slog_warn)]
+#[macro_use]
+extern crate stacks_common;
+#[macro_use(slog_info)]
 extern crate slog;
+
 use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::process;
+use std::time::Instant;
 
+use chrono::Utc;
 use cost_estimates::metrics::UnitMetric;
+use serde::Serialize;
 use stacks::burnchains::PoxConstants;
 use stacks::clarity_vm::clarity::ProductionBlockLimitFns;
 use stacks::core::BLOCK_LIMIT_MAINNET_21;
@@ -76,6 +82,31 @@ impl MemPoolEventDispatcher for PrintDebugEventDispatcher {
     ) {
         panic!("`mined_microblock_event` was not expected in this workflow.");
     }
+}
+
+#[derive(Serialize, Debug)]
+struct BlockData {
+    transaction_count: usize,
+    total_fees: u64,
+    size: u64,
+    size_percent: f64,
+    write_length: u64,
+    write_length_percent: f64,
+    write_count: u64,
+    write_count_percent: f64,
+    read_length: u64,
+    read_length_percent: f64,
+    read_count: u64,
+    read_count_percent: f64,
+    runtime: u64,
+    runtime_percent: f64,
+}
+
+#[derive(Serialize)]
+struct LogData {
+    mempool_analyzer: BlockData,
+    start_time: String,
+    assembly_time_ms: u128,
 }
 
 fn main() {
@@ -161,7 +192,9 @@ fn main() {
     settings.max_miner_time_ms = max_time;
     settings.mempool_settings.min_tx_fee = min_fee;
 
-    let dispatcher = PrintDebugEventDispatcher::new();
+    // let dispatcher = PrintDebugEventDispatcher::new();
+    let start = Utc::now().to_rfc3339();
+    let timer = Instant::now();
     let result = StacksBlockBuilder::build_anchored_block(
         &chain_state,
         &sort_db.index_conn(),
@@ -172,8 +205,10 @@ fn main() {
         Hash160([0; 20]),
         &coinbase_tx,
         settings,
-        Some(&dispatcher),
+        // Some(&dispatcher),
+        None,
     );
+    let assembly_time_ms = timer.elapsed().as_millis();
 
     if let Ok((block, execution_cost, size)) = result {
         let mut total_fees = 0;
@@ -182,8 +217,40 @@ fn main() {
         }
         let standard_limits = ProductionBlockLimitFns();
         let cost_limits = BLOCK_LIMIT_MAINNET_21;
-        println!(
-            r#"
+
+        let data = BlockData {
+            transaction_count: block.txs.len(),
+            total_fees,
+            size,
+            size_percent: (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
+            write_length: execution_cost.write_length,
+            write_length_percent: (execution_cost.write_length as f64
+                / cost_limits.write_length as f64
+                * 100.0),
+            write_count: execution_cost.write_count,
+            write_count_percent: (execution_cost.write_count as f64
+                / cost_limits.write_count as f64
+                * 100.0),
+            read_length: execution_cost.read_length,
+            read_length_percent: (execution_cost.read_length as f64
+                / cost_limits.read_length as f64
+                * 100.0),
+            read_count: execution_cost.read_count,
+            read_count_percent: (execution_cost.read_count as f64 / cost_limits.read_count as f64
+                * 100.0),
+            runtime: execution_cost.runtime,
+            runtime_percent: (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
+        };
+        let log_data = LogData {
+            mempool_analyzer: data,
+            start_time: start,
+            assembly_time_ms,
+        };
+        info!("{}", serde_json::to_string(&log_data).unwrap());
+
+        if env::var("MEMPOOL_ANALYZER_CLI").is_ok() {
+            println!(
+                r#"
 Unlimited Block:
   {transaction_count} transactions
   {total_fees} uSTX fees
@@ -195,28 +262,30 @@ Unlimited Block:
     read_count:   {read_count} ({read_count_percent:.2}%)
     runtime:      {runtime} ({runtime_percent:.2}%)
         "#,
-            transaction_count = block.txs.len(),
-            total_fees = total_fees,
-            size = size,
-            size_percent = (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
-            write_length = execution_cost.write_length,
-            write_length_percent =
-                (execution_cost.write_length as f64 / cost_limits.write_length as f64 * 100.0),
-            write_count = execution_cost.write_count,
-            write_count_percent =
-                (execution_cost.write_count as f64 / cost_limits.write_count as f64 * 100.0),
-            read_length = execution_cost.read_length,
-            read_length_percent =
-                (execution_cost.read_length as f64 / cost_limits.read_length as f64 * 100.0),
-            read_count = execution_cost.read_count,
-            read_count_percent =
-                (execution_cost.read_count as f64 / cost_limits.read_count as f64 * 100.0),
-            runtime = execution_cost.runtime,
-            runtime_percent = (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
-        );
-
-        let html_content = format!(
-            r#"
+                transaction_count = block.txs.len(),
+                total_fees = total_fees,
+                size = size,
+                size_percent = (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
+                write_length = execution_cost.write_length,
+                write_length_percent =
+                    (execution_cost.write_length as f64 / cost_limits.write_length as f64 * 100.0),
+                write_count = execution_cost.write_count,
+                write_count_percent =
+                    (execution_cost.write_count as f64 / cost_limits.write_count as f64 * 100.0),
+                read_length = execution_cost.read_length,
+                read_length_percent =
+                    (execution_cost.read_length as f64 / cost_limits.read_length as f64 * 100.0),
+                read_count = execution_cost.read_count,
+                read_count_percent =
+                    (execution_cost.read_count as f64 / cost_limits.read_count as f64 * 100.0),
+                runtime = execution_cost.runtime,
+                runtime_percent =
+                    (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
+            );
+        }
+        if env::var("MEMPOOL_ANALYZER_WRITE_HTML").is_ok() {
+            let html_content = format!(
+                r#"
             <!DOCTYPE html>
             <html lang="en">
             <head>
@@ -249,28 +318,30 @@ Unlimited Block:
             </body>
             </html>
             "#,
-            transaction_count = block.txs.len(),
-            total_fees = total_fees,
-            size = size,
-            size_percent = (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
-            write_length = execution_cost.write_length,
-            write_length_percent =
-                (execution_cost.write_length as f64 / cost_limits.write_length as f64 * 100.0),
-            write_count = execution_cost.write_count,
-            write_count_percent =
-                (execution_cost.write_count as f64 / cost_limits.write_count as f64 * 100.0),
-            read_length = execution_cost.read_length,
-            read_length_percent =
-                (execution_cost.read_length as f64 / cost_limits.read_length as f64 * 100.0),
-            read_count = execution_cost.read_count,
-            read_count_percent =
-                (execution_cost.read_count as f64 / cost_limits.read_count as f64 * 100.0),
-            runtime = execution_cost.runtime,
-            runtime_percent = (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
-        );
+                transaction_count = block.txs.len(),
+                total_fees = total_fees,
+                size = size,
+                size_percent = (size as f64 / standard_limits.output_length_limit as f64 * 100.0),
+                write_length = execution_cost.write_length,
+                write_length_percent =
+                    (execution_cost.write_length as f64 / cost_limits.write_length as f64 * 100.0),
+                write_count = execution_cost.write_count,
+                write_count_percent =
+                    (execution_cost.write_count as f64 / cost_limits.write_count as f64 * 100.0),
+                read_length = execution_cost.read_length,
+                read_length_percent =
+                    (execution_cost.read_length as f64 / cost_limits.read_length as f64 * 100.0),
+                read_count = execution_cost.read_count,
+                read_count_percent =
+                    (execution_cost.read_count as f64 / cost_limits.read_count as f64 * 100.0),
+                runtime = execution_cost.runtime,
+                runtime_percent =
+                    (execution_cost.runtime as f64 / cost_limits.runtime as f64 * 100.0),
+            );
 
-        let mut file = File::create("mempool.html").expect("Could not create file");
-        file.write_all(html_content.as_bytes())
-            .expect("Could not write to file");
+            let mut file = File::create("mempool.html").expect("Could not create file");
+            file.write_all(html_content.as_bytes())
+                .expect("Could not write to file");
+        }
     }
 }
