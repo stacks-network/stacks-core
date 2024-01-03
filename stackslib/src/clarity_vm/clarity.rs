@@ -831,16 +831,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_address = boot_code_addr(self.mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let costs_2_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
@@ -921,16 +912,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let boot_code_account = self
                 .get_boot_code_account()
@@ -1179,16 +1161,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let boot_code_account = self
                 .get_boot_code_account()
@@ -1295,16 +1268,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             };
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
             let boot_code_account = self
                 .get_boot_code_account()
                 .expect("FATAL: did not get boot account");
@@ -1369,16 +1333,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let boot_code_account = self
                 .get_boot_code_account()
