@@ -6481,6 +6481,140 @@ mod test {
     }
 
     #[test]
+    fn test_validate_nakamoto_block_push() {
+        let mut conn_opts = ConnectionOptions::default();
+        conn_opts.max_nakamoto_block_push_bandwidth = 100;
+
+        let socketaddr_1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 8081);
+
+        let first_burn_hash = BurnchainHeaderHash::from_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        )
+        .unwrap();
+
+        let burnchain = testing_burnchain_config();
+
+        let mut chain_view = BurnchainView {
+            burn_block_height: 12348,
+            burn_block_hash: BurnchainHeaderHash([0x11; 32]),
+            burn_stable_block_height: 12341,
+            burn_stable_block_hash: BurnchainHeaderHash([0x22; 32]),
+            last_burn_block_hashes: HashMap::new(),
+            rc_consensus_hash: ConsensusHash([0x33; 20]),
+        };
+        chain_view.make_test_data();
+
+        let test_name_1 = "validate_nakamoto_block_push_1";
+        let (mut peerdb_1, mut sortdb_1, stackerdbs_1, pox_id_1, _) = make_test_chain_dbs(
+            test_name_1,
+            &burnchain,
+            0x9abcdef0,
+            12352,
+            "http://peer1.com".into(),
+            &vec![],
+            &vec![],
+            DEFAULT_SERVICES,
+        );
+
+        let net_1 = db_setup(
+            &test_name_1,
+            &burnchain,
+            0x9abcdef0,
+            &mut peerdb_1,
+            &mut sortdb_1,
+            &socketaddr_1,
+            &chain_view,
+        );
+
+        let local_peer_1 = PeerDB::get_local_peer(&peerdb_1.conn()).unwrap();
+
+        let mut convo_1 = ConversationP2P::new(
+            123,
+            456,
+            &burnchain,
+            &socketaddr_1,
+            &conn_opts,
+            true,
+            0,
+            StacksEpoch::unit_test_pre_2_05(0),
+        );
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+
+        // bad message -- got bad relayers (cycle)
+        let bad_relayers = vec![
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([0u8; 16]),
+                    port: 123,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 123,
+            },
+            RelayData {
+                peer: NeighborAddress {
+                    addrbytes: PeerAddress([1u8; 16]),
+                    port: 456,
+                    public_key_hash: Hash160([0u8; 20]),
+                },
+                seq: 456,
+            },
+        ];
+
+        let mut bad_msg = convo_1
+            .sign_relay_message(
+                &local_peer_1,
+                &chain_view,
+                bad_relayers.clone(),
+                payload.clone(),
+            )
+            .unwrap();
+
+        bad_msg.preamble.payload_len = 10;
+
+        let err_before = convo_1.stats.msgs_err;
+        match convo_1
+            .validate_nakamoto_blocks_push(&net_1, &bad_msg.preamble, bad_msg.relayers.clone())
+            .unwrap_err()
+        {
+            net_error::InvalidMessage => {}
+            e => {
+                panic!("Wrong error: {e:?}");
+            }
+        }
+        assert_eq!(convo_1.stats.msgs_err, err_before + 1);
+
+        // mock a second local peer with a different private key
+        let mut local_peer_2 = local_peer_1.clone();
+        local_peer_2.private_key = Secp256k1PrivateKey::new();
+
+        // NOTE: payload can be anything since we only look at premable length here
+        let payload = StacksMessageType::Nack(NackData { error_code: 123 });
+        let mut msg = convo_1
+            .sign_relay_message(&local_peer_2, &chain_view, vec![], payload.clone())
+            .unwrap();
+
+        let err_before = convo_1.stats.msgs_err;
+
+        // succeeds because it's the first sample
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_nakamoto_blocks_push(&net_1, &msg.preamble, msg.relayers.clone())
+            .unwrap()
+            .is_none());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+
+        // fails because the second sample says we're over bandwidth
+        msg.preamble.payload_len = 106;
+        assert!(convo_1
+            .validate_nakamoto_blocks_push(&net_1, &msg.preamble, msg.relayers.clone())
+            .unwrap()
+            .is_some());
+        assert_eq!(convo_1.stats.msgs_err, err_before);
+    }
+
+    #[test]
     fn test_validate_transaction_push() {
         let mut conn_opts = ConnectionOptions::default();
         conn_opts.max_transaction_push_bandwidth = 100;
