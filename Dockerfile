@@ -12,9 +12,9 @@ RUN apk add --no-cache musl-dev
 
 RUN mkdir /out
 
-RUN cd testnet/stacks-node && cargo build --features monitoring_prom,slog_json --release
+RUN cd testnet/stacks-node && cargo build --release --bin mempool-analyzer
 
-RUN cp target/release/stacks-node /out
+RUN cp target/release/mempool-analyzer /out
 
 FROM alpine
 
