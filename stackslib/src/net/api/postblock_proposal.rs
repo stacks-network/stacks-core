@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::io::{Read, Write};
+use std::thread::{self, JoinHandle, Thread};
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
@@ -43,7 +44,7 @@ use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, Transac
 use crate::chainstate::stacks::{
     Error as ChainError, StacksBlock, StacksBlockHeader, StacksTransaction, TransactionPayload,
 };
-use crate::core::mempool::MemPoolDB;
+use crate::core::mempool::{MemPoolDB, ProposalCallbackReceiver};
 use crate::cost_estimates::FeeRateEstimate;
 use crate::net::http::{
     http_reason, parse_json, Error, HttpBadRequest, HttpContentType, HttpNotFound, HttpRequest,
@@ -145,6 +146,20 @@ impl StacksMessageCodec for NakamotoBlockProposal {
 }
 
 impl NakamotoBlockProposal {
+    fn spawn_validation_thread(
+        self,
+        sortdb: SortitionDB,
+        mut chainstate: StacksChainState,
+        receiver: Box<dyn ProposalCallbackReceiver>,
+    ) -> Result<JoinHandle<()>, std::io::Error> {
+        thread::Builder::new()
+            .name("block-proposal".into())
+            .spawn(move || {
+                let result = self.validate(&sortdb, &mut chainstate);
+                receiver.notify_proposal_result(result);
+            })
+    }
+
     /// Test this block proposal against the current chain state and
     /// either accept or reject the proposal
     ///
@@ -423,6 +438,12 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
     }
 }
 
+struct ProposalThreadInfo {
+    sortdb: SortitionDB,
+    chainstate: StacksChainState,
+    receiver: Box<dyn ProposalCallbackReceiver>,
+}
+
 impl RPCRequestHandler for RPCBlockProposalRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
@@ -441,22 +462,57 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
             .take()
             .ok_or(NetError::SendError("`block_proposal` not set".into()))?;
 
-        let res = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-            block_proposal.validate(sortdb, chainstate)
+        let res = node.with_node_state(|network, sortdb, chainstate, _mempool, rpc_args| {
+            if network.is_proposal_thread_running() {
+                return Err((
+                    429,
+                    NetError::SendError("Proposal currently being evaluated".into()),
+                ));
+            }
+            let (chainstate, _) = chainstate.reopen().map_err(|e| (400, NetError::from(e)))?;
+            let sortdb = sortdb.reopen().map_err(|e| (400, NetError::from(e)))?;
+            let receiver = rpc_args
+                .event_observer
+                .and_then(|observer| observer.get_proposal_callback_receiver())
+                .ok_or_else(|| {
+                    (
+                        400,
+                        NetError::SendError(
+                            "No `observer` registered for receiving proposal callbacks".into(),
+                        ),
+                    )
+                })?;
+            let thread_info = block_proposal
+                .spawn_validation_thread(sortdb, chainstate, receiver)
+                .map_err(|_e| {
+                    (
+                        429,
+                        NetError::SendError(
+                            "IO error while spawning proposal callback thread".into(),
+                        ),
+                    )
+                })?;
+            network.set_proposal_thread(thread_info);
+            Ok(())
         });
 
         match res {
-            Ok(ok) => {
+            Ok(_) => {
                 let mut preamble = HttpResponsePreamble::accepted_json(&preamble);
                 preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
-                let body = HttpResponseContents::try_from_json(&ok)?;
+                let body = HttpResponseContents::try_from_json(&serde_json::json!({
+                    "result": "Accepted",
+                    "message": "Block proposal is processing, result will be returned via the event observer"
+                }))?;
                 Ok((preamble, body))
             }
-            Err(err) => {
-                let code = 400;
+            Err((code, err)) => {
                 let mut preamble = HttpResponsePreamble::error_json(code, http_reason(code));
                 preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
-                let body = HttpResponseContents::try_from_json(&err)?;
+                let body = HttpResponseContents::try_from_json(&serde_json::json!({
+                    "result": "Error",
+                    "message": format!("Could not process block proposal request: {err}")
+                }))?;
                 Ok((preamble, body))
             }
         }

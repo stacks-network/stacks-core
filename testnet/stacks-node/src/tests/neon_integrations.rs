@@ -177,7 +177,7 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
-    use lazy_static::lazy_static;
+    use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use warp::Filter;
     use {tokio, warp};
 
@@ -187,19 +187,26 @@ pub mod test_observer {
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
-    lazy_static! {
-        pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-        pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
-        pub static ref MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
-        pub static ref MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> =
-            Mutex::new(Vec::new());
-        pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-        pub static ref NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> =
-            Mutex::new(Vec::new());
-        pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-        pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-        pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
-        pub static ref ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
+    pub static MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
+    pub static MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> = Mutex::new(Vec::new());
+    pub static NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> = Mutex::new(Vec::new());
+    pub static BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    pub static MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+    pub static ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static PROPOSAL_RESPONSES: Mutex<Vec<BlockValidateResponse>> = Mutex::new(Vec::new());
+
+    async fn handle_proposal_response(
+        response: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        PROPOSAL_RESPONSES.lock().unwrap().push(
+            serde_json::from_value(response)
+                .expect("Failed to deserialize JSON into BlockValidateResponse"),
+        );
+        Ok(warp::http::StatusCode::OK)
     }
 
     async fn handle_burn_block(
@@ -399,6 +406,10 @@ pub mod test_observer {
         NEW_STACKERDB_CHUNKS.lock().unwrap().clone()
     }
 
+    pub fn get_proposal_responses() -> Vec<BlockValidateResponse> {
+        PROPOSAL_RESPONSES.lock().unwrap().clone()
+    }
+
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve(port: u16) {
         let new_blocks = warp::path!("new_block")
@@ -441,8 +452,12 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_stackerdb_chunks);
+        let block_proposals = warp::path!("proposal_response")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_proposal_response);
 
-        info!("Spawning warp server");
+        info!("Spawning event-observer warp server");
         warp::serve(
             new_blocks
                 .or(mempool_txs)
@@ -453,7 +468,8 @@ pub mod test_observer {
                 .or(mined_blocks)
                 .or(mined_microblocks)
                 .or(mined_nakamoto_blocks)
-                .or(new_stackerdb_chunks),
+                .or(new_stackerdb_chunks)
+                .or(block_proposals),
         )
         .run(([127, 0, 0, 1], port))
         .await
@@ -485,6 +501,7 @@ pub mod test_observer {
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
         ATTACHMENTS.lock().unwrap().clear();
+        PROPOSAL_RESPONSES.lock().unwrap().clear();
     }
 }
 

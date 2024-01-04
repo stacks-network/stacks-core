@@ -37,7 +37,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
 use stacks::net::api::postblock_proposal::{
-    BlockValidateOk, BlockValidateReject, NakamotoBlockProposal, ValidateRejectCode,
+    BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
@@ -988,11 +988,12 @@ fn block_proposal_api_endpoint() {
     let account_keys = add_initial_balances(&mut conf, 10, 1_000_000);
     let stacker_sk = setup_stacker(&mut conf);
 
+    // only subscribe to the block proposal events
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
+        events_keys: vec![EventKeyType::BlockProposal],
     });
 
     let mut btcd_controller = BitcoinCoreController::new(conf.clone());
@@ -1057,8 +1058,8 @@ fn block_proposal_api_endpoint() {
     })
     .unwrap();
 
-    // Mine 15 nakamoto tenures
-    for _ in 0..15 {
+    // Mine 3 nakamoto tenures
+    for _ in 0..3 {
         next_block_and_mine_commit(
             &mut btc_regtest_controller,
             60,
@@ -1163,23 +1164,24 @@ fn block_proposal_api_endpoint() {
     };
 
     const HTTP_ACCEPTED: u16 = 202;
-    const HTTP_BADREQUEST: u16 = 400;
+    const HTTP_TOO_MANY: u16 = 429;
     let test_cases = [
         (
             "Valid Nakamoto block proposal",
             sign(proposal.clone()),
             HTTP_ACCEPTED,
-            None,
+            Some(Ok(())),
         ),
+        ("Must wait", sign(proposal.clone()), HTTP_TOO_MANY, None),
         (
-            "Corrupted message (bit flipped after signing)",
+            "Corrupted (bit flipped after signing)",
             (|| {
                 let mut sp = sign(proposal.clone());
                 sp.block.header.consensus_hash.0[3] ^= 0x07;
                 sp
             })(),
-            HTTP_BADREQUEST,
-            Some(ValidateRejectCode::ChainstateError),
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::ChainstateError)),
         ),
         (
             "Invalid `chain_id`",
@@ -1188,8 +1190,8 @@ fn block_proposal_api_endpoint() {
                 p.chain_id ^= 0xFFFFFFFF;
                 sign(p)
             })(),
-            HTTP_BADREQUEST,
-            Some(ValidateRejectCode::InvalidBlock),
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::InvalidBlock)),
         ),
         (
             "Invalid `miner_signature`",
@@ -1198,8 +1200,8 @@ fn block_proposal_api_endpoint() {
                 sp.block.header.miner_signature.0[1] ^= 0x80;
                 sp
             })(),
-            HTTP_BADREQUEST,
-            Some(ValidateRejectCode::ChainstateError),
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::ChainstateError)),
         ),
         (
             "Invalid `signer_signature`",
@@ -1208,8 +1210,8 @@ fn block_proposal_api_endpoint() {
                 sp.block.header.signer_signature = ThresholdSignature::mock();
                 sp
             })(),
-            HTTP_BADREQUEST,
-            Some(ValidateRejectCode::InvalidBlock),
+            HTTP_ACCEPTED,
+            Some(Err(ValidateRejectCode::InvalidBlock)),
         ),
     ];
 
@@ -1222,43 +1224,84 @@ fn block_proposal_api_endpoint() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let path = format!("{http_origin}/v2/block_proposal");
 
-    for (
-        test_description,
-        block_proposal,
-        expected_http_code,
-        expected_block_validate_reject_code,
-    ) in test_cases
+    let mut hold_proposal_mutex = Some(test_observer::PROPOSAL_RESPONSES.lock().unwrap());
+    for (ix, (test_description, block_proposal, expected_http_code, _)) in
+        test_cases.iter().enumerate()
     {
         eprintln!("block_proposal_api_endpoint(): {test_description}");
         eprintln!("block_proposal={block_proposal:?}");
 
         // Send POST request
-        let response = client
+        let mut response = client
             .post(&path)
             .header("Content-Type", "application/json")
-            .json(&block_proposal)
+            .json(block_proposal)
             .send()
             .expect("Failed to POST");
-
-        eprintln!("response={response:?}");
-        assert_eq!(response.status().as_u16(), expected_http_code);
-
-        let response_text = response.text().expect("No response text");
-        eprintln!("response_text={response_text:?}");
-        match expected_block_validate_reject_code {
-            // If okay, check that response is same as block sent
-            Some(reject_code) => {
-                let reject = serde_json::from_str::<BlockValidateReject>(&response_text)
-                    .expect("Expected response of type `BlockValidateReject`");
-                assert_eq!(reject.reason_code, reject_code);
+        let start_time = Instant::now();
+        while ix != 1 && response.status().as_u16() == HTTP_TOO_MANY {
+            if start_time.elapsed() > Duration::from_secs(30) {
+                error!("Took over 30 seconds to process pending proposal, panicking test");
+                panic!();
             }
-            // If okay, check that response is same as block sent
-            None => {
-                let ok = serde_json::from_str::<BlockValidateOk>(&response_text)
-                    .expect("Expected response of type `BlockValidateOk`");
-                assert_eq!(ok.block, block_proposal.block);
+            info!("Waiting for prior request to finish processing, and then resubmitting");
+            thread::sleep(Duration::from_secs(5));
+            response = client
+                .post(&path)
+                .header("Content-Type", "application/json")
+                .json(block_proposal)
+                .send()
+                .expect("Failed to POST");
+        }
+
+        let response_code = response.status().as_u16();
+        let response_json = response.json::<serde_json::Value>();
+        eprintln!("Response JSON: {response_json:?}");
+        eprintln!("Response STATUS: {response_code}");
+
+        assert_eq!(response_code, *expected_http_code);
+
+        if ix == 1 {
+            // release the test observer mutex so that the handler from 0 can finish!
+            hold_proposal_mutex.take();
+        }
+    }
+
+    let expected_proposal_responses: Vec<_> = test_cases
+        .iter()
+        .filter_map(|(_, _, _, expected_response)| expected_response.as_ref())
+        .collect();
+
+    let mut proposal_responses = test_observer::get_proposal_responses();
+    let start_time = Instant::now();
+    while proposal_responses.len() < expected_proposal_responses.len() {
+        if start_time.elapsed() > Duration::from_secs(30) {
+            error!("Took over 30 seconds to process pending proposal, panicking test");
+            panic!();
+        }
+        info!("Waiting for prior request to finish processing");
+        thread::sleep(Duration::from_secs(5));
+        proposal_responses = test_observer::get_proposal_responses();
+    }
+
+    for (expected_response, response) in expected_proposal_responses
+        .iter()
+        .zip(proposal_responses.iter())
+    {
+        match expected_response {
+            Ok(_) => {
+                assert!(matches!(response, BlockValidateResponse::Ok(_)));
+            }
+            Err(expected_reject_code) => {
+                assert!(matches!(
+                    response,
+                    BlockValidateResponse::Reject(
+                        BlockValidateReject { reason_code, .. })
+                        if reason_code == expected_reject_code
+                ));
             }
         }
+        info!("Proposal response: {response:?}");
     }
 
     // Clean up
