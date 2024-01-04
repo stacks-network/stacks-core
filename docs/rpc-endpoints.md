@@ -474,8 +474,7 @@ See OpenAPI [spec](./rpc/openapi.yaml) for details.
 
 ### POST /v2/block_proposal
 
-Used by miner to validate a proposed Stacks block.
-Can accept either JSON or binary encoding
+Used by miner to validate a proposed Stacks block using JSON encoding.
 
 **This endpoint will only accept requests over the local loopback network interface.**
 
@@ -487,5 +486,57 @@ pub struct NakamotoBlockProposal {
     pub block: NakamotoBlock,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
+}
+```
+
+#### Responses over the Event Observer Interface
+
+This endpoint returns asynchronous results to the caller via the event observer interface.
+A caller must have registered an event observer using the `block_proposal` key in the stacks-node
+config file.
+
+The result is issued via POSTing the response JSON over the `/proposal_response` endpoint on the
+registered observer.
+
+Ok response example:
+
+```json
+{
+    "result": "Ok",
+    "block": "00000000000000001f00000000000927c08fb5ae5bf80e39e4168f6a3fddb0407a069d21ee68465e6856393254d2a66194f44bb01070666d5effcfb2436e209a75878fe80a04b4258a8cd34ab97c38a8dde331a2a509dd7e4b90590726866172cc138c18e80567737667f55d3f9817ce4714c91d1adfd36101141829dc0b5ea0c4944668c0005ddb6f9e2718f60014f21932a42a36ffaf58e88e77b217b2af366c15dd59e6b136ca773729832dcfc5875ec0830d04012dd5a4fa77a196646ea2b356289116fd02558c034b62d63f8a65bdd20d7ffc3fec6c266cd974be776a9e92759b90f288dcc2525b6b6bd5622c5f02e0922440e9ad1095c19b4467fd94566caa9755669d8e0000000180800000000400f64081ae6209dce9245753a4f764d6f168aae1af00000000000000000000000000000064000041dbcc7391991c1a18371eb49b879240247a3ec7f281328f53976c1218ffd65421dbb101e59370e2c972b29f48dc674b2de5e1b65acbd41d5d2689124d42c16c01010000000000051a346048df62be3a52bb6236e11394e8600229e27b000000000000271000000000000000000000000000000000000000000000000000000000000000000000",
+    "cost": {
+        "read_count": 8,
+        "read_length":133954,
+        "runtime":139720,
+        "write_count":2,
+        "write_length":114
+    },
+    "size": 180
+}
+```
+
+Error examples:
+
+```json
+{
+  "result": "Reject",
+  "reason": "Chainstate Error: No sortition for block's consensus hash",
+  "reason_code": "ChainstateError"
+}
+```
+
+```json
+{
+  "result": "Reject",
+  "reason": "Wrong network/chain_id",
+  "reason_code": "InvalidBlock"
+}
+```
+
+```json
+{
+  "result": "Reject",
+  "reason": "Chainstate Error: Invalid miner signature",
+  "reason_code": "ChainstateError"
 }
 ```

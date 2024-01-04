@@ -557,10 +557,9 @@ paths:
       summary: Validate a proposed Stacks block
       tags:
         - Mining
-      #operationId: ???
+      operationId: post_block_proposal
       description: |
-        Used by miner to validate a proposed Stacks block.
-        Can accept either JSON or binary encoding.
+        Used by stackers to validate a proposed Stacks block from a miner.
         
         **This endpoint will only accept requests over the local loopback network interface.**
       responses:
@@ -568,28 +567,19 @@ paths:
           description: Block proposal is valid
           content:
             application/json:
-              schema:
-                $ref: ./api/core-node/post-block-proposal-response.schema.json
-        400:
-          description: Block proposal not valid
-          content:
-            application/json:
-              schema:
-                $ref: ./api/core-node/post-block-proposal-error.schema.json
+              example:
+                $ref: ./api/core-node/post-block-proposal-response.example.json
         403:
           description: Request not over loopback interface
+        429:
+          description: There is an ongoing proposal validation being processed, the new request cannot be accepted
+            until the prior request has been processed.
           content:
             application/json:
-              schema:
-                $ref: ./api/core-node/post-block-proposal-error.schema.json
-      parameters:
-        - name: block
-          in: query
-          required: true
-          description: 'Proposed Block. Must match Rust struct `NakamotoBlock`'
-        - name: chain_id
-          in: query
-          required: true
-          description: 'Identifies which chain block is for (Mainnet, Testnet, etc.)'
-          schema:
-            type: integer
+              example:
+                $ref: ./api/core-node/post-block-proposal-429.example.json
+      requestBody:
+        content:
+          application/json:
+            example:
+              $ref: ./api/core-node/post-block-proposal-req.example.json

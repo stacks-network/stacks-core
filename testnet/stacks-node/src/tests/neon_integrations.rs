@@ -202,6 +202,7 @@ pub mod test_observer {
     async fn handle_proposal_response(
         response: serde_json::Value,
     ) -> Result<impl warp::Reply, Infallible> {
+        info!("Proposal response received"; "response" => %response);
         PROPOSAL_RESPONSES.lock().unwrap().push(
             serde_json::from_value(response)
                 .expect("Failed to deserialize JSON into BlockValidateResponse"),

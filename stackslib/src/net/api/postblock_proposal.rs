@@ -20,6 +20,7 @@ use std::thread::{self, JoinHandle, Thread};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
+use serde::Deserialize;
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN,
 };
@@ -30,7 +31,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{hex_bytes, Hash160, Sha256Sum};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
 use stacks_common::util::retry::BoundReader;
 
 use crate::burnchains::affirmation::AffirmationMap;
@@ -74,6 +75,17 @@ pub enum ValidateRejectCode {
     UnknownParent,
 }
 
+fn hex_ser_block<S: serde::Serializer>(b: &NakamotoBlock, s: S) -> Result<S::Ok, S::Error> {
+    let inst = to_hex(&b.serialize_to_vec());
+    s.serialize_str(inst.as_str())
+}
+
+fn hex_deser_block<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NakamotoBlock, D::Error> {
+    let inst_str = String::deserialize(d)?;
+    let bytes = hex_bytes(&inst_str).map_err(serde::de::Error::custom)?;
+    NakamotoBlock::consensus_deserialize(&mut bytes.as_slice()).map_err(serde::de::Error::custom)
+}
+
 /// A response for block proposal validation
 ///  that the stacks-node thinks should be rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -86,6 +98,7 @@ pub struct BlockValidateReject {
 ///  that the stacks-node thinks is acceptable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateOk {
+    #[serde(serialize_with = "hex_ser_block", deserialize_with = "hex_deser_block")]
     pub block: NakamotoBlock,
     pub cost: ExecutionCost,
     pub size: u64,
@@ -94,7 +107,7 @@ pub struct BlockValidateOk {
 /// This enum is used for serializing the response to block
 /// proposal validation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "Result")]
+#[serde(tag = "result")]
 pub enum BlockValidateResponse {
     Ok(BlockValidateOk),
     Reject(BlockValidateReject),
@@ -126,23 +139,10 @@ where
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockProposal {
     /// Proposed block
+    #[serde(serialize_with = "hex_ser_block", deserialize_with = "hex_deser_block")]
     pub block: NakamotoBlock,
     /// Identifies which chain block is for (Mainnet, Testnet, etc.)
     pub chain_id: u32,
-}
-
-impl StacksMessageCodec for NakamotoBlockProposal {
-    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.block)?;
-        write_next(fd, &self.chain_id)
-    }
-
-    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        Ok(Self {
-            block: read_next(fd)?,
-            chain_id: read_next(fd)?,
-        })
-    }
 }
 
 impl NakamotoBlockProposal {
@@ -168,7 +168,6 @@ impl NakamotoBlockProposal {
     ///   - Block header is well-formed
     ///   - Transactions are well-formed
     ///   - Miner signature is valid
-    /// - Validate threshold signature of stackers
     /// - Validation of transactions by executing them agains current chainstate.
     ///   This is resource intensive, and therefore done only if previous checks pass
     pub fn validate(
@@ -184,7 +183,7 @@ impl NakamotoBlockProposal {
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
             return Err(BlockValidateReject {
                 reason_code: ValidateRejectCode::InvalidBlock,
-                reason: "Wrong netowrk/chain_id".into(),
+                reason: "Wrong network/chain_id".into(),
             });
         }
 
@@ -202,38 +201,6 @@ impl NakamotoBlockProposal {
             mainnet,
             self.chain_id,
         )?;
-
-        // Stage 2: Validate stacker threshold signature
-        let sort_handle = sortdb.index_handle(&sort_tip);
-        let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
-            chainstate,
-            &sortdb,
-            &sort_handle,
-            &self.block,
-        ) else {
-            warn!("Failed to get aggregate public key";
-                "block_hash" => %self.block.header.block_hash(),
-                "consensus_hash" => %self.block.header.consensus_hash,
-                "chain_length" => self.block.header.chain_length,
-            );
-            return Err(BlockValidateReject {
-                reason: "Failed to get aggregate public key".into(),
-                reason_code: ValidateRejectCode::ChainstateError,
-            });
-        };
-        if !db_handle.expects_signer_signature(
-            &self.block.header.consensus_hash,
-            &self.block.header.signer_signature.0,
-            &self.block.header.signer_signature_hash()?.0,
-            &aggregate_public_key,
-        )? {
-            return Err(BlockValidateReject {
-                reason:
-                    "Stacker signature does not match aggregate pubkey for current stacking cycle"
-                        .into(),
-                reason_code: ValidateRejectCode::InvalidBlock,
-            });
-        }
 
         // Stage 3: Validate txs against chainstate
         let parent_stacks_header = NakamotoChainState::get_block_header(
@@ -359,17 +326,7 @@ impl RPCBlockProposalRequestHandler {
         Self::default()
     }
 
-    /// Decode a bare transaction from the body
-    fn parse_octets(mut body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
-        NakamotoBlockProposal::consensus_deserialize(&mut body).map_err(|e| match e {
-            CodecError::DeserializeError(msg) => {
-                Error::DecodeError(format!("Failed to deserialize posted transaction: {msg}"))
-            }
-            _ => e.into(),
-        })
-    }
-
-    /// Decode a JSON-encoded transaction
+    /// Decode a JSON-encoded block proposal
     fn parse_json(body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
         serde_json::from_slice(body)
             .map_err(|e| Error::DecodeError(format!("Failed to parse body: {e}")))
@@ -408,7 +365,8 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
 
         if preamble.get_content_length() == 0 {
             return Err(Error::DecodeError(
-                "Invalid Http request: expected non-zero-length body for PostBlock".to_string(),
+                "Invalid Http request: expected non-zero-length body for block proposal endpoint"
+                    .to_string(),
             ));
         }
 
@@ -419,16 +377,15 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
         }
 
         let block_proposal = match preamble.content_type {
-            Some(HttpContentType::Bytes) => Self::parse_octets(body)?,
             Some(HttpContentType::JSON) => Self::parse_json(body)?,
             None => {
                 return Err(Error::DecodeError(
-                    "Missing Content-Type for transaction".to_string(),
+                    "Missing Content-Type for block proposal".to_string(),
                 ))
             }
             _ => {
                 return Err(Error::DecodeError(
-                    "Wrong Content-Type for transaction; expected application/json or application/octet-stream".to_string(),
+                    "Wrong Content-Type for block proposal; expected application/json".to_string(),
                 ))
             }
         };
@@ -528,22 +485,5 @@ impl HttpResponse for RPCBlockProposalRequestHandler {
     ) -> Result<HttpResponsePayload, Error> {
         let response: BlockValidateResponse = parse_json(preamble, body)?;
         HttpResponsePayload::try_from_json(response)
-    }
-}
-
-impl StacksHttpRequest {
-    /// Make a new post-block request
-    #[cfg(test)]
-    pub fn new_post_block_proposal(
-        host: PeerHost,
-        proposal: &NakamotoBlockProposal,
-    ) -> StacksHttpRequest {
-        StacksHttpRequest::new_for_peer(
-            host,
-            "POST".into(),
-            "/v2/block_proposal".into(),
-            HttpRequestContents::new().payload_stacks(proposal),
-        )
-        .expect("FATAL: failed to construct request from infallible data")
     }
 }

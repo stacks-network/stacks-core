@@ -1082,7 +1082,6 @@ fn block_proposal_api_endpoint() {
         .unwrap();
 
     let privk = conf.miner.mining_key.unwrap().clone();
-    // TODO: Get current `total_burn` from somewhere
     let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())
         .expect("Failed to get sortition tip");
     let db_handle = sortdb.index_handle(&sort_tip);
@@ -1203,16 +1202,6 @@ fn block_proposal_api_endpoint() {
             HTTP_ACCEPTED,
             Some(Err(ValidateRejectCode::ChainstateError)),
         ),
-        (
-            "Invalid `signer_signature`",
-            (|| {
-                let mut sp = sign(proposal.clone());
-                sp.block.header.signer_signature = ThresholdSignature::mock();
-                sp
-            })(),
-            HTTP_ACCEPTED,
-            Some(Err(ValidateRejectCode::InvalidBlock)),
-        ),
     ];
 
     // Build HTTP client
@@ -1228,9 +1217,6 @@ fn block_proposal_api_endpoint() {
     for (ix, (test_description, block_proposal, expected_http_code, _)) in
         test_cases.iter().enumerate()
     {
-        eprintln!("block_proposal_api_endpoint(): {test_description}");
-        eprintln!("block_proposal={block_proposal:?}");
-
         // Send POST request
         let mut response = client
             .post(&path)
@@ -1256,8 +1242,14 @@ fn block_proposal_api_endpoint() {
 
         let response_code = response.status().as_u16();
         let response_json = response.json::<serde_json::Value>();
-        eprintln!("Response JSON: {response_json:?}");
-        eprintln!("Response STATUS: {response_code}");
+
+        info!(
+            "Block proposal submitted and checked for HTTP response";
+            "response_json" => %response_json.unwrap(),
+            "request_json" => serde_json::to_string(block_proposal).unwrap(),
+            "response_code" => response_code,
+            "test_description" => test_description,
+        );
 
         assert_eq!(response_code, *expected_http_code);
 
@@ -1301,7 +1293,7 @@ fn block_proposal_api_endpoint() {
                 ));
             }
         }
-        info!("Proposal response: {response:?}");
+        info!("Proposal response {response:?}");
     }
 
     // Clean up
