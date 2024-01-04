@@ -246,7 +246,7 @@ fn main() {
             start_time: start,
             assembly_time_ms,
         };
-        info!("{}", serde_json::to_string(&log_data).unwrap());
+        println!("{}", serde_json::to_string(&log_data).unwrap());
 
         if env::var("MEMPOOL_ANALYZER_CLI").is_ok() {
             println!(
