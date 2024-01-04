@@ -44,3 +44,8 @@ depends_on = []
 path = "./tests/bns_test.clar"
 clarity_version = 2
 epoch = 2.4
+
+[contracts.pox_4_tests]
+path = "./tests/pox_4_tests.clar"
+clarity_version = 2
+epoch = 2.4
