@@ -75,6 +75,7 @@
 
 ;; SIP18 message prefix
 (define-constant SIP018_MSG_PREFIX 0x534950303138)
+(define-constant STACKING_THRESHOLD_100 (if is-in-mainnet u5000 u2000))
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
@@ -236,6 +237,19 @@
     }
     bool ;; Whether the authorization can be used or not
 )
+
+;; MOCK
+;; Allow to set stx-account details for any user
+;; These values are used for PoX only
+(define-map mock-stx-account-details principal {unlocked: uint, locked: uint, unlock-height: uint})
+
+(define-read-only (get-stx-account (user principal))
+    (default-to (stx-account user) (map-get? mock-stx-account-details user)))
+
+(define-public (mock-set-stx-account (user principal) (details {unlocked: uint, locked: uint, unlock-height: uint}))
+    (if (map-set mock-stx-account-details user details)
+         (ok true) (err u9999))) ;; define manually the error type
+;; MOCK END
 
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
@@ -613,8 +627,8 @@
                 (err ERR_INVALID_START_BURN_HEIGHT))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
-      (asserts! (check-caller-allowed)
-                (err ERR_STACKING_PERMISSION_DENIED))
+      ;; (asserts! (check-caller-allowed)
+      ;;           (err ERR_STACKING_PERMISSION_DENIED))
 
       ;; tx-sender principal must not be stacking
       (asserts! (is-none (get-stacker-info tx-sender))
