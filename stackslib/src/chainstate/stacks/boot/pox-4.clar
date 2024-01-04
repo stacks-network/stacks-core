@@ -86,6 +86,20 @@
 (define-data-var configured bool false)
 (define-data-var first-pox-4-reward-cycle uint u0)
 
+;; PoX mainnet constants
+;; Min/max number of reward cycles uSTX can be locked for
+(define-constant MIN_POX_REWARD_CYCLES u1)
+(define-constant MAX_POX_REWARD_CYCLES u12)
+
+;; Default length of the PoX registration window, in burnchain blocks.
+(define-constant PREPARE_CYCLE_LENGTH (if is-in-mainnet u100 u50))
+
+;; Default length of the PoX reward cycle, in burnchain blocks.
+(define-constant REWARD_CYCLE_LENGTH (if is-in-mainnet u2100 u1050))
+
+;; Stacking thresholds
+(define-constant STACKING_THRESHOLD_25 (if is-in-mainnet u20000 u8000))
+
 ;; This function can only be called once, when it boots up
 (define-public (set-burnchain-parameters (first-burn-height uint)
                                          (prepare-cycle-length uint)
@@ -237,19 +251,6 @@
     }
     bool ;; Whether the authorization can be used or not
 )
-
-;; MOCK
-;; Allow to set stx-account details for any user
-;; These values are used for PoX only
-(define-map mock-stx-account-details principal {unlocked: uint, locked: uint, unlock-height: uint})
-
-(define-read-only (get-stx-account (user principal))
-    (default-to (stx-account user) (map-get? mock-stx-account-details user)))
-
-(define-public (mock-set-stx-account (user principal) (details {unlocked: uint, locked: uint, unlock-height: uint}))
-    (if (map-set mock-stx-account-details user details)
-         (ok true) (err u9999))) ;; define manually the error type
-;; MOCK END
 
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
@@ -627,8 +628,8 @@
                 (err ERR_INVALID_START_BURN_HEIGHT))
 
       ;; must be called directly by the tx-sender or by an allowed contract-caller
-      ;; (asserts! (check-caller-allowed)
-      ;;           (err ERR_STACKING_PERMISSION_DENIED))
+      (asserts! (check-caller-allowed)
+                (err ERR_STACKING_PERMISSION_DENIED))
 
       ;; tx-sender principal must not be stacking
       (asserts! (is-none (get-stacker-info tx-sender))

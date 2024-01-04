@@ -366,8 +366,8 @@ describe("name revealing workflow", () => {
       Cl.tuple({
         owner: Cl.standardPrincipal(bob),
         ["zonefile-hash"]: Cl.bufferFromUtf8(cases[0].zonefile),
-        ["lease-ending-at"]: Cl.some(Cl.uint(16)),
-        ["lease-started-at"]: Cl.uint(6),
+        ["lease-ending-at"]: Cl.some(Cl.uint(17)),
+        ["lease-started-at"]: Cl.uint(7),
       })
     );
   });
@@ -589,8 +589,8 @@ describe("register a name again before and after expiration", () => {
       Cl.tuple({
         owner: Cl.standardPrincipal(charlie),
         ["zonefile-hash"]: Cl.bufferFromAscii("CHARLIE"),
-        ["lease-ending-at"]: Cl.some(Cl.uint(5029)),
-        ["lease-started-at"]: Cl.uint(5019),
+        ["lease-ending-at"]: Cl.some(Cl.uint(5030)),
+        ["lease-started-at"]: Cl.uint(5020),
       })
     );
   });
