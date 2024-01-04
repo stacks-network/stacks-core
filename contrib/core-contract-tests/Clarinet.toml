@@ -28,5 +28,19 @@ depends_on = []
 clarity = 2
 epoch = 2.4
 
+[contracts.pox-4]
+path = "../../stackslib/src/chainstate/stacks/boot/pox-4.clar"
+clarity_version = 2
+epoch = 2.4
+depends_on = ["pox-mainnet"]
+
+[contracts.pox-mainnet]
+path = "../../stackslib/src/chainstate/stacks/boot/pox-mainnet.clar"
+clarity_version = 2
+epoch = 2.4
+depends_on = []
+
 [contracts.bns_test]
 path = "./tests/bns_test.clar"
+clarity_version = 2
+epoch = 2.4
