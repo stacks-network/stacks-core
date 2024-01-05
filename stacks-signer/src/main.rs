@@ -306,7 +306,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         .collect::<Vec<StacksAddress>>();
     // Build the signer and miner stackerdb contract
     let signer_stackerdb_contract =
-        build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
+        build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER, 4096);
     write_file(&args.dir, "signers.clar", &signer_stackerdb_contract);
 
     let signer_config_tomls = build_signer_config_tomls(
@@ -367,6 +367,7 @@ fn main() {
         Command::GenerateFiles(args) => {
             handle_generate_files(args);
         }
+        Command::Ping(subcommands) => subcommands.handle(),
     }
 }
 

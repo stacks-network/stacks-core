@@ -24,6 +24,7 @@ use stacks_common::address::b58;
 use stacks_common::types::chainstate::StacksPrivateKey;
 
 use crate::config::Network;
+use crate::ping::cli::PingSubcommands;
 
 extern crate alloc;
 
@@ -57,6 +58,9 @@ pub enum Command {
     Run(RunArgs),
     /// Generate necessary files for running a collection of signers
     GenerateFiles(GenerateFilesArgs),
+    #[command(subcommand)]
+    /// Round trip time utils
+    Ping(PingSubcommands),
 }
 
 /// Basic arguments for all cyrptographic and stacker-db functionality

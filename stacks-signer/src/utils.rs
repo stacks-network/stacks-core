@@ -113,6 +113,7 @@ event_timeout = {event_timeout_ms}
 pub fn build_stackerdb_contract(
     signer_stacks_addresses: &[StacksAddress],
     slots_per_user: u32,
+    chunk_size: u32,
 ) -> String {
     let mut stackerdb_contract = String::new(); // "
     stackerdb_contract += "        ;; stacker DB\n";
@@ -130,7 +131,7 @@ pub fn build_stackerdb_contract(
     stackerdb_contract += "\n";
     stackerdb_contract += "        (define-read-only (stackerdb-get-config)\n";
     stackerdb_contract += "            (ok {\n";
-    stackerdb_contract += "                chunk-size: u4096,\n";
+    stackerdb_contract += format!("                chunk-size: u{chunk_size},\n").as_str();
     stackerdb_contract += "                write-freq: u0,\n";
     stackerdb_contract += "                max-writes: u4096,\n";
     stackerdb_contract += "                max-neighbors: u32,\n";
@@ -138,4 +139,25 @@ pub fn build_stackerdb_contract(
     stackerdb_contract += "            }))\n";
     stackerdb_contract += "    ";
     stackerdb_contract
+}
+
+#[cfg(test)]
+mod test {
+    use clarity::vm::types::PrincipalData;
+
+    use libsigner::SIGNER_SLOTS_PER_USER;
+
+    use super::*;
+
+    #[test]
+    fn build_stackerdb_contract_parses_chunk_size() {
+        let address: StacksAddress =
+            PrincipalData::parse_standard_principal("SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR")
+                .unwrap()
+                .into();
+
+        let contract =
+            build_stackerdb_contract(vec![address].as_slice(), SIGNER_SLOTS_PER_USER, 1024);
+        assert!(contract.contains("chunk-size: u1024"));
+    }
 }

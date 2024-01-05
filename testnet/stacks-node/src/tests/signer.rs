@@ -91,7 +91,7 @@ impl SignerTest {
         // Build the stackerdb signers contract
         // TODO: Remove this once it is a boot contract
         let signers_stackerdb_contract =
-            build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
+            build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER, 4096);
         let signers_stacker_db_contract_id = QualifiedContractIdentifier::new(
             to_addr(&publisher_private_key).into(),
             "signers".into(),

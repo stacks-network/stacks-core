@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clap::ValueEnum;
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
 use serde::Deserialize;
@@ -56,7 +57,7 @@ pub enum ConfigError {
     UnsupportedAddressVersion,
 }
 
-#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 /// The Stacks network to use.
 pub enum Network {
