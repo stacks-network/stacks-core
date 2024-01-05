@@ -17,14 +17,10 @@
 use std::collections::HashMap;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::burn::ConsensusHash;
-
+use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::net::Error as NetError;
-use crate::net::NakamotoInvData;
-
+use crate::net::{Error as NetError, NakamotoInvData};
 use crate::util_lib::db::Error as DBError;
 
 /// Cached data for a sortition in the sortition DB.
@@ -182,7 +178,7 @@ impl InvGenerator {
             };
             let parent_sortition_consensus_hash = cur_sortition_info.parent_consensus_hash.clone();
 
-            debug!("Get sortition and tenure info for height {}. cur_consensus_hash = {}, cur_tenure_info = {:?}, cur_sortition_info = {:?}", cur_height, &cur_consensus_hash, &cur_tenure_opt, cur_sortition_info);
+            test_debug!("Get sortition and tenure info for height {}. cur_consensus_hash = {}, cur_tenure_info = {:?}, cur_sortition_info = {:?}", cur_height, &cur_consensus_hash, &cur_tenure_opt, cur_sortition_info);
 
             if let Some(cur_tenure_info) = cur_tenure_opt.as_ref() {
                 // a tenure was active when this sortition happened...

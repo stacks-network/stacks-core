@@ -20,34 +20,27 @@ use std::sync::mpsc::sync_channel;
 use std::thread;
 use std::thread::JoinHandle;
 
+use stacks_common::codec::{read_next, StacksMessageCodec};
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::StacksEpoch;
+
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
-
 use crate::chainstate::nakamoto::coordinator::tests::{
     simple_nakamoto_coordinator_10_extended_tenures_10_sortitions,
     simple_nakamoto_coordinator_10_tenures_10_sortitions,
     simple_nakamoto_coordinator_2_tenures_3_sortitions,
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
-
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::net::Error as NetError;
-use crate::net::GetNakamotoInvData;
-use crate::net::HandshakeData;
-use crate::net::NakamotoInvData;
-use crate::util_lib::db::Error as DBError;
-
-use stacks_common::codec::read_next;
-use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::StacksPrivateKey;
-
+use crate::core::StacksEpochExtension;
 use crate::net::inv::nakamoto::InvGenerator;
 use crate::net::test::TestPeer;
-use crate::net::StacksMessage;
-use crate::net::StacksMessageType;
-
-use crate::core::StacksEpochExtension;
-use stacks_common::types::StacksEpoch;
+use crate::net::{
+    Error as NetError, GetNakamotoInvData, HandshakeData, NakamotoInvData, StacksMessage,
+    StacksMessageType,
+};
+use crate::util_lib::db::Error as DBError;
 
 /// Handshake with and get the reward cycle inventories for a range of reward cycles
 fn peer_get_nakamoto_invs(

@@ -21,6 +21,6 @@ pub mod nakamoto;
 pub mod tests;
 
 // Stacks 2.x inventory state machine
-pub use crate::net::inv::epoch2x as inv2x;
-
 pub use inv2x::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
+
+pub use crate::net::inv::epoch2x as inv2x;
