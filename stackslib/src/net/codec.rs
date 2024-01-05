@@ -1561,6 +1561,7 @@ pub mod test {
     use stacks_common::util::secp256k1::*;
 
     use super::*;
+    use crate::net::{GetNakamotoInvData, NakamotoInvData};
 
     fn check_overflow<T>(r: Result<T, net_error>) -> bool {
         match r {
@@ -1958,10 +1959,7 @@ pub mod test {
             0x00, 0x00, 0x00, 0x00,
         ];
 
-        check_codec_and_corruption::<BlocksInvData>(
-            &maximal_blocksinvdata,
-            &maximal_blocksinvdata_bytes,
-        );
+        assert!(check_deserialize_failure::<BlocksInvData>(&empty_inv));
     }
 
     #[test]
@@ -2369,6 +2367,68 @@ pub mod test {
     }
 
     #[test]
+    fn codec_GetNakamotoInv() {
+        let get_nakamoto_inv = GetNakamotoInvData {
+            consensus_hash: ConsensusHash([0x55; 20]),
+        };
+
+        let get_nakamoto_inv_bytes: Vec<u8> = vec![
+            // consensus hash
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+        ];
+
+        check_codec_and_corruption::<GetNakamotoInvData>(
+            &get_nakamoto_inv,
+            &get_nakamoto_inv_bytes,
+        );
+    }
+
+    #[test]
+    fn codec_NakamotoInv() {
+        let nakamoto_inv = NakamotoInvData {
+            tenures: vec![0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff],
+            bitlen: 64,
+        };
+
+        let nakamoto_inv_bytes = vec![
+            // bitlen
+            0x00, 0x40, // tenures.len()
+            0x00, 0x00, 0x00, 0x08, // tenures
+            0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff,
+        ];
+
+        check_codec_and_corruption::<NakamotoInvData>(&nakamoto_inv, &nakamoto_inv_bytes);
+
+        // test that read_next_exact() works for the tenures bitvec
+        let long_bitlen = NakamotoInvData {
+            bitlen: 1,
+            tenures: vec![0xff, 0x01],
+        };
+        assert!(check_deserialize_failure::<NakamotoInvData>(&long_bitlen));
+
+        let short_bitlen = NakamotoInvData {
+            bitlen: 9,
+            tenures: vec![0xff],
+        };
+        assert!(check_deserialize_failure::<NakamotoInvData>(&short_bitlen));
+
+        // works for empty ones
+        let nakamoto_inv = NakamotoInvData {
+            tenures: vec![],
+            bitlen: 0,
+        };
+
+        let nakamoto_inv_bytes = vec![
+            // bitlen
+            0x00, 0x00, // tenures.len()
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        assert!(check_deserialize_failure::<NakamotoInvData>(&nakamoto_inv));
+    }
+
+    #[test]
     fn codec_StacksMessage() {
         let payloads: Vec<StacksMessageType> = vec![
             StacksMessageType::Handshake(HandshakeData {
@@ -2540,6 +2600,13 @@ pub mod test {
                     sig: MessageSignature::from_raw(&vec![0x44; 65]),
                     data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
                 }
+            }),
+            StacksMessageType::GetNakamotoInv(GetNakamotoInvData {
+                consensus_hash: ConsensusHash([0x01; 20]),
+            }),
+            StacksMessageType::NakamotoInv(NakamotoInvData {
+                tenures: vec![0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff],
+                bitlen: 64
             }),
         ];
 
