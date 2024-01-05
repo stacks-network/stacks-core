@@ -99,8 +99,6 @@ pub struct BlockMinerThread {
     parent_tenure_id: StacksBlockId,
     /// Handle to the node's event dispatcher
     event_dispatcher: EventDispatcher,
-    /// The .miners stacker db session
-    miners_stackerdb: StackerDBSession,
 }
 
 impl BlockMinerThread {
@@ -111,14 +109,6 @@ impl BlockMinerThread {
         burn_block: BlockSnapshot,
         parent_tenure_id: StacksBlockId,
     ) -> BlockMinerThread {
-        let rpc_sock = rt.config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &rt.config.node.rpc_bind
-        ));
-
-        let miner_contract_id = boot_code_id(MINERS_NAME, rt.config.is_mainnet());
-
-        let miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
         BlockMinerThread {
             config: rt.config.clone(),
             globals: rt.globals.clone(),
@@ -129,7 +119,6 @@ impl BlockMinerThread {
             burn_block,
             event_dispatcher: rt.event_dispatcher.clone(),
             parent_tenure_id,
-            miners_stackerdb,
         }
     }
 
@@ -196,7 +185,15 @@ impl BlockMinerThread {
                 ) {
                     Ok(Some(chunk)) => {
                         // Propose the block to the observing signers through the .miners stackerdb instance
-                        match self.miners_stackerdb.put_chunk(chunk) {
+                        let rpc_sock = self.config.node.rpc_bind.parse().expect(&format!(
+                            "Failed to parse socket: {}",
+                            &self.config.node.rpc_bind
+                        ));
+
+                        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+                        let mut miners_stackerdb =
+                            StackerDBSession::new(rpc_sock, miner_contract_id);
+                        match miners_stackerdb.put_chunk(chunk) {
                             Ok(ack) => {
                                 info!("Proposed block to stackerdb: {ack:?}");
                             }
