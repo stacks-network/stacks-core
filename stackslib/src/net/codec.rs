@@ -272,27 +272,7 @@ impl BlocksInvData {
     }
 
     pub fn compress_bools(bits: &Vec<bool>) -> Vec<u8> {
-        let mut bitvec = vec![];
-        for i in 0..(bits.len() / 8) {
-            let mut next_octet = 0;
-            for j in 0..8 {
-                if bits[8 * i + j] {
-                    next_octet |= 1 << j;
-                }
-            }
-            bitvec.push(next_octet);
-        }
-        if bits.len() % 8 != 0 {
-            let mut last_octet = 0;
-            let idx = (bits.len() as u64) & 0xfffffffffffffff8; // (bits.len() / 8) * 8
-            for (j, bit) in bits[(idx as usize)..].iter().enumerate() {
-                if *bit {
-                    last_octet |= 1 << j;
-                }
-            }
-            bitvec.push(last_octet);
-        }
-        bitvec
+        NakamotoInvData::bools_to_bitvec(bits)
     }
 
     pub fn has_ith_block(&self, block_index: u16) -> bool {
@@ -313,6 +293,66 @@ impl BlocksInvData {
         let idx = block_index / 8;
         let bit = block_index % 8;
         (self.microblocks_bitvec[idx as usize] & (1 << bit)) != 0
+    }
+}
+
+impl StacksMessageCodec for GetNakamotoInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.consensus_hash)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let consensus_hash: ConsensusHash = read_next(fd)?;
+        Ok(Self { consensus_hash })
+    }
+}
+
+impl StacksMessageCodec for NakamotoInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.bitlen)?;
+        write_next(fd, &self.tenures)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let bitlen: u16 = read_next(fd)?;
+        if bitlen == 0 {
+            return Err(codec_error::DeserializeError(
+                "BlocksInv must contain at least one block/microblock bit".to_string(),
+            ));
+        }
+
+        let tenures: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        Ok(Self { bitlen, tenures })
+    }
+}
+
+impl NakamotoInvData {
+    pub fn empty() -> Self {
+        Self {
+            bitlen: 0,
+            tenures: vec![],
+        }
+    }
+
+    pub fn bools_to_bitvec(bits: &[bool]) -> Vec<u8> {
+        let mut bitvec = vec![0u8; (bits.len() / 8) + (if bits.len() % 8 != 0 { 1 } else { 0 })];
+        for (i, bit) in bits.iter().enumerate() {
+            if *bit {
+                bitvec[i / 8] |= 1u8 << (i % 8);
+            }
+        }
+        bitvec
+    }
+
+    pub fn has_ith_tenure(&self, tenure_index: u16) -> bool {
+        if tenure_index >= self.bitlen {
+            return false;
+        }
+        let idx =
+            usize::try_from(tenure_index).expect("can't get usize from u16 on this architecture");
+        self.tenures[idx / 8] & (1 << (tenure_index % 8)) != 0
     }
 }
 
@@ -891,6 +931,8 @@ impl StacksMessageType {
             StacksMessageType::StackerDBGetChunk(ref _m) => StacksMessageID::StackerDBGetChunk,
             StacksMessageType::StackerDBChunk(ref _m) => StacksMessageID::StackerDBChunk,
             StacksMessageType::StackerDBPushChunk(ref _m) => StacksMessageID::StackerDBPushChunk,
+            StacksMessageType::GetNakamotoInv(ref _m) => StacksMessageID::GetNakamotoInv,
+            StacksMessageType::NakamotoInv(ref _m) => StacksMessageID::NakamotoInv,
         }
     }
 
@@ -923,6 +965,8 @@ impl StacksMessageType {
             StacksMessageType::StackerDBGetChunk(ref _m) => "StackerDBGetChunk",
             StacksMessageType::StackerDBChunk(ref _m) => "StackerDBChunk",
             StacksMessageType::StackerDBPushChunk(ref _m) => "StackerDBPushChunk",
+            StacksMessageType::GetNakamotoInv(ref _m) => "GetNakamotoInv",
+            StacksMessageType::NakamotoInv(ref _m) => "NakamotoInv",
         }
     }
 
@@ -1024,6 +1068,12 @@ impl StacksMessageType {
                     m.chunk_data.data.len()
                 )
             }
+            StacksMessageType::GetNakamotoInv(ref m) => {
+                format!("GetNakamotoInv({})", &m.consensus_hash,)
+            }
+            StacksMessageType::NakamotoInv(ref m) => {
+                format!("NakamotoInv({},{:?})", m.bitlen, &m.tenures)
+            }
         }
     }
 }
@@ -1073,6 +1123,8 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::StackerDBPushChunk as u8 => {
                 StacksMessageID::StackerDBPushChunk
             }
+            x if x == StacksMessageID::GetNakamotoInv as u8 => StacksMessageID::GetNakamotoInv,
+            x if x == StacksMessageID::NakamotoInv as u8 => StacksMessageID::NakamotoInv,
             _ => {
                 return Err(codec_error::DeserializeError(
                     "Unknown message ID".to_string(),
@@ -1115,6 +1167,8 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::StackerDBGetChunk(ref m) => write_next(fd, m)?,
             StacksMessageType::StackerDBChunk(ref m) => write_next(fd, m)?,
             StacksMessageType::StackerDBPushChunk(ref m) => write_next(fd, m)?,
+            StacksMessageType::GetNakamotoInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::NakamotoInv(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1216,6 +1270,14 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::StackerDBPushChunk => {
                 let m: StackerDBPushChunkData = read_next(fd)?;
                 StacksMessageType::StackerDBPushChunk(m)
+            }
+            StacksMessageID::GetNakamotoInv => {
+                let m: GetNakamotoInvData = read_next(fd)?;
+                StacksMessageType::GetNakamotoInv(m)
+            }
+            StacksMessageID::NakamotoInv => {
+                let m: NakamotoInvData = read_next(fd)?;
+                StacksMessageType::NakamotoInv(m)
             }
             StacksMessageID::Reserved => {
                 return Err(codec_error::DeserializeError(
