@@ -56,7 +56,8 @@ use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::BlockDownloader;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::StacksHttpRequest;
-use crate::net::inv::*;
+use crate::net::inv::inv2x::*;
+use crate::net::inv::nakamoto::InvGenerator;
 use crate::net::neighbors::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
 use crate::net::prune::*;
@@ -346,6 +347,10 @@ pub struct PeerNetwork {
 
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
+
+    /// Nakamoto-specific cache for sortition and tenure data, for the purposes of generating
+    /// tenure inventories
+    pub nakamoto_inv_generator: InvGenerator,
 }
 
 impl PeerNetwork {
@@ -492,6 +497,8 @@ impl PeerNetwork {
             pending_messages: HashMap::new(),
 
             fault_last_disconnect: 0,
+
+            nakamoto_inv_generator: InvGenerator::new(),
         };
 
         network.init_block_downloader();
