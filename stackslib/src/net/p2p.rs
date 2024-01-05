@@ -5196,46 +5196,6 @@ impl PeerNetwork {
         &self.stacker_db_configs
     }
 
-    /// Create or reconfigure a StackerDB.
-    /// Fails only if the underlying DB fails
-    fn create_or_reconfigure_stackerdb(
-        &mut self,
-        stackerdb_contract_id: &QualifiedContractIdentifier,
-        new_config: &StackerDBConfig,
-    ) -> Result<(), db_error> {
-        debug!("Reconfiguring StackerDB {}...", stackerdb_contract_id);
-        let tx = self.stackerdbs.tx_begin(new_config.clone())?;
-        match tx.reconfigure_stackerdb(stackerdb_contract_id, &new_config.signers) {
-            Ok(..) => {}
-            Err(net_error::NoSuchStackerDB(..)) => {
-                // need to create it first
-                info!(
-                    "Creating local replica of StackerDB {}",
-                    stackerdb_contract_id
-                );
-                test_debug!(
-                    "Creating local replica of StackerDB {} with config {:?}",
-                    stackerdb_contract_id,
-                    &new_config
-                );
-                if let Err(e) = tx.create_stackerdb(stackerdb_contract_id, &new_config.signers) {
-                    warn!(
-                        "Failed to create StackerDB replica {}: {:?}",
-                        stackerdb_contract_id, &e
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to reconfigure StackerDB replica {}: {:?}",
-                    stackerdb_contract_id, &e
-                );
-            }
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
@@ -5333,40 +5293,16 @@ impl PeerNetwork {
                 .unwrap_or(Txid([0x00; 32]));
 
             // refresh stackerdb configs
-            let mut new_stackerdb_configs = HashMap::new();
-            let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
-            for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
-                let new_config = if stackerdb_contract_id
-                    == boot_code_id(MINERS_NAME, chainstate.mainnet)
-                {
-                    // .miners contract -- directly generate the config
-                    NakamotoChainState::make_miners_stackerdb_config(sortdb)?
-                } else {
-                    // normal stackerdb contract
-                    StackerDBConfig::from_smart_contract(chainstate, sortdb, &stackerdb_contract_id)
-                        .unwrap_or_else(|e| {
-                            warn!(
-                                "Failed to load StackerDB config";
-                                "contract" => %stackerdb_contract_id,
-                                "err" => ?e,
-                            );
-                            StackerDBConfig::noop()
-                        })
-                };
-                if new_config != stackerdb_config && new_config.signers.len() > 0 {
-                    if let Err(e) =
-                        self.create_or_reconfigure_stackerdb(&stackerdb_contract_id, &new_config)
-                    {
-                        warn!(
-                            "Failed to create or reconfigure StackerDB {}: DB error {:?}",
-                            &stackerdb_contract_id, &e
-                        );
-                    }
-                }
-                new_stackerdb_configs.insert(stackerdb_contract_id.clone(), new_config);
-            }
-
-            self.stacker_db_configs = new_stackerdb_configs;
+            let contracts: Vec<_> = self
+                .stacker_db_configs
+                .iter()
+                .map(|(contract_id, config)| (contract_id.clone(), Some(config.clone())))
+                .collect();
+            self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdb(
+                chainstate,
+                sortdb,
+                contracts.as_slice(),
+            )?;
         }
 
         if sn.canonical_stacks_tip_hash != self.burnchain_tip.canonical_stacks_tip_hash

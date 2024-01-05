@@ -88,7 +88,6 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
         peer.tenure_with_txs(&txs, &mut peer_nonce);
     }
     // peer is at the start of cycle 8
-    peer.init_stacker_db_miners();
 }
 
 /// Make a peer and transition it into the Nakamoto epoch.
@@ -99,7 +98,6 @@ pub fn boot_nakamoto(
     aggregate_public_key: Point,
 ) -> TestPeer {
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -113,6 +111,10 @@ pub fn boot_nakamoto(
     // first 25 blocks are boot-up
     // reward cycle 6 instantiates pox-3
     // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config.initial_balances.append(&mut initial_balances);
