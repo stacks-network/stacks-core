@@ -2382,7 +2382,7 @@ impl NakamotoChainState {
         pox_constants: &PoxConstants,
         parent_consensus_hash: ConsensusHash,
         parent_header_hash: BlockHeaderHash,
-        parent_stacks_height: u64,
+        _parent_stacks_height: u64,
         parent_burn_height: u32,
         burn_header_hash: BurnchainHeaderHash,
         burn_header_height: u32,
@@ -2435,7 +2435,7 @@ impl NakamotoChainState {
                 Self::calculate_matured_miner_rewards(
                     &mut clarity_tx,
                     sortition_dbconn.sqlite_conn(),
-                    parent_stacks_height,
+                    coinbase_height,
                     matured_rewards_schedule,
                 )
             })
