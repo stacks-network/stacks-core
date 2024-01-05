@@ -2135,46 +2135,16 @@ pub mod test {
             test_path
         }
 
-        /// Initialize the .miners StackerDB instance
-        pub fn init_stacker_db_miners(&mut self) {
-            let miner_contract_id = boot_code_id(MINERS_NAME, false);
-            let miner_stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(
-                self.sortdb.as_mut().expect("No sortition DB found"),
-            )
-            .expect("Could not make {MINERS_NAME} StackerDB config");
-            let tx = self
-                .network
-                .stackerdbs
-                .tx_begin(miner_stackerdb_config.clone())
-                .expect("Could not begin {MINERS_NAME} StackerDB transaction");
-
-            tx.create_stackerdb(&miner_contract_id, &miner_stackerdb_config.signers)
-                .expect("Could not create {MINERS_NAME} StackerDB");
-            tx.commit()
-                .expect("Could not commit {MINERS_NAME} StackerDB transaction");
-        }
-
-        fn init_stacker_dbs(
+        fn init_stackerdb_syncs(
             root_path: &str,
             peerdb: &PeerDB,
-            stacker_dbs: &[QualifiedContractIdentifier],
-            stacker_db_configs: &[Option<StackerDBConfig>],
+            stacker_dbs: &mut HashMap<QualifiedContractIdentifier, StackerDBConfig>,
         ) -> HashMap<QualifiedContractIdentifier, (StackerDBConfig, StackerDBSync<PeerNetworkComms>)>
         {
             let stackerdb_path = format!("{}/stacker_db.sqlite", root_path);
             let mut stacker_db_syncs = HashMap::new();
             let local_peer = PeerDB::get_local_peer(peerdb.conn()).unwrap();
-            for (i, contract_id) in stacker_dbs.iter().enumerate() {
-                let mut db_config = if let Some(config_opt) = stacker_db_configs.get(i) {
-                    if let Some(db_config) = config_opt.as_ref() {
-                        db_config.clone()
-                    } else {
-                        StackerDBConfig::noop()
-                    }
-                } else {
-                    StackerDBConfig::noop()
-                };
-
+            for (i, (contract_id, db_config)) in stacker_dbs.iter_mut().enumerate() {
                 let initial_peers = PeerDB::find_stacker_db_replicas(
                     peerdb.conn(),
                     local_peer.network_id,
@@ -2431,14 +2401,31 @@ pub mod test {
                     .unwrap()
             };
             let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
+            let mut stacker_dbs_conn = StackerDBs::connect(&stackerdb_path, true).unwrap();
             let relayer_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
             let p2p_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
-            let stacker_dbs = Self::init_stacker_dbs(
-                &test_path,
-                &peerdb,
-                &config.stacker_dbs,
-                &config.stacker_db_configs,
-            );
+
+            let contracts: Vec<_> = config
+                .stacker_dbs
+                .iter()
+                .enumerate()
+                .map(|(i, stackerdb)| {
+                    (
+                        stackerdb.clone(),
+                        config.stacker_db_configs.get(i).unwrap_or(&None).clone(),
+                    )
+                })
+                .collect();
+            let mut stackerdb_configs = stacker_dbs_conn
+                .create_or_reconfigure_stackerdb(
+                    &mut stacks_node.chainstate,
+                    &sortdb,
+                    contracts.as_slice(),
+                )
+                .expect("Failed to refresh stackerdb configs");
+
+            let stacker_db_syncs =
+                Self::init_stackerdb_syncs(&test_path, &peerdb, &mut stackerdb_configs);
 
             let mut peer_network = PeerNetwork::new(
                 peerdb,
@@ -2449,7 +2436,7 @@ pub mod test {
                 config.burnchain.clone(),
                 burnchain_view,
                 config.connection_opts.clone(),
-                stacker_dbs,
+                stacker_db_syncs,
                 epochs.clone(),
             );
             peer_network.set_stacker_db_configs(config.get_stacker_db_configs());
