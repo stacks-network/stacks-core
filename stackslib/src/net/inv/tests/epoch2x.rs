@@ -541,11 +541,13 @@ fn test_sync_inv_set_blocks_microblocks_available() {
     let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
     let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
 
-    let peer_1_test_path = TestPeer::make_test_path(&peer_1_config);
-    let peer_2_test_path = TestPeer::make_test_path(&peer_2_config);
-
     let mut peer_1 = TestPeer::new(peer_1_config.clone());
     let mut peer_2 = TestPeer::new(peer_2_config.clone());
+
+    let peer_1_test_path = TestPeer::make_test_path(&peer_1.config);
+    let peer_2_test_path = TestPeer::make_test_path(&peer_2.config);
+
+    assert!(peer_1_test_path != peer_2_test_path);
 
     for (test_path, burnchain) in [
         (peer_1_test_path, &mut peer_1.config.burnchain),

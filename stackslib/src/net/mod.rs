@@ -1598,7 +1598,7 @@ pub mod test {
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
-    use rand::RngCore;
+    use rand::{Rng, RngCore};
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -2146,9 +2146,11 @@ pub mod test {
         }
 
         pub fn test_path(config: &TestPeerConfig) -> String {
+            let random = thread_rng().gen::<u64>();
+            let random_bytes = to_hex(&random.to_be_bytes());
             format!(
                 "/tmp/stacks-node-tests/units-test-peer/{}-{}",
-                &config.test_name, config.server_port
+                &config.test_name, random_bytes
             )
         }
 
@@ -2491,6 +2493,7 @@ pub mod test {
                 )
                 .unwrap();
 
+            debug!("Bound to (p2p={}, http={})", p2p_port, http_port);
             config.server_port = p2p_port;
             config.http_port = http_port;
 
