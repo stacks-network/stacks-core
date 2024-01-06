@@ -577,7 +577,7 @@ paths:
           content:
             application/json:
               example:
-                $ref: ./api/core-node/post-block-proposal-429.example.json
+                $ref: ./api/core-node/post-block-proposal-response.429.json
       requestBody:
         content:
           application/json:
