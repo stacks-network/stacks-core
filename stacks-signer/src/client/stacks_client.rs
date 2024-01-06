@@ -27,6 +27,7 @@ use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use reqwest::blocking::Client;
 use serde_json::json;
 use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
@@ -51,7 +52,7 @@ pub struct StacksClient {
     /// The chain we are interacting with
     chain_id: u32,
     /// The Client used to make HTTP connects
-    stacks_node_client: reqwest::blocking::Client,
+    stacks_node_client: Client,
 }
 
 impl From<&Config> for StacksClient {
@@ -62,7 +63,7 @@ impl From<&Config> for StacksClient {
             http_origin: format!("http://{}", config.node_host),
             tx_version: config.network.to_transaction_version(),
             chain_id: config.network.to_chain_id(),
-            stacks_node_client: reqwest::blocking::Client::new(),
+            stacks_node_client: Client::new(),
         }
     }
 }
@@ -205,7 +206,7 @@ impl StacksClient {
             function_name,
             function_args,
         )?;
-        self.submit_tx(&signed_tx)
+        StacksClient::submit_tx(&signed_tx, &self.stacks_node_client, &self.http_origin)
     }
 
     /// Helper function to create a stacks transaction for a modifying contract call
@@ -257,12 +258,16 @@ impl StacksClient {
     }
 
     /// Helper function to submit a transaction to the Stacks node
-    fn submit_tx(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
+    pub fn submit_tx(
+        tx: &StacksTransaction,
+        client: &Client,
+        http_origin: &str,
+    ) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
         let send_request = || {
-            self.stacks_node_client
-                .post(self.transaction_path())
+            client
+                .post(StacksClient::transaction_path(http_origin))
                 .header("Content-Type", "application/octet-stream")
                 .body(tx.clone())
                 .send()
@@ -322,8 +327,8 @@ impl StacksClient {
         format!("{}/v2/pox", self.http_origin)
     }
 
-    fn transaction_path(&self) -> String {
-        format!("{}/v2/transactions", self.http_origin)
+    fn transaction_path(http_origin: &str) -> String {
+        format!("{}/v2/transactions", http_origin)
     }
 
     fn read_only_path(
@@ -592,7 +597,13 @@ pub(crate) mod tests {
             + 1;
 
         let tx_clone = tx.clone();
-        let h = spawn(move || config.client.submit_tx(&tx_clone));
+        let h = spawn(move || {
+            StacksClient::submit_tx(
+                &tx_clone,
+                &config.client.stacks_node_client,
+                &config.client.http_origin,
+            )
+        });
 
         let request_bytes = write_response(
             config.mock_server,
