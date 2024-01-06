@@ -414,7 +414,7 @@ impl Config {
     /// just return a clone of the current config.
     fn reload_config(&self) -> Result<Config, String> {
         let Some(path) = &self.config_path else {
-            return self.clone();
+            return Ok(self.clone());
         };
         let config_file = ConfigFile::from_path(path.as_str())?;
         Config::from_config_file(config_file)
@@ -1300,12 +1300,7 @@ impl Config {
         microblocks: bool,
         miner_status: Arc<Mutex<MinerStatus>>,
     ) -> BlockBuilderSettings {
-        let miner_config = if let Ok(miner_config) = self.get_miner_config() {
-            miner_config
-        } else {
-            self.miner.clone()
-        };
-
+        let miner_config = self.get_miner_config();
         BlockBuilderSettings {
             max_miner_time_ms: if microblocks {
                 miner_config.microblock_attempt_time_ms

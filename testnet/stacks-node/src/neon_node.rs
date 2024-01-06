@@ -208,6 +208,7 @@ use stacks::vm::costs::ExecutionCost;
 use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
 use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
 use crate::burnchains::make_bitcoin_indexer;
+use crate::config::BurnchainConfig;
 use crate::config::MinerConfig;
 use crate::run_loop::neon::Counters;
 use crate::run_loop::neon::RunLoop;
@@ -1218,15 +1219,20 @@ impl MicroblockMinerThread {
 }
 
 fn reload_miner_config(config: &Config) -> MinerConfig {
-    let miner_config = if let Ok(miner_config) = config.get_miner_config().map_err(|e| {
-        warn!("Failed to load miner config: {:?}", &e);
-        e
-    }) {
-        miner_config
+    config.get_miner_config()
+}
+
+fn reload_burnchain_config(config: &Config) -> BurnchainConfig {
+    let burnchain_config = if let Ok(burnchain_config) =
+        config.get_burnchain_config().map_err(|e| {
+            warn!("Failed to load burnchain config: {:?}", &e);
+            e
+        }) {
+        burnchain_config
     } else {
-        config.miner.clone()
+        config.burnchain.clone()
     };
-    miner_config
+    burnchain_config
 }
 
 impl BlockMinerThread {
@@ -1730,7 +1736,8 @@ impl BlockMinerThread {
             }
         };
 
-        let burn_fee_cap = get_mining_spend_amount(self.globals.get_miner_status());
+        let burnchain_config = reload_burnchain_config(&self.config);
+        let burn_fee_cap = burnchain_config.burn_fee_cap;
         let sunset_burn = self.burnchain.expected_sunset_burn(
             self.burn_block.block_height + 1,
             burn_fee_cap,
