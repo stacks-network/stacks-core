@@ -26,9 +26,10 @@ use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::vm::types::StandardPrincipalData;
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use reqwest::blocking::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
@@ -280,6 +281,27 @@ impl StacksClient {
         Ok(txid)
     }
 
+    /// fetch the onchain contract source
+    pub fn get_contract_source(
+        http_origin: &str,
+        principal: &StandardPrincipalData,
+        contract_name: &str,
+        client: &Client,
+    ) -> Result<String, ClientError> {
+        let url = Self::contract_path(http_origin, &principal.to_string(), contract_name);
+        let request = || client.get(&url).send().map_err(backoff::Error::transient);
+        let res = retry_with_exponential_backoff(request)?;
+
+        if !res.status().is_success() {
+            return Err(ClientError::RequestFailure(res.status()));
+        }
+        let res: Value = res.json()?;
+        let Value::String(ref contract) = res["source"] else {
+            panic!("Missing source field in {res} from {url}")
+        };
+        Ok(contract.clone())
+    }
+
     /// Makes a read only contract call to a stacks contract
     pub fn read_only_contract_call_with_retry(
         &self,
@@ -329,6 +351,13 @@ impl StacksClient {
 
     fn transaction_path(http_origin: &str) -> String {
         format!("{}/v2/transactions", http_origin)
+    }
+
+    fn contract_path(http_origin: &str, principal: &str, contract_name: &str) -> String {
+        format!(
+            "{}/v2/contracts/source/{}/{}",
+            http_origin, principal, contract_name
+        )
     }
 
     fn read_only_path(
@@ -659,5 +688,24 @@ pub(crate) mod tests {
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
         );
         assert!(h.join().unwrap().is_err());
+    }
+
+    fn contract_source_response() {
+        let config = TestConfig::new();
+        let h = spawn(move || {
+            StacksClient::get_contract_source(
+                &config.client.http_origin,
+                &StandardPrincipalData::transient(),
+                "hello-world",
+                &config.client.stacks_node_client,
+            )
+        });
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"proof\":\"0x00\",\"publish_height\":3,\"source\":\";;stackerdb\"}
+            ",
+        );
+
+        assert_eq!(";;stackerdb", h.join().unwrap().unwrap());
     }
 }

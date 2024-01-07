@@ -16,12 +16,29 @@
 
 //! Ping utils
 use std::fs::File;
+use std::io::Read;
 use std::io::Write as WriteT;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 
+use crate::client::{ClientError, StacksClient};
 use crate::{config::Network, utils::build_stackerdb_contract};
+use blockstack_lib::chainstate::stacks::StacksTransaction;
+use blockstack_lib::chainstate::stacks::StacksTransactionSigner;
+use blockstack_lib::chainstate::stacks::TransactionAnchorMode;
+use blockstack_lib::chainstate::stacks::TransactionAuth;
+use blockstack_lib::chainstate::stacks::TransactionPostConditionMode;
+use blockstack_lib::{
+    chainstate::stacks::{TransactionPayload, TransactionSmartContract},
+    util_lib::strings::StacksString,
+};
+use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
+use clarity::vm::ContractName;
 use libsigner::SIGNER_SLOTS_PER_USER;
+use reqwest::blocking::Client;
+use reqwest::StatusCode;
 use stacks_common::{
     address::AddressHashMode,
     types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
@@ -37,6 +54,8 @@ pub enum PingSubcommands {
     /// DO NOT USE this in production.
     /// Don't hold funds on this accounts. Anyone with the shared seed can deterministically generate the signer's secret keys.
     GenerateContract(GenerateContractArgs),
+    /// Publish a stackerDB contract,
+    PublishContract(PublishContractArgs),
 }
 
 impl PingSubcommands {
@@ -44,6 +63,7 @@ impl PingSubcommands {
     pub fn handle(&self) {
         match self {
             PingSubcommands::GenerateContract(args) => args.handle(),
+            PingSubcommands::PublishContract(args) => args.handle(),
         }
     }
 }
@@ -103,6 +123,100 @@ fn to_stacks_address(network: &Network, pkey: &StacksPrivateKey) -> StacksAddres
         &vec![StacksPublicKey::from_private(pkey)],
     )
     .unwrap()
+}
+
+#[derive(clap::Args, Debug)]
+/// Once you have generated a contract, publish it.
+pub struct PublishContractArgs {
+    #[clap(long)]
+    source_file: PathBuf,
+    #[clap(long, short)]
+    contract_name: String,
+    #[clap(value_enum, long)]
+    network: Network,
+    #[clap(long, short)]
+    stacks_private_key: String,
+    #[clap(long, short)]
+    nonce: u64,
+    #[clap(long, short)]
+    fee: u64,
+    #[clap(long)]
+    /// e.g. http://localhost:20443
+    host: String,
+}
+
+impl PublishContractArgs {
+    fn handle(&self) {
+        let pkey = StacksPrivateKey::from_hex(&self.stacks_private_key).unwrap();
+        let contract_name = ContractName::try_from(self.contract_name.clone()).unwrap();
+
+        let tx = {
+            let payload = {
+                let code_body = {
+                    let mut contract = String::new();
+                    File::open(&self.source_file)
+                        .unwrap()
+                        .read_to_string(&mut contract)
+                        .unwrap();
+
+                    StacksString::from_str(contract.as_str()).unwrap()
+                };
+
+                TransactionPayload::SmartContract(
+                    TransactionSmartContract {
+                        name: contract_name.clone(),
+                        code_body,
+                    },
+                    None,
+                )
+            };
+
+            let auth = {
+                let mut auth = TransactionAuth::from_p2pkh(&pkey).unwrap();
+                auth.set_origin_nonce(self.nonce);
+                auth.set_tx_fee(self.fee);
+                auth
+            };
+
+            let mut unsinged_tx =
+                StacksTransaction::new(self.network.to_transaction_version(), auth, payload);
+            unsinged_tx.chain_id = self.network.to_chain_id();
+            unsinged_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+            unsinged_tx.anchor_mode = TransactionAnchorMode::OnChainOnly;
+
+            let mut signer = StacksTransactionSigner::new(&unsinged_tx);
+
+            signer.sign_origin(&pkey).unwrap();
+            signer.get_tx().unwrap()
+        };
+
+        let client = Client::new();
+
+        StacksClient::submit_tx(&tx, &client, &self.host).unwrap();
+
+        let principal = {
+            let address = to_stacks_address(&self.network, &pkey);
+            StandardPrincipalData::from(address)
+        };
+
+        while matches!(
+            StacksClient::get_contract_source(
+                &self.host,
+                &principal.clone(),
+                &self.contract_name,
+                &client,
+            )
+            .map(|_| {
+                println!(
+                    "Contract {} published successfully",
+                    QualifiedContractIdentifier::new(principal.clone(), contract_name.clone())
+                )
+            }),
+            Err(ClientError::RequestFailure(StatusCode::NOT_FOUND))
+        ) {
+            thread::sleep(Duration::from_millis(500));
+        }
+    }
 }
 
 fn private_key_from_seed(seed: &str, signer_id: u32) -> StacksPrivateKey {
