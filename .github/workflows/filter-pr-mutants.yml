@@ -8,15 +8,356 @@ on:
       - synchronize
       - ready_for_review
     paths:
-      - '**.rs'
+      - "**.rs"
+
+concurrency:
+  group: filter-pr-${{ github.head_ref || github.ref || github.run_id }}
+  # Always cancel duplicate jobs
+  cancel-in-progress: true
 
 jobs:
-  # Mutants testing: Execute on PR on packages that have functions modified, and fail the workflow if there are missed or timeout mutations
-  incremental-mutants:
-    name: Incremental Mutants Testing
+  # Check and output whether to run big (`stacks-node`/`stackslib`) or small (others) packages with or without shards
+  check-big-packages-and-shards:
+    name: Check Packages and Shards
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      run_big_packages: ${{ steps.check_packages_and_shards.outputs.run_big_packages }}
+      big_packages_with_shards: ${{ steps.check_packages_and_shards.outputs.big_packages_with_shards }}
+      run_small_packages: ${{ steps.check_packages_and_shards.outputs.run_small_packages }}
+      small_packages_with_shards: ${{ steps.check_packages_and_shards.outputs.small_packages_with_shards }}
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - run: cargo install --version 23.12.2 cargo-mutants
+
+      - name: Relative diff
+        run: |
+          git diff origin/${{ github.base_ref }}.. > git.diff
+
+      - name: Remove deleted file's lines from git.diff file
+        run: |
+          input_file="git.diff"
+          temp_file="temp_diff_file.diff"
+
+          # Reverse the file, remove 4 lines after '+++ /dev/null', then reverse it back (editors can't go backwards - to remove lines above)
+          tac "$input_file" > "$temp_file" && mv "$temp_file" "$input_file"
+          sed '/+++ \/dev\/null/{n;N;N;N;d;}' "$input_file" > "$temp_file" && mv "$temp_file" "$input_file"
+          tac "$input_file" > "$temp_file" && mv "$temp_file" "$input_file"
+
+          # Remove the lines between '+++ /dev/null' (included) and 'diff --git a/'
+          awk '
+            BEGIN { in_block=0 }
+            /\+\+\+ \/dev\/null/ { in_block=1; next }
+            in_block && /diff --git a\// { in_block=0; print; next }
+            !in_block
+          ' "$input_file" > "$temp_file" && mv "$temp_file" "$input_file"
+
+      - name: Split diffs into big and small packages
+        run: |
+          cargo mutants --in-diff git.diff --list > all_mutants.txt
+          mkdir -p mutants_by_packages
+
+          # Split the differences from git into 2 parts, big packages ('stacks-node' and 'stackslib') and small packages (all others) and put them into separate files
+          while IFS= read -r line; do
+            package=$(echo "$line" | cut -d'/' -f1)
+            if [[ $package == "testnet" || $package == "stackslib" ]]; then
+              echo "$line" >> "mutants_by_packages/big_packages.txt"
+            else
+              echo "$line" >> "mutants_by_packages/small_packages.txt"
+            fi
+          done < all_mutants.txt
+
+      - id: check_packages_and_shards
+        run: |
+          number_of_big_mutants=0
+          number_of_small_mutants=0
+
+          # If big_packages file exists, count how many mutants there are
+          if [[ -s mutants_by_packages/big_packages.txt ]]; then
+            number_of_big_mutants=$(cat mutants_by_packages/big_packages.txt | awk 'END { print NR }' | tr -d '[:space:]')
+          fi
+
+          # If small_packages file exists, count how many mutants there are
+          if [[ -s mutants_by_packages/small_packages.txt ]]; then
+            number_of_small_mutants=$(cat mutants_by_packages/small_packages.txt | awk 'END { print NR }' | tr -d '[:space:]')
+          fi
+
+          # Set the mutants limit for when to run with shards on the small packages
+          if [[ $number_of_big_mutants -gt 15 ]]; then
+            small_packages_shard_limit=119
+          else
+            small_packages_shard_limit=79
+          fi
+
+          # If there are mutants from big packages, check whether to run with or without shards, otherwise there's nothing to run
+          if [[ $number_of_big_mutants -ne 0 ]]; then
+            echo "run_big_packages=true" >> "$GITHUB_OUTPUT"
+            if [[ $number_of_big_mutants -gt 15 ]]; then
+              echo "big_packages_with_shards=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "big_packages_with_shards=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "run_big_packages=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # If there are mutants from small packages, check whether to run with or without shards, otherwise there's nothing to run
+          if [[ $number_of_small_mutants -ne 0 ]]; then
+            echo "run_small_packages=true" >> "$GITHUB_OUTPUT"
+            if [[ $number_of_small_mutants -gt $small_packages_shard_limit ]]; then
+              echo "small_packages_with_shards=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "small_packages_with_shards=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "run_small_packages=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Mutation testing - Execute on PR on small packages that have functions modified (normal run, no shards)
+  filter-pr-mutants-small-normal:
+    name: Mutation Testing - Normal, Small
+
+    needs: check-big-packages-and-shards
+
+    if: ${{ needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' && needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'false' }}
 
     runs-on: ubuntu-latest
 
     steps:
-      - name: Run filtering pr mutants from actions
+      - name: Run filtering pr mutants from actions - no shards, small packages
         uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
+        with:
+          package-dimension: "small"
+
+  # Mutation testing - Execute on PR on small packages that have functions modified (run with strategy matrix shards)
+  filter-pr-mutants-small-shards:
+    name: Mutation Testing - Shards, Small
+
+    needs: check-big-packages-and-shards
+
+    if: ${{ needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' && needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'true' }}
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+
+    steps:
+      - name: Run filtering pr mutants from actions - with shards, small packages
+        uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
+        with:
+          shard: ${{ matrix.shard }}
+          package-dimension: "small"
+
+  # Mutation testing - Execute on PR on big packages that have functions modified (normal run, no shards)
+  filter-pr-mutants-big-normal:
+    name: Mutation Testing - Normal, Big
+
+    needs: check-big-packages-and-shards
+
+    if: ${{ needs.check-big-packages-and-shards.outputs.run_big_packages == 'true' && needs.check-big-packages-and-shards.outputs.big_packages_with_shards == 'false' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run filtering pr mutants from actions - no shards, big packages
+        env:
+          BITCOIND_TEST: 1
+          RUST_BACKTRACE: full
+        uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
+        with:
+          package-dimension: "big"
+
+  # Mutation testing - Execute on PR on big packages that have functions modified (run with strategy matrix shards)
+  filter-pr-mutants-big-shards:
+    name: Mutation Testing - Shards, Big
+
+    needs: check-big-packages-and-shards
+
+    if: ${{ needs.check-big-packages-and-shards.outputs.run_big_packages == 'true' && needs.check-big-packages-and-shards.outputs.big_packages_with_shards == 'true' }}
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+
+    steps:
+      - name: Run filtering pr mutants from actions - with shards, big packages
+        env:
+          BITCOIND_TEST: 1
+          RUST_BACKTRACE: full
+        uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
+        with:
+          shard: ${{ matrix.shard }}
+          package-dimension: "big"
+
+  # Output the mutants and fail the workflow if there are missed/timeout/unviable mutants
+  output-mutants:
+    name: Output Mutants
+
+    runs-on: ubuntu-latest
+
+    if: always()
+    needs:
+      [
+        filter-pr-mutants-small-normal,
+        filter-pr-mutants-small-shards,
+        filter-pr-mutants-big-normal,
+        filter-pr-mutants-big-shards,
+      ]
+
+    steps:
+      - name: Download all workflow run artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Append output from all shards
+        run: |
+          folders=("mutants-shard-big--1" "mutants-shard-big-0" "mutants-shard-big-1" "mutants-shard-big-2" "mutants-shard-big-3" "mutants-shard-big-4" "mutants-shard-big-5" "mutants-shard-big-6" "mutants-shard-big-7" "mutants-shard-small--1" "mutants-shard-small-0" "mutants-shard-small-1" "mutants-shard-small-2" "mutants-shard-small-3")
+          files=("missed.txt" "caught.txt" "timeout.txt" "unviable.txt")
+          mkdir -p mutants-shards
+
+          for file in "${files[@]}"; do
+            for folder in "${folders[@]}"; do
+              if [[ -s "$folder/$file" ]]; then
+                cat "$folder/$file" >> "mutants-shards/$file"
+              fi
+            done
+          done
+
+          for folder in "${folders[@]}"; do
+            if [[ -s "$folder" ]]; then
+              exit_code=$(<"${folder}/exit_code.txt")
+              most_relevant_exit_code=0
+
+              case $exit_code in
+              4)
+                most_relevant_exit_code=4
+                ;;
+              1)
+                [ "$most_relevant_exit_code" -eq 0 ] && most_relevant_exit_code=1
+                ;;
+              2)
+                [ "$most_relevant_exit_code" -eq 0 ] && most_relevant_exit_code=2
+                ;;
+              3)
+                [ "$most_relevant_exit_code" -eq 0 ] && most_relevant_exit_code=3
+                ;;
+              0)
+                ;;
+              *)
+                echo "Unknown exit code $exit_code"
+                most_relevant_exit_code=$exit_code
+                ;;
+              esac
+            fi
+          done
+
+          echo "$most_relevant_exit_code" > './mutants-shards/exit_code.txt'
+
+      - name: Print mutants and handle exit codes
+        run: |
+          server_url="${{ github.server_url }}"
+          organisation="${{ github.repository_owner }}"
+          repository="${{ github.event.repository.name }}"
+          commit="${{ github.sha }}"
+
+          write_section() {
+            local section_title=$1
+            local file_name=$2
+
+            if [ -s "$file_name" ]; then
+              if [[ "$section_title" != "" ]]; then
+                echo "## $section_title" >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              if [[ "$section_title" == "Missed:" ]]; then
+                echo "<details>" >> "$GITHUB_STEP_SUMMARY"
+                echo "<summary>What are missed mutants?</summary>" >> "$GITHUB_STEP_SUMMARY"
+                echo "<br>" >> "$GITHUB_STEP_SUMMARY"
+                echo "No test failed with this mutation applied, which seems to indicate a gap in test coverage. Or, it may be that the mutant is undistinguishable from the correct code. You may wish to add a better test, or mark that the function should be skipped." >> "$GITHUB_STEP_SUMMARY"
+                echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+                echo "" >> "$GITHUB_STEP_SUMMARY"
+              elif [[ "$section_title" == "Timeout:" ]]; then
+                echo "<details>" >> "$GITHUB_STEP_SUMMARY"
+                echo "<summary>What are timeout mutants?</summary>" >> "$GITHUB_STEP_SUMMARY"
+                echo "<br>" >> "$GITHUB_STEP_SUMMARY"
+                echo "The mutation caused the test suite to run for a long time, until it was eventually killed. You might want to investigate the cause and potentially mark the function to be skipped." >> "$GITHUB_STEP_SUMMARY"
+                echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+                echo "" >> "$GITHUB_STEP_SUMMARY"
+              elif [[ "$section_title" == "Unviable:" ]]; then
+                echo "<details>" >> "$GITHUB_STEP_SUMMARY"
+                echo "<summary>What are unviable mutants?</summary>" >> "$GITHUB_STEP_SUMMARY"
+                echo "<br>" >> "$GITHUB_STEP_SUMMARY"
+                echo "The attempted mutation doesn't compile. This is inconclusive about test coverage and no action is needed, unless you wish to test the specific function, in which case you may wish to add a 'Default::default()' implementation for the specific return type." >> "$GITHUB_STEP_SUMMARY"
+                echo "</details>" >> "$GITHUB_STEP_SUMMARY"
+                echo "" >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              if [[ "$section_title" != "" ]]; then
+                awk -F':' '{printf "- [ ] " "[" $0 "]"; file_path=$1; line=$2; $1=""; $2=""; printf "(" "'"$server_url"'/'"$organisation"'/'"$repository"'/blob/'"$commit"'/" file_path "#L" line-1 ")\n\n"}' "$file_name" >> "$GITHUB_STEP_SUMMARY"
+              else
+                awk -F':' '{printf "- [x] " "[" $0 "]"; file_path=$1; line=$2; $1=""; $2=""; printf "(" "'"$server_url"'/'"$organisation"'/'"$repository"'/blob/'"$commit"'/" file_path "#L" line-1 ")\n\n"}' "$file_name" >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              if [[ "$section_title" == "Missed:" ]]; then
+                echo "### To resolve this issue, consider one of the following options:" >> "$GITHUB_STEP_SUMMARY"
+                echo "- Modify or add tests including this function." >> "$GITHUB_STEP_SUMMARY"
+                echo "- If you are absolutely certain that this function should not undergo mutation testing, add '#[mutants::skip]' or '#[cfg_attr(test, mutants::skip)]' function header to skip it." >> "$GITHUB_STEP_SUMMARY"
+              elif [[ "$section_title" == "Timeout:" ]]; then
+                echo "### To resolve this issue, consider one of the following options:" >> "$GITHUB_STEP_SUMMARY"
+                echo "- Modify the tests that include this funcion." >> "$GITHUB_STEP_SUMMARY"
+                echo "- Add '#[mutants::skip]' or '#[cfg_attr(test, mutants::skip)]' function header to skip it." >> "$GITHUB_STEP_SUMMARY"
+              elif [[ "$section_title" == "Unviable:" ]]; then
+                echo "### To resolve this issue, consider one of the following options:" >> "$GITHUB_STEP_SUMMARY"
+                echo "- Create 'Default::default()' implementation for the specific structure." >> "$GITHUB_STEP_SUMMARY"
+                echo "- Add '#[mutants::skip]' or '#[cfg_attr(test, mutants::skip)]' function header to skip it." >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              echo >> "$GITHUB_STEP_SUMMARY"
+            fi
+          }
+
+          echo "# Uncaught Mutants" >> "$GITHUB_STEP_SUMMARY"
+          write_section "Missed:" "./mutants-shards/missed.txt"
+          write_section "Timeout:" "./mutants-shards/timeout.txt"
+          write_section "Unviable:" "./mutants-shards/unviable.txt"
+            
+          echo "# Caught Mutants" >> "$GITHUB_STEP_SUMMARY"
+          write_section "" "./mutants-shards/caught.txt"
+
+          exit_code=$(<"mutants-shards/exit_code.txt")
+
+          case $exit_code in
+            0)
+                if [ -s ./mutants-shards/unviable.txt ]; then
+                  echo "Found unviable mutants!"
+                  exit 1
+                fi
+              echo "All new and updated functions are caught!"
+              ;;
+            1)
+              echo "Invalid command line arguments!"
+              exit 1
+              ;;
+            2 | 3)
+              echo "Found missed/timeout/unviable mutants!"
+              exit 1
+              ;;
+            4)
+              echo "Building the packages failed without any mutations!"
+              exit 1
+              ;;
+            *)
+              echo "Unknown exit code: $exit_code"
+              exit 1
+            ;;
+          esac
