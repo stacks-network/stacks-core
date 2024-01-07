@@ -1137,9 +1137,9 @@
 ;;    and partially commits those new cycles to `pox-addr`
 (define-public (delegate-stack-extend
                     (stacker principal)
+                    (extend-count uint)
                     (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-                    (signer-key (buff 33))
-                    (extend-count uint))
+                    (signer-key (buff 33)))
     (let ((stacker-info (stx-account stacker))
           ;; to extend, there must already be an entry in the stacking-state
           (stacker-state (unwrap! (get-stacker-info stacker) (err ERR_STACK_EXTEND_NOT_LOCKED)))
