@@ -29,17 +29,19 @@ jobs:
       small_packages_with_shards: ${{ steps.check_packages_and_shards.outputs.small_packages_with_shards }}
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - run: cargo install --version 23.12.2 cargo-mutants
+      - name: Install cargo-mutants
+        run: cargo install --version 23.12.2 cargo-mutants
 
       - name: Relative diff
         run: |
           git diff origin/${{ github.base_ref }}.. > git.diff
 
-      - name: Remove deleted file's lines from git.diff file
+      - name: Update git diff
         run: |
           input_file="git.diff"
           temp_file="temp_diff_file.diff"
@@ -57,7 +59,7 @@ jobs:
             !in_block
           ' "$input_file" > "$temp_file" && mv "$temp_file" "$input_file"
 
-      - name: Split diffs into big and small packages
+      - name: Split diffs
         run: |
           cargo mutants --in-diff git.diff --list > all_mutants.txt
           mkdir -p mutants_by_packages
@@ -72,7 +74,8 @@ jobs:
             fi
           done < all_mutants.txt
 
-      - id: check_packages_and_shards
+      - name: Check packages and shards
+        id: check_packages_and_shards
         run: |
           number_of_big_mutants=0
           number_of_small_mutants=0
@@ -129,7 +132,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Run pr differences mutants from actions - no shards, small packages
+      - name: Run mutants on diffs
         uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
         with:
           package-dimension: "small"
@@ -150,7 +153,7 @@ jobs:
         shard: [0, 1, 2, 3]
 
     steps:
-      - name: Run pr differences mutants from actions - with shards, small packages
+      - name: Run mutants on diffs
         uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
         with:
           shard: ${{ matrix.shard }}
@@ -167,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Run pr differences mutants from actions - no shards, big packages
+      - name: Run Run mutants on diffs
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
@@ -191,7 +194,7 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
 
     steps:
-      - name: Run pr differences mutants from actions - with shards, big packages
+      - name: Run mutants on diffs
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
@@ -216,10 +219,10 @@ jobs:
       ]
 
     steps:
-      - name: Download all workflow run artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v3
 
-      - name: Append output from all shards
+      - name: Append output from shards
         run: |
           folders=("mutants-shard-big--1" "mutants-shard-big-0" "mutants-shard-big-1" "mutants-shard-big-2" "mutants-shard-big-3" "mutants-shard-big-4" "mutants-shard-big-5" "mutants-shard-big-6" "mutants-shard-big-7" "mutants-shard-small--1" "mutants-shard-small-0" "mutants-shard-small-1" "mutants-shard-small-2" "mutants-shard-small-3")
           files=("missed.txt" "caught.txt" "timeout.txt" "unviable.txt")
@@ -263,7 +266,7 @@ jobs:
 
           echo "$most_relevant_exit_code" > './mutants-shards/exit_code.txt'
 
-      - name: Print mutants and handle exit codes
+      - name: Print mutants
         run: |
           server_url="${{ github.server_url }}"
           organisation="${{ github.repository_owner }}"
