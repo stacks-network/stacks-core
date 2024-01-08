@@ -364,7 +364,7 @@ impl NakamotoBlockBuilder {
         );
 
         debug!(
-            "Miner: mined Nakamoto block";
+            "Miner: mined Nakamoto block (miner hashes include zeroed signatures)";
             "consensus_hash" => %block.header.consensus_hash,
             "block_hash" => %block.header.block_hash(),
             "block_height" => block.header.chain_length,
