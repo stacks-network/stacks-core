@@ -193,7 +193,7 @@ impl NakamotoBlockProposal {
         let expected_burn =
             NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
 
-        // Stage 1: Static validation checks
+        // Static validation checks
         NakamotoChainState::validate_nakamoto_block_burnchain(
             &db_handle,
             expected_burn,
@@ -202,7 +202,7 @@ impl NakamotoBlockProposal {
             self.chain_id,
         )?;
 
-        // Stage 3: Validate txs against chainstate
+        // Validate txs against chainstate
         let parent_stacks_header = NakamotoChainState::get_block_header(
             chainstate.db(),
             &self.block.header.parent_block_id,
@@ -378,14 +378,14 @@ impl HttpRequest for RPCBlockProposalRequestHandler {
 
         let block_proposal = match preamble.content_type {
             Some(HttpContentType::JSON) => Self::parse_json(body)?,
+            Some(_) => {
+                return Err(Error::DecodeError(
+                    "Wrong Content-Type for block proposal; expected application/json".to_string(),
+                ))
+            }
             None => {
                 return Err(Error::DecodeError(
                     "Missing Content-Type for block proposal".to_string(),
-                ))
-            }
-            _ => {
-                return Err(Error::DecodeError(
-                    "Wrong Content-Type for block proposal; expected application/json".to_string(),
                 ))
             }
         };

@@ -564,7 +564,7 @@ paths:
         **This endpoint will only accept requests over the local loopback network interface.**
       responses:
         202:
-          description: Block proposal is valid
+          description: Block proposal has been accepted for processing. The result will be returned via the event observer.
           content:
             application/json:
               example:
