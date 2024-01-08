@@ -463,6 +463,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
+            // TODO: `mock()` should be updated to `empty()` and rustdocs updated
             signer_signature: ThresholdSignature::mock(),
         }
     }

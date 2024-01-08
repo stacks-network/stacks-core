@@ -403,6 +403,10 @@ pub mod test_observer {
         MINED_MICROBLOCKS.lock().unwrap().clone()
     }
 
+    pub fn get_mined_nakamoto_blocks() -> Vec<MinedNakamotoBlockEvent> {
+        MINED_NAKAMOTO_BLOCKS.lock().unwrap().clone()
+    }
+
     pub fn get_stackerdb_chunks() -> Vec<StackerDBChunksEvent> {
         NEW_STACKERDB_CHUNKS.lock().unwrap().clone()
     }

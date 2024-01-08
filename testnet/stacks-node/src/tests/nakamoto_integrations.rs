@@ -31,7 +31,7 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
-use stacks::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
 use stacks::core::{
     StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
     PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -47,7 +47,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -1342,7 +1342,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
+        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     });
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
@@ -1372,12 +1372,6 @@ fn miner_writes_proposed_block_to_stackerdb() {
         StacksPublicKey::new(),
         &mut btc_regtest_controller,
     );
-    let rpc_sock = naka_conf
-        .node
-        .rpc_bind
-        .clone()
-        .parse()
-        .expect("Failed to parse socket");
 
     info!("Nakamoto miner started...");
     // first block wakes up the run loop, wait until a key registration has been submitted.
@@ -1403,6 +1397,12 @@ fn miner_writes_proposed_block_to_stackerdb() {
     )
     .unwrap();
 
+    let rpc_sock = naka_conf
+        .node
+        .rpc_bind
+        .clone()
+        .parse()
+        .expect("Failed to parse socket");
     let chunk = std::thread::spawn(move || {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
@@ -1414,8 +1414,14 @@ fn miner_writes_proposed_block_to_stackerdb() {
     .join()
     .expect("Failed to join chunk handle");
     // We should now successfully deserialize a chunk
-    let _block = NakamotoBlock::consensus_deserialize(&mut &chunk[..])
+    let proposed_block = NakamotoBlock::consensus_deserialize(&mut &chunk[..])
         .expect("Failed to deserialize chunk into block");
+    let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
+
+    let mut proposed_zero_block = proposed_block.clone();
+    proposed_zero_block.header.miner_signature = MessageSignature::empty();
+    proposed_zero_block.header.signer_signature = ThresholdSignature::mock();
+    let proposed_zero_block_hash = format!("0x{}", proposed_zero_block.header.block_hash());
 
     coord_channel
         .lock()
@@ -1425,4 +1431,23 @@ fn miner_writes_proposed_block_to_stackerdb() {
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
+
+    let observed_blocks = test_observer::get_mined_nakamoto_blocks();
+    assert_eq!(observed_blocks.len(), 1);
+
+    let observed_block = observed_blocks.first().unwrap();
+    info!(
+        "Checking observed and proposed miner block";
+        "observed_block" => ?observed_block,
+        "proposed_block" => ?proposed_block,
+        "observed_block_hash" => format!("0x{}", observed_block.block_hash),
+        "proposed_zero_block_hash" => &proposed_zero_block_hash,
+        "proposed_block_hash" => &proposed_block_hash,
+    );
+
+    assert_eq!(
+        format!("0x{}", observed_block.block_hash),
+        proposed_zero_block_hash,
+        "Observed miner hash should match the proposed block read from StackerDB (after zeroing signatures)"
+    );
 }
