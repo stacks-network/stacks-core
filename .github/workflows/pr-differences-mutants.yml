@@ -1,4 +1,4 @@
-name: Tracking PR Mutants
+name: PR Differences Mutants
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ on:
       - "**.rs"
 
 concurrency:
-  group: filter-pr-${{ github.head_ref || github.ref || github.run_id }}
+  group: pr-differences-${{ github.head_ref || github.ref || github.run_id }}
   # Always cancel duplicate jobs
   cancel-in-progress: true
 
@@ -119,7 +119,7 @@ jobs:
           fi
 
   # Mutation testing - Execute on PR on small packages that have functions modified (normal run, no shards)
-  filter-pr-mutants-small-normal:
+  pr-differences-mutants-small-normal:
     name: Mutation Testing - Normal, Small
 
     needs: check-big-packages-and-shards
@@ -129,13 +129,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Run filtering pr mutants from actions - no shards, small packages
-        uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
+      - name: Run pr differences mutants from actions - no shards, small packages
+        uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
         with:
           package-dimension: "small"
 
   # Mutation testing - Execute on PR on small packages that have functions modified (run with strategy matrix shards)
-  filter-pr-mutants-small-shards:
+  pr-differences-mutants-small-shards:
     name: Mutation Testing - Shards, Small
 
     needs: check-big-packages-and-shards
@@ -150,14 +150,14 @@ jobs:
         shard: [0, 1, 2, 3]
 
     steps:
-      - name: Run filtering pr mutants from actions - with shards, small packages
-        uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
+      - name: Run pr differences mutants from actions - with shards, small packages
+        uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
         with:
           shard: ${{ matrix.shard }}
           package-dimension: "small"
 
   # Mutation testing - Execute on PR on big packages that have functions modified (normal run, no shards)
-  filter-pr-mutants-big-normal:
+  pr-differences-mutants-big-normal:
     name: Mutation Testing - Normal, Big
 
     needs: check-big-packages-and-shards
@@ -167,16 +167,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Run filtering pr mutants from actions - no shards, big packages
+      - name: Run pr differences mutants from actions - no shards, big packages
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
-        uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
+        uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
         with:
           package-dimension: "big"
 
   # Mutation testing - Execute on PR on big packages that have functions modified (run with strategy matrix shards)
-  filter-pr-mutants-big-shards:
+  pr-differences-mutants-big-shards:
     name: Mutation Testing - Shards, Big
 
     needs: check-big-packages-and-shards
@@ -191,11 +191,11 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
 
     steps:
-      - name: Run filtering pr mutants from actions - with shards, big packages
+      - name: Run pr differences mutants from actions - with shards, big packages
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
-        uses: stacks-network/actions/mutation-testing/filter-pr@feat/mutation-testing
+        uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
         with:
           shard: ${{ matrix.shard }}
           package-dimension: "big"
@@ -209,10 +209,10 @@ jobs:
     if: always()
     needs:
       [
-        filter-pr-mutants-small-normal,
-        filter-pr-mutants-small-shards,
-        filter-pr-mutants-big-normal,
-        filter-pr-mutants-big-shards,
+        pr-differences-mutants-small-normal,
+        pr-differences-mutants-small-shards,
+        pr-differences-mutants-big-normal,
+        pr-differences-mutants-big-shards,
       ]
 
     steps:
