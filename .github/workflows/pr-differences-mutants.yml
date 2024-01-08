@@ -46,6 +46,11 @@ jobs:
           input_file="git.diff"
           temp_file="temp_diff_file.diff"
 
+          # Check if the commands exist on the host
+          for cmd in tac awk sed; do
+            command -v "${cmd}" > /dev/null 2>&1 || echo "Missing command: ${cmd}"
+          done
+
           # Reverse the file, remove 4 lines after '+++ /dev/null', then reverse it back (editors can't go backwards - to remove lines above)
           tac "$input_file" > "$temp_file" && mv "$temp_file" "$input_file"
           sed '/+++ \/dev\/null/{n;N;N;N;d;}' "$input_file" > "$temp_file" && mv "$temp_file" "$input_file"
