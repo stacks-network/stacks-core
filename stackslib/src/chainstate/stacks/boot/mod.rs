@@ -1790,6 +1790,38 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_4_delegate_stx(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        delegate_to: PrincipalData,
+        until_burn_ht: Option<u128>,
+        pox_addr: Option<PoxAddress>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stx",
+            vec![
+                Value::UInt(amount),
+                Value::Principal(delegate_to.clone()),
+                match until_burn_ht {
+                    Some(burn_ht) => Value::some(Value::UInt(burn_ht)).unwrap(),
+                    None => Value::none(),
+                },
+                match pox_addr {
+                    Some(addr) => {
+                        Value::some(Value::Tuple(addr.as_clarity_tuple().unwrap())).unwrap()
+                    }
+                    None => Value::none(),
+                },
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     pub fn make_pox_4_revoke_delegate_stx(key: &StacksPrivateKey, nonce: u64) -> StacksTransaction {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
