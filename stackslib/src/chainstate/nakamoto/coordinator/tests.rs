@@ -35,6 +35,7 @@ use crate::chainstate::nakamoto::tests::node::TestSigners;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{make_pox_4_aggregate_key, make_pox_4_lockup};
+use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
@@ -44,7 +45,9 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
 use crate::net::relay::Relayer;
+use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestPeer, TestPeerConfig};
+use crate::util_lib::boot::boot_code_id;
 
 /// Bring a TestPeer into the Nakamoto Epoch
 fn advance_to_nakamoto(peer: &mut TestPeer) {
@@ -84,7 +87,6 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
 
         peer.tenure_with_txs(&txs, &mut peer_nonce);
     }
-
     // peer is at the start of cycle 8
 }
 
@@ -96,7 +98,6 @@ pub fn boot_nakamoto(
     aggregate_public_key: Point,
 ) -> TestPeer {
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -110,6 +111,10 @@ pub fn boot_nakamoto(
     // first 25 blocks are boot-up
     // reward cycle 6 instantiates pox-3
     // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config.initial_balances.append(&mut initial_balances);
@@ -117,7 +122,6 @@ pub fn boot_nakamoto(
     peer_config.burnchain.pox_constants.pox_3_activation_height = 26;
     peer_config.burnchain.pox_constants.v3_unlock_height = 27;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
-
     let mut peer = TestPeer::new(peer_config);
     advance_to_nakamoto(&mut peer);
     peer

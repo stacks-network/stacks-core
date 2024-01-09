@@ -87,6 +87,8 @@ pub const COSTS_3_NAME: &'static str = "costs-3";
 pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &'static str = "pox-4-agg-test-booter";
 pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &'static str = "aggregate-key";
 
+pub const MINERS_NAME: &'static str = "miners";
+
 pub mod docs;
 
 lazy_static! {

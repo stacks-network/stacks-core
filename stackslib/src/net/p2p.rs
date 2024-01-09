@@ -45,6 +45,7 @@ use crate::chainstate::coordinator::{
     static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
     static_get_stacks_tip_affirmation_map,
 };
+use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::{StacksBlockHeader, MAX_BLOCK_LEN, MAX_TRANSACTION_LEN};
 use crate::core::StacksEpoch;
@@ -65,6 +66,7 @@ use crate::net::relay::{RelayerStats, *, *};
 use crate::net::server::*;
 use crate::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBTx, StackerDBs};
 use crate::net::{Error as net_error, Neighbor, NeighborKey, *};
+use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// inter-thread request to send a p2p message from another thread in this program.
@@ -1939,6 +1941,7 @@ impl PeerNetwork {
         event_id: usize,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        ibd: bool,
     ) -> Result<(Vec<StacksMessage>, bool), net_error> {
         self.with_p2p_convo(event_id, |network, convo, client_sock| {
             // get incoming bytes and update the state of this conversation.
@@ -1970,7 +1973,7 @@ impl PeerNetwork {
             // react to inbound messages -- do we need to send something out, or fulfill requests
             // to other threads?  Try to chat even if the recv() failed, since we'll want to at
             // least drain the conversation inbox.
-            let unhandled = match convo.chat(network, sortdb, chainstate) {
+            let unhandled = match convo.chat(network, sortdb, chainstate, ibd) {
                 Err(e) => {
                     debug!(
                         "Failed to converse on event {} (socket {:?}): {:?}",
@@ -2027,13 +2030,14 @@ impl PeerNetwork {
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         poll_state: &mut NetworkPollState,
+        ibd: bool,
     ) -> (Vec<usize>, HashMap<usize, Vec<StacksMessage>>) {
         let mut to_remove = vec![];
         let mut unhandled: HashMap<usize, Vec<StacksMessage>> = HashMap::new();
 
         for event_id in &poll_state.ready {
             let (mut convo_unhandled, alive) =
-                match self.process_p2p_conversation(*event_id, sortdb, chainstate) {
+                match self.process_p2p_conversation(*event_id, sortdb, chainstate, ibd) {
                     Ok((convo_unhandled, alive)) => (convo_unhandled, alive),
                     Err(_e) => {
                         test_debug!(
@@ -5192,46 +5196,6 @@ impl PeerNetwork {
         &self.stacker_db_configs
     }
 
-    /// Create or reconfigure a StackerDB.
-    /// Fails only if the underlying DB fails
-    fn create_or_reconfigure_stackerdb(
-        &mut self,
-        stackerdb_contract_id: &QualifiedContractIdentifier,
-        new_config: &StackerDBConfig,
-    ) -> Result<(), db_error> {
-        debug!("Reconfiguring StackerDB {}...", stackerdb_contract_id);
-        let tx = self.stackerdbs.tx_begin(new_config.clone())?;
-        match tx.reconfigure_stackerdb(stackerdb_contract_id, &new_config.signers) {
-            Ok(..) => {}
-            Err(net_error::NoSuchStackerDB(..)) => {
-                // need to create it first
-                info!(
-                    "Creating local replica of StackerDB {}",
-                    stackerdb_contract_id
-                );
-                test_debug!(
-                    "Creating local replica of StackerDB {} with config {:?}",
-                    stackerdb_contract_id,
-                    &new_config
-                );
-                if let Err(e) = tx.create_stackerdb(stackerdb_contract_id, &new_config.signers) {
-                    warn!(
-                        "Failed to create StackerDB replica {}: {:?}",
-                        stackerdb_contract_id, &e
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to reconfigure StackerDB replica {}: {:?}",
-                    stackerdb_contract_id, &e
-                );
-            }
-        }
-        tx.commit()?;
-        Ok(())
-    }
-
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
@@ -5329,37 +5293,12 @@ impl PeerNetwork {
                 .unwrap_or(Txid([0x00; 32]));
 
             // refresh stackerdb configs
-            let mut new_stackerdb_configs = HashMap::new();
             let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
-            for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
-                let new_config = match StackerDBConfig::from_smart_contract(
-                    chainstate,
-                    sortdb,
-                    &stackerdb_contract_id,
-                ) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        warn!(
-                            "Failed to load StackerDB config for {}: {:?}",
-                            &stackerdb_contract_id, &e
-                        );
-                        StackerDBConfig::noop()
-                    }
-                };
-                if new_config != stackerdb_config && new_config.signers.len() > 0 {
-                    if let Err(e) =
-                        self.create_or_reconfigure_stackerdb(&stackerdb_contract_id, &new_config)
-                    {
-                        warn!(
-                            "Failed to create or reconfigure StackerDB {}: DB error {:?}",
-                            &stackerdb_contract_id, &e
-                        );
-                    }
-                }
-                new_stackerdb_configs.insert(stackerdb_contract_id.clone(), new_config);
-            }
-
-            self.stacker_db_configs = new_stackerdb_configs;
+            self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
+                chainstate,
+                sortdb,
+                stacker_db_configs,
+            )?;
         }
 
         if sn.canonical_stacks_tip_hash != self.burnchain_tip.canonical_stacks_tip_hash
@@ -5426,7 +5365,7 @@ impl PeerNetwork {
 
         // run existing conversations, clear out broken ones, and get back messages forwarded to us
         let (error_events, unsolicited_messages) =
-            self.process_ready_sockets(sortdb, chainstate, &mut poll_state);
+            self.process_ready_sockets(sortdb, chainstate, &mut poll_state, ibd);
         for error_event in error_events {
             debug!(
                 "{:?}: Failed connection on event {}",
