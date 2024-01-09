@@ -3054,8 +3054,8 @@ impl NakamotoChainState {
     /// It has two slots -- one for the past two sortition winners.
     pub fn make_miners_stackerdb_config(
         sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
     ) -> Result<StackerDBConfig, ChainstateError> {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let ih = sortdb.index_handle(&tip.sortition_id);
         let last_winner_snapshot = ih.get_last_snapshot_with_sortition(tip.block_height)?;
         let parent_winner_snapshot = ih.get_last_snapshot_with_sortition(
@@ -3133,10 +3133,11 @@ impl NakamotoChainState {
     /// Returns an error if the miner is in the StackerDB config but the slot number is invalid.
     pub fn get_miner_slot(
         sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
         miner_pubkey: &StacksPublicKey,
     ) -> Result<Option<u32>, ChainstateError> {
         let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
-        let stackerdb_config = Self::make_miners_stackerdb_config(sortdb)?;
+        let stackerdb_config = Self::make_miners_stackerdb_config(sortdb, &tip)?;
 
         // find out which slot we're in
         let Some(slot_id_res) =
