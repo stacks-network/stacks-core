@@ -1322,7 +1322,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 stx_balance: STXBalance::zero(),
             };
 
-            let pox_4_code = &*POX_4_MAINNET_CODE;
+            let pox_4_code = &*POX_4_CODE;
             let pox_4_contract_id = boot_code_id(POX_4_NAME, mainnet);
 
             let payload = TransactionPayload::SmartContract(
