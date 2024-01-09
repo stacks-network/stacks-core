@@ -1816,8 +1816,10 @@ fn test_make_miners_stackerdb_config() {
             .unwrap()
             .unwrap();
 
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         // check the stackerdb config as of this chain tip
-        let stackerdb_config = NakamotoChainState::make_miners_stackerdb_config(sort_db).unwrap();
+        let stackerdb_config =
+            NakamotoChainState::make_miners_stackerdb_config(sort_db, &tip).unwrap();
         eprintln!(
             "stackerdb_config at i = {} (sorition? {}): {:?}",
             &i, sortition, &stackerdb_config
@@ -1841,9 +1843,11 @@ fn test_make_miners_stackerdb_config() {
             header,
             txs: vec![],
         };
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
         if sortition {
             let chunk = NakamotoBlockBuilder::make_stackerdb_block_proposal(
                 &sort_db,
+                &tip,
                 &stackerdbs,
                 &block,
                 &miner_keys[i],
@@ -1857,6 +1861,7 @@ fn test_make_miners_stackerdb_config() {
         } else {
             assert!(NakamotoBlockBuilder::make_stackerdb_block_proposal(
                 &sort_db,
+                &tip,
                 &stackerdbs,
                 &block,
                 &miner_keys[i],

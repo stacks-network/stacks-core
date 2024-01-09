@@ -516,13 +516,14 @@ impl NakamotoBlockBuilder {
     /// Returns an error on signing or DB error
     pub fn make_stackerdb_block_proposal(
         sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
         stackerdbs: &StackerDBs,
         block: &NakamotoBlock,
         miner_privkey: &StacksPrivateKey,
         miners_contract_id: &QualifiedContractIdentifier,
     ) -> Result<Option<StackerDBChunkData>, Error> {
         let miner_pubkey = StacksPublicKey::from_private(&miner_privkey);
-        let Some(slot_id) = NakamotoChainState::get_miner_slot(sortdb, &miner_pubkey)? else {
+        let Some(slot_id) = NakamotoChainState::get_miner_slot(sortdb, tip, &miner_pubkey)? else {
             // No slot exists for this miner
             return Ok(None);
         };

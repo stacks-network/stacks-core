@@ -258,6 +258,7 @@ impl StackerDBs {
     ) -> Result<HashMap<QualifiedContractIdentifier, StackerDBConfig>, net_error> {
         let existing_contract_ids = self.get_stackerdb_contract_ids()?;
         let mut new_stackerdb_configs = HashMap::new();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 
         for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
             // Determine the new config for this StackerDB replica
@@ -265,7 +266,7 @@ impl StackerDBs {
                 == boot_code_id(MINERS_NAME, chainstate.mainnet)
             {
                 // .miners contract -- directly generate the config
-                NakamotoChainState::make_miners_stackerdb_config(sortdb).unwrap_or_else(|e| {
+                NakamotoChainState::make_miners_stackerdb_config(sortdb, &tip).unwrap_or_else(|e| {
                     warn!(
                         "Failed to generate .miners StackerDB config";
                         "contract" => %stackerdb_contract_id,

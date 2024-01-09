@@ -171,6 +171,8 @@ impl BlockMinerThread {
                 self.burnchain.pox_constants.clone(),
             )
             .expect("FATAL: could not open sortition DB");
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+                .expect("FATAL: could not retrieve chain tip");
             if let Some(new_block) = new_block {
                 let Some(miner_privkey) = self.config.miner.mining_key else {
                     warn!("No mining key configured, cannot mine");
@@ -178,6 +180,7 @@ impl BlockMinerThread {
                 };
                 match NakamotoBlockBuilder::make_stackerdb_block_proposal(
                     &sort_db,
+                    &tip,
                     &stackerdbs,
                     &new_block,
                     &miner_privkey,
