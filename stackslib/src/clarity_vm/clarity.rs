@@ -1291,6 +1291,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             )
             .expect("PANIC: PoX-4 first reward cycle begins *before* first burn block height")
                 + 1;
+
             // get tx_version & boot code account information for pox-3 contract init
             let tx_version = if mainnet {
                 TransactionVersion::Mainnet
@@ -1321,12 +1322,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 stx_balance: STXBalance::zero(),
             };
 
-            let pox_4_code = if mainnet {
-                &*POX_4_MAINNET_CODE
-            } else {
-                &*POX_4_TESTNET_CODE
-            };
-
+            let pox_4_code = &*POX_4_MAINNET_CODE;
             let pox_4_contract_id = boot_code_id(POX_4_NAME, mainnet);
 
             let payload = TransactionPayload::SmartContract(
