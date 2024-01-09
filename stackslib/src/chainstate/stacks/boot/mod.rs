@@ -88,7 +88,6 @@ pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &'static str = "pox-4-agg-test-boote
 pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &'static str = "aggregate-key";
 
 pub const MINERS_NAME: &'static str = "miners";
-pub const MINERS_CODE: &'static str = std::include_str!("miners.clar");
 
 pub mod docs;
 

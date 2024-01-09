@@ -47,9 +47,8 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
-    MINERS_CODE, MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
-    POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME,
-    POX_4_TESTNET_CODE,
+    MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
+    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1259,57 +1258,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 tx_conn.epoch = StacksEpochId::Epoch25;
             });
 
-            /////////////////// .miners //////////////////////
-            let mainnet = self.mainnet;
-            let tx_version = if mainnet {
-                TransactionVersion::Mainnet
-            } else {
-                TransactionVersion::Testnet
-            };
-            let boot_code_address = boot_code_addr(mainnet);
-
-            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
-            let boot_code_account = self
-                .get_boot_code_account()
-                .expect("FATAL: did not get boot account");
-
-            let miners_contract_id = boot_code_id(MINERS_NAME, mainnet);
-
-            let payload = TransactionPayload::SmartContract(
-                TransactionSmartContract {
-                    name: ContractName::try_from(MINERS_NAME)
-                        .expect("FATAL: invalid boot-code contract name"),
-                    code_body: StacksString::from_str(MINERS_CODE)
-                        .expect("FATAL: invalid boot code body"),
-                },
-                Some(ClarityVersion::Clarity2),
-            );
-
-            let miners_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
-
-            let miners_initialization_receipt = self.as_transaction(|tx_conn| {
-                // initialize with a synthetic transaction
-                debug!("Instantiate {} contract", &miners_contract_id);
-                let receipt = StacksChainState::process_transaction_payload(
-                    tx_conn,
-                    &miners_contract_tx,
-                    &boot_code_account,
-                    ASTRules::PrecheckSize,
-                )
-                .expect("FATAL: Failed to process .miners contract initialization");
-                receipt
-            });
-
-            if miners_initialization_receipt.result != Value::okay_true()
-                || miners_initialization_receipt.post_condition_aborted
-            {
-                panic!(
-                    "FATAL: Failure processing .miners contract initialization: {:#?}",
-                    &miners_initialization_receipt
-                );
-            }
-
             /////////////////// .pox-4 ////////////////////////
             let first_block_height = self.burn_state_db.get_burn_start_height();
             let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
@@ -1323,8 +1271,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             )
             .expect("PANIC: PoX-4 first reward cycle begins *before* first burn block height")
                 + 1;
-
             // get tx_version & boot code account information for pox-3 contract init
+            let mainnet = self.mainnet;
             let tx_version = if mainnet {
                 TransactionVersion::Mainnet
             } else {
