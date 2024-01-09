@@ -2405,22 +2405,22 @@ pub mod test {
             let relayer_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
             let p2p_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
 
-            let contracts: Vec<_> = config
-                .stacker_dbs
-                .iter()
-                .enumerate()
-                .map(|(i, stackerdb)| {
-                    (
-                        stackerdb.clone(),
-                        config.stacker_db_configs.get(i).unwrap_or(&None).clone(),
-                    )
-                })
-                .collect();
+            let mut old_stackerdb_configs = HashMap::new();
+            for (i, contract) in config.stacker_dbs.iter().enumerate() {
+                old_stackerdb_configs.insert(
+                    contract.clone(),
+                    config
+                        .stacker_db_configs
+                        .get(i)
+                        .map(|config| config.clone().unwrap_or(StackerDBConfig::noop()))
+                        .unwrap_or(StackerDBConfig::noop()),
+                );
+            }
             let mut stackerdb_configs = stacker_dbs_conn
-                .create_or_reconfigure_stackerdb(
+                .create_or_reconfigure_stackerdbs(
                     &mut stacks_node.chainstate,
                     &sortdb,
-                    contracts.as_slice(),
+                    old_stackerdb_configs,
                 )
                 .expect("Failed to refresh stackerdb configs");
 

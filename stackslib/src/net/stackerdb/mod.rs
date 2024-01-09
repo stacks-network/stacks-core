@@ -250,62 +250,61 @@ impl StackerDBs {
     /// Create or reconfigure the supplied contracts with the appropriate stacker DB config.
     /// Returns a map of the stacker DBs and their loaded configs.
     /// Fails only if the underlying DB fails
-    pub fn create_or_reconfigure_stackerdb(
+    pub fn create_or_reconfigure_stackerdbs(
         &mut self,
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
-        contracts: &[(QualifiedContractIdentifier, Option<StackerDBConfig>)],
+        stacker_db_configs: HashMap<QualifiedContractIdentifier, StackerDBConfig>,
     ) -> Result<HashMap<QualifiedContractIdentifier, StackerDBConfig>, net_error> {
         let existing_contract_ids = self.get_stackerdb_contract_ids()?;
         let mut new_stackerdb_configs = HashMap::new();
-        for (contract_id, config) in contracts {
+
+        for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
             // Determine the new config for this StackerDB replica
-            let new_config = if *contract_id == boot_code_id(MINERS_NAME, chainstate.mainnet) {
+            let new_config = if stackerdb_contract_id
+                == boot_code_id(MINERS_NAME, chainstate.mainnet)
+            {
                 // .miners contract -- directly generate the config
                 NakamotoChainState::make_miners_stackerdb_config(sortdb).unwrap_or_else(|e| {
                     warn!(
                         "Failed to generate .miners StackerDB config";
-                        "contract" => %contract_id,
+                        "contract" => %stackerdb_contract_id,
                         "err" => ?e,
                     );
                     StackerDBConfig::noop()
                 })
             } else {
                 // attempt to load the config from the contract itself
-                config.clone().unwrap_or_else(|| {
-                    StackerDBConfig::from_smart_contract(chainstate, &sortdb, contract_id)
-                        .unwrap_or_else(|e| {
-                            warn!(
-                                "Failed to load StackerDB config";
-                                "contract" => %contract_id,
-                                "err" => ?e,
-                            );
-                            StackerDBConfig::noop()
-                        })
-                })
+                StackerDBConfig::from_smart_contract(chainstate, &sortdb, &stackerdb_contract_id)
+                    .unwrap_or_else(|e| {
+                        warn!(
+                            "Failed to load StackerDB config";
+                            "contract" => %stackerdb_contract_id,
+                            "err" => ?e,
+                        );
+                        StackerDBConfig::noop()
+                    })
             };
             // Create the StackerDB replica if it does not exist already
-            if !existing_contract_ids.contains(contract_id) {
-                if let Err(e) = self.create_stackerdb(contract_id, &new_config) {
+            if !existing_contract_ids.contains(&stackerdb_contract_id) {
+                if let Err(e) = self.create_stackerdb(&stackerdb_contract_id, &new_config) {
                     warn!(
-                        "Failed to create or reconfigure StackerDB {contract_id}: DB error {:?}",
+                        "Failed to create or reconfigure StackerDB {stackerdb_contract_id}: DB error {:?}",
                         &e
                     );
                 }
-            } else if new_config != config.clone().unwrap_or(StackerDBConfig::noop())
-                && new_config.signers.len() > 0
-            {
+            } else if new_config != stackerdb_config && new_config.signers.len() > 0 {
                 // only reconfigure if the config has changed
-                if let Err(e) = self.reconfigure_stackerdb(contract_id, &new_config) {
+                if let Err(e) = self.reconfigure_stackerdb(&stackerdb_contract_id, &new_config) {
                     warn!(
-                        "Failed to create or reconfigure StackerDB {contract_id}: DB error {:?}",
+                        "Failed to create or reconfigure StackerDB {stackerdb_contract_id}: DB error {:?}",
                         &e
                     );
                 }
             }
             // Even if we failed to create or reconfigure the DB, we still want to keep track of them
             // so that we can attempt to create/reconfigure them again later.
-            new_stackerdb_configs.insert(contract_id.clone(), new_config);
+            new_stackerdb_configs.insert(stackerdb_contract_id, new_config);
         }
         Ok(new_stackerdb_configs)
     }
