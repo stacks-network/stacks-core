@@ -206,7 +206,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:20444".to_string()),
+            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
