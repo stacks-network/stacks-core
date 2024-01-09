@@ -5293,15 +5293,11 @@ impl PeerNetwork {
                 .unwrap_or(Txid([0x00; 32]));
 
             // refresh stackerdb configs
-            let contracts: Vec<_> = self
-                .stacker_db_configs
-                .iter()
-                .map(|(contract_id, config)| (contract_id.clone(), Some(config.clone())))
-                .collect();
-            self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdb(
+            let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
+            self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
                 chainstate,
                 sortdb,
-                contracts.as_slice(),
+                stacker_db_configs,
             )?;
         }
 

@@ -184,7 +184,7 @@ use stacks::net::db::{LocalPeer, PeerDB};
 use stacks::net::dns::{DNSClient, DNSResolver};
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::relay::Relayer;
-use stacks::net::stackerdb::{StackerDBSync, StackerDBs};
+use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
 use stacks::net::{
     Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
 };
@@ -3806,15 +3806,13 @@ impl StacksNode {
 
         let mut stackerdb_machines = HashMap::new();
         let mut stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
-        let contracts: Vec<_> = config
-            .node
-            .stacker_dbs
-            .clone()
-            .into_iter()
-            .map(|contract_id| (contract_id, None))
-            .collect();
+
+        let mut stackerdb_configs = HashMap::new();
+        for contract in config.node.stacker_dbs.iter() {
+            stackerdb_configs.insert(contract.clone(), StackerDBConfig::noop());
+        }
         let stackerdb_configs = stackerdbs
-            .create_or_reconfigure_stackerdb(&mut chainstate, &sortdb, contracts.as_slice())
+            .create_or_reconfigure_stackerdbs(&mut chainstate, &sortdb, stackerdb_configs)
             .unwrap();
 
         let stackerdb_contract_ids: Vec<QualifiedContractIdentifier> =
