@@ -673,7 +673,7 @@ pub enum TenureChangeError {
 }
 
 /// Schnorr threshold signature using types from `wsts`
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ThresholdSignature(pub wsts::common::Signature);
 impl FromSql for ThresholdSignature {
     fn column_result(value: ValueRef) -> FromSqlResult<ThresholdSignature> {
@@ -690,6 +690,22 @@ impl ToSql for ThresholdSignature {
         let bytes = self.serialize_to_vec();
         let hex_str = to_hex(&bytes);
         Ok(hex_str.into())
+    }
+}
+
+impl serde::Serialize for ThresholdSignature {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let bytes = self.serialize_to_vec();
+        s.serialize_str(&to_hex(&bytes))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ThresholdSignature {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let hex_str = String::deserialize(d)?;
+        let bytes = hex_bytes(&hex_str).map_err(serde::de::Error::custom)?;
+        ThresholdSignature::consensus_deserialize(&mut bytes.as_slice())
+            .map_err(serde::de::Error::custom)
     }
 }
 
