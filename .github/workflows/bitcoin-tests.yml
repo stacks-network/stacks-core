@@ -72,6 +72,7 @@ jobs:
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::nakamoto_integrations::simple_neon_integration
           - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
+          - tests::nakamoto_integrations::block_proposal_api_endpoint
     steps:
       ## Setup test environment
       - name: Setup Test Environment

@@ -66,14 +66,13 @@ use super::bitcoin_regtest::BitcoinCoreController;
 use super::{
     make_contract_call, make_contract_publish, make_contract_publish_microblock_only,
     make_microblock, make_stacks_transfer, make_stacks_transfer_mblock_only, to_addr, ADDR_4, SK_1,
-    SK_2,
+    SK_2, SK_3,
 };
 use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
 use crate::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
-use crate::tests::SK_3;
 use crate::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use crate::util::secp256k1::MessageSignature;
 use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
@@ -178,7 +177,7 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
-    use lazy_static::lazy_static;
+    use stacks::net::api::postblock_proposal::BlockValidateResponse;
     use warp::Filter;
     use {tokio, warp};
 
@@ -188,19 +187,27 @@ pub mod test_observer {
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 
-    lazy_static! {
-        pub static ref NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-        pub static ref MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
-        pub static ref MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
-        pub static ref MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> =
-            Mutex::new(Vec::new());
-        pub static ref NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-        pub static ref NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> =
-            Mutex::new(Vec::new());
-        pub static ref BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
-        pub static ref MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
-        pub static ref MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
-        pub static ref ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static NEW_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static MINED_BLOCKS: Mutex<Vec<MinedBlockEvent>> = Mutex::new(Vec::new());
+    pub static MINED_MICROBLOCKS: Mutex<Vec<MinedMicroblockEvent>> = Mutex::new(Vec::new());
+    pub static MINED_NAKAMOTO_BLOCKS: Mutex<Vec<MinedNakamotoBlockEvent>> = Mutex::new(Vec::new());
+    pub static NEW_MICROBLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static NEW_STACKERDB_CHUNKS: Mutex<Vec<StackerDBChunksEvent>> = Mutex::new(Vec::new());
+    pub static BURN_BLOCKS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static MEMTXS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    pub static MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+    pub static ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
+    pub static PROPOSAL_RESPONSES: Mutex<Vec<BlockValidateResponse>> = Mutex::new(Vec::new());
+
+    async fn handle_proposal_response(
+        response: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        info!("Proposal response received"; "response" => %response);
+        PROPOSAL_RESPONSES.lock().unwrap().push(
+            serde_json::from_value(response)
+                .expect("Failed to deserialize JSON into BlockValidateResponse"),
+        );
+        Ok(warp::http::StatusCode::OK)
     }
 
     async fn handle_burn_block(
@@ -400,6 +407,10 @@ pub mod test_observer {
         NEW_STACKERDB_CHUNKS.lock().unwrap().clone()
     }
 
+    pub fn get_proposal_responses() -> Vec<BlockValidateResponse> {
+        PROPOSAL_RESPONSES.lock().unwrap().clone()
+    }
+
     /// each path here should correspond to one of the paths listed in `event_dispatcher.rs`
     async fn serve(port: u16) {
         let new_blocks = warp::path!("new_block")
@@ -442,8 +453,12 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_stackerdb_chunks);
+        let block_proposals = warp::path!("proposal_response")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_proposal_response);
 
-        info!("Spawning warp server");
+        info!("Spawning event-observer warp server");
         warp::serve(
             new_blocks
                 .or(mempool_txs)
@@ -454,7 +469,8 @@ pub mod test_observer {
                 .or(mined_blocks)
                 .or(mined_microblocks)
                 .or(mined_nakamoto_blocks)
-                .or(new_stackerdb_chunks),
+                .or(new_stackerdb_chunks)
+                .or(block_proposals),
         )
         .run(([127, 0, 0, 1], port))
         .await
@@ -486,6 +502,7 @@ pub mod test_observer {
         MEMTXS.lock().unwrap().clear();
         MEMTXS_DROPPED.lock().unwrap().clear();
         ATTACHMENTS.lock().unwrap().clear();
+        PROPOSAL_RESPONSES.lock().unwrap().clear();
     }
 }
 
@@ -742,39 +759,24 @@ pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBl
     }
 }
 
-pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
+pub fn get_chain_info_result(conf: &Config) -> Result<RPCPeerInfoData, reqwest::Error> {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
     // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .unwrap();
-
-    tip_info
+    let path = format!("{http_origin}/v2/info");
+    client.get(&path).send().unwrap().json::<RPCPeerInfoData>()
 }
 
 pub fn get_chain_info_opt(conf: &Config) -> Option<RPCPeerInfoData> {
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-    let client = reqwest::blocking::Client::new();
-
-    // get the canonical chain tip
-    let path = format!("{}/v2/info", &http_origin);
-    let tip_info_opt = client
-        .get(&path)
-        .send()
-        .unwrap()
-        .json::<RPCPeerInfoData>()
-        .ok();
-
-    tip_info_opt
+    get_chain_info_result(conf).ok()
 }
 
-fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
+pub fn get_chain_info(conf: &Config) -> RPCPeerInfoData {
+    get_chain_info_result(conf).unwrap()
+}
+
+pub fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
     let tip_info = get_chain_info(conf);
 
     // get the canonical chain tip

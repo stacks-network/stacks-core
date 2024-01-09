@@ -17,10 +17,6 @@
 use std::collections::HashSet;
 use std::ops::DerefMut;
 
-pub mod coordinator;
-pub mod miner;
-pub mod tenure;
-
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
@@ -88,6 +84,10 @@ use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
 };
+
+pub mod coordinator;
+pub mod miner;
+pub mod tenure;
 
 #[cfg(test)]
 pub mod tests;
@@ -287,7 +287,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockHeader {
     pub version: u8,
     /// The total number of StacksBlock and NakamotoBlocks preceding
@@ -343,7 +343,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
     pub txs: Vec<StacksTransaction>,
@@ -576,13 +576,9 @@ impl NakamotoBlock {
 
         // there is one coinbase.
         // go find it.
-        self.txs.iter().find(|tx| {
-            if let TransactionPayload::Coinbase(..) = &tx.payload {
-                true
-            } else {
-                false
-            }
-        })
+        self.txs
+            .iter()
+            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)))
     }
 
     /// Get the VRF proof from this block.
@@ -1050,7 +1046,7 @@ impl NakamotoBlock {
             .map_err(|e| {
                 warn!(
                     "Leader key did not contain a hash160 of the miner signing public key";
-                    "leader_key" => format!("{:?}", &leader_key),
+                    "leader_key" => ?leader_key,
                 );
                 e
             })?;
@@ -1567,7 +1563,7 @@ impl NakamotoChainState {
                 "Invalid Nakamoto block, could not validate on burnchain";
                 "consensus_hash" => %consensus_hash,
                 "block_hash" => %block_hash,
-                "error" => format!("{:?}", &e)
+                "error" => ?e
             );
 
             return Err(e);
@@ -1699,7 +1695,7 @@ impl NakamotoChainState {
         ) {
             warn!("Unacceptable Nakamoto block; will not store";
                   "block_id" => %block.block_id(),
-                  "error" => format!("{:?}", &e)
+                  "error" => ?e
             );
             return Ok(false);
         };
@@ -2164,7 +2160,7 @@ impl NakamotoChainState {
             total_tenure_cost,
             &tenure_tx_fees.to_string(),
             &header.parent_block_id,
-            if tenure_changed { &1i64 } else { &0 },
+            if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
         ];
 

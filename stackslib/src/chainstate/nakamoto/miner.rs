@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
@@ -30,7 +30,6 @@ use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::TypeSignature;
 use serde::Deserialize;
-use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, TrieHash,
 };
@@ -62,7 +61,8 @@ use crate::chainstate::stacks::miner::{
     TransactionProblematic, TransactionResult, TransactionSkipped,
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
-use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance, Error as clarity_error};
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
+use crate::codec::Error as CodecError;
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::cost_estimates::metrics::CostMetric;
@@ -71,7 +71,7 @@ use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
 use crate::net::relay::Relayer;
-use crate::net::Error as net_error;
+use crate::util_lib::db::Error as DBError;
 
 /// Nakamaoto tenure information
 pub struct NakamotoTenureInfo {
@@ -497,6 +497,10 @@ impl NakamotoBlockBuilder {
         );
 
         Ok((block, consumed, size))
+    }
+
+    pub fn get_bytes_so_far(&self) -> u64 {
+        self.bytes_so_far
     }
 }
 
