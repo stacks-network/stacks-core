@@ -1790,6 +1790,18 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_4_revoke_delegate_stx(key: &StacksPrivateKey, nonce: u64) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "revoke-delegate-stx",
+            vec![],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     fn make_tx(
         key: &StacksPrivateKey,
         nonce: u64,
