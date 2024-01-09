@@ -34,13 +34,13 @@
 ;; These first four correspond to address hash modes in Stacks 2.1,
 ;; and are defined in pox-mainnet.clar and pox-testnet.clar (so they
 ;; cannot be defined here again).
-;; (define-constant ADDRESS_VERSION_P2PKH 0x00)
-;; (define-constant ADDRESS_VERSION_P2SH 0x01)
-;; (define-constant ADDRESS_VERSION_P2WPKH 0x02)
-;; (define-constant ADDRESS_VERSION_P2WSH 0x03)
-;; (define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
-;; (define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
-;; (define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
+(define-constant ADDRESS_VERSION_P2PKH 0x00)
+(define-constant ADDRESS_VERSION_P2SH 0x01)
+(define-constant ADDRESS_VERSION_P2WPKH 0x02)
+(define-constant ADDRESS_VERSION_P2WSH 0x03)
+(define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
+(define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
+(define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
 ;; Keep these constants in lock-step with the address version buffs above
 ;; Maximum value of an address version as a uint
 (define-constant MAX_ADDRESS_VERSION u6)
