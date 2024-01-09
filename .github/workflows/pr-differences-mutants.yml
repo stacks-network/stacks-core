@@ -69,6 +69,12 @@ jobs:
           cargo mutants --in-diff git.diff --list > all_mutants.txt
           mkdir -p mutants_by_packages
 
+          # Check that the file exists before performing actions on it
+          if [ -s all_mutants.txt ]; then
+            echo "The file containing mutants is missing or empty!"
+            exit 1
+          fi
+
           # Split the differences from git into 2 parts, big packages ('stacks-node' and 'stackslib') and small packages (all others) and put them into separate files
           while IFS= read -r line; do
             package=$(echo "$line" | cut -d'/' -f1)
@@ -242,7 +248,7 @@ jobs:
           done
 
           for folder in "${folders[@]}"; do
-            if [[ -s "$folder" ]]; then
+            if [[ -s "$folder/exit_code.txt" ]]; then
               exit_code=$(<"${folder}/exit_code.txt")
               most_relevant_exit_code=0
 
@@ -346,7 +352,7 @@ jobs:
 
           case $exit_code in
             0)
-                if [ -s ./mutants-shards/unviable.txt ]; then
+                if [[ -f ./mutants-shards/unviable.txt ]]; then
                   echo "Found unviable mutants!"
                   exit 1
                 fi
