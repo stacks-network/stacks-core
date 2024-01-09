@@ -189,12 +189,18 @@ impl<C: Coordinator> RunLoop<C> {
         let mut outbound_messages = self
             .signing_round
             .process_inbound_messages(&inbound_messages)
-            .unwrap_or_default();
+            .unwrap_or_else(|e| {
+                error!("Failed to process inbound messages as a signer: {e}");
+                vec![]
+            });
         // Next process the message as the coordinator
         let (messages, results) = self
             .coordinator
             .process_inbound_messages(&inbound_messages)
-            .unwrap_or_default();
+            .unwrap_or_else(|e| {
+                error!("Failed to process inbound messages as a coordinator: {e}");
+                (vec![], vec![])
+            });
         outbound_messages.extend(messages);
         (outbound_messages, results)
     }
