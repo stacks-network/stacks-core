@@ -2374,6 +2374,7 @@ pub enum EventKeyType {
     MinedBlocks,
     MinedMicroblocks,
     StackerDBChunks,
+    BlockProposal,
 }
 
 impl EventKeyType {
@@ -2400,6 +2401,10 @@ impl EventKeyType {
 
         if raw_key == "stackerdb" {
             return Some(EventKeyType::StackerDBChunks);
+        }
+
+        if raw_key == "block_proposal" {
+            return Some(EventKeyType::BlockProposal);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();

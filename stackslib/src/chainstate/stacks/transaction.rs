@@ -710,7 +710,7 @@ impl StacksTransaction {
         &self,
     ) -> Option<(&CoinbasePayload, Option<&PrincipalData>, Option<&VRFProof>)> {
         match &self.payload {
-            TransactionPayload::Coinbase(ref payload, ref recipient_opt, ref vrf_proof_opt) => {
+            TransactionPayload::Coinbase(payload, recipient_opt, vrf_proof_opt) => {
                 Some((payload, recipient_opt.as_ref(), vrf_proof_opt.as_ref()))
             }
             _ => None,
@@ -720,7 +720,7 @@ impl StacksTransaction {
     /// Try to convert to a tenure change payload
     pub fn try_as_tenure_change(&self) -> Option<&TenureChangePayload> {
         match &self.payload {
-            TransactionPayload::TenureChange(ref tc_payload) => Some(tc_payload),
+            TransactionPayload::TenureChange(tc_payload) => Some(tc_payload),
             _ => None,
         }
     }

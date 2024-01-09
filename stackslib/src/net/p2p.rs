@@ -20,6 +20,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::mpsc::{
     sync_channel, Receiver, RecvError, SendError, SyncSender, TryRecvError, TrySendError,
 };
+use std::thread::JoinHandle;
 use std::{cmp, mem};
 
 use clarity::vm::ast::ASTRules;
@@ -346,6 +347,9 @@ pub struct PeerNetwork {
 
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
+
+    /// Thread handle for the async block proposal endpoint.
+    block_proposal_thread: Option<JoinHandle<()>>,
 }
 
 impl PeerNetwork {
@@ -492,12 +496,31 @@ impl PeerNetwork {
             pending_messages: HashMap::new(),
 
             fault_last_disconnect: 0,
+
+            block_proposal_thread: None,
         };
 
         network.init_block_downloader();
         network.init_attachments_downloader(vec![]);
 
         network
+    }
+
+    pub fn set_proposal_thread(&mut self, thread: JoinHandle<()>) {
+        self.block_proposal_thread = Some(thread);
+    }
+
+    pub fn is_proposal_thread_running(&mut self) -> bool {
+        let Some(block_proposal_thread) = self.block_proposal_thread.take() else {
+            // if block_proposal_thread is None, then no proposal thread is running
+            return false;
+        };
+        if block_proposal_thread.is_finished() {
+            return false;
+        } else {
+            self.block_proposal_thread = Some(block_proposal_thread);
+            return true;
+        }
     }
 
     /// Get the current epoch
@@ -2694,10 +2717,18 @@ impl PeerNetwork {
                 }
             }
             Err(e) => {
-                warn!(
-                    "{:?}: failed to learn public IP: {:?}",
-                    &self.local_peer, &e
-                );
+                if !self
+                    .local_peer
+                    .addrbytes
+                    .to_socketaddr(80)
+                    .ip()
+                    .is_loopback()
+                {
+                    warn!(
+                        "{:?}: failed to learn public IP: {:?}",
+                        &self.local_peer, &e
+                    );
+                }
                 self.public_ip_reset();
                 return true;
             }
