@@ -127,7 +127,7 @@ pub fn prepare_pox4_test<'a>(
 }
 
 #[test]
-fn tally_aggregated_public_key() {
+fn vote_for_aggregate_public_key() {
 
    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
         prepare_pox4_test(function_name!(), None);
@@ -139,7 +139,7 @@ fn tally_aggregated_public_key() {
     let aggreated_public_key: Point = Point::new();
 
     let txs = vec![
-        make_pox_4_vote_for_aggregated_public_key(signer_key, signer_nonce, cycle_id, &aggreated_public_key)
+        make_pox_4_vote_for_aggregate_public_key(signer_key, signer_nonce, cycle_id, &aggreated_public_key)
     ];
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
