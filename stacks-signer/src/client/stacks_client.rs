@@ -7,7 +7,7 @@ use blockstack_lib::chainstate::stacks::{
 };
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
-use blockstack_lib::net::api::postblock_proposal::{BlockValidateResponse, NakamotoBlockProposal};
+use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use serde_json::json;
@@ -60,15 +60,15 @@ impl StacksClient {
         todo!("Get the miner public key from the stacks node to verify the miner blocks were signed by the correct miner");
     }
 
-    /// Check if the proposed Nakamoto block is a valid block
-    pub fn is_valid_nakamoto_block(&self, block: NakamotoBlock) -> Result<bool, ClientError> {
+    /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
+    pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         let block_proposal = NakamotoBlockProposal {
             block,
             chain_id: self.chain_id,
         };
         let send_request = || {
             self.stacks_node_client
-                .post(&self.block_proposal_path())
+                .post(self.block_proposal_path())
                 .header("Content-Type", "application/json")
                 .json(&block_proposal)
                 .send()
@@ -80,17 +80,18 @@ impl StacksClient {
             return Err(ClientError::RequestFailure(response.status()));
         }
         // TODO: this is actually an aysnc call. It will not return the JSON response as below. It uses the event dispatcher instead
-        let validate_block_response = response.json::<BlockValidateResponse>()?;
-        match validate_block_response {
-            BlockValidateResponse::Ok(validate_block_ok) => {
-                debug!("Block validation succeeded: {:?}", validate_block_ok);
-                Ok(true)
-            }
-            BlockValidateResponse::Reject(validate_block_reject) => {
-                debug!("Block validation failed: {:?}", validate_block_reject);
-                Ok(false)
-            }
-        }
+        // let validate_block_response = response.json::<BlockValidateResponse>()?;
+        // match validate_block_response {
+        //     BlockValidateResponse::Ok(validate_block_ok) => {
+        //         debug!("Block validation succeeded: {:?}", validate_block_ok);
+        //         Ok(true)
+        //     }
+        //     BlockValidateResponse::Reject(validate_block_reject) => {
+        //         debug!("Block validation failed: {:?}", validate_block_reject);
+        //         Ok(false)
+        //     }
+        // }
+        Ok(())
     }
 
     /// Retrieve the current DKG aggregate public key

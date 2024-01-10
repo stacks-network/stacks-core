@@ -35,7 +35,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
+use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
 use slog::slog_debug;
 use stacks_common::address::{
@@ -58,7 +58,7 @@ use wsts::state_machine::OperationResult;
 use wsts::v2;
 
 struct SpawnedSigner {
-    running_signer: RunningSigner<StackerDBEventReceiver, Vec<OperationResult>>,
+    running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
     cmd_send: Sender<RunLoopCommand>,
     res_recv: Receiver<Vec<OperationResult>>,
 }
@@ -88,16 +88,15 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
-    let ev = StackerDBEventReceiver::new(vec![config.signers_stackerdb_contract_id.clone()]);
+    let ev = SignerEventReceiver::new(vec![config.signers_stackerdb_contract_id.clone()]);
     let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
         RunLoop<FireCoordinator<v2::Aggregator>>,
-        StackerDBEventReceiver,
+        SignerEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
-    let endpoint = config.endpoint;
-    let running_signer = signer.spawn(endpoint).unwrap();
+    let running_signer = signer.spawn(config.endpoint).unwrap();
     SpawnedSigner {
         running_signer,
         cmd_send,
