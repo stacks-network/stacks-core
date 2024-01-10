@@ -77,6 +77,7 @@ pub const POX_1_NAME: &'static str = "pox";
 pub const POX_2_NAME: &'static str = "pox-2";
 pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
+pub const POX_4_VOTE_NAME: &'static str = "pox-4-vote";
 pub const SIGNERS_NAME: &'static str = "signers";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
@@ -1307,6 +1308,8 @@ pub mod pox_3_tests;
 #[cfg(test)]
 pub mod pox_4_tests;
 #[cfg(test)]
+pub mod pox_4_vote_tests;
+#[cfg(test)]
 mod signers_tests;
 
 #[cfg(test)]
@@ -1870,6 +1873,38 @@ pub mod test {
             POX_4_NAME,
             "set-aggregate-public-key",
             vec![Value::UInt(reward_cycle as u128), aggregate_public_key],
+        )
+        .unwrap();
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_vote_for_aggregated_public_key(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        reward_cycle: u64,
+        aggregate_public_key: &Point,
+    ) -> StacksTransaction {
+        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_VOTE_NAME,
+            "vote-for-aggregated-public-key",
+            vec![
+                aggregate_public_key,
+                Value::UInt(reward_cycle as u128),
+                Value::UInt(0),
+                Value::Sequence(SequenceData::List(ListData {
+                    data: [].to_vec(),
+                    type_signature: ListTypeData::new_list(
+                        TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                            BufferLength::try_from(33u32).unwrap(),
+                        )),
+                        4001,
+                    )
+                    .unwrap(),
+                })),
+            ],
         )
         .unwrap();
         make_tx(key, nonce, 0, payload)
