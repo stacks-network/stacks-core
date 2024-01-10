@@ -90,6 +90,8 @@ fn hex_deser_block<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NakamotoBlo
 ///  that the stacks-node thinks should be rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateReject {
+    #[serde(serialize_with = "hex_ser_block", deserialize_with = "hex_deser_block")]
+    pub block: NakamotoBlock,
     pub reason: String,
     pub reason_code: ValidateRejectCode,
 }
@@ -118,19 +120,6 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
         match value {
             Ok(o) => BlockValidateResponse::Ok(o),
             Err(e) => BlockValidateResponse::Reject(e),
-        }
-    }
-}
-
-impl<T> From<T> for BlockValidateReject
-where
-    T: Into<ChainError>,
-{
-    fn from(value: T) -> Self {
-        let ce: ChainError = value.into();
-        BlockValidateReject {
-            reason: format!("Chainstate Error: {ce}"),
-            reason_code: ValidateRejectCode::ChainstateError,
         }
     }
 }
@@ -182,16 +171,28 @@ impl NakamotoBlockProposal {
         let mainnet = self.chain_id == CHAIN_ID_MAINNET;
         if self.chain_id != chainstate.chain_id || mainnet != chainstate.mainnet {
             return Err(BlockValidateReject {
+                block: self.block.clone(),
                 reason_code: ValidateRejectCode::InvalidBlock,
                 reason: "Wrong network/chain_id".into(),
             });
         }
 
         let burn_dbconn = sortdb.index_conn();
-        let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+        let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).map_err(|ce| {
+            BlockValidateReject {
+                block: self.block.clone(),
+                reason: format!("Chainstate Error: {ce}"),
+                reason_code: ValidateRejectCode::ChainstateError,
+            }
+        })?;
         let mut db_handle = sortdb.index_handle(&sort_tip);
         let expected_burn =
-            NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)?;
+            NakamotoChainState::get_expected_burns(&mut db_handle, chainstate.db(), &self.block)
+                .map_err(|ce| BlockValidateReject {
+                    block: self.block.clone(),
+                    reason: format!("Chainstate Error: {ce}"),
+                    reason_code: ValidateRejectCode::ChainstateError,
+                })?;
 
         // Static validation checks
         NakamotoChainState::validate_nakamoto_block_burnchain(
@@ -200,14 +201,25 @@ impl NakamotoBlockProposal {
             &self.block,
             mainnet,
             self.chain_id,
-        )?;
+        )
+        .map_err(|ce| BlockValidateReject {
+            block: self.block.clone(),
+            reason: format!("Chainstate Error: {ce}"),
+            reason_code: ValidateRejectCode::ChainstateError,
+        })?;
 
         // Validate txs against chainstate
         let parent_stacks_header = NakamotoChainState::get_block_header(
             chainstate.db(),
             &self.block.header.parent_block_id,
-        )?
+        )
+        .map_err(|ce| BlockValidateReject {
+            block: self.block.clone(),
+            reason: format!("Chainstate Error: {ce}"),
+            reason_code: ValidateRejectCode::ChainstateError,
+        })?
         .ok_or_else(|| BlockValidateReject {
+            block: self.block.clone(),
             reason_code: ValidateRejectCode::InvalidBlock,
             reason: "Invalid parent block".into(),
         })?;
@@ -232,11 +244,27 @@ impl NakamotoBlockProposal {
             self.block.header.burn_spent,
             tenure_change,
             coinbase,
-        )?;
+        )
+        .map_err(|ce| BlockValidateReject {
+            block: self.block.clone(),
+            reason: format!("Chainstate Error: {ce}"),
+            reason_code: ValidateRejectCode::ChainstateError,
+        })?;
 
-        let mut miner_tenure_info =
-            builder.load_tenure_info(chainstate, &burn_dbconn, tenure_cause)?;
-        let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
+        let mut miner_tenure_info = builder
+            .load_tenure_info(chainstate, &burn_dbconn, tenure_cause)
+            .map_err(|ce| BlockValidateReject {
+                block: self.block.clone(),
+                reason: format!("Chainstate Error: {ce}"),
+                reason_code: ValidateRejectCode::ChainstateError,
+            })?;
+        let mut tenure_tx = builder
+            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+            .map_err(|ce| BlockValidateReject {
+                block: self.block.clone(),
+                reason: format!("Chainstate Error: {ce}"),
+                reason_code: ValidateRejectCode::ChainstateError,
+            })?;
 
         for (i, tx) in self.block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
@@ -264,6 +292,7 @@ impl NakamotoBlockProposal {
                     "tx" => ?tx,
                 );
                 return Err(BlockValidateReject {
+                    block: self.block.clone(),
                     reason,
                     reason_code: ValidateRejectCode::BadTransaction,
                 });
@@ -293,6 +322,7 @@ impl NakamotoBlockProposal {
                 //"computed_block" => %serde_json::to_string(&serde_json::to_value(&block).unwrap()).unwrap(),
             );
             return Err(BlockValidateReject {
+                block: self.block.clone(),
                 reason: "Block hash is not as expected".into(),
                 reason_code: ValidateRejectCode::BadBlockHash,
             });
