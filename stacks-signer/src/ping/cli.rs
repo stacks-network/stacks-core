@@ -18,11 +18,14 @@
 use std::fs::File;
 use std::io::Read;
 use std::io::Write as WriteT;
+use std::net::SocketAddrV4;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
+use crate::cli::StackerDBArgs;
 use crate::client::{ClientError, StacksClient};
+use crate::utils::build_signer_config_toml;
 use crate::{config::Network, utils::build_stackerdb_contract};
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::chainstate::stacks::StacksTransactionSigner;
@@ -56,6 +59,8 @@ pub enum PingSubcommands {
     GenerateContract(GenerateContractArgs),
     /// Publish a stackerDB contract,
     PublishContract(PublishContractArgs),
+    /// This command can be used to generate a signer.toml used by a signer runloop.
+    GenerateSignerConfig(GenerateSignerConfigArgs),
 }
 
 impl PingSubcommands {
@@ -64,6 +69,7 @@ impl PingSubcommands {
         match self {
             PingSubcommands::GenerateContract(args) => args.handle(),
             PingSubcommands::PublishContract(args) => args.handle(),
+            PingSubcommands::GenerateSignerConfig(args) => args.handle(),
         }
     }
 }
@@ -123,6 +129,10 @@ fn to_stacks_address(network: &Network, pkey: &StacksPrivateKey) -> StacksAddres
         &vec![StacksPublicKey::from_private(pkey)],
     )
     .unwrap()
+}
+
+fn private_key_from_seed(seed: &str, signer_id: u32) -> StacksPrivateKey {
+    StacksPrivateKey::from_seed(format!("{signer_id}{}", seed).as_bytes())
 }
 
 #[derive(clap::Args, Debug)]
@@ -192,12 +202,14 @@ impl PublishContractArgs {
 
         let client = Client::new();
 
-        StacksClient::submit_tx(&tx, &client, &self.host).unwrap();
+        let tx_id = StacksClient::submit_tx(&tx, &client, &self.host).unwrap();
 
         let principal = {
             let address = to_stacks_address(&self.network, &pkey);
             StandardPrincipalData::from(address)
         };
+
+        println!("Waiting on tx:{tx_id:?}");
 
         while matches!(
             StacksClient::get_contract_source(
@@ -219,8 +231,52 @@ impl PublishContractArgs {
     }
 }
 
-fn private_key_from_seed(seed: &str, signer_id: u32) -> StacksPrivateKey {
-    StacksPrivateKey::from_seed(format!("{signer_id}{}", seed).as_bytes())
+#[derive(clap::Args, Debug)]
+/// Generate testing signer configs
+pub struct GenerateSignerConfigArgs {
+    /// output file e.g. ./signer.toml
+    #[clap(long)]
+    save_to_file: PathBuf,
+    #[clap(short, long)]
+    seed: String,
+    #[clap(long)]
+    signer_id: u32,
+    #[clap(short, long)]
+    network: Network,
+    #[clap(flatten)]
+    stacker_db_args: StackerDBArgs,
+    #[clap(short, long)]
+    /// to what socket address is the observer binding. e.g. 127.0.0.1:3000
+    observer_socket_address: SocketAddrV4,
+    #[clap(long)]
+    num_keys: u32,
+    #[clap(long)]
+    num_signers: u32,
+    #[clap(long)]
+    timeout: Option<u64>,
+}
+
+impl GenerateSignerConfigArgs {
+    fn handle(&self) {
+        let pkey = private_key_from_seed(&self.seed, self.signer_id);
+        let config = build_signer_config_toml(
+            &pkey,
+            self.num_keys,
+            self.signer_id,
+            self.num_signers,
+            self.stacker_db_args.host.to_string().as_str(),
+            self.stacker_db_args.contract.to_string().as_str(),
+            self.timeout.map(Duration::from_millis),
+            self.observer_socket_address,
+            self.seed.as_str(),
+            self.network.clone(),
+        );
+        println!("Wrote signer config to {:?}", self.save_to_file);
+        File::create(&self.save_to_file)
+            .unwrap()
+            .write_all(config.as_bytes())
+            .unwrap();
+    }
 }
 
 #[cfg(test)]

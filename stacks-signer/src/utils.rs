@@ -14,14 +14,107 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::net::SocketAddrV4;
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
+use crate::config::Network;
 use rand_core::OsRng;
 use slog::slog_debug;
 use stacks_common::debug;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
+use stacks_common::util::hash::Sha256Sum;
 use wsts::curve::ecdsa;
 use wsts::curve::scalar::Scalar;
+
+fn key_ids_per_signer(signer_id: u32, num_signers: u32, num_keys: u32) -> RangeInclusive<u32> {
+    if signer_id >= num_signers {
+        panic!("Signer id {signer_id} out of bounds");
+    }
+    if num_signers > num_keys {
+        panic!("More signers than keys.")
+    }
+    let keys_per_signer = num_keys / num_signers;
+    if signer_id + 1 == num_signers {
+        (keys_per_signer * signer_id + 1)..=num_keys
+    } else {
+        (keys_per_signer * signer_id + 1)..=(keys_per_signer * (signer_id + 1))
+    }
+}
+
+fn scalar_from_seed(seed: &str, index: u32) -> Scalar {
+    let array = Sha256Sum::from_data(format!("{index}{}", seed).as_bytes()).0;
+    Scalar::from(array)
+}
+
+fn signers_array(num_keys: u32, num_signers: u32, seed: &str) -> String {
+    let mut signers_array = String::from("signers = [");
+    for i in 0..num_signers {
+        let ecdsa_private_key = scalar_from_seed(seed, i);
+        let ecdsa_public_key = ecdsa::PublicKey::new(&ecdsa_private_key)
+            .unwrap()
+            .to_string();
+        let ids = key_ids_per_signer(i, num_signers, num_keys).collect::<Vec<_>>();
+        let ids = ids.as_slice();
+
+        signers_array += &format!(
+            r#"
+            {{public_key = "{ecdsa_public_key}", key_ids = {ids:?}}}"#
+        );
+
+        if i != num_signers - 1 {
+            signers_array += ",";
+        }
+    }
+    signers_array += "\n          ]";
+    signers_array
+}
+
+/// Helper function for building a signer config for each provided signer private key
+pub fn build_signer_config_toml(
+    signer_stacks_private_key: &StacksPrivateKey,
+    num_keys: u32,
+    signer_id: u32,
+    num_signers: u32,
+    node_host: &str,
+    stackerdb_contract_id: &str,
+    timeout: Option<Duration>,
+    observer_socket_addr: SocketAddrV4,
+    seed: &str,
+    network: Network,
+) -> String {
+    let signers_array = signers_array(num_keys, num_signers, seed);
+
+    let message_private_key = scalar_from_seed(seed, signer_id);
+    let stacks_private_key = signer_stacks_private_key.to_hex();
+    let network = match network {
+        Network::Mainnet => "mainnet",
+        Network::Testnet | Network::Mocknet => "testnet",
+    };
+    let mut signer_config_toml = format!(
+        r#"
+message_private_key = "{message_private_key}"
+stacks_private_key = "{stacks_private_key}"
+node_host = "{node_host}"
+endpoint = "{observer_socket_addr}"
+network = "{network}"
+stackerdb_contract_id = "{stackerdb_contract_id}"
+signer_id = {signer_id}
+{signers_array}
+"#
+    );
+
+    if let Some(timeout) = timeout {
+        let event_timeout_ms = timeout.as_millis();
+        signer_config_toml = format!(
+            r#"
+{signer_config_toml}
+event_timeout = {event_timeout_ms}   
+"#
+        )
+    }
+    signer_config_toml
+}
 
 /// Helper function for building a signer config for each provided signer private key
 pub fn build_signer_config_tomls(
@@ -143,6 +236,7 @@ pub fn build_stackerdb_contract(
 
 #[cfg(test)]
 mod test {
+    use crate::config::Config;
     use clarity::vm::types::PrincipalData;
 
     use libsigner::SIGNER_SLOTS_PER_USER;
@@ -159,5 +253,57 @@ mod test {
         let contract =
             build_stackerdb_contract(vec![address].as_slice(), SIGNER_SLOTS_PER_USER, 1024);
         assert!(contract.contains("chunk-size: u1024"));
+    }
+
+    #[test]
+    fn valid_signer_toml() {
+        let config = build_signer_config_toml(
+            &StacksPrivateKey::new(),
+            10,
+            0,
+            3,
+            "127.0.0.1:20443",
+            "ST1EMWQSAEZ3VSD5TR9VY5M26E7FA52FWPS6EW59Q.hello-world",
+            Some(Duration::from_millis(1000)),
+            "127.0.0.1:3000".parse().unwrap(),
+            "secret-seed",
+            Network::Mocknet,
+        );
+        Config::load_from_str(config.as_str()).unwrap();
+    }
+
+    #[test]
+    #[should_panic = "Signer id 1 out of bounds"]
+    fn key_ids_per_signer_signer_out_of_bounds() {
+        key_ids_per_signer(1, 1, 1);
+    }
+
+    #[test]
+    #[should_panic = "More signers than keys."]
+    fn key_ids_per_signer_signer_without_key() {
+        key_ids_per_signer(0, 2, 1);
+    }
+
+    #[test]
+    fn sane_key_ids_per_signer() {
+        assert_eq!(key_ids_per_signer(0, 1, 1), 1..=1);
+        assert_eq!(key_ids_per_signer(0, 2, 2), 1..=1);
+        assert_eq!(key_ids_per_signer(1, 2, 2), 2..=2);
+        assert_eq!(key_ids_per_signer(0, 2, 4), 1..=2);
+        assert_eq!(key_ids_per_signer(1, 2, 4), 3..=4);
+        assert_eq!(key_ids_per_signer(0, 2, 5), 1..=2);
+        assert_eq!(key_ids_per_signer(1, 2, 5), 3..=5);
+    }
+
+    #[test]
+    fn sane_signers_array() {
+        let array = signers_array(5, 2, "seed");
+        assert_eq!(
+            array,
+            r#"signers = [
+            {public_key = "26kWKQi79qissWsxUSJPqTtPLMY9qewdw8VTPoNpBBpDJ", key_ids = [1, 2]},
+            {public_key = "22YQ9XoDcPxRKMcJGormjPz98VTkpn6ZTRGUywoBjC4A7", key_ids = [3, 4, 5]}
+          ]"#
+        );
     }
 }

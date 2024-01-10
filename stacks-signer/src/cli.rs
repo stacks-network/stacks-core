@@ -190,7 +190,7 @@ pub struct RunArgs {
 }
 
 /// Parse the contract ID
-fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String> {
+pub(crate) fn parse_contract(contract: &str) -> Result<QualifiedContractIdentifier, String> {
     QualifiedContractIdentifier::parse(contract).map_err(|e| format!("Invalid contract: {}", e))
 }
 
