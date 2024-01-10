@@ -201,8 +201,8 @@ fn test_stackerdb_dkg() {
         .init();
 
     // Generate Signer Data
-    let num_signers: u32 = 3;
-    let num_keys: u32 = 2;
+    let num_signers: u32 = 10;
+    let num_keys: u32 = 400;
     let publisher_private_key = StacksPrivateKey::new();
     let signer_stacks_private_keys = (0..num_signers)
         .map(|_| StacksPrivateKey::new())
