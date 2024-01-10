@@ -1325,7 +1325,7 @@ fn pox_4_revoke_delegate_stx_events() {
     // second revoke transaction should fail
     assert_eq!(
         &alice_txs[&alice_revoke_2_nonce].result.to_string(),
-        "(err 33)"
+        "(err 34)"
     );
 
     // second delegate transaction should succeed
@@ -1336,7 +1336,7 @@ fn pox_4_revoke_delegate_stx_events() {
     // third revoke transaction should fail
     assert_eq!(
         &alice_txs[&alice_revoke_3_nonce].result.to_string(),
-        "(err 33)"
+        "(err 34)"
     );
 }
 
