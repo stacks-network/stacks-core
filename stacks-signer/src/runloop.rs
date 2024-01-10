@@ -2,8 +2,10 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use blockstack_lib::net::api::poststackerdbchunk::StackerDBChunksEvent;
 use hashbrown::{HashMap, HashSet};
-use libsigner::{SignerRunLoop, StackerDBChunksEvent};
+use libsigner::{SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::{debug, error, info, warn};
@@ -169,11 +171,26 @@ impl<C: Coordinator> RunLoop<C> {
         }
     }
 
+    /// Handle block proposal from the miners stacker-db contract
+    fn handle_block_validate_response(&mut self, block_validate_response: BlockValidateResponse) {
+        match block_validate_response {
+            BlockValidateResponse::Ok(block_validate_ok) => {
+                // This is a valid block proposal from the miner. Trigger a signing round for it.
+                self.commands.push_back(RunLoopCommand::Sign {
+                    message: block_validate_ok.block.serialize_to_vec(),
+                    is_taproot: false,
+                    merkle_root: None,
+                });
+            }
+            BlockValidateResponse::Reject(_block_validate_reject) => {
+                // TODO: send a message to the miner to let them know their block was rejected
+                todo!("Send a message to the miner to let them know their block was rejected");
+            }
+        }
+    }
+
     /// Process the event as a miner message from the miner stacker-db
     fn process_event_miner(&mut self, event: &StackerDBChunksEvent) {
-        // Determine the current coordinator id and public key for verification
-        let (coordinator_id, _coordinator_public_key) =
-            calculate_coordinator(&self.signing_round.public_keys);
         event.modified_slots.iter().for_each(|chunk| {
             let mut ptr = &chunk.data[..];
             let Some(stacker_db_message) = read_next::<StackerDBMessage, _>(&mut ptr).ok() else {
@@ -189,17 +206,10 @@ impl<C: Coordinator> RunLoop<C> {
                 }
                 StackerDBMessage::Block(block) => {
                     // Received a block proposal from the miner.
-                    // If the signer is the coordinator, then trigger a Signing round for the block
-                    if coordinator_id == self.signing_round.signer_id {
-                        let is_valid_block =  self.stacks_client.is_valid_nakamoto_block(&block).unwrap_or_else(|e| {
+                    // Submit it to the stacks node to validate it before triggering a signing round.
+                        self.stacks_client.submit_block_for_validation(block).unwrap_or_else(|e| {
                             warn!("Failed to validate block: {:?}", e);
-                            false
                         });
-                        // Don't bother triggering a signing round for the block if it is invalid
-                        if !is_valid_block {
-                            warn!("Received an invalid block proposal from the miner. Ignoring block proposal: {:?}", block);
-                            return;
-                        }
 
                         // TODO: dependent on https://github.com/stacks-network/stacks-core/issues/4018
                         // let miner_public_key = self.stacks_client.get_miner_public_key().expect("Failed to get miner public key. Cannot verify blocks.");
@@ -212,19 +222,28 @@ impl<C: Coordinator> RunLoop<C> {
                         //     return;
                         // }
 
-                        // This is a block proposal from the miner. Trigger a signing round for it.
-                        self.commands.push_back(RunLoopCommand::Sign {
-                            message: block.serialize_to_vec(),
-                            is_taproot: false,
-                            merkle_root: None,
-                        });
-                    }
                 }
             }
         });
     }
 
     /// Process the event as a signer message from the signer stacker-db
+    fn handle_stackerdb_event(&mut self, event: &StackerDBChunksEvent) -> Vec<OperationResult> {
+        if event.contract_id == *self.stackerdb.miners_contract_id() {
+            self.process_event_miner(event);
+            vec![]
+        } else if event.contract_id == *self.stackerdb.signers_contract_id() {
+            self.process_event_signer(event)
+        } else {
+            warn!(
+                "Received an event from an unrecognized contract ID: {:?}",
+                event.contract_id
+            );
+            vec![]
+        }
+    }
+
+    // Process the event as a signer message from the signer stacker-db
     fn process_event_signer(&mut self, event: &StackerDBChunksEvent) -> Vec<OperationResult> {
         // Determine the current coordinator id and public key for verification
         let (_coordinator_id, coordinator_public_key) =
@@ -378,7 +397,7 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
 
     fn run_one_pass(
         &mut self,
-        event: Option<StackerDBChunksEvent>,
+        event: Option<SignerEvent>,
         cmd: Option<RunLoopCommand>,
         res: Sender<Vec<OperationResult>>,
     ) -> Option<Vec<OperationResult>> {
@@ -395,11 +414,13 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
                 .expect("Failed to connect to initialize due to timeout. Stacks node may be down.");
         }
         // Process any arrived events
-        if let Some(event) = event {
-            if event.contract_id == *self.stackerdb.miners_contract_id() {
-                self.process_event_miner(&event);
-            } else if event.contract_id == *self.stackerdb.signers_contract_id() {
-                let operation_results = self.process_event_signer(&event);
+        match event {
+            Some(SignerEvent::BlockProposal(block_validate_response)) => {
+                self.handle_block_validate_response(block_validate_response)
+            }
+            Some(SignerEvent::StackerDB(event)) => {
+                let operation_results = self.handle_stackerdb_event(&event);
+
                 let nmb_results = operation_results.len();
                 if nmb_results > 0 {
                     // We finished our command. Update the state
@@ -411,12 +432,8 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
                         }
                     }
                 }
-            } else {
-                warn!(
-                    "Received event from unknown contract ID: {}",
-                    event.contract_id
-                );
             }
+            None => debug!("No event received"),
         }
         // The process the next command
         // Must be called AFTER processing the event as the state may update to IDLE due to said event.
