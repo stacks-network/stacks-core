@@ -178,12 +178,11 @@ pub mod test_observer {
     use std::thread;
 
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
+    use stacks::net::api::poststackerdbchunk::StackerDBChunksEvent;
     use warp::Filter;
     use {tokio, warp};
 
-    use crate::event_dispatcher::{
-        MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent, StackerDBChunksEvent,
-    };
+    use crate::event_dispatcher::{MinedBlockEvent, MinedMicroblockEvent, MinedNakamotoBlockEvent};
 
     pub const EVENT_OBSERVER_PORT: u16 = 50303;
 

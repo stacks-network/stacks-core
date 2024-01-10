@@ -22,18 +22,20 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use std::{mem, thread};
 
+use blockstack_lib::net::api::poststackerdbchunk::StackerDBChunksEvent;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::StackerDBChunkData;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 
-use crate::{Signer, SignerRunLoop, StackerDBChunksEvent, StackerDBEventReceiver};
+use crate::events::SignerEvent;
+use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.
 struct SimpleRunLoop {
     poll_timeout: Duration,
-    events: Vec<StackerDBChunksEvent>,
+    events: Vec<SignerEvent>,
     max_events: usize,
 }
 
@@ -51,7 +53,7 @@ enum Command {
     Empty,
 }
 
-impl SignerRunLoop<Vec<StackerDBChunksEvent>, Command> for SimpleRunLoop {
+impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
     fn set_event_timeout(&mut self, timeout: Duration) {
         self.poll_timeout = timeout;
     }
@@ -62,10 +64,10 @@ impl SignerRunLoop<Vec<StackerDBChunksEvent>, Command> for SimpleRunLoop {
 
     fn run_one_pass(
         &mut self,
-        event: Option<StackerDBChunksEvent>,
+        event: Option<SignerEvent>,
         _cmd: Option<Command>,
-        _res: Sender<Vec<StackerDBChunksEvent>>,
-    ) -> Option<Vec<StackerDBChunksEvent>> {
+        _res: Sender<Vec<SignerEvent>>,
+    ) -> Option<Vec<SignerEvent>> {
         debug!("Got event: {:?}", &event);
         if let Some(event) = event {
             self.events.push(event);
@@ -85,7 +87,7 @@ impl SignerRunLoop<Vec<StackerDBChunksEvent>, Command> for SimpleRunLoop {
 /// and the signer runloop.
 #[test]
 fn test_simple_signer() {
-    let ev = StackerDBEventReceiver::new(vec![QualifiedContractIdentifier::parse(
+    let ev = SignerEventReceiver::new(vec![QualifiedContractIdentifier::parse(
         "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
     )
     .unwrap()]);
@@ -100,13 +102,13 @@ fn test_simple_signer() {
         let mut chunk = StackerDBChunkData::new(i as u32, 1, "hello world".as_bytes().to_vec());
         chunk.sign(&privk).unwrap();
 
-        let chunk_event = StackerDBChunksEvent {
+        let chunk_event = SignerEvent::StackerDB(StackerDBChunksEvent {
             contract_id: QualifiedContractIdentifier::parse(
                 "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
             )
             .unwrap(),
             modified_slots: vec![chunk],
-        };
+        });
         chunks.push(chunk_event);
     }
 
@@ -124,14 +126,19 @@ fn test_simple_signer() {
                 }
             };
 
-            let body = serde_json::to_string(&thread_chunks[num_sent]).unwrap();
-            let req = format!("POST /stackerdb_chunks HTTP/1.0\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}", &body.len(), body);
-            debug!("Send:\n{}", &req);
+            match &thread_chunks[num_sent] {
+                SignerEvent::StackerDB(ev) => {
+                    let body = serde_json::to_string(ev).unwrap();
+                    let req = format!("POST /stackerdb_chunks HTTP/1.0\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}", &body.len(), body);
+                    debug!("Send:\n{}", &req);
 
-            sock.write_all(req.as_bytes()).unwrap();
-            sock.flush().unwrap();
+                    sock.write_all(req.as_bytes()).unwrap();
+                    sock.flush().unwrap();
 
-            num_sent += 1;
+                    num_sent += 1;
+                }
+                _ => panic!("Unexpected event type"),
+            }
         }
     });
 
@@ -139,17 +146,19 @@ fn test_simple_signer() {
     sleep_ms(5000);
     let mut accepted_events = running_signer.stop().unwrap();
 
-    chunks.sort_by(|ev1, ev2| {
-        ev1.modified_slots[0]
+    chunks.sort_by(|ev1, ev2| match (ev1, ev2) {
+        (SignerEvent::StackerDB(ev1), SignerEvent::StackerDB(ev2)) => ev1.modified_slots[0]
             .slot_id
             .partial_cmp(&ev2.modified_slots[0].slot_id)
-            .unwrap()
+            .unwrap(),
+        _ => panic!("Unexpected event type"),
     });
-    accepted_events.sort_by(|ev1, ev2| {
-        ev1.modified_slots[0]
+    accepted_events.sort_by(|ev1, ev2| match (ev1, ev2) {
+        (SignerEvent::StackerDB(ev1), SignerEvent::StackerDB(ev2)) => ev1.modified_slots[0]
             .slot_id
             .partial_cmp(&ev2.modified_slots[0].slot_id)
-            .unwrap()
+            .unwrap(),
+        _ => panic!("Unexpected event type"),
     });
 
     // runloop got the event that the mocked stacks node sent

@@ -10,7 +10,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
-pub use libsigner::StackerDBChunksEvent;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -33,6 +32,7 @@ use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::api::postblock_proposal::{
     BlockValidateOk, BlockValidateReject, BlockValidateResponse,
 };
+use stacks::net::api::poststackerdbchunk::StackerDBChunksEvent;
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks_common::codec::StacksMessageCodec;

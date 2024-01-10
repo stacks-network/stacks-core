@@ -3,7 +3,7 @@ use std::time::Duration;
 use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, StackerDBEventReceiver};
+use libsigner::{RunningSigner, Signer, SignerEventReceiver};
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_signer::client::{MINER_SLOTS_PER_USER, SIGNER_SLOTS_PER_USER};
@@ -37,9 +37,9 @@ fn spawn_signer(
     data: &str,
     receiver: Receiver<RunLoopCommand>,
     sender: Sender<Vec<OperationResult>>,
-) -> RunningSigner<StackerDBEventReceiver, Vec<OperationResult>> {
+) -> RunningSigner<SignerEventReceiver, Vec<OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
-    let ev = StackerDBEventReceiver::new(vec![
+    let ev = SignerEventReceiver::new(vec![
         config.miners_stackerdb_contract_id.clone(),
         config.signers_stackerdb_contract_id.clone(),
     ]);
@@ -49,7 +49,7 @@ fn spawn_signer(
         RunLoopCommand,
         Vec<OperationResult>,
         stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>>,
-        StackerDBEventReceiver,
+        SignerEventReceiver,
     > = Signer::new(runloop, ev, receiver, sender);
     let endpoint = config.endpoint;
     info!(
@@ -78,7 +78,7 @@ fn setup_stx_btc_node(
 
         conf.events_observers.insert(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
-            events_keys: vec![EventKeyType::StackerDBChunks],
+            events_keys: vec![EventKeyType::StackerDBChunks, EventKeyType::BlockProposal],
         });
     }
 

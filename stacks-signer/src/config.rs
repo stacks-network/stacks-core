@@ -97,7 +97,7 @@ impl Network {
 pub struct Config {
     /// endpoint to the stacks node
     pub node_host: SocketAddr,
-    /// endpoint to the stackerdb receiver
+    /// endpoint to the event receiver
     pub endpoint: SocketAddr,
     /// smart contract that controls the target signers' stackerdb
     pub signers_stackerdb_contract_id: QualifiedContractIdentifier,
@@ -143,7 +143,7 @@ struct RawSigners {
 struct RawConfigFile {
     /// endpoint to stacks node
     pub node_host: String,
-    /// endpoint to stackerdb receiver
+    /// endpoint to event receiver
     pub endpoint: String,
     // FIXME: these contract's should go away in non testing scenarios. Make them both optionals.
     /// Signers' Stacker db contract identifier

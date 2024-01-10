@@ -54,6 +54,15 @@ use crate::net::{
 };
 use crate::util_lib::db::{DBConn, Error as DBError};
 
+/// Event structure for newly-arrived StackerDB data
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StackerDBChunksEvent {
+    /// The contract ID for the StackerDB instance
+    pub contract_id: QualifiedContractIdentifier,
+    /// The chunk data for newly-modified slots
+    pub modified_slots: Vec<StackerDBChunkData>,
+}
+
 #[derive(Clone)]
 pub struct RPCPostStackerDBChunkRequestHandler {
     pub contract_identifier: Option<QualifiedContractIdentifier>,
