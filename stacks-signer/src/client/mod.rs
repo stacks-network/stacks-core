@@ -51,9 +51,6 @@ pub enum ClientError {
     /// Stacker-db instance rejected the chunk
     #[error("Stacker-db rejected the chunk. Reason: {0}")]
     PutChunkRejected(String),
-    /// Failed to find a given json entry
-    #[error("Invalid JSON entry: {0}")]
-    InvalidJsonEntry(String),
     /// Failed to call a read only function
     #[error("Failed to call read only function. {0}")]
     ReadOnlyFailure(String),
