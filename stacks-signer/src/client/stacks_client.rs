@@ -5,6 +5,9 @@ use blockstack_lib::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSpendingCondition, TransactionVersion,
 };
+use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
+use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use serde_json::json;
@@ -59,7 +62,6 @@ impl StacksClient {
 
     /// Check if the proposed Nakamoto block is a valid block
     pub fn is_valid_nakamoto_block(&self, _block: &NakamotoBlock) -> Result<bool, ClientError> {
-        // TODO: Depends on https://github.com/stacks-network/stacks-core/issues/3866
         let send_request = || {
             self.stacks_node_client
                 .get(self.block_proposal_path())
@@ -70,7 +72,17 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        todo!("Call the appropriate RPC endpoint to check if the proposed Nakamoto block is valid");
+        let validate_block_response = response.json::<BlockValidateResponse>()?;
+        match validate_block_response {
+            BlockValidateResponse::Ok(validate_block_ok) => {
+                debug!("Block validation succeeded: {:?}", validate_block_ok);
+                Ok(true)
+            }
+            BlockValidateResponse::Reject(validate_block_reject) => {
+                debug!("Block validation failed: {:?}", validate_block_reject);
+                Ok(false)
+            }
+        }
     }
 
     /// Retrieve the current DKG aggregate public key
@@ -90,8 +102,8 @@ impl StacksClient {
         self.parse_aggregate_public_key(&contract_response_hex)
     }
 
-    /// Helper function to retrieve the current reward cycle number from the stacks node
-    fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
+    // Helper function to retrieve the pox data from the stacks node
+    fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         let send_request = || {
             self.stacks_node_client
                 .get(self.pox_path())
@@ -102,13 +114,14 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        let json_response = response.json::<serde_json::Value>()?;
-        let entry = "current_cycle";
-        json_response
-            .get(entry)
-            .and_then(|cycle: &serde_json::Value| cycle.get("id"))
-            .and_then(|id| id.as_u64())
-            .ok_or_else(|| ClientError::InvalidJsonEntry(format!("{}.id", entry)))
+        let pox_info_data = response.json::<RPCPoxInfoData>()?;
+        Ok(pox_info_data)
+    }
+
+    /// Helper function to retrieve the current reward cycle number from the stacks node
+    fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
+        let pox_data = self.get_pox_data()?;
+        Ok(pox_data.reward_cycle_id)
     }
 
     /// Helper function to retrieve the next possible nonce for the signer from the stacks node
@@ -124,25 +137,10 @@ impl StacksClient {
         if let Some(pox_contract) = self.pox_contract_id.clone() {
             return Ok((pox_contract.issuer.into(), pox_contract.name));
         }
-        // TODO: we may want to cache the pox contract inside the client itself (calling this function once on init)
-        // https://github.com/stacks-network/stacks-blockchain/issues/4005
-        let send_request = || {
-            self.stacks_node_client
-                .get(self.pox_path())
-                .send()
-                .map_err(backoff::Error::transient)
-        };
-        let response = retry_with_exponential_backoff(send_request)?;
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-        let json_response = response.json::<serde_json::Value>()?;
-        let entry = "contract_id";
-        let contract_id_string = json_response
-            .get(entry)
-            .and_then(|id: &serde_json::Value| id.as_str())
-            .ok_or_else(|| ClientError::InvalidJsonEntry(entry.to_string()))?;
-        let id = QualifiedContractIdentifier::parse(contract_id_string).unwrap();
+        let pox_data = self.get_pox_data()?;
+        let contract_id = pox_data.contract_id.as_str();
+        let err_msg = format!("Stacks node returned an invalid pox contract id: {contract_id}");
+        let id = QualifiedContractIdentifier::parse(contract_id).expect(&err_msg);
         Ok((id.issuer.into(), id.name))
     }
 
@@ -281,27 +279,16 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        let response = response.json::<serde_json::Value>()?;
-        if !response
-            .get("okay")
-            .map(|val| val.as_bool().unwrap_or(false))
-            .unwrap_or(false)
-        {
-            let cause = response
-                .get("cause")
-                .ok_or(ClientError::InvalidJsonEntry("cause".to_string()))?;
+        let call_read_only_response = response.json::<CallReadOnlyResponse>()?;
+        if !call_read_only_response.okay {
             return Err(ClientError::ReadOnlyFailure(format!(
-                "{}: {}",
-                function_name, cause
+                "{function_name}: {}",
+                call_read_only_response
+                    .cause
+                    .unwrap_or("unknown".to_string())
             )));
         }
-        let result = response
-            .get("result")
-            .ok_or(ClientError::InvalidJsonEntry("result".to_string()))?
-            .as_str()
-            .ok_or_else(|| ClientError::ReadOnlyFailure("Expected string result.".to_string()))?
-            .to_string();
-        Ok(result)
+        Ok(call_read_only_response.result.unwrap_or_default())
     }
 
     fn pox_path(&self) -> String {
@@ -325,7 +312,7 @@ impl StacksClient {
     }
 
     fn block_proposal_path(&self) -> String {
-        format!("{}/v2/block-proposal", self.http_origin)
+        format!("{}/v2/block_proposal", self.http_origin)
     }
 }
 
@@ -479,7 +466,7 @@ mod tests {
         let h = spawn(move || config.client.get_pox_contract());
         write_response(
             config.mock_server,
-            b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\"}",
+            b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}",
         );
         let (address, name) = h.join().unwrap().unwrap();
         assert_eq!(
@@ -494,10 +481,10 @@ mod tests {
         let h = spawn(move || config.client.get_current_reward_cycle());
         write_response(
             config.mock_server,
-            b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"id\":506,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":5690000000000,\"is_pox_active\":false}}",
+            b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}",
         );
         let current_cycle_id = h.join().unwrap().unwrap();
-        assert_eq!(506, current_cycle_id);
+        assert_eq!(544, current_cycle_id);
     }
 
     #[test]
@@ -509,7 +496,7 @@ mod tests {
             b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"id\":\"fake id\", \"is_pox_active\":false}}",
         );
         let res = h.join().unwrap();
-        assert!(matches!(res, Err(ClientError::InvalidJsonEntry(_))));
+        assert!(matches!(res, Err(ClientError::ReqwestError(_))));
     }
 
     #[test]
@@ -521,7 +508,7 @@ mod tests {
             b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"is_pox_active\":false}}",
         );
         let res = h.join().unwrap();
-        assert!(matches!(res, Err(ClientError::InvalidJsonEntry(_))));
+        assert!(matches!(res, Err(ClientError::ReqwestError(_))));
     }
 
     #[test]

@@ -59,13 +59,9 @@ impl From<&StackerDBMessage> for TypePrefix {
     }
 }
 
-/// The StackerDB messages that can be sent through the .signers contract
+/// The StackerDB messages that can be sent through the observed contracts
 pub enum StackerDBMessage {
     /// The latest Nakamoto block for miners to observe
-    // TODO: update this to use a struct that lists optional error code if the block is invalid
-    // to prove that the signers have considered the block but rejected it. This should include
-    // hints about how to fix the block
-    // Update to use NakamotoBlockProposal. Depends on https://github.com/stacks-network/stacks-core/pull/4084
     Block(NakamotoBlock),
     /// DKG and Signing round data for other signers to observe
     Packet(Packet),
@@ -219,12 +215,12 @@ impl StackerDB {
 #[cfg(test)]
 mod tests {
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-    use blockstack_lib::chainstate::stacks::StacksTransaction;
+    use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
     use rand_core::OsRng;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
-    use stacks_common::util::secp256k1::{MessageSignature, SchnorrSignature};
+    use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::scalar::Scalar;
     use wsts::net::{Message, Packet, Signable, SignatureShareRequest};
 
@@ -242,7 +238,7 @@ mod tests {
             tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
             state_index_root: TrieHash([0x07; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: SchnorrSignature::default(),
+            signer_signature: ThresholdSignature::mock(),
         };
         let txid_vecs = txs.iter().map(|tx| tx.txid().as_bytes().to_vec()).collect();
 
