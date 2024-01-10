@@ -47,6 +47,18 @@ impl DefinitionSorter {
         }
     }
 
+    /// Make `new()` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn new_pub() -> Self {
+        Self::new()
+    }
+
+    /// Access `self.graph` for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn get_graph<'a>(&'a self) -> &'a Graph {
+        &self.graph
+    }
+
     pub fn run_pass<T: CostTracker>(
         contract_ast: &mut ContractAST,
         accounting: &mut T,

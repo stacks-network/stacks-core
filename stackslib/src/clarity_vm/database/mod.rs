@@ -352,6 +352,12 @@ fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<Min
     }
 }
 
+/// Make `get_matuerd_reward()` public for testing
+#[cfg(any(test, feature = "testing"))]
+pub fn get_matured_reward_pub(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<MinerReward> {
+    get_matured_reward(conn, child_id_bhh)
+}
+
 /// This trait describes SortitionDB connections. This is used
 /// for methods that the chainstate needs to be in common between
 /// different sortition db connections or handles, but that aren't
