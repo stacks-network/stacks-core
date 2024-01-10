@@ -1846,7 +1846,7 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    pub fn make_pox_4_vote_for_aggregated_public_key(
+    pub fn make_pox_4_vote_for_aggregate_public_key(
         key: &StacksPrivateKey,
         nonce: u64,
         reward_cycle: u64,
@@ -1857,7 +1857,7 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_VOTE_NAME,
-            "vote-for-aggregated-public-key",
+            "vote-for-aggregate-public-key",
             vec![
                 aggregate_public_key,
                 Value::UInt(reward_cycle as u128),

@@ -1,25 +1,25 @@
 ;;
-;; @contract voting for the aggregated public key
+;; @contract voting for the aggregate public key
 ;;
 
-;; maps dkg round and signer to proposed aggregated public key
-(define-map votes {reward-cycle: uint, round: uint, signer: principal} {aggregated-public-key: (buff 33), reward-slots: uint})
-;; maps dkg rount and aggregated public key to weights of signers supporting this key so far
+;; maps dkg round and signer to proposed aggregate public key
+(define-map votes {reward-cycle: uint, round: uint, signer: principal} {aggregate-public-key: (buff 33), reward-slots: uint})
+;; maps dkg round and aggregate public key to weights of signers supporting this key so far
 (define-map tally {reward-cycle: uint, round: uint, aggregate-public-key: (buff 33)} uint)
 
 (define-constant err-not-allowed (err u10000))
 (define-constant err-incorrect-reward-cycle (err u10001))
 (define-constant err-incorrect-round (err u10002))
-(define-constant err-invalid-aggregated-public-key (err u10003))
+(define-constant err-invalid-aggregate-public-key (err u10003))
 (define-constant err-duplicate-vote (err u10004))
 (define-constant err-invalid-burn-block-height (err u10005))
 
 (define-data-var last-round uint u0)
 (define-data-var is-state-1-active bool true)
-(define-data-var state-1 {reward-cycle: uint, round: uint, aggregated-public-key: (optional (buff 33)),
-    total-votes: uint}  {reward-cycle: u0, round: u0, aggregated-public-key: none, total-votes: u0})
-(define-data-var state-2 {reward-cycle: uint, round: uint, aggregated-public-key: (optional (buff 33)),
-    total-votes: uint}  {reward-cycle: u0, round: u0, aggregated-public-key: none, total-votes: u0})
+(define-data-var state-1 {reward-cycle: uint, round: uint, aggregate-public-key: (optional (buff 33)),
+    total-votes: uint}  {reward-cycle: u0, round: u0, aggregate-public-key: none, total-votes: u0})
+(define-data-var state-2 {reward-cycle: uint, round: uint, aggregate-public-key: (optional (buff 33)),
+    total-votes: uint}  {reward-cycle: u0, round: u0, aggregate-public-key: none, total-votes: u0})
 
 ;; get voting info by burn block height
 (define-read-only (get-info (height uint))
@@ -41,7 +41,7 @@
 (define-read-only (current-reward-cycle)
     u0)
 
-(define-public (vote-for-aggregated-public-key (key (buff 33)) (reward-cycle uint) (round uint) (tapleaves (list 4001 (buff 33))))
+(define-public (vote-for-aggregate-public-key (key (buff 33)) (reward-cycle uint) (round uint) (tapleaves (list 4001 (buff 33))))
     (let ((signer-public-key (unwrap! (get-signer-public-key tx-sender reward-cycle) err-not-allowed))
             ;; one slot, one vote
             (num-slots (get-signer-slots signer-public-key reward-cycle))
@@ -50,7 +50,7 @@
             (current-round (var-get last-round)))
         (asserts! (is-eq reward-cycle (current-reward-cycle)) err-incorrect-reward-cycle)
         (asserts! (is-eq round current-round) err-incorrect-round)
-        (asserts! (is-eq (len key) u33) err-invalid-aggregated-public-key)
-        (asserts! (map-set votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregated-public-key: key, reward-slots: num-slots}) err-duplicate-vote)
+        (asserts! (is-eq (len key) u33) err-invalid-aggregate-public-key)
+        (asserts! (map-set votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-slots}) err-duplicate-vote)
         (map-set tally tally-key new-total)
         (ok true)))
