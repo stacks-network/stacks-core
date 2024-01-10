@@ -16,7 +16,6 @@
 
 use std::boxed::Box;
 use std::cmp;
-use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::CheckErrors;
@@ -89,6 +88,7 @@ const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
+const POX_4_VOTE_BODY: &'static str = std::include_str!("pox-4-vote.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -117,6 +117,7 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
     pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
+    pub static ref POX_4_VOTE_CODE: String = format!("{}", POX_4_VOTE_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
