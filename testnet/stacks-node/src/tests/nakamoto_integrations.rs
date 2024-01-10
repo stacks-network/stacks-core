@@ -22,11 +22,13 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use lazy_static::lazy_static;
+use libsigner::{SignerSession, StackerDBSession};
 use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use stacks::chainstate::nakamoto::NakamotoChainState;
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
@@ -39,12 +41,13 @@ use stacks::core::{
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
+use stacks::util_lib::boot::boot_code_id;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
@@ -168,6 +171,9 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
+    conf.node
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, conf.is_mainnet()));
     conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.username = Some("neon-tester".into());
@@ -1304,4 +1310,144 @@ fn block_proposal_api_endpoint() {
     run_loop_stopper.store(false, Ordering::SeqCst);
 
     run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// This test spins up a nakamoto-neon node and attempts to mine a single Nakamoto block.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
+///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
+///  struct handles the epoch-2/3 tear-down and spin-up.
+/// This test makes the following assertions:
+///  * The proposed Nakamoto block is written to the .miners stackerdb
+fn miner_writes_proposed_block_to_stackerdb() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for a test stx transfer
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 100;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        send_amt + send_fee,
+    );
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        stacker_sk,
+        StacksPublicKey::new(),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Nakamoto miner started...");
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    // Mine 1 nakamoto tenure
+    next_block_and_mine_commit(
+        &mut btc_regtest_controller,
+        60,
+        &coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
+    let rpc_sock = naka_conf
+        .node
+        .rpc_bind
+        .clone()
+        .parse()
+        .expect("Failed to parse socket");
+    let chunk = std::thread::spawn(move || {
+        let miner_contract_id = boot_code_id(MINERS_NAME, false);
+        let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
+        miners_stackerdb
+            .get_latest_chunk(0)
+            .expect("Failed to get latest chunk from the miner slot ID")
+            .expect("No chunk found")
+    })
+    .join()
+    .expect("Failed to join chunk handle");
+    // We should now successfully deserialize a chunk
+    let proposed_block = NakamotoBlock::consensus_deserialize(&mut &chunk[..])
+        .expect("Failed to deserialize chunk into block");
+    let proposed_block_hash = format!("0x{}", proposed_block.header.block_hash());
+
+    let mut proposed_zero_block = proposed_block.clone();
+    proposed_zero_block.header.miner_signature = MessageSignature::empty();
+    proposed_zero_block.header.signer_signature = ThresholdSignature::mock();
+    let proposed_zero_block_hash = format!("0x{}", proposed_zero_block.header.block_hash());
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+
+    let observed_blocks = test_observer::get_mined_nakamoto_blocks();
+    assert_eq!(observed_blocks.len(), 1);
+
+    let observed_block = observed_blocks.first().unwrap();
+    info!(
+        "Checking observed and proposed miner block";
+        "observed_block" => ?observed_block,
+        "proposed_block" => ?proposed_block,
+        "observed_block_hash" => format!("0x{}", observed_block.block_hash),
+        "proposed_zero_block_hash" => &proposed_zero_block_hash,
+        "proposed_block_hash" => &proposed_block_hash,
+    );
+
+    assert_eq!(
+        format!("0x{}", observed_block.block_hash),
+        proposed_zero_block_hash,
+        "Observed miner hash should match the proposed block read from StackerDB (after zeroing signatures)"
+    );
 }

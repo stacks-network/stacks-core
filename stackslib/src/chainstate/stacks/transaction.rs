@@ -184,6 +184,7 @@ impl ThresholdSignature {
     }
 
     /// Create mock data for testing. Not valid data
+    // TODO: `mock()` should be updated to `empty()` and rustdocs updated
     pub fn mock() -> Self {
         Self(Secp256k1Signature {
             R: Secp256k1Point::G(),

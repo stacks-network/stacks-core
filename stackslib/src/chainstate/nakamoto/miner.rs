@@ -28,8 +28,10 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
-use clarity::vm::types::TypeSignature;
+use clarity::vm::types::{QualifiedContractIdentifier, TypeSignature};
+use libstackerdb::StackerDBChunkData;
 use serde::Deserialize;
+use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, TrieHash,
 };
@@ -46,6 +48,7 @@ use crate::chainstate::nakamoto::{
     MaturedMinerRewards, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
+use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::blocks::MemPoolRejection;
 use crate::chainstate::stacks::db::transactions::{
@@ -62,7 +65,6 @@ use crate::chainstate::stacks::miner::{
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::{ClarityConnection, ClarityInstance};
-use crate::codec::Error as CodecError;
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::cost_estimates::metrics::CostMetric;
@@ -71,6 +73,9 @@ use crate::monitoring::{
     set_last_mined_block_transaction_count, set_last_mined_execution_cost_observed,
 };
 use crate::net::relay::Relayer;
+use crate::net::stackerdb::StackerDBs;
+use crate::net::Error as net_error;
+use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::Error as DBError;
 
 /// Nakamaoto tenure information
@@ -359,7 +364,7 @@ impl NakamotoBlockBuilder {
         );
 
         debug!(
-            "Miner: mined Nakamoto block";
+            "Miner: mined Nakamoto block (miner hashes include zeroed signatures)";
             "consensus_hash" => %block.header.consensus_hash,
             "block_hash" => %block.header.block_hash(),
             "block_height" => block.header.chain_length,
@@ -501,6 +506,40 @@ impl NakamotoBlockBuilder {
 
     pub fn get_bytes_so_far(&self) -> u64 {
         self.bytes_so_far
+    }
+
+    /// Make a StackerDB chunk message containing a proposed block.
+    /// Sign it with the miner's private key.
+    /// Automatically determine which StackerDB slot and version number to use.
+    /// Returns Some(chunk) if the given key corresponds to one of the expected miner slots
+    /// Returns None if not
+    /// Returns an error on signing or DB error
+    pub fn make_stackerdb_block_proposal(
+        sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
+        stackerdbs: &StackerDBs,
+        block: &NakamotoBlock,
+        miner_privkey: &StacksPrivateKey,
+        miners_contract_id: &QualifiedContractIdentifier,
+    ) -> Result<Option<StackerDBChunkData>, Error> {
+        let miner_pubkey = StacksPublicKey::from_private(&miner_privkey);
+        let Some(slot_id) = NakamotoChainState::get_miner_slot(sortdb, tip, &miner_pubkey)? else {
+            // No slot exists for this miner
+            return Ok(None);
+        };
+        // Get the LAST slot version number written to the DB. If not found, use 0.
+        // Add 1 to get the NEXT version number
+        // Note: we already check above for the slot's existence
+        let slot_version = stackerdbs
+            .get_slot_version(&miners_contract_id, slot_id)?
+            .unwrap_or(0)
+            .saturating_add(1);
+        let block_bytes = block.serialize_to_vec();
+        let mut chunk = StackerDBChunkData::new(slot_id, slot_version, block_bytes);
+        chunk
+            .sign(miner_privkey)
+            .map_err(|_| net_error::SigningError("Failed to sign StackerDB chunk".into()))?;
+        Ok(Some(chunk))
     }
 }
 
