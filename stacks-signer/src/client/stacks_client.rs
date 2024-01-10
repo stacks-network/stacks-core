@@ -7,7 +7,7 @@ use blockstack_lib::chainstate::stacks::{
 };
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
-use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use blockstack_lib::net::api::postblock_proposal::{BlockValidateResponse, NakamotoBlockProposal};
 use clarity::vm::types::{QualifiedContractIdentifier, SequenceData};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use serde_json::json;
@@ -61,17 +61,25 @@ impl StacksClient {
     }
 
     /// Check if the proposed Nakamoto block is a valid block
-    pub fn is_valid_nakamoto_block(&self, _block: &NakamotoBlock) -> Result<bool, ClientError> {
+    pub fn is_valid_nakamoto_block(&self, block: NakamotoBlock) -> Result<bool, ClientError> {
+        let block_proposal = NakamotoBlockProposal {
+            block,
+            chain_id: self.chain_id,
+        };
         let send_request = || {
             self.stacks_node_client
-                .get(self.block_proposal_path())
+                .post(&self.block_proposal_path())
+                .header("Content-Type", "application/json")
+                .json(&block_proposal)
                 .send()
                 .map_err(backoff::Error::transient)
         };
+
         let response = retry_with_exponential_backoff(send_request)?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
+        // TODO: this is actually an aysnc call. It will not return the JSON response as below. It uses the event dispatcher instead
         let validate_block_response = response.json::<BlockValidateResponse>()?;
         match validate_block_response {
             BlockValidateResponse::Ok(validate_block_ok) => {
