@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -9,6 +9,7 @@ use libsigner::{RunningSigner, Signer, SignerEventReceiver};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_signer::client::SIGNER_SLOTS_PER_USER;
@@ -26,7 +27,8 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_3, naka_neon_integration_conf, setup_stacker,
+    boot_to_epoch_3, naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
+    setup_stacker,
 };
 use crate::tests::neon_integrations::{
     next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
@@ -41,6 +43,9 @@ struct RunningNodes {
     pub btcd_controller: BitcoinCoreController,
     pub run_loop_thread: thread::JoinHandle<()>,
     pub run_loop_stopper: Arc<AtomicBool>,
+    pub vrfs_submitted: Arc<AtomicU64>,
+    pub commits_submitted: Arc<AtomicU64>,
+    pub blocks_processed: Arc<AtomicU64>,
     pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
@@ -253,7 +258,10 @@ fn setup_stx_btc_node(
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
-        blocks_processed, ..
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        ..
     } = run_loop.counters();
 
     let coord_channel = run_loop.coordinator_channels();
@@ -307,13 +315,17 @@ fn setup_stx_btc_node(
         btc_regtest_controller,
         run_loop_thread,
         run_loop_stopper,
+        vrfs_submitted,
+        commits_submitted,
+        blocks_processed,
         coord_channel,
         conf: naka_conf,
     }
 }
+
 #[test]
 #[ignore]
-fn test_stackerdb_dkg() {
+fn stackerdb_dkg_sign() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -384,5 +396,122 @@ fn test_stackerdb_dkg() {
     }
     let elapsed = now.elapsed();
     info!("DKG and Sign Time Elapsed: {:.2?}", elapsed);
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+fn stackerdb_block_proposal() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let mut signer_test = SignerTest::new(5, 5);
+
+    // First run DKG in order to sign the block that arrives from the miners following a nakamoto block production
+    // TODO: remove this forcibly running DKG once we have casting of the vote automagically happening during epoch 2.5
+    info!("signer_runloop: spawn send commands to do dkg");
+    signer_test
+        .coordinator_cmd_sender
+        .send(RunLoopCommand::Dkg)
+        .expect("failed to send Dkg command");
+    let mut aggregate_public_key = None;
+    let recv = signer_test
+        .result_receivers
+        .last()
+        .expect("Failed to get coordinator recv");
+    let results = recv.recv().expect("failed to recv results");
+    for result in results {
+        match result {
+            OperationResult::Dkg(point) => {
+                info!("Received aggregate_group_key {point}");
+                aggregate_public_key = Some(point);
+                break;
+            }
+            _ => {
+                panic!("Received Unexpected result");
+            }
+        }
+    }
+    let aggregate_public_key = aggregate_public_key.expect("Failed to get aggregate public key");
+
+    let (vrfs_submitted, commits_submitted) = (
+        signer_test.running_nodes.vrfs_submitted.clone(),
+        signer_test.running_nodes.commits_submitted.clone(),
+    );
+
+    info!("Mining a Nakamoto tenure...");
+
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+            Ok(vrf_count >= 1)
+        },
+    )
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        },
+    )
+    .unwrap();
+
+    // Mine 1 nakamoto tenure
+    next_block_and_mine_commit(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
+    info!("------------------------- Test Block Processed -------------------------");
+    //Wait for the block to show up in the test observer
+    let validate_responses = test_observer::get_proposal_responses();
+    let proposed_block = match validate_responses.first().expect("No block proposal") {
+        BlockValidateResponse::Ok(block_validated) => block_validated.block.clone(),
+        _ => panic!("Unexpected response"),
+    };
+    let recv = signer_test
+        .result_receivers
+        .last()
+        .expect("Failed to retreive coordinator recv");
+    let results = recv.recv().expect("failed to recv results");
+    let mut signature = None;
+    for result in results {
+        match result {
+            OperationResult::Sign(sig) => {
+                info!("Received Signature ({},{})", &sig.R, &sig.z);
+                signature = Some(sig);
+                break;
+            }
+            _ => {
+                panic!("Unexpected operation result");
+            }
+        }
+    }
+    let signature = signature.expect("Failed to get signature");
+    let signature_hash = proposed_block
+        .header
+        .signature_hash()
+        .expect("Unable to retrieve signature hash from proposed block");
+    assert!(
+        signature.verify(&aggregate_public_key, signature_hash.0.as_slice()),
+        "Signature verification failed"
+    );
     signer_test.shutdown();
 }
