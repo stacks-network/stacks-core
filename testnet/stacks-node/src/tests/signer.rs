@@ -45,6 +45,120 @@ struct RunningNodes {
     pub conf: NeonConfig,
 }
 
+struct SignerTest {
+    // The stx and bitcoin nodes and their run loops
+    pub running_nodes: RunningNodes,
+    // The channel for sending commands to the coordinator
+    pub coordinator_cmd_sender: Sender<RunLoopCommand>,
+    // The channels for sending commands to the signers
+    pub _signer_cmd_senders: Vec<Sender<RunLoopCommand>>,
+    // The channels for receiving results from both the coordinator and the signers
+    pub result_receivers: Vec<Receiver<Vec<OperationResult>>>,
+    // The running coordinator and its threads
+    pub running_coordinator: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
+    // The running signer and its threads
+    pub running_signers: Vec<RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
+}
+
+impl SignerTest {
+    fn new(num_signers: u32, num_keys: u32) -> Self {
+        // Generate Signer Data
+        let publisher_private_key = StacksPrivateKey::new();
+        let signer_stacks_private_keys = (0..num_signers)
+            .map(|_| StacksPrivateKey::new())
+            .collect::<Vec<StacksPrivateKey>>();
+        let signer_stacks_addresses = signer_stacks_private_keys
+            .iter()
+            .map(to_addr)
+            .collect::<Vec<StacksAddress>>();
+
+        // Build the stackerdb signers contract
+        // TODO: Remove this once it is a boot contract
+        let signers_stackerdb_contract =
+            build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
+        let signers_stacker_db_contract_id = QualifiedContractIdentifier::new(
+            to_addr(&publisher_private_key).into(),
+            "signers".into(),
+        );
+
+        let (naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+        // Setup the signer and coordinator configurations
+        let signer_configs = build_signer_config_tomls(
+            &signer_stacks_private_keys,
+            num_keys,
+            &naka_conf.node.rpc_bind,
+            &signers_stacker_db_contract_id.to_string(),
+            Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+        );
+
+        let mut running_signers = vec![];
+        let mut _signer_cmd_senders = vec![];
+        // Spawn all the signers first to listen to the coordinator request for dkg
+        let mut result_receivers = Vec::new();
+        for i in (1..num_signers).rev() {
+            let (cmd_send, cmd_recv) = channel();
+            let (res_send, res_recv) = channel();
+            info!("spawn signer");
+            let running_signer = spawn_signer(&signer_configs[i as usize], cmd_recv, res_send);
+            running_signers.push(running_signer);
+            _signer_cmd_senders.push(cmd_send);
+            result_receivers.push(res_recv);
+        }
+        // Spawn coordinator second
+        let (coordinator_cmd_sender, coordinator_cmd_recv) = channel();
+        let (coordinator_res_send, coordinator_res_receiver) = channel();
+        info!("spawn coordinator");
+        let running_coordinator = spawn_signer(
+            &signer_configs[0],
+            coordinator_cmd_recv,
+            coordinator_res_send,
+        );
+
+        result_receivers.push(coordinator_res_receiver);
+
+        // Setup the nodes and deploy the contract to it
+        let node = setup_stx_btc_node(
+            naka_conf,
+            num_signers,
+            &signer_stacks_private_keys,
+            &publisher_private_key,
+            &signers_stackerdb_contract,
+            &signers_stacker_db_contract_id,
+            &signer_configs,
+        );
+
+        Self {
+            running_nodes: node,
+            result_receivers,
+            _signer_cmd_senders,
+            coordinator_cmd_sender,
+            running_coordinator,
+            running_signers,
+        }
+    }
+
+    fn shutdown(self) {
+        self.running_nodes
+            .coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .stop_chains_coordinator();
+
+        self.running_nodes
+            .run_loop_stopper
+            .store(false, Ordering::SeqCst);
+
+        self.running_nodes.run_loop_thread.join().unwrap();
+        // Stop the signers
+        for signer in self.running_signers {
+            assert!(signer.stop().is_none());
+        }
+        // Stop the coordinator
+        assert!(self.running_coordinator.stop().is_none());
+    }
+}
+
 fn spawn_signer(
     data: &str,
     receiver: Receiver<RunLoopCommand>,
@@ -71,7 +185,6 @@ fn spawn_signer(
     signer.spawn(endpoint).unwrap()
 }
 
-#[allow(clippy::too_many_arguments)]
 fn setup_stx_btc_node(
     mut naka_conf: NeonConfig,
     num_signers: u32,
@@ -198,7 +311,6 @@ fn setup_stx_btc_node(
         conf: naka_conf,
     }
 }
-
 #[test]
 #[ignore]
 fn test_stackerdb_dkg() {
@@ -212,94 +324,31 @@ fn test_stackerdb_dkg() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    // Generate Signer Data
-    let num_signers: u32 = 10;
-    let num_keys: u32 = 400;
-    let publisher_private_key = StacksPrivateKey::new();
-    let signer_stacks_private_keys = (0..num_signers)
-        .map(|_| StacksPrivateKey::new())
-        .collect::<Vec<StacksPrivateKey>>();
-    let signer_stacks_addresses = signer_stacks_private_keys
-        .iter()
-        .map(to_addr)
-        .collect::<Vec<StacksAddress>>();
-
-    // Build the stackerdb signers contract
-    // TODO: Remove this once it is a boot contract
-    let signers_stackerdb_contract =
-        build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
-    let signers_stacker_db_contract_id =
-        QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "signers".into());
-
-    let (naka_conf, _miner_account) = naka_neon_integration_conf(None);
-
-    // Setup the signer and coordinator configurations
-    let signer_configs = build_signer_config_tomls(
-        &signer_stacks_private_keys,
-        num_keys,
-        &naka_conf.node.rpc_bind,
-        &signers_stacker_db_contract_id.to_string(),
-        Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
-    );
-
-    // The test starts here
-    let mut running_signers = vec![];
-    // Spawn all the signers first to listen to the coordinator request for dkg
-    let mut signer_cmd_senders = Vec::new();
-    let mut res_receivers = Vec::new();
-    for i in (1..num_signers).rev() {
-        let (cmd_send, cmd_recv) = channel();
-        let (res_send, res_recv) = channel();
-        info!("spawn signer");
-        let running_signer = spawn_signer(&signer_configs[i as usize], cmd_recv, res_send);
-        running_signers.push(running_signer);
-        signer_cmd_senders.push(cmd_send);
-        res_receivers.push(res_recv);
-    }
-    // Spawn coordinator second
-    let (coordinator_cmd_send, coordinator_cmd_recv) = channel();
-    let (coordinator_res_send, coordinator_res_recv) = channel();
-    info!("spawn coordinator");
-    let running_coordinator = spawn_signer(
-        &signer_configs[0],
-        coordinator_cmd_recv,
-        coordinator_res_send,
-    );
-
-    res_receivers.push(coordinator_res_recv);
-
-    // Setup the nodes and deploy the contract to it
-    let node = setup_stx_btc_node(
-        naka_conf,
-        num_signers,
-        &signer_stacks_private_keys,
-        &publisher_private_key,
-        &signers_stackerdb_contract,
-        &signers_stacker_db_contract_id,
-        &signer_configs,
-    );
-
+    let signer_test = SignerTest::new(10, 400);
     info!("------------------------- Test DKG and Sign -------------------------");
     let now = std::time::Instant::now();
     info!("signer_runloop: spawn send commands to do dkg and then sign");
-    coordinator_cmd_send
+    signer_test
+        .coordinator_cmd_sender
         .send(RunLoopCommand::Dkg)
         .expect("failed to send Dkg command");
-    coordinator_cmd_send
+    signer_test
+        .coordinator_cmd_sender
         .send(RunLoopCommand::Sign {
             message: vec![1, 2, 3, 4, 5],
             is_taproot: false,
             merkle_root: None,
         })
         .expect("failed to send non taproot Sign command");
-    coordinator_cmd_send
+    signer_test
+        .coordinator_cmd_sender
         .send(RunLoopCommand::Sign {
             message: vec![1, 2, 3, 4, 5],
             is_taproot: true,
             merkle_root: None,
         })
         .expect("failed to send taproot Sign command");
-    for recv in res_receivers.iter() {
+    for recv in signer_test.result_receivers.iter() {
         let mut aggregate_group_key = None;
         let mut frost_signature = None;
         let mut schnorr_proof = None;
@@ -335,19 +384,5 @@ fn test_stackerdb_dkg() {
     }
     let elapsed = now.elapsed();
     info!("DKG and Sign Time Elapsed: {:.2?}", elapsed);
-
-    node.coord_channel
-        .lock()
-        .expect("Mutex poisoned")
-        .stop_chains_coordinator();
-
-    node.run_loop_stopper.store(false, Ordering::SeqCst);
-
-    node.run_loop_thread.join().unwrap();
-    // Stop the signers
-    for signer in running_signers {
-        assert!(signer.stop().is_none());
-    }
-    // Stop the coordinator
-    assert!(running_coordinator.stop().is_none());
+    signer_test.shutdown();
 }
