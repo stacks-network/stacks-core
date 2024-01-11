@@ -240,7 +240,7 @@ fn test_stackerdb_dkg() {
     let mut running_signers = vec![];
     // Spawn all the signers first to listen to the coordinator request for dkg
     let mut signer_cmd_senders = Vec::new();
-    let mut signer_res_receivers = Vec::new();
+    let mut res_receivers = Vec::new();
     for i in (1..num_signers).rev() {
         let (cmd_send, cmd_recv) = channel();
         let (res_send, res_recv) = channel();
@@ -248,7 +248,7 @@ fn test_stackerdb_dkg() {
         let running_signer = spawn_signer(&signer_configs[i as usize], cmd_recv, res_send);
         running_signers.push(running_signer);
         signer_cmd_senders.push(cmd_send);
-        signer_res_receivers.push(res_recv);
+        res_receivers.push(res_recv);
     }
     // Spawn coordinator second
     let (coordinator_cmd_send, coordinator_cmd_recv) = channel();
@@ -259,6 +259,8 @@ fn test_stackerdb_dkg() {
         coordinator_cmd_recv,
         coordinator_res_send,
     );
+
+    res_receivers.push(coordinator_res_recv);
 
     // Let's wrap the node in a lifetime to ensure stopping the signers doesn't cause issues.
     {
@@ -291,38 +293,40 @@ fn test_stackerdb_dkg() {
                 merkle_root: None,
             })
             .expect("failed to send Sign command");
-
-        let mut aggregate_group_key = None;
-        let mut frost_signature = None;
-        let mut schnorr_proof = None;
-
-        loop {
-            let results = coordinator_res_recv.recv().expect("failed to recv results");
-            for result in results {
-                match result {
-                    OperationResult::Dkg(point) => {
-                        info!("Received aggregate_group_key {point}");
-                        aggregate_group_key = Some(point);
-                    }
-                    OperationResult::Sign(sig) => {
-                        info!("Received Signature ({},{})", &sig.R, &sig.z);
-                        frost_signature = Some(sig);
-                    }
-                    OperationResult::SignTaproot(proof) => {
-                        info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
-                        schnorr_proof = Some(proof);
-                    }
-                    OperationResult::DkgError(dkg_error) => {
-                        panic!("Received DkgError {}", dkg_error);
-                    }
-                    OperationResult::SignError(sign_error) => {
-                        panic!("Received SignError {}", sign_error);
+        for recv in res_receivers.iter() {
+            let mut aggregate_group_key = None;
+            let mut frost_signature = None;
+            let mut schnorr_proof = None;
+            loop {
+                let results = recv.recv().expect("failed to recv results");
+                for result in results {
+                    match result {
+                        OperationResult::Dkg(point) => {
+                            info!("Received aggregate_group_key {point}");
+                            aggregate_group_key = Some(point);
+                        }
+                        OperationResult::Sign(sig) => {
+                            info!("Received Signature ({},{})", &sig.R, &sig.z);
+                            frost_signature = Some(sig);
+                        }
+                        OperationResult::SignTaproot(proof) => {
+                            info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                            schnorr_proof = Some(proof);
+                        }
+                        OperationResult::DkgError(dkg_error) => {
+                            panic!("Received DkgError {:?}", dkg_error);
+                        }
+                        OperationResult::SignError(sign_error) => {
+                            panic!("Received SignError {}", sign_error);
+                        }
                     }
                 }
-            }
-            if aggregate_group_key.is_some() && frost_signature.is_some() && schnorr_proof.is_some()
-            {
-                break;
+                if aggregate_group_key.is_some()
+                    && frost_signature.is_some()
+                    && schnorr_proof.is_some()
+                {
+                    break;
+                }
             }
         }
         let elapsed = now.elapsed();
