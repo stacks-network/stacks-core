@@ -49,7 +49,7 @@ impl DefinitionSorter {
 
     /// Make `new()` public for testing
     #[cfg(any(test, feature = "testing"))]
-    pub fn new_pub() -> Self {
+    pub fn _new() -> Self {
         Self::new()
     }
 
@@ -450,6 +450,12 @@ impl Graph {
                 .ok_or(ParseErrors::CostOverflow)?;
         }
         Ok(total)
+    }
+
+    /// Make `edges_count()` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _edges_count(&self) -> ParseResult<u64> {
+        self.edges_count()
     }
 }
 
