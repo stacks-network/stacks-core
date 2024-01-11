@@ -10,7 +10,7 @@ use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::codec::{read_next, StacksMessageCodec};
+use stacks_common::codec::read_next;
 use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
@@ -186,8 +186,9 @@ impl<C: Coordinator> RunLoop<C> {
                 let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
                 if coordinator_id == self.signing_round.signer_id {
                     // We are the coordinator. Trigger a signing round for this block
+                    let signature_hash = block_validate_ok.block.header.signature_hash().expect("BUG: Stacks node should never return a validated block with an invalid signature hash");
                     self.commands.push_back(RunLoopCommand::Sign {
-                        message: block_validate_ok.block.serialize_to_vec(),
+                        message: signature_hash.0.to_vec(),
                         is_taproot: false,
                         merkle_root: None,
                     });
