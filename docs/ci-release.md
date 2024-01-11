@@ -228,4 +228,73 @@ ex: Branch is named `develop` and the PR is numbered `113`
   - `stacks-core:2.1.0.0.0`
   - `stacks-core:latest`
 
+## Mutation Testing
+
+When a new Pull Request (PR) is submitted, this feature evaluates the quality of the tests added or modified in the PR. It checks the new and altered functions through mutation testing. Mutation testing involves making small changes (mutations) to the code to check if the tests can detect these changes. The mutations are run with or without a [Github Actions matrix](https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs). The matrix is used when there is a large number of mutations to run.
+
+Since mutation testing is directly correlated to the written tests, there are slower packages (due to the quantity or time it takes to run the tests) like `stackslib` or `stacks-node`. These mutations are run separately from the others, with one or more parallel jobs, depending on the amount of mutations found.
+
+Once all the jobs have finished testing mutants, the last job collects all the tested mutations from the previous jobs, combines them and outputs them to the `Summary` section of the workflow, at the bottom of the page. There, you can find all mutants on categories, with links to the function they tested, and a short description on how to fix the issue. The PR should only be approved/merged after all the mutants tested are in the `Caught` category.
+
+File:
+
+- [PR Differences Mutants](../.github/workflows/pr-differences-mutants.yml)
+
+### Mutant Outcomes
+
+- caught — A test failed with this mutant applied. This is a good sign about test coverage.
+
+- missed — No test failed with this mutation applied, which seems to indicate a gap in test coverage. Or, it may be that the mutant is undistinguishable from the correct code. In any case, you may wish to add a better test.
+
+- unviable — The attempted mutation doesn't compile. This is inconclusive about test coverage, since the function's return structure may not implement `Default::default()` (one of the mutations applied), hence causing the compile to fail. It is recommended to add `Default` implementation for the return structures of these functions, only mark that the function should be skipped as a last resort.
+
+- timeout — The mutation caused the test suite to run for a long time, until it was eventually killed. You might want to investigate the cause and only mark the function to be skipped if necessary.
+
+### Skipping Mutations
+
+Some functions may be inherently hard to cover with tests, for example if:
+
+- Generated mutants cause tests to hang.
+- You've chosen to test the functionality by human inspection or some higher-level integration tests.
+- The function has side effects or performance characteristics that are hard to test.
+- You've decided that the function is not important to test.
+
+To mark functions as skipped, so they are not mutated:
+
+- Add a Cargo dependency of the [mutants](https://crates.io/crates/mutants) crate, version `0.0.3` or later (this must be a regular `dependency`, not a `dev-dependency`, because the annotation will be on non-test code) and mark functions with `#[mutants::skip]`, or
+
+- You can avoid adding the dependency by using the slightly longer `#[cfg_attr(test, mutants::skip)]`.
+
+**Example:**
+
+```rust
+use std::time::{Duration, Instant};
+
+/// Returns true if the program should stop
+#[cfg_attr(test, mutants::skip)] // Returning false would cause a hang
+fn should_stop() -> bool {
+    true
+}
+
+pub fn controlled_loop() {
+    let start = Instant::now();
+    for i in 0.. {
+        println!("{}", i);
+        if should_stop() {
+            break;
+        }
+        if start.elapsed() > Duration::from_secs(60 * 5) {
+            panic!("timed out");
+        }
+    }
+}
+
+mod test {
+    #[test]
+    fn controlled_loop_terminates() {
+        super::controlled_loop()
+    }
+}
+```
+
 ---
