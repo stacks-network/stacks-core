@@ -354,7 +354,7 @@ fn get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<Min
 
 /// Make `get_matuerd_reward()` public for testing
 #[cfg(any(test, feature = "testing"))]
-pub fn get_matured_reward_pub(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<MinerReward> {
+pub fn _get_matured_reward(conn: &DBConn, child_id_bhh: &StacksBlockId) -> Option<MinerReward> {
     get_matured_reward(conn, child_id_bhh)
 }
 
