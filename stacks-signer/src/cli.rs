@@ -131,9 +131,6 @@ pub struct GenerateFilesArgs {
     /// The signers stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
     #[arg(short, long, value_parser = parse_contract)]
     pub signers_contract: QualifiedContractIdentifier,
-    /// The miners stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
-    #[arg(short, long, value_parser = parse_contract)]
-    pub miners_contract: QualifiedContractIdentifier,
     #[arg(
         long,
         required_unless_present = "signer_private_keys",
@@ -144,9 +141,6 @@ pub struct GenerateFilesArgs {
     #[clap(long, value_name = "FILE")]
     /// A path to a file containing a list of hexadecimal Stacks private keys of the signers
     pub signer_private_keys: Option<PathBuf>,
-    /// The Stacks private key to use in hexademical format for the miner
-    #[arg(long, value_parser = parse_private_key)]
-    pub miner_private_key: StacksPrivateKey,
     #[arg(long)]
     /// The total number of key ids to distribute among the signers
     pub num_keys: u32,

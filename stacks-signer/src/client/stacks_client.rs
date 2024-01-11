@@ -1,5 +1,6 @@
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -8,15 +9,15 @@ use blockstack_lib::chainstate::stacks::{
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
-use clarity::vm::types::{QualifiedContractIdentifier, SequenceData};
+use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use serde_json::json;
 use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
+use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::debug;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
-use wsts::curve::point::Point;
-use wsts::curve::scalar::Scalar;
+use wsts::curve::point::{Compressed, Point};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::Config;
@@ -35,8 +36,6 @@ pub struct StacksClient {
     chain_id: u32,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
-    /// The pox contract ID
-    pox_contract_id: Option<QualifiedContractIdentifier>,
 }
 
 impl From<&Config> for StacksClient {
@@ -48,7 +47,6 @@ impl From<&Config> for StacksClient {
             tx_version: config.network.to_transaction_version(),
             chain_id: config.network.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
-            pox_contract_id: config.pox_contract_id.clone(),
         }
     }
 }
@@ -79,32 +77,20 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        // TODO: this is actually an aysnc call. It will not return the JSON response as below. It uses the event dispatcher instead
-        // let validate_block_response = response.json::<BlockValidateResponse>()?;
-        // match validate_block_response {
-        //     BlockValidateResponse::Ok(validate_block_ok) => {
-        //         debug!("Block validation succeeded: {:?}", validate_block_ok);
-        //         Ok(true)
-        //     }
-        //     BlockValidateResponse::Reject(validate_block_reject) => {
-        //         debug!("Block validation failed: {:?}", validate_block_reject);
-        //         Ok(false)
-        //     }
-        // }
         Ok(())
     }
 
     /// Retrieve the current DKG aggregate public key
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name_str = "get-aggregate-public-key"; // FIXME: this may need to be modified to match .pox-4
+        let function_name_str = "get-aggregate-public-key";
         let function_name = ClarityName::try_from(function_name_str)
             .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
-        let (contract_addr, contract_name) = self.get_pox_contract()?;
+        let pox_contract_id = boot_code_id(POX_4_NAME, self.chain_id == CHAIN_ID_MAINNET);
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
         let contract_response_hex = self.read_only_contract_call_with_retry(
-            &contract_addr,
-            &contract_name,
+            &pox_contract_id.issuer.into(),
+            &pox_contract_id.name,
             &function_name,
             function_args,
         )?;
@@ -113,6 +99,7 @@ impl StacksClient {
 
     // Helper function to retrieve the pox data from the stacks node
     fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
+        debug!("Getting pox data...");
         let send_request = || {
             self.stacks_node_client
                 .get(self.pox_path())
@@ -140,38 +127,25 @@ impl StacksClient {
         todo!("Get the next possible nonce from the stacks node");
     }
 
-    /// Helper function to retrieve the pox contract address and name from the stacks node
-    fn get_pox_contract(&self) -> Result<(StacksAddress, ContractName), ClientError> {
-        // Check if we have overwritten the pox contract ID in the config
-        if let Some(pox_contract) = self.pox_contract_id.clone() {
-            return Ok((pox_contract.issuer.into(), pox_contract.name));
-        }
-        let pox_data = self.get_pox_data()?;
-        let contract_id = pox_data.contract_id.as_str();
-        let err_msg = format!("Stacks node returned an invalid pox contract id: {contract_id}");
-        let id = QualifiedContractIdentifier::parse(contract_id).expect(&err_msg);
-        Ok((id.issuer.into(), id.name))
-    }
-
     /// Helper function that attempts to deserialize a clarity hex string as the aggregate public key
     fn parse_aggregate_public_key(&self, hex: &str) -> Result<Option<Point>, ClientError> {
-        let public_key_clarity_value = ClarityValue::try_deserialize_hex_untyped(hex)?;
-        if let ClarityValue::Optional(optional_data) = public_key_clarity_value.clone() {
-            if let Some(ClarityValue::Sequence(SequenceData::Buffer(public_key))) =
-                optional_data.data.map(|boxed| *boxed)
-            {
-                if public_key.data.len() != 32 {
-                    return Err(ClientError::MalformedClarityValue(public_key_clarity_value));
-                }
-                let mut bytes = [0_u8; 32];
-                bytes.copy_from_slice(&public_key.data);
-                Ok(Some(Point::from(Scalar::from(bytes))))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Err(ClientError::MalformedClarityValue(public_key_clarity_value))
-        }
+        debug!("Parsing aggregate public key: {hex}...");
+        // Due to pox 4 definition, the aggregate public key is always an optional clarity value hence the use of expect
+        // If this fails, we have bigger problems than the signer crashing...
+        let value_opt = ClarityValue::try_deserialize_hex_untyped(hex)?.expect_optional();
+        let Some(value) = value_opt else {
+            return Ok(None);
+        };
+        // A point should have 33 bytes exactly due to the pox 4 definition hence the use of expect
+        // If this fails, we have bigger problems than the signer crashing...
+        let data = value.clone().expect_buff(33);
+        // It is possible that the point was invalid though when voted upon and this cannot be prevented by pox 4 definitions...
+        // Pass up this error if the conversions fail.
+        let compressed_data = Compressed::try_from(data.as_slice())
+            .map_err(|_e| ClientError::MalformedClarityValue(value.clone()))?;
+        let point = Point::try_from(&compressed_data)
+            .map_err(|_e| ClientError::MalformedClarityValue(value))?;
+        Ok(Some(point))
     }
 
     /// Sends a transaction to the stacks node for a modifying contract call
@@ -268,7 +242,10 @@ impl StacksClient {
         function_name: &ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<String, ClientError> {
-        debug!("Calling read-only function {}...", function_name);
+        debug!(
+            "Calling read-only function {function_name} with args {:?}...",
+            function_args
+        );
         let args = function_args
             .iter()
             .map(|arg| arg.serialize_to_hex())
@@ -470,21 +447,6 @@ mod tests {
     }
 
     #[test]
-    fn pox_contract_success() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_pox_contract());
-        write_response(
-            config.mock_server,
-            b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}",
-        );
-        let (address, name) = h.join().unwrap().unwrap();
-        assert_eq!(
-            (address.to_string().as_str(), name.to_string().as_str()),
-            ("ST000000000000000000002AMW42H", "pox-3")
-        );
-    }
-
-    #[test]
     fn valid_reward_cycle_should_succeed() {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_current_reward_cycle());
@@ -524,14 +486,14 @@ mod tests {
     fn parse_valid_aggregate_public_key_should_succeed() {
         let config = TestConfig::new();
         let clarity_value_hex =
-            "0x0a0200000020b8c8b0652cb2851a52374c7acd47181eb031e8fa5c62883f636e0d4fe695d6ca";
+            "0x0a020000002103beca18a0e51ea31d8e66f58a245d54791b277ad08e1e9826bf5f814334ac77e0";
         let result = config
             .client
             .parse_aggregate_public_key(clarity_value_hex)
             .unwrap();
         assert_eq!(
             result.map(|point| point.to_string()),
-            Some("yzwdjwPz36Has1MSkg8JGwo38avvATkiTZvRiH1e5MLd".to_string())
+            Some("27XiJwhYDWdUrYAFNejKDhmY22jU1hmwyQ5nVDUJZPmbm".to_string())
         );
 
         let clarity_value_hex = "0x09";

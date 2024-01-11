@@ -47,7 +47,7 @@ use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
     SignArgs, StackerDBArgs,
 };
-use stacks_signer::client::{MINER_SLOTS_PER_USER, SIGNER_SLOTS_PER_USER};
+use stacks_signer::client::SIGNER_SLOTS_PER_USER;
 use stacks_signer::config::{Config, Network};
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
@@ -274,22 +274,16 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         .iter()
         .map(|key| to_addr(key, &args.network))
         .collect::<Vec<StacksAddress>>();
-    let miner_stacks_address = to_addr(&args.miner_private_key, &args.network);
     // Build the signer and miner stackerdb contract
     let signer_stackerdb_contract =
         build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
-    let miner_stackerdb_contract =
-        build_stackerdb_contract(&[miner_stacks_address], MINER_SLOTS_PER_USER);
     write_file(&args.dir, "signers.clar", &signer_stackerdb_contract);
-    write_file(&args.dir, "miners.clar", &miner_stackerdb_contract);
 
     let signer_config_tomls = build_signer_config_tomls(
         &signer_stacks_private_keys,
         args.num_keys,
         &args.host.to_string(),
         &args.signers_contract.to_string(),
-        &args.miners_contract.to_string(),
-        None,
         args.timeout.map(Duration::from_millis),
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());

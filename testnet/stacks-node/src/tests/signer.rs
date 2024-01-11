@@ -1,13 +1,18 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerEventReceiver};
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::StacksPrivateKey;
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_signer::client::{MINER_SLOTS_PER_USER, SIGNER_SLOTS_PER_USER};
-use stacks_signer::config::Config as SignerConfig;
+use stacks::util_lib::boot::boot_code_id;
+use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks_signer::client::SIGNER_SLOTS_PER_USER;
+use stacks_signer::config::{Config as SignerConfig, Network};
 use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 use tracing_subscriber::prelude::*;
@@ -17,19 +22,26 @@ use wsts::state_machine::OperationResult;
 use wsts::v2;
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
+use crate::neon::Counters;
+use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::tests::nakamoto_integrations::{
+    boot_to_epoch_3, naka_neon_integration_conf, setup_stacker,
+};
 use crate::tests::neon_integrations::{
-    neon_integration_test_conf, next_block_and_wait, submit_tx, wait_for_runloop,
+    next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
 };
 use crate::tests::{make_contract_publish, to_addr};
-use crate::{neon, BitcoinRegtestController, BurnchainController};
+use crate::{BitcoinRegtestController, BurnchainController};
 
 // Helper struct for holding the btc and stx neon nodes
 #[allow(dead_code)]
 struct RunningNodes {
     pub btc_regtest_controller: BitcoinRegtestController,
     pub btcd_controller: BitcoinCoreController,
-    pub join_handle: thread::JoinHandle<()>,
+    pub run_loop_thread: thread::JoinHandle<()>,
+    pub run_loop_stopper: Arc<AtomicBool>,
+    pub coord_channel: Arc<Mutex<CoordinatorChannels>>,
     pub conf: NeonConfig,
 }
 
@@ -40,7 +52,7 @@ fn spawn_signer(
 ) -> RunningSigner<SignerEventReceiver, Vec<OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
     let ev = SignerEventReceiver::new(vec![
-        config.miners_stackerdb_contract_id.clone(),
+        boot_code_id(MINERS_NAME, config.network == Network::Mainnet),
         config.signers_stackerdb_contract_id.clone(),
     ]);
     let runloop: stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>> =
@@ -61,27 +73,33 @@ fn spawn_signer(
 
 #[allow(clippy::too_many_arguments)]
 fn setup_stx_btc_node(
-    conf: &mut NeonConfig,
+    mut naka_conf: NeonConfig,
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
     publisher_private_key: &StacksPrivateKey,
     signers_stackerdb_contract: &str,
     signers_stackerdb_contract_id: &QualifiedContractIdentifier,
-    miners_stackerdb_contract: &str,
-    miners_stackerdb_contract_id: &QualifiedContractIdentifier,
-    pox_contract: &str,
-    pox_contract_id: &QualifiedContractIdentifier,
     signer_config_tomls: &Vec<String>,
 ) -> RunningNodes {
+    // Spawn the endpoints for observing signers
     for toml in signer_config_tomls {
         let signer_config = SignerConfig::load_from_str(toml).unwrap();
 
-        conf.events_observers.insert(EventObserverConfig {
+        naka_conf.events_observers.insert(EventObserverConfig {
             endpoint: format!("{}", signer_config.endpoint),
             events_keys: vec![EventKeyType::StackerDBChunks, EventKeyType::BlockProposal],
         });
     }
 
+    // Spawn a test observer for verification purposes
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::StackerDBChunks, EventKeyType::BlockProposal],
+    });
+
+    // The signers need some initial balances in order to pay for epoch 2.5 transaction votes
     let mut initial_balances = Vec::new();
 
     initial_balances.push(InitialBalance {
@@ -95,34 +113,38 @@ fn setup_stx_btc_node(
             amount: 10_000_000_000_000,
         });
     }
-
-    conf.initial_balances.append(&mut initial_balances);
-    conf.node
+    naka_conf.initial_balances.append(&mut initial_balances);
+    naka_conf
+        .node
         .stacker_dbs
         .push(signers_stackerdb_contract_id.clone());
-    conf.node
-        .stacker_dbs
-        .push(miners_stackerdb_contract_id.clone());
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
 
     info!("Make new BitcoinCoreController");
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
         .expect("Failed starting bitcoind");
 
     info!("Make new BitcoinRegtestController");
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
     info!("Bootstraping...");
     btc_regtest_controller.bootstrap_chain(201);
 
     info!("Chain bootstrapped...");
 
-    let mut run_loop = neon::RunLoop::new(conf.clone());
-    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
 
-    let join_handle = thread::spawn(move || run_loop.start(None, 0));
+    let coord_channel = run_loop.coordinator_channels();
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
 
     // Give the run loop some time to start up!
     info!("Wait for runloop...");
@@ -140,73 +162,41 @@ fn setup_stx_btc_node(
     info!("Mine third block...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-
-    info!("Send pox contract-publish...");
+    info!("Send signers stacker-db contract-publish...");
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     let tx_fee = 100_000;
     let tx = make_contract_publish(
         publisher_private_key,
         0,
         tx_fee,
-        &pox_contract_id.name,
-        pox_contract,
-    );
-    submit_tx(&http_origin, &tx);
-
-    info!("Send signers stacker-db contract-publish...");
-    let tx = make_contract_publish(
-        publisher_private_key,
-        1,
-        tx_fee,
         &signers_stackerdb_contract_id.name,
         signers_stackerdb_contract,
     );
     submit_tx(&http_origin, &tx);
-
-    info!("Send miners stacker-db contract-publish...");
-    let tx = make_contract_publish(
-        publisher_private_key,
-        2,
-        tx_fee,
-        &miners_stackerdb_contract_id.name,
-        miners_stackerdb_contract,
-    );
-    submit_tx(&http_origin, &tx);
-
     // mine it
-    info!("Mining the pox and stackerdb contract...");
+    info!("Mining the stackerdb contract: {signers_stackerdb_contract_id}");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
+    info!("Boot to epoch 3.0 to activate pox-4...");
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        stacker_sk,
+        StacksPublicKey::new(),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Pox 4 activated and ready for signers to perform DKG and sign!");
     RunningNodes {
         btcd_controller,
         btc_regtest_controller,
-        join_handle,
-        conf: conf.clone(),
+        run_loop_thread,
+        run_loop_stopper,
+        coord_channel,
+        conf: naka_conf,
     }
-}
-
-/// Helper function for building our fake pox contract
-pub fn build_pox_contract(num_signers: u32) -> String {
-    let mut pox_contract = String::new(); // "
-    pox_contract += r#"
-;; data vars
-;;
-(define-data-var aggregate-public-key (optional (buff 33)) none)
-"#;
-    pox_contract += &format!("(define-data-var num-signers uint u{num_signers})\n");
-    pox_contract += r#"
-
-;; read only functions
-;;
-
-(define-read-only (get-aggregate-public-key (reward-cycle uint))
-    (var-get aggregate-public-key)
-)
-
-"#;
-    pox_contract
 }
 
 #[test]
@@ -221,6 +211,7 @@ fn test_stackerdb_dkg() {
         .with(EnvFilter::from_default_env())
         .init();
 
+    info!("------------------------- Test Setup -------------------------");
     // Generate Signer Data
     let num_signers: u32 = 10;
     let num_keys: u32 = 400;
@@ -232,35 +223,22 @@ fn test_stackerdb_dkg() {
         .iter()
         .map(to_addr)
         .collect::<Vec<StacksAddress>>();
-    let miner_private_key = StacksPrivateKey::new();
-    let miner_stacks_address = to_addr(&miner_private_key);
 
-    // Setup the neon node
-    let (mut conf, _) = neon_integration_test_conf();
-
-    // Build our simulated pox-4 stacks contract TODO: replace this with the real deal?
-    let pox_contract = build_pox_contract(num_signers);
-    let pox_contract_id =
-        QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "pox-4".into());
-    // Build the stackerdb contracts
+    // Build the stackerdb signers contract
+    // TODO: Remove this once it is a boot contract
     let signers_stackerdb_contract =
         build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
     let signers_stacker_db_contract_id =
         QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "signers".into());
 
-    let miners_stackerdb_contract =
-        build_stackerdb_contract(&[miner_stacks_address], MINER_SLOTS_PER_USER);
-    let miners_stacker_db_contract_id =
-        QualifiedContractIdentifier::new(to_addr(&publisher_private_key).into(), "miners".into());
+    let (naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
     // Setup the signer and coordinator configurations
     let signer_configs = build_signer_config_tomls(
         &signer_stacks_private_keys,
         num_keys,
-        &conf.node.rpc_bind,
+        &naka_conf.node.rpc_bind,
         &signers_stacker_db_contract_id.to_string(),
-        &miners_stacker_db_contract_id.to_string(),
-        Some(&pox_contract_id.to_string()),
         Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
     );
 
@@ -290,78 +268,82 @@ fn test_stackerdb_dkg() {
 
     res_receivers.push(coordinator_res_recv);
 
-    // Let's wrap the node in a lifetime to ensure stopping the signers doesn't cause issues.
-    {
-        // Setup the nodes and deploy the contract to it
-        let _node = setup_stx_btc_node(
-            &mut conf,
-            num_signers,
-            &signer_stacks_private_keys,
-            &publisher_private_key,
-            &signers_stackerdb_contract,
-            &signers_stacker_db_contract_id,
-            &miners_stackerdb_contract,
-            &miners_stacker_db_contract_id,
-            &pox_contract,
-            &pox_contract_id,
-            &signer_configs,
-        );
+    // Setup the nodes and deploy the contract to it
+    let node = setup_stx_btc_node(
+        naka_conf,
+        num_signers,
+        &signer_stacks_private_keys,
+        &publisher_private_key,
+        &signers_stackerdb_contract,
+        &signers_stacker_db_contract_id,
+        &signer_configs,
+    );
 
-        let now = std::time::Instant::now();
-        info!("signer_runloop: spawn send commands to do dkg and then sign");
-        coordinator_cmd_send
-            .send(RunLoopCommand::Sign {
-                message: vec![1, 2, 3, 4, 5],
-                is_taproot: false,
-                merkle_root: None,
-            })
-            .expect("failed to send Sign command");
-        coordinator_cmd_send
-            .send(RunLoopCommand::Sign {
-                message: vec![1, 2, 3, 4, 5],
-                is_taproot: true,
-                merkle_root: None,
-            })
-            .expect("failed to send Sign command");
-        for recv in res_receivers.iter() {
-            let mut aggregate_group_key = None;
-            let mut frost_signature = None;
-            let mut schnorr_proof = None;
-            loop {
-                let results = recv.recv().expect("failed to recv results");
-                for result in results {
-                    match result {
-                        OperationResult::Dkg(point) => {
-                            info!("Received aggregate_group_key {point}");
-                            aggregate_group_key = Some(point);
-                        }
-                        OperationResult::Sign(sig) => {
-                            info!("Received Signature ({},{})", &sig.R, &sig.z);
-                            frost_signature = Some(sig);
-                        }
-                        OperationResult::SignTaproot(proof) => {
-                            info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
-                            schnorr_proof = Some(proof);
-                        }
-                        OperationResult::DkgError(dkg_error) => {
-                            panic!("Received DkgError {:?}", dkg_error);
-                        }
-                        OperationResult::SignError(sign_error) => {
-                            panic!("Received SignError {}", sign_error);
-                        }
+    info!("------------------------- Test DKG and Sign -------------------------");
+    let now = std::time::Instant::now();
+    info!("signer_runloop: spawn send commands to do dkg and then sign");
+    coordinator_cmd_send
+        .send(RunLoopCommand::Dkg)
+        .expect("failed to send Dkg command");
+    coordinator_cmd_send
+        .send(RunLoopCommand::Sign {
+            message: vec![1, 2, 3, 4, 5],
+            is_taproot: false,
+            merkle_root: None,
+        })
+        .expect("failed to send non taproot Sign command");
+    coordinator_cmd_send
+        .send(RunLoopCommand::Sign {
+            message: vec![1, 2, 3, 4, 5],
+            is_taproot: true,
+            merkle_root: None,
+        })
+        .expect("failed to send taproot Sign command");
+    for recv in res_receivers.iter() {
+        let mut aggregate_group_key = None;
+        let mut frost_signature = None;
+        let mut schnorr_proof = None;
+        loop {
+            let results = recv.recv().expect("failed to recv results");
+            for result in results {
+                match result {
+                    OperationResult::Dkg(point) => {
+                        info!("Received aggregate_group_key {point}");
+                        aggregate_group_key = Some(point);
+                    }
+                    OperationResult::Sign(sig) => {
+                        info!("Received Signature ({},{})", &sig.R, &sig.z);
+                        frost_signature = Some(sig);
+                    }
+                    OperationResult::SignTaproot(proof) => {
+                        info!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                        schnorr_proof = Some(proof);
+                    }
+                    OperationResult::DkgError(dkg_error) => {
+                        panic!("Received DkgError {:?}", dkg_error);
+                    }
+                    OperationResult::SignError(sign_error) => {
+                        panic!("Received SignError {}", sign_error);
                     }
                 }
-                if aggregate_group_key.is_some()
-                    && frost_signature.is_some()
-                    && schnorr_proof.is_some()
-                {
-                    break;
-                }
+            }
+            if aggregate_group_key.is_some() && frost_signature.is_some() && schnorr_proof.is_some()
+            {
+                break;
             }
         }
-        let elapsed = now.elapsed();
-        info!("DKG and Sign Time Elapsed: {:.2?}", elapsed);
     }
+    let elapsed = now.elapsed();
+    info!("DKG and Sign Time Elapsed: {:.2?}", elapsed);
+
+    node.coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+
+    node.run_loop_stopper.store(false, Ordering::SeqCst);
+
+    node.run_loop_thread.join().unwrap();
     // Stop the signers
     for signer in running_signers {
         assert!(signer.stop().is_none());

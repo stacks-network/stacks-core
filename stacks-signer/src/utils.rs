@@ -13,8 +13,6 @@ pub fn build_signer_config_tomls(
     num_keys: u32,
     node_host: &str,
     signers_stackerdb_contract_id: &str,
-    miners_stackerdb_contract_id: &str,
-    pox_contract_id: Option<&str>,
     timeout: Option<Duration>,
 ) -> Vec<String> {
     let num_signers = signer_stacks_private_keys.len() as u32;
@@ -74,7 +72,6 @@ node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "testnet"
 signers_stackerdb_contract_id = "{signers_stackerdb_contract_id}"
-miners_stackerdb_contract_id = "{miners_stackerdb_contract_id}"
 signer_id = {id}
 {signers_array}
 "#
@@ -88,14 +85,6 @@ signer_id = {id}
 event_timeout = {event_timeout_ms}   
 "#
             )
-        }
-        if let Some(pox_contract_id) = pox_contract_id {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-pox_contract_id = "{pox_contract_id}"
-"#
-            );
         }
 
         signer_config_tomls.push(signer_config_toml);
