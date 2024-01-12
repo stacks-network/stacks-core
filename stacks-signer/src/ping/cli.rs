@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
+use crate::cli::parse_contract;
 use crate::cli::StackerDBArgs;
 use crate::client::{ClientError, StacksClient};
 use crate::utils::build_signer_config_toml;
@@ -46,6 +47,7 @@ use stacks_common::{
     address::AddressHashMode,
     types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey},
 };
+use stacks_node::{ConfigFile, EventObserverConfigFile};
 
 #[derive(clap::Subcommand, Debug)]
 
@@ -61,6 +63,8 @@ pub enum PingSubcommands {
     PublishContract(PublishContractArgs),
     /// This command can be used to generate a signer.toml used by a signer runloop.
     GenerateSignerConfig(GenerateSignerConfigArgs),
+    /// Add an observer and a stackerdb replica to the node's config.
+    ExtendNodeConfig(ExtendNodeConfigArgs),
 }
 
 impl PingSubcommands {
@@ -70,6 +74,7 @@ impl PingSubcommands {
             PingSubcommands::GenerateContract(args) => args.handle(),
             PingSubcommands::PublishContract(args) => args.handle(),
             PingSubcommands::GenerateSignerConfig(args) => args.handle(),
+            PingSubcommands::ExtendNodeConfig(args) => args.handle(),
         }
     }
 }
@@ -279,9 +284,52 @@ impl GenerateSignerConfigArgs {
     }
 }
 
+#[derive(Debug, clap::Args)]
+/// Generate a new node file to use with the stackerdb contract
+pub struct ExtendNodeConfigArgs {
+    /// output file e.g. ./Devnet.toml
+    output_file: PathBuf,
+    /// load from file e.g. ./Devnet.toml
+    input_file: PathBuf,
+    /// A stackerdb replica
+    #[clap(long, value_parser = parse_contract )]
+    contract: QualifiedContractIdentifier,
+    /// A signer's socket address to listen to stackerdb update events
+    observer_socket_address: SocketAddrV4,
+}
+
+impl ExtendNodeConfigArgs {
+    fn handle(&self) {
+        let mut cfg = ConfigFile::from_path(self.input_file.to_str().unwrap()).unwrap();
+        let mut observers = cfg.events_observer.unwrap_or_default();
+        let observer_cfg = EventObserverConfigFile {
+            endpoint: self.observer_socket_address.clone().to_string(),
+            events_keys: vec!["stackerdb".to_string()],
+        };
+        observers.insert(observer_cfg);
+        cfg.events_observer = Some(observers);
+
+        let mut node_cfg = cfg
+            .node
+            .expect("Node Config is missing. Add '[node]' to the file.");
+        let mut replicas = node_cfg.stacker_dbs.unwrap_or_default();
+        let contract_string = self.contract.to_string();
+        if !replicas.contains(&contract_string) {
+            replicas.push(contract_string)
+        }
+        node_cfg.stacker_dbs = Some(replicas);
+        cfg.node = Some(node_cfg);
+
+        let content = toml::to_vec(&cfg).unwrap();
+        let mut output_file = File::create(self.output_file.clone()).unwrap();
+        output_file.write_all(&content).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod test {
     use stacks_common::types::Address;
+    use std::{env::temp_dir, str::FromStr};
 
     use super::*;
 
@@ -306,5 +354,24 @@ mod test {
         let a = private_key_from_seed(seed, 0);
         let b = private_key_from_seed(seed, 1);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn sane_extend_config() {
+        let tmp_dir = temp_dir();
+        let output_file = tmp_dir.join("output.toml");
+        let cfg_args = ExtendNodeConfigArgs {
+            output_file: output_file.clone(),
+            input_file: PathBuf::from_str("../testnet/stacks-node/conf/regtest-follower-conf.toml")
+                .unwrap(),
+            contract: QualifiedContractIdentifier::parse(
+                "ST1EMWQSAEZ3VSD5TR9VY5M26E7FA52FWPS6EW59Q.hello-world",
+            )
+            .unwrap(),
+            observer_socket_address: "127.0.0.1:30000".parse().unwrap(),
+        };
+        cfg_args.handle();
+
+        let _ = ConfigFile::from_path(output_file.to_str().unwrap()).unwrap();
     }
 }

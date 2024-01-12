@@ -3591,6 +3591,7 @@ dependencies = [
  "slog-json",
  "slog-term",
  "stacks-common",
+ "stacks-node",
  "stackslib",
  "thiserror",
  "toml",

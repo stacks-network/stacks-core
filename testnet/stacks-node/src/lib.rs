@@ -33,7 +33,9 @@ pub use self::burnchains::{
 };
 pub use crate::mockamoto::MockamotoNode;
 pub use crate::run_loop::boot_nakamoto;
-pub use config::{Config, ConfigFile, InitialBalance};
+pub use config::{
+    Config, ConfigFile, EventKeyType, EventObserverConfig, EventObserverConfigFile, InitialBalance,
+};
 pub use event_dispatcher::EventDispatcher;
 pub use keychain::Keychain;
 pub use node::{ChainTip, Node};

@@ -10,7 +10,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use lazy_static::lazy_static;
 use rand::RngCore;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
@@ -49,8 +49,9 @@ const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
 const BLOCK_COMMIT_TX_ESTIM_SIZE: u64 = 350;
 const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct ConfigFile {
+    #[serde(skip)]
     pub __path: Option<String>, // Only used for config file reloads
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
@@ -1311,7 +1312,7 @@ impl BurnchainConfig {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct StacksEpochConfigFile {
     epoch_name: String,
     start_height: i64,
@@ -1327,7 +1328,7 @@ pub const EPOCH_CONFIG_2_4_0: &'static str = "2.4";
 pub const EPOCH_CONFIG_2_5_0: &'static str = "2.5";
 pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
     pub burn_fee_cap: Option<u64>,
@@ -1958,7 +1959,7 @@ impl Default for MinerConfig {
     }
 }
 
-#[derive(Clone, Default, Deserialize, Debug)]
+#[derive(Clone, Default, Deserialize, Debug, Serialize)]
 pub struct ConnectionOptionsFile {
     pub inbox_maxlen: Option<usize>,
     pub outbox_maxlen: Option<usize>,
@@ -2127,7 +2128,7 @@ impl ConnectionOptionsFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct NodeConfigFile {
     pub name: Option<String>,
     pub seed: Option<String>,
@@ -2242,7 +2243,7 @@ impl NodeConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -2253,7 +2254,7 @@ pub struct FeeEstimationConfigFile {
     pub fee_rate_window_size: Option<u64>,
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct MinerConfigFile {
     pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
@@ -2324,7 +2325,7 @@ impl MinerConfigFile {
         })
     }
 }
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct AtlasConfigFile {
     pub attachments_max_size: Option<u32>,
     pub max_uninstantiated_attachments: Option<u32>,
@@ -2352,7 +2353,7 @@ impl AtlasConfigFile {
     }
 }
 
-#[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd, Serialize)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
@@ -2457,7 +2458,7 @@ pub struct InitialBalance {
     pub amount: u64,
 }
 
-#[derive(Clone, Deserialize, Default, Debug)]
+#[derive(Clone, Deserialize, Default, Debug, Serialize)]
 pub struct InitialBalanceFile {
     pub address: String,
     pub amount: u64,
