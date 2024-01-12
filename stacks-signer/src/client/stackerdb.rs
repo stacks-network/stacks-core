@@ -1,6 +1,6 @@
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::net::api::postblock_proposal::ValidateRejectCode;
+use blockstack_lib::net::api::postblock_proposal::{BlockValidateReject, ValidateRejectCode};
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
 use libsigner::{SignerSession, StackerDBSession};
@@ -62,6 +62,16 @@ pub struct BlockRejection {
     pub block: NakamotoBlock,
 }
 
+impl From<BlockValidateReject> for BlockRejection {
+    fn from(reject: BlockValidateReject) -> Self {
+        Self {
+            reason: reject.reason,
+            reason_code: RejectCode::ValidationFailed(reject.reason_code),
+            block: reject.block,
+        }
+    }
+}
+
 /// This enum is used to supply a `reason_code` for block rejections
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -70,6 +80,10 @@ pub enum RejectCode {
     ValidationFailed(ValidateRejectCode),
     /// Missing expected transactions
     MissingTransactions(Vec<Txid>),
+    // No Consensus Reached
+    //NoConsensusReached,
+    // Consensus No Reached
+    //ConsensusNo(Signature),
 }
 
 impl From<Packet> for SignerMessage {
@@ -81,6 +95,12 @@ impl From<Packet> for SignerMessage {
 impl From<BlockResponse> for SignerMessage {
     fn from(block_response: BlockResponse) -> Self {
         Self::BlockResponse(block_response)
+    }
+}
+
+impl From<BlockRejection> for SignerMessage {
+    fn from(block_rejection: BlockRejection) -> Self {
+        Self::BlockResponse(BlockResponse::Rejected(block_rejection))
     }
 }
 

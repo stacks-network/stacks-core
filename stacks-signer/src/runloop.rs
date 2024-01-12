@@ -22,8 +22,8 @@ use wsts::state_machine::{OperationResult, PublicKeys};
 use wsts::v2;
 
 use crate::client::{
-    retry_with_exponential_backoff, BlockRejection, BlockResponse, ClientError, RejectCode,
-    SignerMessage, StackerDB, StacksClient,
+    retry_with_exponential_backoff, BlockRejection, ClientError, SignerMessage, StackerDB,
+    StacksClient,
 };
 use crate::config::{Config, Network};
 
@@ -64,8 +64,6 @@ pub struct RunLoop<C> {
     /// The coordinator for inbound messages
     pub coordinator: C,
     /// The signing round used to sign messages
-    // TODO: update this to use frost_signer directly instead of the frost signing round
-    // See: https://github.com/stacks-network/stacks-blockchain/issues/3913
     pub signing_round: Signer<v2::Signer>,
     /// The stacks node client
     pub stacks_client: StacksClient,
@@ -199,23 +197,14 @@ impl<C: Coordinator> RunLoop<C> {
                     "Received a block proposal that was rejected by the stacks node: {:?}",
                     block_validate_reject
                 );
-                // TODO: submit a rejection response to the .signers contract for miners
+                // Submit a rejection response to the .signers contract for miners
                 // to observe so they know to ignore it and to prove signers are doing work
-                let block_rejection = BlockRejection {
-                    block: block_validate_reject.block,
-                    reason: block_validate_reject.reason,
-                    reason_code: RejectCode::ValidationFailed(block_validate_reject.reason_code),
-                };
-                let message =
-                    SignerMessage::BlockResponse(BlockResponse::Rejected(block_rejection));
+                let block_rejection = BlockRejection::from(block_validate_reject);
                 if let Err(e) = self
                     .stackerdb
-                    .send_message_with_retry(self.signing_round.signer_id, message)
+                    .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
                 {
-                    warn!(
-                        "Failed to send block rejection response to stacker-db: {:?}",
-                        e
-                    );
+                    warn!("Failed to send block rejection to stacker-db: {:?}", e);
                 }
             }
         }
@@ -273,6 +262,7 @@ impl<C: Coordinator> RunLoop<C> {
 
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
+        self.send_block_response_messages(&operation_results);
         self.send_operation_results(res, operation_results);
     }
 
@@ -292,6 +282,65 @@ impl<C: Coordinator> RunLoop<C> {
                     warn!("Failed to submit block for validation: {:?}", e);
                 });
         }
+    }
+
+    /// Helper function to extract block proposals from signature results and braodcast them to the stackerdb slot
+    fn send_block_response_messages(&mut self, _operation_results: &[OperationResult]) {
+        //TODO: Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
+        // https://github.com/stacks-network/stacks-core/issues/3930
+        // for result in operation_results {
+        //     match result {
+        //         OperationResult::Sign(signature) => {
+        //             debug!("Successfully signed message: {:?}", signature);
+        //             if signature.verify(
+        //                 &self
+        //                     .coordinator
+        //                     .get_aggregate_public_key()
+        //                     .expect("How could we have signed with no DKG?"),
+        //                 &block.unwrap().header.signature_hash().0,
+        //             ) {
+        //                 block.header.signer_signature = Some(signature);
+        //                 let message = SignerMessage::BlockResponse(BlockResponse::Accepted(block));
+        //                 // Submit the accepted signature to the stacks node
+        //                 if let Err(e) = self.stackerdb.send_message_with_retry(
+        //                     self.signing_round.signer_id,
+        //                     message,
+        //                 ) {
+        //                     warn!("Failed to send block rejection to stacker-db: {:?}", e);
+        //                 }
+        //             } else if false // match against the hash of the block + "no"
+        //             {
+        //                 warn!("Failed to verify signature: {:?}", signature);
+        //                 let block_rejection = BlockRejection {
+        //                     block,
+        //                     reject_code: RejectCode::ConsensusNo(signature),
+        //                     reason: "Consensus no vote".to_string()
+        //                 };
+        //                 if let Err(e) = self
+        //                 .stackerdb
+        //                 .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
+        //             {
+        //                 warn!(
+        //                     "Failed to send block rejection to stacker-db: {:?}",
+        //                     e
+        //                 );
+        //             }
+        //             } else { // No consensus reached
+        //                 if let Err(e) = self
+        //                 .stackerdb
+        //                 .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
+        //             {
+        //                 warn!(
+        //                     "Failed to send block rejection to stacker-db: {:?}",
+        //                     e
+        //                 );
+        //             }
+        //             }
+        //         },
+        //         _ => {
+        //             // Nothing to do
+        //         }
+        //     }
     }
 
     /// Helper function to send operation results across the provided channel
