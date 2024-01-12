@@ -38,35 +38,6 @@ use wsts::net::{Message, Packet};
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[repr(u8)]
-enum EventPrefix {
-    /// A StackerDB event
-    StackerDB,
-    /// A block proposal event
-    BlockProposal,
-}
-
-impl From<&SignerEvent> for EventPrefix {
-    fn from(event: &SignerEvent) -> Self {
-        match event {
-            SignerEvent::StackerDB(_) => EventPrefix::StackerDB,
-            SignerEvent::BlockProposal(_) => EventPrefix::BlockProposal,
-        }
-    }
-}
-impl TryFrom<u8> for EventPrefix {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(EventPrefix::StackerDB),
-            1 => Ok(EventPrefix::BlockProposal),
-            _ => Err(()),
-        }
-    }
-}
-
 /// Event enum for newly-arrived signer subscribed events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SignerEvent {
