@@ -52,12 +52,6 @@ impl From<&Config> for StacksClient {
 }
 
 impl StacksClient {
-    /// Retrieve the current miner public key
-    pub fn get_miner_public_key(&self) -> Result<StacksPublicKey, ClientError> {
-        // TODO: Depends on https://github.com/stacks-network/stacks-core/issues/4018
-        todo!("Get the miner public key from the stacks node to verify the miner blocks were signed by the correct miner");
-    }
-
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         let block_proposal = NakamotoBlockProposal {
