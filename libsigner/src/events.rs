@@ -138,7 +138,7 @@ impl SignerEventReceiver {
     /// Do something with the socket
     pub fn with_server<F, R>(&mut self, todo: F) -> Result<R, EventError>
     where
-        F: FnOnce(&mut SignerEventReceiver, &mut HttpServer) -> R,
+        F: FnOnce(&SignerEventReceiver, &mut HttpServer, &[QualifiedContractIdentifier]) -> R,
     {
         let mut server = if let Some(s) = self.http_server.take() {
             s
@@ -146,7 +146,7 @@ impl SignerEventReceiver {
             return Err(EventError::NotBound);
         };
 
-        let res = todo(self, &mut server);
+        let res = todo(self, &mut server, &self.stackerdb_contract_ids);
 
         self.http_server = Some(server);
         Ok(res)
@@ -203,7 +203,7 @@ impl EventReceiver for SignerEventReceiver {
     /// Errors are recoverable -- the caller should call this method again even if it returns an
     /// error.
     fn next_event(&mut self) -> Result<SignerEvent, EventError> {
-        self.with_server(|event_receiver, http_server| {
+        self.with_server(|event_receiver, http_server, contract_ids| {
             let mut request = http_server.recv()?;
 
             // were we asked to terminate?
@@ -229,6 +229,18 @@ impl EventReceiver for SignerEventReceiver {
                     serde_json::from_slice(body.as_bytes()).map_err(|e| {
                         EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
                     })?;
+
+                if !contract_ids.contains(&event.contract_id) {
+                    info!(
+                        "[{:?}] next_event got event from an unexpected contract id {}, return OK so other side doesn't keep sending this",
+                        event_receiver.local_addr,
+                        event.contract_id
+                    );
+                    request
+                        .respond(HttpResponse::empty(200u16))
+                        .expect("response failed");
+                    return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
+                }
 
                 request
                     .respond(HttpResponse::empty(200u16))
