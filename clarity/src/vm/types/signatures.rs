@@ -238,6 +238,7 @@ pub enum FunctionType {
         FunctionArgSignature,
         FunctionReturnsSignature,
     ),
+    RandomVariadic,
 }
 
 impl FunctionArgSignature {

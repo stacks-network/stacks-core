@@ -118,6 +118,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 Constant { value, .. } => {
                     self.check_read_only(value)?;
                 }
+                ConstantBench { value, .. } => {
+                    self.check_read_only(value)?;
+                }
                 PersistedVariable { initial, .. } => {
                     self.check_read_only(initial)?;
                 }
@@ -186,6 +189,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 // The _arguments_ to Constant, PersistedVariable, FT defines must be checked to ensure that
                 //   any _evaluated arguments_ supplied to them are valid with respect to read-only requirements.
                 Constant { value, .. } => {
+                    self.check_read_only(value)?;
+                }
+                ConstantBench { value, .. } => {
                     self.check_read_only(value)?;
                 }
                 PersistedVariable { initial, .. } => {
@@ -294,7 +300,8 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | TupleGet | TupleMerge | Len | Print | AsContract | Begin | FetchVar
             | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
             | ElementAt | IndexOf | Slice | ReplaceAt | BitwiseAnd | BitwiseOr | BitwiseNot
-            | BitwiseLShift | BitwiseRShift | BitwiseXor2 | ElementAtAlias | IndexOfAlias => {
+            | BitwiseLShift | BitwiseRShift | BitwiseXor2 | ElementAtAlias | IndexOfAlias
+            | ReplaceAt | NoOp => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }
@@ -381,7 +388,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 }
                 Ok(true)
             }
-            ContractCall => {
+            ContractCall | ContractCallBench => {
                 check_arguments_at_least(2, args)?;
 
                 let function_name = args[1]

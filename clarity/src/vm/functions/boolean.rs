@@ -71,6 +71,13 @@ pub fn special_and(
     Ok(Value::Bool(true))
 }
 
+pub fn special_no_op(
+    _args: &[SymbolicExpression],
+    _env: &mut Environment,
+    _context: &LocalContext,
+) -> Result<Value> {
+    Ok(Value::Bool(true))
+}
 pub fn native_not(input: Value) -> Result<Value> {
     let value = type_force_bool(&input)?;
     Ok(Value::Bool(!value))

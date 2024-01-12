@@ -75,7 +75,7 @@ mod arithmetic;
 mod assets;
 mod boolean;
 mod conversions;
-mod crypto;
+pub mod crypto;
 mod database;
 #[allow(clippy::result_large_err)]
 pub mod define;
@@ -193,6 +193,9 @@ define_versioned_named_enum!(NativeFunctions(ClarityVersion) {
     ToConsensusBuff("to-consensus-buff?", ClarityVersion::Clarity2),
     FromConsensusBuff("from-consensus-buff?", ClarityVersion::Clarity2),
     ReplaceAt("replace-at?", ClarityVersion::Clarity2),
+    // specific to benchmarking
+    NoOp("no-op", ClarityVersion::Clarity1),
+    ContractCallBench("contract-call-bench?", ClarityVersion::Clarity2),
 });
 
 impl NativeFunctions {
@@ -426,6 +429,10 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             ContractCall => {
                 SpecialFunction("special_contract-call", &database::special_contract_call)
             }
+            ContractCallBench => SpecialFunction(
+                "special_contract-call-bench",
+                &database::special_contract_call_bench,
+            ),
             AsContract => SpecialFunction("special_as-contract", &special_as_contract),
             ContractOf => SpecialFunction("special_contract-of", &special_contract_of),
             PrincipalOf => SpecialFunction("special_principal-of", &crypto::special_principal_of),
@@ -538,6 +545,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 SpecialFunction("from_consensus_buff", &conversions::from_consensus_buff)
             }
             ReplaceAt => SpecialFunction("replace_at", &sequences::special_replace_at),
+            NoOp => SpecialFunction("special_no_op", &boolean::special_no_op),
             BitwiseAnd => NativeFunction(
                 "native_bitwise_and",
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_and),
