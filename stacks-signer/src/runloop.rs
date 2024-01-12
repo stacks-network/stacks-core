@@ -274,7 +274,8 @@ impl<C: Coordinator> RunLoop<C> {
                 warn!("Received an unrecognized message type from .miners stacker-db slot id {}: {:?}", chunk.slot_id, ptr);
                 continue;
             };
-
+            //TODO: trigger the signing round here instead. Then deserialize the block and call the validation as you validate its contents
+            // https://github.com/stacks-network/stacks-core/issues/3930
             // Received a block proposal from the miner. Submit it for verification.
             self.stacks_client
                 .submit_block_for_validation(block)
