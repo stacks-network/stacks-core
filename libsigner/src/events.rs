@@ -220,10 +220,19 @@ impl EventReceiver for SignerEventReceiver {
             if request.url() == "/stackerdb_chunks" {
                 debug!("Got stackerdb_chunks event");
                 let mut body = String::new();
-                request
+                if let Err(e) = request
                     .as_reader()
-                    .read_to_string(&mut body)
-                    .expect("failed to read body");
+                    .read_to_string(&mut body) {
+                    error!("Failed to read body: {:?}", &e);
+
+                    request
+                        .respond(HttpResponse::empty(200u16))
+                        .expect("response failed");
+                    return Err(EventError::MalformedRequest(format!(
+                        "Failed to read body: {:?}",
+                        &e
+                    )));
+                    }
 
                 let event: StackerDBChunksEvent =
                     serde_json::from_slice(body.as_bytes()).map_err(|e| {
@@ -250,10 +259,19 @@ impl EventReceiver for SignerEventReceiver {
             } else if request.url() == "/proposal_response" {
                 debug!("Got proposal_response event");
                 let mut body = String::new();
-                request
+                if let Err(e) = request
                     .as_reader()
-                    .read_to_string(&mut body)
-                    .expect("failed to read body");
+                    .read_to_string(&mut body) {
+                    error!("Failed to read body: {:?}", &e);
+
+                    request
+                        .respond(HttpResponse::empty(200u16))
+                        .expect("response failed");
+                    return Err(EventError::MalformedRequest(format!(
+                        "Failed to read body: {:?}",
+                        &e
+                    )));
+                    }
 
                 let event: BlockValidateResponse =
                     serde_json::from_slice(body.as_bytes()).map_err(|e| {

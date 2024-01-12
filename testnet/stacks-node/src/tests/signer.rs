@@ -401,6 +401,22 @@ fn stackerdb_dkg_sign() {
 
 #[test]
 #[ignore]
+/// Test that a signer can respond to a miners request for a signature on a block proposal
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is advanced to epoch 3.0. and signers perform a DKG round (this should be removed
+/// once we have proper casting of the vote during epoch 2.5).
+///
+/// Test Execution:
+/// The node attempts to mine a Nakamoto tenure, sending a block to the observing signers via the
+/// .miners stacker db instance. The signers submit the block to the stacks node for verification.
+/// Upon receiving a Block Validation response approving the block, the signers perform a signing
+/// round across its signature hash.
+///
+/// Test Assertion:
+/// Signers return an operation result containing a valid signature across the miner's Nakamoto block's signature hash.
+/// TODO: update this test to assert that the signers broadcast a Nakamoto block response back to the miners
 fn stackerdb_block_proposal() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -480,12 +496,6 @@ fn stackerdb_block_proposal() {
     .unwrap();
 
     info!("------------------------- Test Block Processed -------------------------");
-    //Wait for the block to show up in the test observer
-    let validate_responses = test_observer::get_proposal_responses();
-    let proposed_block = match validate_responses.first().expect("No block proposal") {
-        BlockValidateResponse::Ok(block_validated) => block_validated.block.clone(),
-        _ => panic!("Unexpected response"),
-    };
     let recv = signer_test
         .result_receivers
         .last()
@@ -505,6 +515,21 @@ fn stackerdb_block_proposal() {
         }
     }
     let signature = signature.expect("Failed to get signature");
+    // Wait for the block to show up in the test observer (Don't have to wait long as if we have received a signature,
+    // we know that the signers have already received their block proposal events via their event observers)
+    let t_start = std::time::Instant::now();
+    while test_observer::get_proposal_responses().is_empty() {
+        assert!(
+            t_start.elapsed() < Duration::from_secs(30),
+            "Timed out while waiting for block proposal event"
+        );
+        thread::sleep(Duration::from_secs(1));
+    }
+    let validate_responses = test_observer::get_proposal_responses();
+    let proposed_block = match validate_responses.first().expect("No block proposal") {
+        BlockValidateResponse::Ok(block_validated) => block_validated.block.clone(),
+        _ => panic!("Unexpected response"),
+    };
     let signature_hash = proposed_block
         .header
         .signature_hash()
