@@ -55,8 +55,8 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
 use super::super::operations::BurnchainOpSigner;
-use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use crate::config::Config;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before

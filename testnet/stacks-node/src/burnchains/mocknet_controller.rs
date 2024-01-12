@@ -22,8 +22,8 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha256Sum;
 
 use super::super::operations::BurnchainOpSigner;
-use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use crate::config::Config;
 
 /// MocknetController is simulating a simplistic burnchain.
 pub struct MocknetController {

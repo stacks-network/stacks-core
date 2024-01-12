@@ -1,7 +1,11 @@
 [package]
 name = "stacks-node"
 version = "0.1.0"
-authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.com>", "Ludo Galabru <ludovic@blockstack.com>"]
+authors = [
+    "Jude Nelson <jude@stacks.org>",
+    "Aaron Blankstein <aaron@blockstack.com>",
+    "Ludo Galabru <ludovic@blockstack.com>",
+]
 edition = "2021"
 resolver = "2"
 rust-version = "1.61"
@@ -11,9 +15,12 @@ lazy_static = "1.4.0"
 pico-args = "0.3.1"
 serde = "1"
 serde_derive = "1"
-serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
+serde_json = { version = "1.0", features = [
+    "arbitrary_precision",
+    "raw_value",
+] }
 stacks = { package = "stackslib", path = "../../stackslib" }
-stx-genesis = { path = "../../stx-genesis"}
+stx-genesis = { path = "../../stx-genesis" }
 toml = "0.5.6"
 async-h1 = "2.3.2"
 async-std = { version = "1.6", features = ["attributes"] }
@@ -21,7 +28,7 @@ http-types = "2.12"
 base64 = "0.12.0"
 backtrace = "0.3.50"
 libc = "0.2"
-slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+slog = { version = "2.5.2", features = ["max_level_trace"] }
 clarity = { path = "../../clarity" }
 stacks-common = { path = "../../stacks-common" }
 chrono = "0.4.19"
@@ -36,14 +43,25 @@ hashbrown = "0.14"
 ring = "0.16.19"
 warp = "0.3.5"
 tokio = "1.15"
-reqwest = { version = "0.11", default_features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
-clarity = { path = "../../clarity", features = ["default", "testing"]}
-stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
-stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
+reqwest = { version = "0.11", default_features = false, features = [
+    "blocking",
+    "json",
+    "rustls",
+    "rustls-tls",
+] }
+clarity = { path = "../../clarity", features = ["default", "testing"] }
+stacks-common = { path = "../../stacks-common", features = [
+    "default",
+    "testing",
+] }
+stacks = { package = "stackslib", path = "../../stackslib", features = [
+    "default",
+    "testing",
+] }
 stacks-signer = { path = "../../stacks-signer" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-wsts = {workspace = true}
+wsts = { workspace = true }
 bincode = "1.3.3"
 
 [dependencies.rusqlite]

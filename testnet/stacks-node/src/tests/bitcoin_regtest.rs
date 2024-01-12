@@ -10,11 +10,11 @@ use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::core::StacksEpochId;
 use stacks_common::util::hash::hex_bytes;
 
+use super::to_addr;
 use super::PUBLISH_CONTRACT;
-use crate::config::InitialBalance;
 use crate::helium::RunLoop;
-use crate::tests::to_addr;
 use crate::Config;
+use crate::InitialBalance;
 
 #[derive(Debug)]
 pub enum BitcoinCoreError {
