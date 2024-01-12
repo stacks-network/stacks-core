@@ -74,6 +74,7 @@ jobs:
           - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
           - tests::nakamoto_integrations::block_proposal_api_endpoint
           - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
+          - tests::signer::stackerdb_dkg_sign
           - tests::signer::stackerdb_block_proposal
     steps:
       ## Setup test environment
