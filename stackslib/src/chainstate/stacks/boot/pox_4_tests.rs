@@ -2042,6 +2042,3 @@ pub fn get_last_block_sender_transactions(
         })
         .collect::<Vec<_>>()
 }
-
-// TODO
-// Helper that gets amount locked for a given address
