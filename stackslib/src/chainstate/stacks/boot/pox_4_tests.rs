@@ -1526,6 +1526,8 @@ fn stack_stx_signer_key_no_reuse() {
     let second_stacker_transactions =
         get_last_block_sender_transactions(&observer, second_stacker_address);
 
+        println!("second_stacker_transactions: {:?}", second_stacker_transactions[0].result);
+
     assert_eq!(second_stacker_transactions.len(), 1);
     assert_eq!(
         second_stacker_transactions
@@ -1703,7 +1705,7 @@ fn delegate_stack_stx_signer_key() {
 
 #[test]
 fn delegate_stack_stx_extend_signer_key() {
-    let lock_period = 2;
+    let lock_period: u128 = 2;
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
         prepare_pox4_test(function_name!(), None);
 
@@ -1835,6 +1837,94 @@ fn delegate_stack_stx_extend_signer_key() {
 
 }
 
+#[test]
+fn stack_increase() {
+    let lock_period = 2;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+
+    let mut stacker_nonce = 0;
+    let stacker_key = &keys[0];
+    let stacker_address = key_to_stacks_addr(stacker_key);
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    println!("min_ustx: {}", min_ustx);
+
+    // (define-public (stack-stx (amount-ustx uint)
+    //                       (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
+    //                       (start-burn-ht uint)
+    //                       (lock-period uint)
+    //                       (signer-key (buff 33)))
+    let pox_addr = make_pox_addr(
+        AddressHashMode::SerializeP2WSH,
+        key_to_stacks_addr(stacker_key).bytes,
+    );
+    let signer_key_val = Value::buff_from(vec![
+        0x03, 0xa0, 0xf9, 0x81, 0x8e, 0xa8, 0xc1, 0x4a, 0x82, 0x7b, 0xb1, 0x44, 0xae, 0xc9, 0xcf,
+        0xba, 0xeb, 0xa2, 0x25, 0xaf, 0x22, 0xbe, 0x18, 0xed, 0x78, 0xa2, 0xf2, 0x98, 0x10, 0x6f,
+        0x4e, 0x28, 0x1b,
+    ])
+    .unwrap();
+    let first_txs = vec![make_pox_4_contract_call(
+        stacker_key,
+        stacker_nonce,
+        "stack-stx",
+        vec![
+            Value::UInt(min_ustx),
+            pox_addr,
+            Value::UInt(block_height as u128),
+            Value::UInt(2),
+            signer_key_val.clone(),
+        ],
+    )];
+
+    let latest_block_1 = peer.tenure_with_txs(&first_txs, &mut coinbase_nonce);
+    let stacking_state = get_stacking_state_pox_4(
+        &mut peer,
+        &latest_block_1,
+        &key_to_stacks_addr(stacker_key).to_account_principal(),
+    )
+    .expect("No stacking state, stack-stx failed")
+    .expect_tuple();
+
+    let state_signer_key = stacking_state.get("signer-key").unwrap();
+    assert_eq!(state_signer_key.to_string(), signer_key_val.to_string());
+
+    stacker_nonce += 1;
+
+    // (define-public (stack-increase (increse-by uint)
+    let stack_increase = make_pox_4_increase_stx(
+        stacker_key,
+        stacker_nonce,
+        min_ustx
+    );
+    let latest_block_2 = peer.tenure_with_txs(&vec![stack_increase], &mut coinbase_nonce);
+    let stacker_transactions =
+        get_last_block_sender_transactions(&observer, stacker_address);
+    
+    let stacker_locked_amount: u128 = match &stacker_transactions[0].result {
+        Value::Response(ResponseData { committed: _, ref data }) => {
+            match **data {
+                Value::Tuple(TupleData { type_signature: _, ref data_map }) => {
+                    match data_map.get("total-locked") {
+                        Some(&Value::UInt(total_locked)) => {
+                            total_locked // Return the u128 value
+                        }
+                        _ => panic!("'total-locked' key not found or not a UInt"),
+                    }
+                }
+                _ => panic!("Response data is not a tuple"),
+            }
+        }
+        _ => panic!("Result is not a response"),
+    };
+    
+    assert_eq!(stacker_locked_amount, min_ustx * 2);  
+
+}
+
+
+
 pub fn get_stacking_state_pox_4(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
@@ -1952,3 +2042,6 @@ pub fn get_last_block_sender_transactions(
         })
         .collect::<Vec<_>>()
 }
+
+// TODO
+// Helper that gets amount locked for a given address
