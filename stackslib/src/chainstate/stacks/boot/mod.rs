@@ -1821,6 +1821,52 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_4_delegate_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: &PrincipalData,
+        pox_addr: Value,
+        amount: u128,
+    ) -> StacksTransaction {
+        //let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-increase",
+            vec![
+                Value::Principal(stacker.clone()),
+                pox_addr,
+                Value::UInt(amount),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+
+    pub fn make_pox_4_aggregation_commit_indexed(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        delegate_to: PrincipalData,
+        until_burn_ht: Option<u128>,
+        pox_addr: PoxAddress,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "stack-aggregation-commit-indexed",
+            vec![
+                addr_tuple,
+                Value::UInt(amount),
+            ],
+        ).unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     pub fn make_pox_4_increase_stx(
         key: &StacksPrivateKey,
         nonce: u64,
