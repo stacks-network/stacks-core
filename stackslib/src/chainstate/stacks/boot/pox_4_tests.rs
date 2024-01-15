@@ -1526,7 +1526,10 @@ fn stack_stx_signer_key_no_reuse() {
     let second_stacker_transactions =
         get_last_block_sender_transactions(&observer, second_stacker_address);
 
-        println!("second_stacker_transactions: {:?}", second_stacker_transactions[0].result);
+    println!(
+        "second_stacker_transactions: {:?}",
+        second_stacker_transactions[0].result
+    );
 
     assert_eq!(second_stacker_transactions.len(), 1);
     assert_eq!(
@@ -1816,7 +1819,12 @@ fn delegate_stack_stx_extend_signer_key() {
         delegate_key,
         stacker_nonce,
         "delegate-stack-extend",
-        vec![PrincipalData::from(key_to_stacks_addr(stacker_key)).into(), pox_addr.clone(), signer_key_new_val.clone(), Value::UInt(1)],
+        vec![
+            PrincipalData::from(key_to_stacks_addr(stacker_key)).into(),
+            pox_addr.clone(),
+            signer_key_new_val.clone(),
+            Value::UInt(1),
+        ],
     )];
 
     latest_block = peer.tenure_with_txs(&update_txs, &mut coinbase_nonce);
@@ -1833,8 +1841,6 @@ fn delegate_stack_stx_extend_signer_key() {
         state_signer_key_new.to_string(),
         signer_key_new_val.to_string()
     );
-
-
 }
 
 #[test]
@@ -1893,19 +1899,20 @@ fn stack_increase() {
     stacker_nonce += 1;
 
     // (define-public (stack-increase (increse-by uint)
-    let stack_increase = make_pox_4_increase_stx(
-        stacker_key,
-        stacker_nonce,
-        min_ustx
-    );
+    let stack_increase = make_pox_4_increase_stx(stacker_key, stacker_nonce, min_ustx);
     let latest_block_2 = peer.tenure_with_txs(&vec![stack_increase], &mut coinbase_nonce);
-    let stacker_transactions =
-        get_last_block_sender_transactions(&observer, stacker_address);
-    
+    let stacker_transactions = get_last_block_sender_transactions(&observer, stacker_address);
+
     let stacker_locked_amount: u128 = match &stacker_transactions[0].result {
-        Value::Response(ResponseData { committed: _, ref data }) => {
+        Value::Response(ResponseData {
+            committed: _,
+            ref data,
+        }) => {
             match **data {
-                Value::Tuple(TupleData { type_signature: _, ref data_map }) => {
+                Value::Tuple(TupleData {
+                    type_signature: _,
+                    ref data_map,
+                }) => {
                     match data_map.get("total-locked") {
                         Some(&Value::UInt(total_locked)) => {
                             total_locked // Return the u128 value
@@ -1918,9 +1925,8 @@ fn stack_increase() {
         }
         _ => panic!("Result is not a response"),
     };
-    
-    assert_eq!(stacker_locked_amount, min_ustx * 2);  
 
+    assert_eq!(stacker_locked_amount, min_ustx * 2);
 }
 
 #[test]
@@ -1932,14 +1938,12 @@ fn delegate_stack_increase() {
 
     let mut stacker_nonce = 0;
     let stacker_key = &keys[0];
-    let stacker_address = PrincipalData::from(
-        key_to_stacks_addr(stacker_key).to_account_principal(),
-    );
-    let delegate_nonce = 0;
+    let stacker_address =
+        PrincipalData::from(key_to_stacks_addr(stacker_key).to_account_principal());
+    let mut delegate_nonce = 0;
     let delegate_key = &keys[1];
-    let delegate_address = PrincipalData::from(
-        key_to_stacks_addr(delegate_key).to_account_principal(),
-    );
+    let delegate_address =
+        PrincipalData::from(key_to_stacks_addr(delegate_key).to_account_principal());
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
 
     // (define-public (delegate-stx (amount-ustx uint)
@@ -1964,7 +1968,7 @@ fn delegate_stack_increase() {
             stacker_nonce,
             "delegate-stx",
             vec![
-                Value::UInt(min_ustx*2),
+                Value::UInt(2 * min_ustx),
                 Value::Principal(delegate_address.clone()),
                 Value::none(),
                 Value::Optional(OptionalData {
@@ -2001,12 +2005,13 @@ fn delegate_stack_increase() {
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
     stacker_nonce += 1;
+    delegate_nonce += 1;
 
     let delegate_increase = make_pox_4_delegate_increase(
         delegate_key,
-        stacker_nonce,
+        delegate_nonce,
         &stacker_address,
-        pox_addr,
+        pox_addr.clone(),
         min_ustx,
     );
 
@@ -2015,20 +2020,41 @@ fn delegate_stack_increase() {
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
     let delegate_transactions =
-            get_last_block_sender_transactions(&observer, delegate_address.into());
+        get_last_block_sender_transactions(&observer, delegate_address.into());
 
-    println!("delegate_transactions: {:?}", delegate_transactions);
+    // println!("delegate_transactions: {:?}", delegate_transactions);
 
-    let stacker_transactions =
-            get_last_block_sender_transactions(&observer, stacker_address.into());
-    
-    println!("stacker_transactions: {:?}", stacker_transactions);
+    // let stacker_transactions =
+    //         get_last_block_sender_transactions(&observer, stacker_address.into());
 
-    // let state_signer_key_new = new_stacking_state.get("signer-key").unwrap();
-    // assert_eq!(
-    //     state_signer_key_new.to_string(),
-    //     signer_key_new_val.to_string()
-    // );
+    // println!("stacker_transactions: {:?}", stacker_transactions);
+
+    let stacker_locked_amount: u128 = match &delegate_transactions[0].result {
+        Value::Response(ResponseData {
+            committed: _,
+            ref data,
+        }) => {
+            match **data {
+                Value::Tuple(TupleData {
+                    type_signature: _,
+                    ref data_map,
+                }) => {
+                    match data_map.get("total-locked") {
+                        Some(&Value::UInt(total_locked)) => {
+                            total_locked // Return the u128 value
+                        }
+                        _ => panic!("'total-locked' key not found or not a UInt"),
+                    }
+                }
+                _ => panic!("Response data is not a tuple"),
+            }
+        }
+        _ => panic!("Result is not a response"),
+    };
+
+    println!("stacker_locked_amount: {:?}", stacker_locked_amount);
+
+    assert_eq!(stacker_locked_amount, min_ustx * 2);
 }
 
 pub fn get_stacking_state_pox_4(
