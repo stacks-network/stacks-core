@@ -14,7 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::any::Any;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::clarity::ClarityConnection;
@@ -1854,7 +1855,6 @@ fn stack_increase() {
     let stacker_key = &keys[0];
     let stacker_address = key_to_stacks_addr(stacker_key);
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-    println!("min_ustx: {}", min_ustx);
 
     // (define-public (stack-stx (amount-ustx uint)
     //                       (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
@@ -1884,10 +1884,10 @@ fn stack_increase() {
         ],
     )];
 
-    let latest_block_1 = peer.tenure_with_txs(&first_txs, &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(&first_txs, &mut coinbase_nonce);
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
-        &latest_block_1,
+        &latest_block,
         &key_to_stacks_addr(stacker_key).to_account_principal(),
     )
     .expect("No stacking state, stack-stx failed")
@@ -1900,7 +1900,7 @@ fn stack_increase() {
 
     // (define-public (stack-increase (increse-by uint)
     let stack_increase = make_pox_4_increase_stx(stacker_key, stacker_nonce, min_ustx);
-    let latest_block_2 = peer.tenure_with_txs(&vec![stack_increase], &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(&vec![stack_increase], &mut coinbase_nonce);
     let stacker_transactions = get_last_block_sender_transactions(&observer, stacker_address);
 
     let stacker_locked_amount: u128 = match &stacker_transactions[0].result {
@@ -2022,13 +2022,6 @@ fn delegate_stack_increase() {
     let delegate_transactions =
         get_last_block_sender_transactions(&observer, delegate_address.into());
 
-    // println!("delegate_transactions: {:?}", delegate_transactions);
-
-    // let stacker_transactions =
-    //         get_last_block_sender_transactions(&observer, stacker_address.into());
-
-    // println!("stacker_transactions: {:?}", stacker_transactions);
-
     let stacker_locked_amount: u128 = match &delegate_transactions[0].result {
         Value::Response(ResponseData {
             committed: _,
@@ -2051,8 +2044,6 @@ fn delegate_stack_increase() {
         }
         _ => panic!("Result is not a response"),
     };
-
-    println!("stacker_locked_amount: {:?}", stacker_locked_amount);
 
     assert_eq!(stacker_locked_amount, min_ustx * 2);
 }
