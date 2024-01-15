@@ -477,6 +477,7 @@ pub fn eval_all(
     })
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_create_var_in_context(
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,
@@ -521,6 +522,7 @@ pub fn bench_create_var_in_context(
     contract_context.meta_data_var.insert(name, data_type);
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_create_map_in_context(
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,
@@ -562,6 +564,7 @@ pub fn bench_create_map_in_context(
     contract_context.meta_data_map.insert(name, data_type);
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_create_ft_in_context(
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,
@@ -593,6 +596,7 @@ pub fn bench_create_ft_in_context(
     contract_context.meta_ft.insert(name, data_type);
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_create_nft_in_context(
     global_context: &mut GlobalContext,
     contract_context: &mut ContractContext,

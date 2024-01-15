@@ -1538,9 +1538,9 @@ impl<T: MarfTrieId> TrieFileStorage<T> {
         // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
             db_path: self.db_path.clone(),
-            db: db,
+            db,
             blobs,
-            cache: cache,
+            cache,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
 
@@ -1607,9 +1607,9 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         // TODO: borrow self.uncommitted_writes; don't copy them
         let ret = TrieFileStorage {
             db_path: self.db_path.to_string(),
-            db: db,
-            blobs: blobs,
-            cache: cache,
+            db,
+            blobs,
+            cache,
             bench: TrieBenchmark::new(),
             hash_calculation_mode: self.hash_calculation_mode,
 

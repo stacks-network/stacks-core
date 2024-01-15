@@ -106,6 +106,7 @@ pub fn check_special_mint_asset(
     ))))
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_check_special_mint_asset(checker: &mut TypeChecker, args: &[SymbolicExpression]) {
     let asset_name = args[0]
         .match_atom()

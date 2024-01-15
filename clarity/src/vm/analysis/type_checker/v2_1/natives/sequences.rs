@@ -111,6 +111,7 @@ pub fn check_special_map(
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_analysis_iterable_function_helper(
     checker: &mut TypeChecker,
     arg_types: &[TypeSignature],

@@ -300,6 +300,7 @@ impl DefinedFunction {
         }
     }
 
+    #[cfg(any(test, feature = "benchmarking"))]
     pub fn bench_execute_apply(&self, args: &[Value]) -> Result<()> {
         let mut context = LocalContext::new();
         if args.len() != self.arguments.len() {
