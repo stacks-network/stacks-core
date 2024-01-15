@@ -1844,7 +1844,6 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-
     pub fn make_pox_4_aggregation_commit_indexed(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -1858,11 +1857,9 @@ pub mod test {
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-aggregation-commit-indexed",
-            vec![
-                addr_tuple,
-                Value::UInt(amount),
-            ],
-        ).unwrap();
+            vec![addr_tuple, Value::UInt(amount)],
+        )
+        .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1876,9 +1873,7 @@ pub mod test {
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-increase",
-            vec![
-                Value::UInt(amount),
-            ],
+            vec![Value::UInt(amount)],
         )
         .unwrap();
 
