@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - id: check_packages_and_shards
-        uses: stacks-network/actions/mutation-testing/check-packages-and-shards@feat/mutation-testing
+        uses: stacks-network/actions/stacks-core/mutation-testing/check-packages-and-shards@main
 
   # Mutation testing - Execute on PR on small packages that have functions modified (normal run, no shards)
   pr-differences-mutants-small-normal:
@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - name: Run mutants on diffs
-        uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
           package-dimension: "small"
 
@@ -65,7 +65,7 @@ jobs:
 
     steps:
       - name: Run mutants on diffs
-        uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
           shard: ${{ matrix.shard }}
           package-dimension: "small"
@@ -85,7 +85,7 @@ jobs:
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
-        uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
           package-dimension: "big"
 
@@ -109,7 +109,7 @@ jobs:
         env:
           BITCOIND_TEST: 1
           RUST_BACKTRACE: full
-        uses: stacks-network/actions/mutation-testing/pr-differences@feat/mutation-testing
+        uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
           shard: ${{ matrix.shard }}
           package-dimension: "big"
@@ -123,6 +123,7 @@ jobs:
     if: always()
     needs:
       [
+        check-big-packages-and-shards,
         pr-differences-mutants-small-normal,
         pr-differences-mutants-small-shards,
         pr-differences-mutants-big-normal,
@@ -131,4 +132,9 @@ jobs:
 
     steps:
       - name: Output Mutants
-        uses: stacks-network/actions/mutation-testing/output-pr-mutants@feat/mutation-testing
+        uses: stacks-network/actions/stacks-core/mutation-testing/output-pr-mutants@main
+        with:
+          big_packages: ${{ needs.check-big-packages-and-shards.outputs.run_big_packages }}
+          shards_for_big_packages: ${{ needs.check-big-packages-and-shards.outputs.big_packages_with_shards }}
+          small_packages: ${{ needs.check-big-packages-and-shards.outputs.run_small_packages }}
+          shards_for_small_packages: ${{ needs.check-big-packages-and-shards.outputs.small_packages_with_shards }}
