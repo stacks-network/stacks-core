@@ -838,6 +838,12 @@ fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> Chec
     Ok(total_size)
 }
 
+/// Make `trait_type_size()` public for testing
+#[cfg(any(test, feature = "testing"))]
+pub fn _trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> CheckResult<u64> {
+    trait_type_size(trait_sig)
+}
+
 fn contract_analysis_size(contract: &ContractAnalysis) -> CheckResult<u64> {
     let mut total_size = contract.public_function_types.len() as u64;
     total_size = total_size.cost_overflow_add(contract.read_only_function_types.len() as u64)?;
@@ -886,6 +892,35 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             type_map: TypeMap::new(),
             clarity_version: *clarity_version,
         }
+    }
+
+    /// Make `new()` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _new(
+        db: &'a mut AnalysisDatabase<'b>,
+        cost_track: LimitedCostTracker,
+        contract_identifier: &QualifiedContractIdentifier,
+        clarity_version: &ClarityVersion,
+    ) -> TypeChecker<'a, 'b> {
+        Self::new(db, cost_track, contract_identifier, clarity_version)
+    }
+
+    /// Make `contract_context` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _get_contract_context(self) -> ContractContext {
+        self.contract_context
+    }
+
+    /// Make `function_return_tracker` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _get_db(self) -> &'a mut AnalysisDatabase<'b> {
+        self.db
+    }
+
+    /// Make `function_return_tracker` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _get_function_return_tracker(self) -> Option<Option<TypeSignature>> {
+        self.function_return_tracker
     }
 
     fn into_contract_analysis(
@@ -1223,6 +1258,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
+    /// Make `lookup_variable()` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _lookup_variable(&mut self, name: &str, context: &TypingContext) -> TypeResult {
+        Self::lookup_variable(self, name, context)
+    }
+
     fn clarity1_type_check_expects(
         &mut self,
         expr: &SymbolicExpression,
@@ -1408,6 +1449,17 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok((trait_name.clone(), trait_signature))
     }
 
+    /// Make `type_check_define_trait()` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _type_check_define_trait(
+        &mut self,
+        trait_name: &ClarityName,
+        function_types: &[SymbolicExpression],
+        _context: &mut TypingContext,
+    ) -> CheckResult<(ClarityName, BTreeMap<ClarityName, FunctionSignature>)> {
+        Self::type_check_define_trait(self, trait_name, function_types, _context)
+    }
+
     // Checks if an expression is a _define_ expression, and if so, typechecks it. Otherwise, it returns Ok(None)
     fn try_type_check_define(
         &mut self,
@@ -1575,6 +1627,16 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             // not a define.
             Ok(None)
         }
+    }
+
+    /// Make `_try_type_check_define()` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _try_type_check_define(
+        &mut self,
+        expression: &SymbolicExpression,
+        context: &mut TypingContext,
+    ) -> CheckResult<Option<()>> {
+        Self::try_type_check_define(self, expression, context)
     }
 
     #[cfg(any(test, feature = "benchmarking"))]

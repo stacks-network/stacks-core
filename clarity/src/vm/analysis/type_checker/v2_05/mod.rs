@@ -966,4 +966,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             Ok(None)
         }
     }
+
+    /// Make `_try_type_check_define()` public for testing
+    #[cfg(any(test, feature = "testing"))]
+    pub fn _try_type_check_define(
+        &mut self,
+        expression: &SymbolicExpression,
+        context: &mut TypingContext,
+    ) -> CheckResult<Option<()>> {
+        Self::try_type_check_define(self, expression, context)
+    }
 }
