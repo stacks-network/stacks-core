@@ -144,7 +144,12 @@ pub fn bench_analysis_iterable_function_helper(
         func_args.push(entry_type);
     }
 
-    let mapped_type = function_type.check_args(checker, &func_args, ClarityVersion::latest())?;
+    let mapped_type = function_type.check_args(
+        checker,
+        &func_args,
+        StacksEpochId::latest(),
+        ClarityVersion::latest(),
+    )?;
     TypeSignature::list_of(mapped_type, min_args)
         .map_err(|_| CheckErrors::ConstructedListTooLarge.into())
 }

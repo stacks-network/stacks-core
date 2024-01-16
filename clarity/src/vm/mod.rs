@@ -516,6 +516,7 @@ pub fn bench_create_var_in_context(
             &name,
             value,
             &data_type,
+            &global_context.epoch_id,
         )
         .unwrap();
 

@@ -337,7 +337,7 @@ impl DefinedFunction {
                     );
                 }
                 _ => {
-                    if !type_sig.admits(value) {
+                    if !type_sig.admits(&StacksEpochId::latest(), value)? {
                         return Err(
                             CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
                         );

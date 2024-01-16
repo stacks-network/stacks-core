@@ -336,6 +336,7 @@ pub fn special_contract_call_bench(
                         }
 
                         function_to_check.check_trait_expectations(
+                            &env.global_context.epoch_id,
                             &contract_context_defining_trait,
                             &trait_identifier,
                         )?;
@@ -377,7 +378,7 @@ pub fn special_contract_call_bench(
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result);
-        if !returns_type_signature.admits_type(&actual_returns) {
+        if !returns_type_signature.admits_type(&env.global_context.epoch_id, &actual_returns)? {
             return Err(
                 CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
             );

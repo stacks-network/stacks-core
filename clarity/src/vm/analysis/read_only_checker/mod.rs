@@ -301,7 +301,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | GetStxBalance | StxGetAccount | GetTokenBalance | GetAssetOwner | GetTokenSupply
             | ElementAt | IndexOf | Slice | ReplaceAt | BitwiseAnd | BitwiseOr | BitwiseNot
             | BitwiseLShift | BitwiseRShift | BitwiseXor2 | ElementAtAlias | IndexOfAlias
-            | ReplaceAt | NoOp => {
+            | NoOp => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }
