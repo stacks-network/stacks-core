@@ -72,13 +72,14 @@ pub fn check_special_list_cons(
         )?;
     }
     TypeSignature::parent_list_type(&typed_args)
-        .map_err(|x| x.into())
+        .map_err(CheckError::from)
         .map(TypeSignature::from)
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_analysis_list_items_check_helper(typed_args: &[TypeSignature]) -> TypeResult {
     TypeSignature::parent_list_type(typed_args)
-        .map_err(|x| x.into())
+        .map_err(CheckError::from)
         .map(TypeSignature::from)
 }
 
@@ -195,6 +196,7 @@ pub fn check_special_merge(
     Ok(TypeSignature::TupleType(base))
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_analysis_check_tuple_merge_helper(
     checker: &mut TypeChecker,
     base_type_sig: TypeSignature,
@@ -253,6 +255,7 @@ pub fn check_special_tuple_cons(
     Ok(TypeSignature::TupleType(tuple_signature))
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_analysis_tuple_cons_helper(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -266,6 +269,7 @@ pub fn bench_analysis_tuple_cons_helper(
     Ok(TypeSignature::BoolType)
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_analysis_tuple_items_check_helper(
     checker: &mut TypeChecker,
     var_type: TypeSignature,
@@ -598,6 +602,7 @@ fn check_contract_call(
     Ok(expected_sig.returns)
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_analysis_get_function_entry_in_context(
     db: &mut AnalysisDatabase,
     contract_identifier: &QualifiedContractIdentifier,
@@ -626,6 +631,7 @@ pub fn bench_analysis_get_function_entry_in_context(
     FunctionSignature::from(contract_call_function)
 }
 
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn bench_check_contract_call(
     checker: &mut TypeChecker,
     trait_id: &TraitIdentifier,

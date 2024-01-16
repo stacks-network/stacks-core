@@ -120,7 +120,7 @@ clarity_template! {
     (Epoch25, Clarity2),
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 impl Value {
     pub fn list_from(list_data: Vec<Value>) -> Result<Value, Error> {
         Value::cons_list_unsanitized(list_data)

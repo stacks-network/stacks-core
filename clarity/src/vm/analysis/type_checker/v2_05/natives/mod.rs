@@ -64,7 +64,7 @@ fn check_special_list_cons(
         )?;
     }
     TypeSignature::parent_list_type(&typed_args)
-        .map_err(|x| x.into())
+        .map_err(CheckError::from)
         .map(TypeSignature::from)
 }
 

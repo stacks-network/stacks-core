@@ -20,6 +20,7 @@ pub mod natives;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
 
+use rand::Rng;
 use stacks_common::types::StacksEpochId;
 
 use self::contexts::ContractContext;
@@ -1574,5 +1575,75 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             // not a define.
             Ok(None)
         }
+    }
+
+    #[cfg(any(test, feature = "benchmarking"))]
+    pub fn bench_analysis_visit_helper(
+        &mut self,
+        expr: &SymbolicExpression,
+        _context: &TypingContext,
+    ) -> TypeResult {
+        match expr.expr {
+            AtomValue(_) | LiteralValue(_) => Ok(TypeSignature::BoolType),
+            Atom(_) => Ok(TypeSignature::BoolType),
+            List(_) => Ok(TypeSignature::BoolType),
+            TraitReference(_, _) | Field(_) => Ok(TypeSignature::BoolType),
+        }
+    }
+
+    #[cfg(any(test, feature = "benchmarking"))]
+    pub fn bench_analysis_check_let_helper(
+        &mut self,
+        mut types_returned: Vec<TypeSignature>,
+        _context: &TypingContext,
+    ) -> TypeResult {
+        let last_return = types_returned
+            .pop()
+            .ok_or(CheckError::new(CheckErrors::CheckerImplementationFailure))?;
+
+        for type_return in types_returned.iter() {
+            if type_return.is_response_type() {
+                return Err(CheckErrors::UncheckedIntermediaryResponses.into());
+            }
+        }
+        Ok(last_return)
+    }
+
+    #[cfg(any(test, feature = "benchmarking"))]
+    pub fn bench_analysis_lookup_variable_depth_helper(
+        &mut self,
+        name: &str,
+        context: &TypingContext,
+    ) -> TypeResult {
+        if let Some(type_result) = context.lookup_variable_type(name) {
+            Ok(type_result.clone())
+        } else {
+            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+        }
+    }
+
+    #[cfg(any(test, feature = "benchmarking"))]
+    pub fn bench_analysis_bind_name_helper(&mut self, type_sig: TypeSignature) -> CheckResult<()> {
+        // setup
+        let mut rng = rand::thread_rng();
+        let char_name = (0..15)
+            .map(|_| rng.gen_range(b'a', b'z') as char)
+            .collect::<String>();
+        let clar_name = ClarityName::try_from(char_name.clone()).unwrap();
+
+        self.contract_context.add_variable_type(clar_name, type_sig)
+    }
+
+    #[cfg(any(test, feature = "benchmarking"))]
+    pub fn bench_analysis_use_trait_entry_in_context(
+        db: &mut AnalysisDatabase,
+        trait_identifier: &TraitIdentifier,
+    ) {
+        db.get_defined_trait(
+            &trait_identifier.contract_identifier,
+            &trait_identifier.name,
+            &StacksEpochId::latest(),
+        )
+        .unwrap();
     }
 }
