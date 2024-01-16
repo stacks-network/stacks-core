@@ -1,11 +1,26 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::MINERS_NAME;
+use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
-use blockstack_lib::net::api::poststackerdbchunk::StackerDBChunksEvent;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerEvent, SignerRunLoop};
@@ -289,59 +304,6 @@ impl<C: Coordinator> RunLoop<C> {
     fn send_block_response_messages(&mut self, _operation_results: &[OperationResult]) {
         //TODO: Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
         // https://github.com/stacks-network/stacks-core/issues/3930
-        // for result in operation_results {
-        //     match result {
-        //         OperationResult::Sign(signature) => {
-        //             debug!("Successfully signed message: {:?}", signature);
-        //             if signature.verify(
-        //                 &self
-        //                     .coordinator
-        //                     .get_aggregate_public_key()
-        //                     .expect("How could we have signed with no DKG?"),
-        //                 &block.unwrap().header.signature_hash().0,
-        //             ) {
-        //                 block.header.signer_signature = Some(signature);
-        //                 let message = SignerMessage::BlockResponse(BlockResponse::Accepted(block));
-        //                 // Submit the accepted signature to the stacks node
-        //                 if let Err(e) = self.stackerdb.send_message_with_retry(
-        //                     self.signing_round.signer_id,
-        //                     message,
-        //                 ) {
-        //                     warn!("Failed to send block rejection to stacker-db: {:?}", e);
-        //                 }
-        //             } else if false // match against the hash of the block + "no"
-        //             {
-        //                 warn!("Failed to verify signature: {:?}", signature);
-        //                 let block_rejection = BlockRejection {
-        //                     block,
-        //                     reject_code: RejectCode::ConsensusNo(signature),
-        //                     reason: "Consensus no vote".to_string()
-        //                 };
-        //                 if let Err(e) = self
-        //                 .stackerdb
-        //                 .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
-        //             {
-        //                 warn!(
-        //                     "Failed to send block rejection to stacker-db: {:?}",
-        //                     e
-        //                 );
-        //             }
-        //             } else { // No consensus reached
-        //                 if let Err(e) = self
-        //                 .stackerdb
-        //                 .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
-        //             {
-        //                 warn!(
-        //                     "Failed to send block rejection to stacker-db: {:?}",
-        //                     e
-        //                 );
-        //             }
-        //             }
-        //         },
-        //         _ => {
-        //             // Nothing to do
-        //         }
-        //     }
     }
 
     /// Helper function to send operation results across the provided channel
