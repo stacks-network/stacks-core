@@ -88,7 +88,7 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
-    let ev = SignerEventReceiver::new(vec![config.signers_stackerdb_contract_id.clone()]);
+    let ev = SignerEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
     let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
@@ -247,7 +247,7 @@ fn handle_run(args: RunDkgArgs) {
 
 fn handle_generate_files(args: GenerateFilesArgs) {
     debug!("Generating files...");
-    let signer_stacks_private_keys = if let Some(path) = args.signer_private_keys {
+    let signer_stacks_private_keys = if let Some(path) = args.private_keys {
         let file = File::open(&path).unwrap();
         let reader = io::BufReader::new(file);
 

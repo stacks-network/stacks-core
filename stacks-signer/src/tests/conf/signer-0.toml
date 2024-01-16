@@ -4,7 +4,7 @@ stacks_private_key = "69be0e68947fa7128702761151dc8d9b39ee1401e547781bb2ec3e5b4e
 node_host = "127.0.0.1:20443"
 endpoint = "localhost:30000"
 network = "testnet"
-signers_stackerdb_contract_id = "ST11Z60137Y96MF89K1KKRTA3CR6B25WY1Y931668.signers-stackerdb"
+stackerdb_contract_id = "ST11Z60137Y96MF89K1KKRTA3CR6B25WY1Y931668.signers-stackerdb"
 signer_id = 0
 signers = [
             {public_key = "swBaKxfzs4pQne7spxhrkF6AtB34WEcreAkJ8mPcqx3t", key_ids = [1, 2, 3, 4]}

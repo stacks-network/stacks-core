@@ -172,7 +172,7 @@ fn spawn_signer(
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
     let ev = SignerEventReceiver::new(vec![
         boot_code_id(MINERS_NAME, config.network == Network::Mainnet),
-        config.signers_stackerdb_contract_id.clone(),
+        config.stackerdb_contract_id.clone(),
     ]);
     let runloop: stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>> =
         stacks_signer::runloop::RunLoop::from(&config);
@@ -195,8 +195,8 @@ fn setup_stx_btc_node(
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
     publisher_private_key: &StacksPrivateKey,
-    signers_stackerdb_contract: &str,
-    signers_stackerdb_contract_id: &QualifiedContractIdentifier,
+    stackerdb_contract: &str,
+    stackerdb_contract_id: &QualifiedContractIdentifier,
     signer_config_tomls: &Vec<String>,
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
@@ -235,7 +235,7 @@ fn setup_stx_btc_node(
     naka_conf
         .node
         .stacker_dbs
-        .push(signers_stackerdb_contract_id.clone());
+        .push(stackerdb_contract_id.clone());
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -291,12 +291,12 @@ fn setup_stx_btc_node(
         publisher_private_key,
         0,
         tx_fee,
-        &signers_stackerdb_contract_id.name,
-        signers_stackerdb_contract,
+        &stackerdb_contract_id.name,
+        stackerdb_contract,
     );
     submit_tx(&http_origin, &tx);
     // mine it
-    info!("Mining the stackerdb contract: {signers_stackerdb_contract_id}");
+    info!("Mining the signers stackerdb contract: {stackerdb_contract_id}");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 

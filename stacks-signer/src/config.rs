@@ -100,7 +100,7 @@ pub struct Config {
     /// endpoint to the event receiver
     pub endpoint: SocketAddr,
     /// smart contract that controls the target signers' stackerdb
-    pub signers_stackerdb_contract_id: QualifiedContractIdentifier,
+    pub stackerdb_contract_id: QualifiedContractIdentifier,
     /// The Scalar representation of the private key for signer communication
     pub message_private_key: Scalar,
     /// The signer's Stacks private key
@@ -141,9 +141,9 @@ struct RawConfigFile {
     pub node_host: String,
     /// endpoint to event receiver
     pub endpoint: String,
-    // FIXME: this should go away once .signers contract exists
+    // FIXME: this should go away once .signers contract exists at pox-4 instantiation
     /// Signers' Stacker db contract identifier
-    pub signers_stackerdb_contract_id: String,
+    pub stackerdb_contract_id: String,
     /// the 32 byte ECDSA private key used to sign blocks, chunks, and transactions
     pub message_private_key: String,
     /// The hex representation of the signer's Stacks private key used for communicating
@@ -215,15 +215,13 @@ impl TryFrom<RawConfigFile> for Config {
                 raw_data.endpoint.clone(),
             ))?;
 
-        let signers_stackerdb_contract_id = QualifiedContractIdentifier::parse(
-            &raw_data.signers_stackerdb_contract_id,
-        )
-        .map_err(|_| {
-            ConfigError::BadField(
-                "signers_stackerdb_contract_id".to_string(),
-                raw_data.signers_stackerdb_contract_id,
-            )
-        })?;
+        let stackerdb_contract_id =
+            QualifiedContractIdentifier::parse(&raw_data.stackerdb_contract_id).map_err(|_| {
+                ConfigError::BadField(
+                    "stackerdb_contract_id".to_string(),
+                    raw_data.stackerdb_contract_id,
+                )
+            })?;
 
         let message_private_key =
             Scalar::try_from(raw_data.message_private_key.as_str()).map_err(|_| {
@@ -275,7 +273,7 @@ impl TryFrom<RawConfigFile> for Config {
         Ok(Self {
             node_host,
             endpoint,
-            signers_stackerdb_contract_id,
+            stackerdb_contract_id,
             message_private_key,
             stacks_private_key,
             stacks_address,
