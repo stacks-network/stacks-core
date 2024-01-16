@@ -177,8 +177,8 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
+    use stacks::chainstate::stacks::events::StackerDBChunksEvent;
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
-    use stacks::net::api::poststackerdbchunk::StackerDBChunksEvent;
     use warp::Filter;
     use {tokio, warp};
 

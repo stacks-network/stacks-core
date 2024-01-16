@@ -22,7 +22,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use std::{mem, thread};
 
-use blockstack_lib::net::api::poststackerdbchunk::StackerDBChunksEvent;
+use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::StackerDBChunkData;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;

@@ -22,8 +22,8 @@ use std::sync::Arc;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::MINERS_NAME;
+use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
-use blockstack_lib::net::api::poststackerdbchunk::StackerDBChunksEvent;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
