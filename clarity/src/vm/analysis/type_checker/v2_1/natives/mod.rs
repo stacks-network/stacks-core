@@ -605,12 +605,12 @@ pub fn bench_analysis_get_function_entry_in_context(
 ) -> FunctionSignature {
     let contract_call_function = {
         if let Some(FunctionType::Fixed(function)) = db
-            .get_public_function_type(&contract_identifier, func_name)
+            .get_public_function_type(&contract_identifier, func_name, &StacksEpochId::latest())
             .unwrap()
         {
             Ok(function)
         } else if let Some(FunctionType::Fixed(function)) = db
-            .get_read_only_function_type(&contract_identifier, func_name)
+            .get_read_only_function_type(&contract_identifier, func_name, &StacksEpochId::latest())
             .unwrap()
         {
             Ok(function)

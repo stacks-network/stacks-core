@@ -222,8 +222,18 @@ pub fn special_contract_call(
     Ok(result)
 }
 
+#[cfg(not(any(test, feature = "benchmarking")))]
+pub fn special_contract_call_bench(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    Err(CheckErrors::UnknownFunction("Only available in benchmarking mode".to_string()).into())
+}
+
 // variant of special_contract_call that isolates the cost of contract call by
 // omitting the loading and execution of the called upon contract
+#[cfg(any(test, feature = "benchmarking"))]
 pub fn special_contract_call_bench(
     args: &[SymbolicExpression],
     env: &mut Environment,

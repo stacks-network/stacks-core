@@ -309,6 +309,7 @@ impl FunctionType {
                 let return_type = return_type.canonicalize(epoch);
                 FunctionType::Binary(arg1, arg2, return_type)
             }
+            FunctionType::RandomVariadic => FunctionType::RandomVariadic,
         }
     }
 }

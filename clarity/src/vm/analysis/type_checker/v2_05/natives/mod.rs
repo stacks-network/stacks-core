@@ -716,7 +716,9 @@ impl TypedNativeFunction {
             Begin => Special(SpecialNativeFunction(&check_special_begin)),
             Print => Special(SpecialNativeFunction(&check_special_print)),
             AsContract => Special(SpecialNativeFunction(&check_special_as_contract)),
-            ContractCall => Special(SpecialNativeFunction(&check_contract_call)),
+            ContractCall | ContractCallBench => {
+                Special(SpecialNativeFunction(&check_contract_call))
+            }
             ContractOf => Special(SpecialNativeFunction(&check_contract_of)),
             PrincipalOf => Special(SpecialNativeFunction(&check_principal_of)),
             GetBlockInfo => Special(SpecialNativeFunction(&check_get_block_info)),
@@ -744,6 +746,7 @@ impl TypedNativeFunction {
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
             | ReplaceAt => unreachable!("Clarity 2 keywords should not show up in 2.05"),
+            NoOp => Simple(SimpleNativeFunction(FunctionType::RandomVariadic)),
         }
     }
 }

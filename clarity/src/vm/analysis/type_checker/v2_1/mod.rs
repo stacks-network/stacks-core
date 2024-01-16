@@ -313,6 +313,7 @@ impl FunctionType {
 
                 Ok(TypeSignature::BoolType)
             }
+            FunctionType::RandomVariadic => Ok(TypeSignature::BoolType),
         }
     }
 
@@ -1414,7 +1415,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     ) -> CheckResult<Option<()>> {
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
-                DefineFunctionsParsed::Constant { name, value } => {
+                DefineFunctionsParsed::Constant { name, value }
+                | DefineFunctionsParsed::ConstantBench { name, value } => {
                     let (v_name, v_type) = self.type_check_define_variable(name, value, context)?;
                     runtime_cost(
                         ClarityCostFunction::AnalysisBindName,
