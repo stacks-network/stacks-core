@@ -140,7 +140,7 @@ impl From<&Config> for StackerDB {
         Self {
             signers_stackerdb_session: StackerDBSession::new(
                 config.node_host,
-                config.signers_stackerdb_contract_id.clone(),
+                config.stackerdb_contract_id.clone(),
             ),
             stacks_private_key: config.stacks_private_key,
             slot_versions: HashMap::new(),

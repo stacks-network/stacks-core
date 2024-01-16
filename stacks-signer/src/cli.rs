@@ -133,14 +133,14 @@ pub struct GenerateFilesArgs {
     pub signers_contract: QualifiedContractIdentifier,
     #[arg(
         long,
-        required_unless_present = "signer_private_keys",
-        conflicts_with = "signer_private_keys"
+        required_unless_present = "private_keys",
+        conflicts_with = "private_keys"
     )]
     /// The number of signers to generate
     pub num_signers: Option<u32>,
     #[clap(long, value_name = "FILE")]
     /// A path to a file containing a list of hexadecimal Stacks private keys of the signers
-    pub signer_private_keys: Option<PathBuf>,
+    pub private_keys: Option<PathBuf>,
     #[arg(long)]
     /// The total number of key ids to distribute among the signers
     pub num_keys: u32,

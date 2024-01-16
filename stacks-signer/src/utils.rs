@@ -12,7 +12,7 @@ pub fn build_signer_config_tomls(
     signer_stacks_private_keys: &[StacksPrivateKey],
     num_keys: u32,
     node_host: &str,
-    signers_stackerdb_contract_id: &str,
+    stackerdb_contract_id: &str,
     timeout: Option<Duration>,
 ) -> Vec<String> {
     let num_signers = signer_stacks_private_keys.len() as u32;
@@ -71,7 +71,7 @@ stacks_private_key = "{stacks_private_key}"
 node_host = "{node_host}"
 endpoint = "{endpoint}"
 network = "testnet"
-signers_stackerdb_contract_id = "{signers_stackerdb_contract_id}"
+stackerdb_contract_id = "{stackerdb_contract_id}"
 signer_id = {id}
 {signers_array}
 "#
