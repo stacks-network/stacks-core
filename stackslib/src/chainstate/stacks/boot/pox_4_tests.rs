@@ -1182,6 +1182,164 @@ fn pox_3_unlocks() {
     }
 }
 
+// test that revoke-delegate-stx calls emit an event and
+// test that revoke-delegate-stx is only successfull if user has delegated.
+#[test]
+fn pox_4_revoke_delegate_stx_events() {
+    // Config for this test
+    let (epochs, pox_constants) = make_test_epochs_pox();
+
+    let mut burnchain = Burnchain::default_unittest(
+        0,
+        &BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap(),
+    );
+    burnchain.pox_constants = pox_constants.clone();
+
+    let observer = TestEventObserver::new();
+
+    let (mut peer, mut keys) = instantiate_pox_peer_with_epoch(
+        &burnchain,
+        function_name!(),
+        Some(epochs.clone()),
+        Some(&observer),
+    );
+
+    assert_eq!(burnchain.pox_constants.reward_slots(), 6);
+    let mut coinbase_nonce = 0;
+    let mut latest_block;
+
+    // alice
+    let alice = keys.pop().unwrap();
+    let alice_address = key_to_stacks_addr(&alice);
+    let alice_principal = PrincipalData::from(alice_address.clone());
+
+    // bob
+    let bob = keys.pop().unwrap();
+    let bob_address = key_to_stacks_addr(&bob);
+    let bob_principal = PrincipalData::from(bob_address.clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes.clone());
+
+    let mut alice_nonce = 0;
+
+    // Advance into pox4
+    let target_height = burnchain.pox_constants.pox_4_activation_height;
+    // produce blocks until the first reward phase that everyone should be in
+    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    info!(
+        "Block height: {}",
+        get_tip(peer.sortdb.as_ref()).block_height
+    );
+
+    // alice delegates 100 STX to Bob
+    let alice_delegation_amount = 100_000_000;
+    let alice_delegate = make_pox_4_delegate_stx(
+        &alice,
+        alice_nonce,
+        alice_delegation_amount,
+        bob_principal,
+        None,
+        None,
+    );
+    let alice_delegate_nonce = alice_nonce;
+    alice_nonce += 1;
+
+    let alice_revoke = make_pox_4_revoke_delegate_stx(&alice, alice_nonce);
+    let alice_revoke_nonce = alice_nonce;
+    alice_nonce += 1;
+
+    let alice_revoke_2 = make_pox_4_revoke_delegate_stx(&alice, alice_nonce);
+    let alice_revoke_2_nonce = alice_nonce;
+    alice_nonce += 1;
+
+    peer.tenure_with_txs(
+        &[alice_delegate, alice_revoke, alice_revoke_2],
+        &mut coinbase_nonce,
+    );
+
+    // check delegate with expiry
+
+    let target_height = get_tip(peer.sortdb.as_ref()).block_height + 10;
+    let alice_delegate_2 = make_pox_4_delegate_stx(
+        &alice,
+        alice_nonce,
+        alice_delegation_amount,
+        PrincipalData::from(bob_address.clone()),
+        Some(target_height as u128),
+        None,
+    );
+    let alice_delegate_2_nonce = alice_nonce;
+    alice_nonce += 1;
+
+    peer.tenure_with_txs(&[alice_delegate_2], &mut coinbase_nonce);
+
+    // produce blocks until delegation expired
+    while get_tip(peer.sortdb.as_ref()).block_height <= u64::from(target_height) {
+        peer.tenure_with_txs(&[], &mut coinbase_nonce);
+    }
+
+    let alice_revoke_3 = make_pox_4_revoke_delegate_stx(&alice, alice_nonce);
+    let alice_revoke_3_nonce = alice_nonce;
+    alice_nonce += 1;
+
+    peer.tenure_with_txs(&[alice_revoke_3], &mut coinbase_nonce);
+
+    let blocks = observer.get_blocks();
+    let mut alice_txs = HashMap::new();
+
+    for b in blocks.into_iter() {
+        for r in b.receipts.into_iter() {
+            if let TransactionOrigin::Stacks(ref t) = r.transaction {
+                let addr = t.auth.origin().address_testnet();
+                if addr == alice_address {
+                    alice_txs.insert(t.auth.get_origin_nonce(), r);
+                }
+            }
+        }
+    }
+    assert_eq!(alice_txs.len() as u64, 5);
+
+    // check event for first revoke delegation tx
+    let revoke_delegation_tx_events = &alice_txs.get(&alice_revoke_nonce).unwrap().clone().events;
+    assert_eq!(revoke_delegation_tx_events.len() as u64, 1);
+    let revoke_delegation_tx_event = &revoke_delegation_tx_events[0];
+    let revoke_delegate_stx_op_data = HashMap::from([(
+        "delegate-to",
+        Value::Principal(PrincipalData::from(bob_address.clone())),
+    )]);
+    let common_data = PoxPrintFields {
+        op_name: "revoke-delegate-stx".to_string(),
+        stacker: alice_principal.clone().into(),
+        balance: Value::UInt(10240000000000),
+        locked: Value::UInt(0),
+        burnchain_unlock_height: Value::UInt(0),
+    };
+    check_pox_print_event(
+        revoke_delegation_tx_event,
+        common_data,
+        revoke_delegate_stx_op_data,
+    );
+
+    // second revoke transaction should fail
+    assert_eq!(
+        &alice_txs[&alice_revoke_2_nonce].result.to_string(),
+        "(err 34)"
+    );
+
+    // second delegate transaction should succeed
+    assert_eq!(
+        &alice_txs[&alice_delegate_2_nonce].result.to_string(),
+        "(ok true)"
+    );
+    // third revoke transaction should fail
+    assert_eq!(
+        &alice_txs[&alice_revoke_3_nonce].result.to_string(),
+        "(err 34)"
+    );
+}
+
 fn assert_latest_was_burn(peer: &mut TestPeer) {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();

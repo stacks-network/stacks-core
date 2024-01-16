@@ -29,6 +29,7 @@
 (define-constant ERR_STACKING_NOT_DELEGATED 31)
 (define-constant ERR_INVALID_SIGNER_KEY 32)
 (define-constant ERR_REUSED_SIGNER_KEY 33)
+(define-constant ERR_DELEGATION_ALREADY_REVOKED 34)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -614,12 +615,17 @@
           ;; return the lock-up information, so the node can actually carry out the lock.
           (ok { stacker: tx-sender, lock-amount: amount-ustx, signer-key: signer-key, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))))
 
+;; Revokes the delegation to the current stacking pool.
+;; New in pox-4: Fails if the delegation was already revoked.
+;; Returns the last delegation state.
 (define-public (revoke-delegate-stx)
-  (begin
+  (let ((last-delegation-state (get-check-delegation tx-sender)))
     ;; must be called directly by the tx-sender or by an allowed contract-caller
     (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
-    (ok (map-delete delegation-state { stacker: tx-sender }))))
+    (asserts! (is-some last-delegation-state) (err ERR_DELEGATION_ALREADY_REVOKED))
+    (asserts! (map-delete delegation-state { stacker: tx-sender }) (err ERR_DELEGATION_ALREADY_REVOKED))
+    (ok last-delegation-state)))
 
 ;; Delegate to `delegate-to` the ability to stack from a given address.
 ;;  This method _does not_ lock the funds, rather, it allows the delegate
