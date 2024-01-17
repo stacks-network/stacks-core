@@ -77,9 +77,9 @@ Is illegally typed in our language.
 
 pub struct TypeChecker<'a, 'b> {
     pub type_map: TypeMap,
-    contract_context: ContractContext,
+    pub contract_context: ContractContext,
     function_return_tracker: Option<Option<TypeSignature>>,
-    db: &'a mut AnalysisDatabase<'b>,
+    pub db: &'a mut AnalysisDatabase<'b>,
     pub cost_track: LimitedCostTracker,
     clarity_version: ClarityVersion,
 }
