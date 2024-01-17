@@ -1527,11 +1527,6 @@ fn stack_stx_signer_key_no_reuse() {
     let second_stacker_transactions =
         get_last_block_sender_transactions(&observer, second_stacker_address);
 
-    println!(
-        "second_stacker_transactions: {:?}",
-        second_stacker_transactions[0].result
-    );
-
     assert_eq!(second_stacker_transactions.len(), 1);
     assert_eq!(
         second_stacker_transactions
@@ -1635,58 +1630,37 @@ fn delegate_stack_stx_signer_key() {
     let delegate_nonce = 0;
     let delegate_key = &keys[1];
     let delegate_principal = PrincipalData::from(key_to_stacks_addr(delegate_key));
+    let signer_private_key = &keys[2];
+    let signer_public_key = StacksPublicKey::from_private(signer_private_key);
 
-    // (define-public (delegate-stx (amount-ustx uint)
-    //                          (delegate-to principal)
-    //                          (until-burn-ht (optional uint))
-    //                          (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
-    let pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2WSH,
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
         key_to_stacks_addr(delegate_key).bytes,
     );
-    let signer_key_val = Value::buff_from(vec![
-        0x03, 0xa0, 0xf9, 0x81, 0x8e, 0xa8, 0xc1, 0x4a, 0x82, 0x7b, 0xb1, 0x44, 0xae, 0xc9, 0xcf,
-        0xba, 0xeb, 0xa2, 0x25, 0xaf, 0x22, 0xbe, 0x18, 0xed, 0x78, 0xa2, 0xf2, 0x98, 0x10, 0x6f,
-        0x4e, 0x28, 0x1b,
-    ])
-    .unwrap();
 
-    let txs = vec![
-        make_pox_4_contract_call(
-            stacker_key,
-            stacker_nonce,
-            "delegate-stx",
-            vec![
-                Value::UInt(100),
-                delegate_principal.clone().into(),
-                Value::none(),
-                Value::Optional(OptionalData {
-                    data: Some(Box::new(pox_addr.clone())),
-                }),
-            ],
-        ),
-        make_pox_4_contract_call(
-            delegate_key,
-            delegate_nonce,
-            "delegate-stack-stx",
-            vec![
-                PrincipalData::from(key_to_stacks_addr(stacker_key)).into(),
-                Value::UInt(100),
-                pox_addr,
-                Value::UInt(block_height as u128),
-                Value::UInt(lock_period),
-                signer_key_val.clone(),
-            ],
-        ),
-    ];
-    // (define-public (delegate-stack-stx (stacker principal)
-    //                                (amount-ustx uint)
-    //                                (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-    //                                (start-burn-ht uint)
-    //                                (lock-period uint)
-    //                                (signer-key (buff 33)))
+    let delegate_stx:StacksTransaction = make_pox_4_delegate_stx(
+        stacker_key, 
+        stacker_nonce, 
+        100, 
+        delegate_principal.clone().into(), 
+        None, 
+        Some(pox_addr.clone()),
+    );
+
+    let delegate_stack_stx = make_pox_4_delegate_stack_stx(
+        delegate_key, 
+        delegate_nonce, 
+        PrincipalData::from(key_to_stacks_addr(stacker_key)).into(), 
+        100, 
+        pox_addr.clone(), 
+        block_height as u128,
+        lock_period,
+        signer_public_key);
+        
+    let txs = vec![delegate_stx, delegate_stack_stx];
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
     let delegation_state = get_delegation_state_pox_4(
         &mut peer,
         &latest_block,
@@ -1704,7 +1678,8 @@ fn delegate_stack_stx_signer_key() {
     .expect_tuple();
 
     let state_signer_key = stacking_state.get("signer-key").unwrap();
-    assert_eq!(state_signer_key.to_string(), signer_key_val.to_string());
+
+    assert_eq!(state_signer_key.to_string()[2..],signer_public_key.to_hex());
 }
 
 #[test]
@@ -1899,7 +1874,7 @@ fn stack_increase() {
     stacker_nonce += 1;
 
     // (define-public (stack-increase (increse-by uint)
-    let stack_increase = make_pox_4_increase_stx(stacker_key, stacker_nonce, min_ustx);
+    let stack_increase = make_pox_4_stack_increase(stacker_key, stacker_nonce, min_ustx);
     let latest_block = peer.tenure_with_txs(&vec![stack_increase], &mut coinbase_nonce);
     let stacker_transactions = get_last_block_sender_transactions(&observer, stacker_address);
 
