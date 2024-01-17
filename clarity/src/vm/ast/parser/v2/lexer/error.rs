@@ -1,7 +1,5 @@
-use crate::vm::{
-    diagnostic::{DiagnosableError, Level},
-    representations::Span,
-};
+use crate::vm::diagnostic::{DiagnosableError, Level};
+use crate::vm::representations::Span;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum LexerError {

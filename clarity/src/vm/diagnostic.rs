@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::representations::Span;
 use std::fmt;
+
+use crate::vm::representations::Span;
 
 /// In a near future, we can go further in our static analysis and provide different levels
 /// of diagnostics, such as warnings, hints, best practices, etc.
@@ -65,24 +66,26 @@ impl Diagnostic {
 impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.level)?;
-        if self.spans.len() == 1 {
-            write!(
+        match self.spans.len().cmp(&1) {
+            std::cmp::Ordering::Equal => write!(
                 f,
-                " (line {}, column {})",
+                " (line {}, column {}): ",
                 self.spans[0].start_line, self.spans[0].start_column
-            )?;
-        } else if self.spans.len() > 1 {
-            let lines: Vec<String> = self
-                .spans
-                .iter()
-                .map(|s| format!("line: {}", s.start_line))
-                .collect();
-            write!(f, " ({})", lines.join(", "))?;
+            )?,
+            std::cmp::Ordering::Greater => {
+                let lines: Vec<String> = self
+                    .spans
+                    .iter()
+                    .map(|s| format!("line: {}", s.start_line))
+                    .collect();
+                write!(f, " ({}): ", lines.join(", "))?;
+            }
+            std::cmp::Ordering::Less => {}
         }
         write!(f, ": {}.", &self.message)?;
         if let Some(suggestion) = &self.suggestion {
             write!(f, "\n{}", suggestion)?;
         }
-        write!(f, "\n")
+        writeln!(f)
     }
 }

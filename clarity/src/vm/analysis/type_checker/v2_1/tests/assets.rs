@@ -14,12 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::contracts::type_check;
+use std::convert::TryInto;
+
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
+use super::contracts::type_check;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::AnalysisDatabase;
@@ -30,14 +33,11 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceSubtype, StringSubtype, TypeSignature,
 };
 use crate::vm::ClarityVersion;
-use stacks_common::types::StacksEpochId;
-use std::convert::TryInto;
 
 fn string_ascii_type(size: u32) -> TypeSignature {
     TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
         size.try_into().unwrap(),
     )))
-    .into()
 }
 
 const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
@@ -209,7 +209,7 @@ fn test_bad_asset_usage() {
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
         CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::UIntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::BoolType),
-        CheckErrors::DefineNFTBadSignature.into(),
+        CheckErrors::DefineNFTBadSignature,
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
         CheckErrors::NoSuchFT("stackoos".to_string()),

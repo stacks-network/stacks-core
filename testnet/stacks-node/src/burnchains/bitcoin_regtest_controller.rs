@@ -1,24 +1,19 @@
+use std::cmp;
+use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+
 use async_h1::client;
 use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use base64::encode;
 use http_types::{Method, Request, Url};
-use std::io::Cursor;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use std::time::Instant;
-
 use serde::Serialize;
 use serde_json::value::RawValue;
-
-use std::cmp;
-
-use super::super::operations::BurnchainOpSigner;
-use super::super::Config;
-use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-
+use stacks::burnchains::bitcoin::address::{
+    BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
+};
 use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
@@ -26,48 +21,41 @@ use stacks::burnchains::bitcoin::spv::SpvClient;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
-use stacks::burnchains::BurnchainStateTransitionOps;
-use stacks::burnchains::Error as burnchain_error;
-use stacks::burnchains::PoxConstants;
-use stacks::burnchains::PublicKey;
 use stacks::burnchains::{
-    bitcoin::address::{
-        BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
-    },
-    Txid,
+    Burnchain, BurnchainParameters, BurnchainStateTransitionOps, Error as burnchain_error,
+    PoxConstants, PublicKey, Txid,
 };
-use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
     TransferStxOp, UserBurnSupportOp,
 };
+#[cfg(test)]
+use stacks::chainstate::burn::Opcodes;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 #[cfg(test)]
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::codec::StacksMessageCodec;
 use stacks::core::{StacksEpoch, StacksEpochId};
-use stacks::util::hash::{hex_bytes, Hash160};
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::util::sleep_ms;
+use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::deps_common::bitcoin::blockdata::opcodes;
 use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-
 #[cfg(test)]
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
-
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
+use stacks_common::types::chainstate::BurnchainHeaderHash;
+use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::sleep_ms;
 
-use stacks::monitoring::{increment_btc_blocks_received_counter, increment_btc_ops_sent_counter};
-
-#[cfg(test)]
-use stacks::chainstate::burn::Opcodes;
-use stacks::types::chainstate::BurnchainHeaderHash;
+use super::super::operations::BurnchainOpSigner;
+use super::super::Config;
+use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -132,7 +120,10 @@ pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
 }
 
 /// Helper method to create a BitcoinIndexer
-pub fn make_bitcoin_indexer(config: &Config) -> BitcoinIndexer {
+pub fn make_bitcoin_indexer(
+    config: &Config,
+    should_keep_running: Option<Arc<AtomicBool>>,
+) -> BitcoinIndexer {
     let (network, _) = config.burnchain.get_bitcoin_network();
     let burnchain_params = BurnchainParameters::from_params(&config.burnchain.chain, &network)
         .expect("Bitcoin network unsupported");
@@ -158,6 +149,7 @@ pub fn make_bitcoin_indexer(config: &Config) -> BitcoinIndexer {
     let burnchain_indexer = BitcoinIndexer {
         config: indexer_config.clone(),
         runtime: indexer_runtime,
+        should_keep_running: should_keep_running,
     };
     burnchain_indexer
 }
@@ -202,7 +194,7 @@ impl LeaderBlockCommitFees {
         let value_per_transfer = payload.burn_fee / number_of_transfers;
         let sortition_fee = value_per_transfer * number_of_transfers;
         let spent_in_attempts = 0;
-        let fee_rate = get_satoshis_per_byte(&config);
+        let fee_rate = get_satoshis_per_byte(config);
         let default_tx_size = config.burnchain.block_commit_tx_estimated_size;
 
         LeaderBlockCommitFees {
@@ -319,6 +311,7 @@ impl BitcoinRegtestController {
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config.clone(),
             runtime: indexer_runtime,
+            should_keep_running: should_keep_running.clone(),
         };
 
         Self {
@@ -364,6 +357,7 @@ impl BitcoinRegtestController {
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config.clone(),
             runtime: indexer_runtime,
+            should_keep_running: None,
         };
 
         Self {
@@ -679,13 +673,13 @@ impl BitcoinRegtestController {
         result_vec
     }
 
-    /// Checks if there is a default wallet with the name of "".
-    /// If the default wallet does not exist, this function creates a wallet with name "".
+    /// Checks if the config-supplied wallet exists.
+    /// If it does not exist, this function creates it.
     pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
         let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
 
-        if !wallets.contains(&("".to_string())) {
-            BitcoinRPCRequest::create_wallet(&self.config, "")?;
+        if !wallets.contains(&self.config.burnchain.wallet_name) {
+            BitcoinRPCRequest::create_wallet(&self.config, &self.config.burnchain.wallet_name)?;
         }
         Ok(())
     }
@@ -1166,6 +1160,9 @@ impl BitcoinRegtestController {
             None => LeaderBlockCommitFees::estimated_fees_from_payload(&payload, &self.config),
         };
 
+        let _ = self.sortdb_mut();
+        let burn_chain_tip = self.burnchain_db.as_ref()?.get_canonical_chain_tip().ok()?;
+
         let public_key = signer.get_public_key();
         let (mut tx, mut utxos) = self.prepare_tx(
             epoch_id,
@@ -1173,7 +1170,7 @@ impl BitcoinRegtestController {
             estimated_fees.estimated_amount_required(),
             utxos_to_include,
             utxos_to_exclude,
-            payload.parent_block_ptr as u64,
+            burn_chain_tip.block_height,
         )?;
 
         // Serialize the payload
@@ -1393,7 +1390,7 @@ impl BitcoinRegtestController {
         res
     }
 
-    fn get_miner_address(
+    pub(crate) fn get_miner_address(
         &self,
         epoch_id: StacksEpochId,
         public_key: &Secp256k1PublicKey,
@@ -2150,15 +2147,15 @@ impl BitcoinRPCRequest {
         let url = {
             // some methods require a wallet ID
             let wallet_id = match payload.method.as_str() {
-                "importaddress" | "listunspent" => Some("".to_string()),
+                "importaddress" | "listunspent" => Some(config.burnchain.wallet_name.clone()),
                 _ => None,
             };
             let url = config.burnchain.get_rpc_url(wallet_id);
             Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
         };
         debug!(
-            "BitcoinRPC builder: {:?}:{:?}@{}",
-            &config.burnchain.username, &config.burnchain.password, &url
+            "BitcoinRPC builder '{}': {:?}:{:?}@{}",
+            &payload.method, &config.burnchain.username, &config.burnchain.password, &url
         );
 
         let mut req = Request::new(Method::Post, url);
@@ -2325,7 +2322,8 @@ impl BitcoinRPCRequest {
     pub fn send_raw_transaction(config: &Config, tx: String) -> RPCResult<()> {
         let payload = BitcoinRPCRequest {
             method: "sendrawtransaction".to_string(),
-            params: vec![tx.into()],
+            // set maxfee (as uncapped) and maxburncap (new in bitcoin 25)
+            params: vec![tx.into(), 0.into(), 1_000_000.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
@@ -2342,9 +2340,6 @@ impl BitcoinRPCRequest {
     }
 
     pub fn import_public_key(config: &Config, public_key: &Secp256k1PublicKey) -> RPCResult<()> {
-        let rescan = true;
-        let label = "";
-
         let pkh = Hash160::from_data(&public_key.to_bytes())
             .to_bytes()
             .to_vec();
@@ -2371,9 +2366,30 @@ impl BitcoinRPCRequest {
                 addr2str(&address),
                 public_key.to_hex()
             );
+
             let payload = BitcoinRPCRequest {
-                method: "importaddress".to_string(),
-                params: vec![addr2str(&address).into(), label.into(), rescan.into()],
+                method: "getdescriptorinfo".to_string(),
+                params: vec![format!("addr({})", &addr2str(&address)).into()],
+                id: "stacks".to_string(),
+                jsonrpc: "2.0".to_string(),
+            };
+
+            let result = BitcoinRPCRequest::send(&config, payload)?;
+            let checksum = result
+                .get(&"result".to_string())
+                .and_then(|res| res.as_object())
+                .and_then(|obj| obj.get("checksum"))
+                .and_then(|checksum_val| checksum_val.as_str())
+                .ok_or(RPCError::Bitcoind(format!(
+                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{}\"`",
+                    &addr2str(&address)
+                )))?;
+
+            let payload = BitcoinRPCRequest {
+                method: "importdescriptors".to_string(),
+                params: vec![
+                    json!([{ "desc": format!("addr({})#{}", &addr2str(&address), &checksum), "timestamp": 0, "internal": true }]),
+                ],
                 id: "stacks".to_string(),
                 jsonrpc: "2.0".to_string(),
             };
@@ -2425,7 +2441,7 @@ impl BitcoinRPCRequest {
     pub fn create_wallet(config: &Config, wallet_name: &str) -> RPCResult<()> {
         let payload = BitcoinRPCRequest {
             method: "createwallet".to_string(),
-            params: vec![wallet_name.into()],
+            params: vec![wallet_name.into(), true.into()],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
@@ -2443,6 +2459,7 @@ impl BitcoinRPCRequest {
                 return Err(RPCError::Network(format!("RPC Error: {}", err)));
             }
         };
+
         request.append_header("Content-Type", "application/json");
         request.set_body(body);
 
@@ -2504,12 +2521,12 @@ impl BitcoinRPCRequest {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::DEFAULT_SATS_PER_VB;
-
-    use super::*;
     use std::env::temp_dir;
     use std::fs::File;
     use std::io::Write;
+
+    use super::*;
+    use crate::config::DEFAULT_SATS_PER_VB;
 
     #[test]
     fn test_get_satoshis_per_byte() {

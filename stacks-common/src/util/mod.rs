@@ -18,6 +18,7 @@
 pub mod log;
 #[macro_use]
 pub mod macros;
+pub mod chunked_encoding;
 pub mod hash;
 pub mod pair;
 pub mod pipe;
@@ -26,18 +27,15 @@ pub mod secp256k1;
 pub mod uint;
 pub mod vrf;
 
-use std::error;
-use std::fmt;
-use std::thread;
-use std::time;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{error, fmt, thread, time};
 
 pub fn get_epoch_time_secs() -> u64 {
     let start = SystemTime::now();
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
-    return since_the_epoch.as_secs();
+    since_the_epoch.as_secs()
 }
 
 pub fn get_epoch_time_ms() -> u128 {
@@ -45,10 +43,10 @@ pub fn get_epoch_time_ms() -> u128 {
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards");
-    return since_the_epoch.as_millis();
+    since_the_epoch.as_millis()
 }
 
-pub fn sleep_ms(millis: u64) -> () {
+pub fn sleep_ms(millis: u64) {
     let t = time::Duration::from_millis(millis);
     thread::sleep(t);
 }
@@ -65,8 +63,8 @@ pub enum HexError {
 impl fmt::Display for HexError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            HexError::BadLength(n) => write!(f, "bad length {} for sha256d hex string", n),
-            HexError::BadCharacter(c) => write!(f, "bad character {} in sha256d hex string", c),
+            HexError::BadLength(n) => write!(f, "bad length {} for hex string", n),
+            HexError::BadCharacter(c) => write!(f, "bad character {} for hex string", c),
         }
     }
 }
@@ -77,8 +75,8 @@ impl error::Error for HexError {
     }
     fn description(&self) -> &str {
         match *self {
-            HexError::BadLength(_) => "sha256d hex string non-64 length",
-            HexError::BadCharacter(_) => "sha256d bad hex character",
+            HexError::BadLength(_) => "hex string non-64 length",
+            HexError::BadCharacter(_) => "bad hex character",
         }
     }
 }
@@ -97,9 +95,9 @@ pub fn slice_partialeq<T: PartialEq>(s1: &[T], s2: &[T]) -> bool {
 }
 
 pub mod db_common {
+    use std::{thread, time};
+
     use rand::{thread_rng, Rng};
-    use std::thread;
-    use std::time;
 
     pub fn tx_busy_handler(run_count: i32) -> bool {
         let mut sleep_count = 10;
