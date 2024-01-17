@@ -7,7 +7,23 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## [2.4.0.0.5]
 
-This introduces a set of improvements to the Stacks miner behavior.  In
+### Added
+
+- When the Clarity library is built with feature flag `developer-mode`, comments
+  from the source code are now attached to the `SymbolicExpression` nodes. This
+  will be useful for tools that use the Clarity library to analyze and
+  manipulate Clarity source code, e.g. a formatter.
+- New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
+- A new subsystem, called StackerDB, has been added, which allows a set of
+  Stacks nodes to store off-chain data on behalf of a specially-crafter smart
+  contract. This is an opt-in feature; Stacks nodes explicitly subscribe to
+  StackerDB replicas in their config files.
+- Message definitions and codecs for Stacker DB, a replicated off-chain DB
+  hosted by subscribed Stacks nodes and controlled by smart contracts
+- Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org,
+  cet.stacksnodes.org, sgt.stacksnodes.org
+
+In addition, this introduces a set of improvements to the Stacks miner behavior.  In
 particular:
 * The VRF public key can be re-used across node restarts.
 * Settings that affect mining are hot-reloaded from the config file.  They take
@@ -26,58 +42,11 @@ contract-calls).
 * When configured, the node will optionally only RBF block-commits if it can
   produce a block with strictly more transactions.
 
-## [2.4.0.0.4]
-
-This is a high-priority hotfix that addresses a bug in transaction processing which
-could impact miner availability.
-
-## [2.4.0.0.3]
-
-This is a high-priority hotfix that addresses a bug in transaction processing which
-could impact miner availability.
-
-## [2.4.0.0.2]
-
-This is a hotfix that changes the logging failure behavior from panicking to dropping
-the log message (PR #3784).
-
-## [2.4.0.0.4]
-
-This is a high-priority hotfix that addresses a bug in transaction processing which
-could impact miner availability.
-
-## [2.4.0.0.3]
-
-This is a high-priority hotfix that addresses a bug in transaction processing which
-could impact miner availability.
-
-## [2.4.0.0.2]
-
-This is a hotfix that changes the logging failure behavior from panicking to dropping
-the log message (PR #3784).
-
-## [Unreleased]
-
-### Added
-
-- When the Clarity library is built with feature flag `developer-mode`, comments
-  from the source code are now attached to the `SymbolicExpression` nodes. This
-  will be useful for tools that use the Clarity library to analyze and
-  manipulate Clarity source code, e.g. a formatter.
-- New RPC endpoint at /v2/constant_val to fetch a constant from a contract.
-- A new subsystem, called StackerDB, has been added, which allows a set of
-  Stacks nodes to store off-chain data on behalf of a specially-crafter smart
-  contract. This is an opt-in feature; Stacks nodes explicitly subscribe to
-  StackerDB replicas in their config files.
-- Message definitions and codecs for Stacker DB, a replicated off-chain DB
-  hosted by subscribed Stacks nodes and controlled by smart contracts
-- Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
-- satoshis_per_byte can be changed in the config file and miners will always use
-  the most up to date value
-
 ### Changed
 
-- `developer-mode` is no longer enabled in the default feature set. This is the correct default behavior, since the stacks-node should NOT build with developer-mode enabled by default. Tools that need to use developer-mode should enable it explicitly.
+- `developer-mode` is no longer enabled in the default feature set. This is the correct
+default behavior, since the stacks-node should NOT build with developer-mode enabled by
+default. Tools that need to use developer-mode should enable it explicitly.
 
 ### Fixed
 
@@ -90,6 +59,36 @@ the log message (PR #3784).
 - Use the current burnchain tip to lookup UTXOs (Issue #3733)
 - The node now gracefully shuts down even if it is in the middle of a handshake with
   bitcoind. Fixes issue #3734.
+
+## [2.4.0.0.4]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.3]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.2]
+
+This is a hotfix that changes the logging failure behavior from panicking to dropping
+the log message (PR #3784).
+
+## [2.4.0.0.4]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.3]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.2]
+
+This is a hotfix that changes the logging failure behavior from panicking to dropping
+the log message (PR #3784).
 
 ## [2.4.0.0.1]
 
