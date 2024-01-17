@@ -2043,7 +2043,7 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         stacker: &PrincipalData,
-        pox_addr: Value,
+        pox_addr: PoxAddress,
         amount: u128,
     ) -> StacksTransaction {
         //let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
@@ -2053,7 +2053,7 @@ pub mod test {
             "delegate-stack-increase",
             vec![
                 Value::Principal(stacker.clone()),
-                pox_addr,
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
                 Value::UInt(amount),
             ],
         )
