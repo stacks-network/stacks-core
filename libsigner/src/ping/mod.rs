@@ -1,6 +1,18 @@
 use rand_core::{OsRng, RngCore};
 use serde_derive::{Deserialize, Serialize};
 
+use crate::client::{PING_SLOT_ID, SIGNER_SLOTS_PER_USER};
+
+/// Is an incoming slot update a ping::Packet?
+/// Use it to filter out other packets.
+pub fn is_ping_slot(slot_id: u32) -> bool {
+    let Some(v) = slot_id.checked_sub(PING_SLOT_ID) else {
+        return false;
+    };
+
+    v % SIGNER_SLOTS_PER_USER == 0
+}
+
 /// What is written to the ping slot.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum Packet {
@@ -61,7 +73,6 @@ impl Pong {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::SignerMessage;
 
@@ -72,5 +83,14 @@ mod tests {
             ping_packet.slot_id(1),
             SignerMessage::from(Pong { id: 2 }).slot_id(1)
         );
+    }
+
+    #[test]
+    fn sane_is_ping_slot() {
+        assert!(!is_ping_slot(0));
+        assert!(!is_ping_slot(1));
+        assert!(!is_ping_slot(SIGNER_SLOTS_PER_USER));
+        assert!(is_ping_slot(SIGNER_SLOTS_PER_USER + PING_SLOT_ID));
+        assert!(is_ping_slot(PING_SLOT_ID));
     }
 }
