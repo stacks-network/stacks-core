@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [2.4.0.0.5]
+
+This introduces a set of improvements to the Stacks miner behavior.  In
+particular:
+* The VRF public key can be re-used across node restarts.
+* Settings that affect mining are hot-reloaded from the config file.  They take
+  effect once the file is updated; there is no longer a need to restart the
+node.
+* The act of changing the miner settings in the config file automatically
+  triggers a subsequent block-build attempt, allowing the operator to force the
+miner to re-try building blocks.
+* This adds a new tip-selection algorithm that minimizes block orphans within a
+  configurable window of time.
+* When configured, the node will automatically stop mining if it is not achieving a
+  targeted win rate over a configurable window of blocks.
+* When configured, the node will selectively mine transactions from only certain
+  addresses, or only of certain types (STX-transfers, contract-publishes,
+contract-calls).
+* When configured, the node will optionally only RBF block-commits if it can
+  produce a block with strictly more transactions.
+
 ## [2.4.0.0.4]
 
 This is a high-priority hotfix that addresses a bug in transaction processing which

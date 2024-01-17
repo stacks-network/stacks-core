@@ -58,8 +58,8 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::core::mempool::{
-    db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, TxTag, BLOOM_COUNTER_DEPTH,
-    BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
+    db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag,
+    BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
 };
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::net::Error as NetError;
@@ -259,8 +259,7 @@ fn mempool_walk_over_fork() {
     //   try to walk at b_4, we should be able to find
     //   the transaction at b_1
 
-    let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.min_tx_fee = 10;
+    let mempool_settings = MemPoolWalkSettings::default();
     let mut tx_events = Vec::new();
     chainstate.with_read_only_clarity_tx(
         &TEST_BURN_STATE_DB,
@@ -595,7 +594,6 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
     let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
 
     let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.min_tx_fee = 10;
     let mut tx_events = Vec::new();
 
     let mut txs = codec_all_transactions(
@@ -790,8 +788,7 @@ fn test_iterate_candidates_skipped_transaction() {
     );
     let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
 
-    let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.min_tx_fee = 10;
+    let mempool_settings = MemPoolWalkSettings::default();
     let mut tx_events = Vec::new();
 
     let mut txs = codec_all_transactions(
@@ -903,8 +900,7 @@ fn test_iterate_candidates_processing_error_transaction() {
     );
     let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
 
-    let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.min_tx_fee = 10;
+    let mempool_settings = MemPoolWalkSettings::default();
     let mut tx_events = Vec::new();
 
     let mut txs = codec_all_transactions(
@@ -1018,8 +1014,7 @@ fn test_iterate_candidates_problematic_transaction() {
     );
     let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
 
-    let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.min_tx_fee = 10;
+    let mempool_settings = MemPoolWalkSettings::default();
     let mut tx_events = Vec::new();
 
     let mut txs = codec_all_transactions(
@@ -1134,7 +1129,6 @@ fn test_iterate_candidates_concurrent_write_lock() {
     let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
 
     let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.min_tx_fee = 10;
     let mut tx_events = Vec::new();
 
     let mut txs = codec_all_transactions(
@@ -2647,4 +2641,162 @@ fn test_drop_and_blacklist_txs_by_size() {
     }
 
     assert_eq!(num_blacklisted, 5);
+}
+
+#[test]
+fn test_filter_txs_by_type() {
+    let mut chainstate = instantiate_chainstate(false, 0x80000000, function_name!());
+    let chainstate_path = chainstate_path(function_name!());
+    let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
+
+    let addr = StacksAddress {
+        version: 1,
+        bytes: Hash160([0xff; 20]),
+    };
+    let mut txs = vec![];
+    let block_height = 10;
+    let mut total_len = 0;
+
+    let b_1 = make_block(
+        &mut chainstate,
+        ConsensusHash([0x1; 20]),
+        &(
+            FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+            FIRST_STACKS_BLOCK_HASH.clone(),
+        ),
+        1,
+        1,
+    );
+    let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
+
+    let mut mempool_tx = mempool.tx_begin().unwrap();
+    for i in 0..10 {
+        let pk = StacksPrivateKey::new();
+        let mut tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0x80000000,
+            auth: TransactionAuth::from_p2pkh(&pk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::TokenTransfer(
+                addr.to_account_principal(),
+                123,
+                TokenTransferMemo([0u8; 34]),
+            ),
+        };
+        tx.set_tx_fee(1000);
+        tx.set_origin_nonce(0);
+
+        let txid = tx.txid();
+        let tx_bytes = tx.serialize_to_vec();
+        let origin_addr = tx.origin_address();
+        let origin_nonce = tx.get_origin_nonce();
+        let sponsor_addr = tx.sponsor_address().unwrap_or(origin_addr.clone());
+        let sponsor_nonce = tx.get_sponsor_nonce().unwrap_or(origin_nonce);
+        let tx_fee = tx.get_tx_fee();
+
+        total_len += tx_bytes.len();
+
+        // should succeed
+        MemPoolDB::try_add_tx(
+            &mut mempool_tx,
+            &mut chainstate,
+            &b_2.0,
+            &b_2.1,
+            txid.clone(),
+            tx_bytes,
+            tx_fee,
+            block_height as u64,
+            &origin_addr,
+            origin_nonce,
+            &sponsor_addr,
+            sponsor_nonce,
+            None,
+        )
+        .unwrap();
+
+        eprintln!("Added {} {}", i, &txid);
+        txs.push(tx);
+    }
+    mempool_tx.commit().unwrap();
+
+    let mut mempool_settings = MemPoolWalkSettings::default();
+    let mut tx_events = Vec::new();
+    mempool_settings.txs_to_consider = [
+        MemPoolWalkTxTypes::SmartContract,
+        MemPoolWalkTxTypes::ContractCall,
+    ]
+    .into_iter()
+    .collect();
+
+    chainstate.with_read_only_clarity_tx(
+        &TEST_BURN_STATE_DB,
+        &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+        |clarity_conn| {
+            let mut count_txs = 0;
+            mempool
+                .iterate_candidates::<_, ChainstateError, _>(
+                    clarity_conn,
+                    &mut tx_events,
+                    2,
+                    mempool_settings.clone(),
+                    |_, available_tx, _| {
+                        count_txs += 1;
+                        Ok(Some(
+                            // Generate any success result
+                            TransactionResult::success(
+                                &available_tx.tx.tx,
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
+                            )
+                            .convert_to_event(),
+                        ))
+                    },
+                )
+                .unwrap();
+            assert_eq!(count_txs, 0);
+        },
+    );
+
+    mempool_settings.txs_to_consider = [MemPoolWalkTxTypes::TokenTransfer].into_iter().collect();
+
+    chainstate.with_read_only_clarity_tx(
+        &TEST_BURN_STATE_DB,
+        &StacksBlockHeader::make_index_block_hash(&b_2.0, &b_2.1),
+        |clarity_conn| {
+            let mut count_txs = 0;
+            mempool
+                .iterate_candidates::<_, ChainstateError, _>(
+                    clarity_conn,
+                    &mut tx_events,
+                    2,
+                    mempool_settings.clone(),
+                    |_, available_tx, _| {
+                        count_txs += 1;
+                        Ok(Some(
+                            // Generate any success result
+                            TransactionResult::success(
+                                &available_tx.tx.tx,
+                                available_tx.tx.metadata.tx_fee,
+                                StacksTransactionReceipt::from_stx_transfer(
+                                    available_tx.tx.tx.clone(),
+                                    vec![],
+                                    Value::okay(Value::Bool(true)).unwrap(),
+                                    ExecutionCost::zero(),
+                                ),
+                            )
+                            .convert_to_event(),
+                        ))
+                    },
+                )
+                .unwrap();
+            assert_eq!(count_txs, 10);
+        },
+    );
 }

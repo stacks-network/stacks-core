@@ -146,7 +146,7 @@ impl RunLoopCallbacks {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegisteredKey {
     /// burn block height we intended this VRF key register to land in
     pub target_block_height: u64,

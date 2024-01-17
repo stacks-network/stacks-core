@@ -4697,7 +4697,6 @@ fn paramaterized_mempool_walk_test(
     let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
 
     let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.min_tx_fee = 10;
     let mut tx_events = Vec::new();
 
     let txs = codec_all_transactions(
