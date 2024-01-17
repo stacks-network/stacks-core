@@ -68,6 +68,7 @@ jobs:
           - tests::neon_integrations::test_problematic_microblocks_are_not_relayed_or_stored
           - tests::neon_integrations::test_problematic_txs_are_not_stored
           - tests::neon_integrations::use_latest_tip_integration_test
+          - tests::neon_integrations::min_txs
           - tests::should_succeed_handling_malformed_and_valid_txs
     steps:
       ## Setup test environment
