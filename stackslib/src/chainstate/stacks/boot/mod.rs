@@ -1848,6 +1848,29 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_4_delegate_stack_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: PrincipalData,
+        pox_addr: PoxAddress,
+        extend_count: u128,
+        signer_key: StacksPublicKey,
+    ) -> StacksTransaction {
+        let payload: TransactionPayload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-stx",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(extend_count),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
+        ).unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     pub fn make_pox_4_delegate_increase(
         key: &StacksPrivateKey,
         nonce: u64,
