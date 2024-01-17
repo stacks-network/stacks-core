@@ -1859,7 +1859,7 @@ pub mod test {
         let payload: TransactionPayload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
-            "delegate-stack-stx",
+            "delegate-stack-extend",
             vec![
                 Value::Principal(stacker.clone()),
                 Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),

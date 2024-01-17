@@ -1632,7 +1632,6 @@ fn delegate_stack_stx_signer_key() {
     let delegate_principal = PrincipalData::from(key_to_stacks_addr(delegate_key));
     let signer_private_key = &keys[2];
     let signer_public_key = StacksPublicKey::from_private(signer_private_key);
-
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
         key_to_stacks_addr(delegate_key).bytes,
@@ -1695,22 +1694,6 @@ fn delegate_stack_stx_extend_signer_key() {
     let delegate_principal = PrincipalData::from(key_to_stacks_addr(delegate_key));
     let signer_private_key = &keys[2];
     let signer_public_key = StacksPublicKey::from_private(signer_private_key);
-
-    // (define-public (delegate-stx (amount-ustx uint)
-    //                          (delegate-to principal)
-    //                          (until-burn-ht (optional uint))
-    //                          (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
-    // let pox_addr = make_pox_addr(
-    //     AddressHashMode::SerializeP2WSH,
-    //     key_to_stacks_addr(delegate_key).bytes,
-    // );
-    let signer_key_val = Value::buff_from(vec![
-        0x03, 0xa0, 0xf9, 0x81, 0x8e, 0xa8, 0xc1, 0x4a, 0x82, 0x7b, 0xb1, 0x44, 0xae, 0xc9, 0xcf,
-        0xba, 0xeb, 0xa2, 0x25, 0xaf, 0x22, 0xbe, 0x18, 0xed, 0x78, 0xa2, 0xf2, 0x98, 0x10, 0x6f,
-        0x4e, 0x28, 0x1b,
-    ])
-    .unwrap();
-
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
         key_to_stacks_addr(delegate_key).bytes,
@@ -1756,47 +1739,26 @@ fn delegate_stack_stx_extend_signer_key() {
     .expect_tuple();
 
     let state_signer_key = stacking_state.get("signer-key").unwrap();
-    assert_eq!(state_signer_key.to_string(), signer_key_val.to_string());
-
-    // (define-public (delegate-stack-extend (stacker principal)
-    //     (extend-count uint)
-    //     (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-    //     (signer-key (buff 33)))
+    assert_eq!(state_signer_key.to_string()[2..], signer_public_key.to_hex());
 
     stacker_nonce += 1;
 
-    let mut latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
-    let stacking_state = get_stacking_state_pox_4(
-        &mut peer,
-        &latest_block,
-        &key_to_stacks_addr(stacker_key).to_account_principal(),
-    )
-    .expect("No stacking state, stack-stx failed")
-    .expect_tuple();
 
-    let state_signer_key = stacking_state.get("signer-key").unwrap();
-    assert_eq!(state_signer_key.to_string(), signer_key_val.to_string());
-
-    // now stack-extend with a new signer-key
-    let signer_key_new_val = Value::buff_from(vec![
-        0x02, 0xb6, 0x19, 0x6d, 0xe8, 0x8b, 0xce, 0xe7, 0x93, 0xfa, 0x9a, 0x8a, 0x85, 0x96, 0x9b,
-        0x64, 0x7f, 0x84, 0xc9, 0x0e, 0x9d, 0x13, 0xf9, 0xc8, 0xb8, 0xce, 0x42, 0x6c, 0xc8, 0x1a,
-        0x59, 0x98, 0x3c,
-    ])
-    .unwrap();
+    let new_signer_private_key = &keys[3];
+    let new_signer_public_key = StacksPublicKey::from_private(new_signer_private_key);
 
     let delegate_stack_extend = make_pox_4_delegate_stack_extend(
-        stacker_key,
+        delegate_key,
         stacker_nonce,
         PrincipalData::from(key_to_stacks_addr(stacker_key)).into(),
         pox_addr.clone(),
         1,
-        signer_public_key.clone()
+        new_signer_public_key.clone()
     );
 
     let txs = vec![delegate_stack_extend];
 
-    latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
     let new_stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
@@ -1806,7 +1768,7 @@ fn delegate_stack_stx_extend_signer_key() {
     .expect_tuple();
 
     let state_signer_key_new = new_stacking_state.get("signer-key").unwrap();
-    assert_eq!(state_signer_key_new.to_string(),signer_key_new_val.to_string());
+    assert_eq!(state_signer_key_new.to_string()[2..],new_signer_public_key.to_hex());
 }
 
 #[test]
