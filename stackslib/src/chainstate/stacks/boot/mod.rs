@@ -1843,7 +1843,8 @@ pub mod test {
                 Value::UInt(lock_period),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
-        ).unwrap();
+        )
+        .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
@@ -1866,7 +1867,8 @@ pub mod test {
                 Value::UInt(extend_count),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
-        ).unwrap();
+        )
+        .unwrap();
 
         make_tx(key, nonce, 0, payload)
     }
