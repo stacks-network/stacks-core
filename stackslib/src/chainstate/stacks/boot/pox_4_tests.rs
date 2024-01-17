@@ -1794,7 +1794,10 @@ fn stack_increase() {
     let signer_private_key = &keys[1];
     let signer_public_key = StacksPublicKey::from_private(signer_private_key);
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-    let pox_addr = PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, stacker_address.bytes);
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(stacker_key).bytes,
+    );
 
     let stack_stx = make_pox_4_lockup(
         stacker_key,
@@ -1872,62 +1875,34 @@ fn delegate_stack_increase() {
     let delegate_address =
         PrincipalData::from(key_to_stacks_addr(delegate_key).to_account_principal());
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-
-    // (define-public (delegate-stx (amount-ustx uint)
-    //                          (delegate-to principal)
-    //                          (until-burn-ht (optional uint))
-    //                          (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
-    let pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2WSH,
+    let signer_private_key = &keys[2];
+    let signer_public_key = StacksPublicKey::from_private(signer_private_key);
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
         key_to_stacks_addr(delegate_key).bytes,
     );
 
-    let signer_key_val = Value::buff_from(vec![
-        0x03, 0xa0, 0xf9, 0x81, 0x8e, 0xa8, 0xc1, 0x4a, 0x82, 0x7b, 0xb1, 0x44, 0xae, 0xc9, 0xcf,
-        0xba, 0xeb, 0xa2, 0x25, 0xaf, 0x22, 0xbe, 0x18, 0xed, 0x78, 0xa2, 0xf2, 0x98, 0x10, 0x6f,
-        0x4e, 0x28, 0x1b,
-    ])
-    .unwrap();
+    let delegate_stx = make_pox_4_delegate_stx(
+        stacker_key,
+        stacker_nonce,
+        2 * min_ustx,
+        delegate_address.clone(),
+        None,
+        Some(pox_addr.clone()),
+    );
 
-    let txs = vec![
-        make_pox_4_contract_call(
-            stacker_key,
-            stacker_nonce,
-            "delegate-stx",
-            vec![
-                Value::UInt(2 * min_ustx),
-                Value::Principal(delegate_address.clone()),
-                Value::none(),
-                Value::Optional(OptionalData {
-                    data: Some(Box::new(pox_addr.clone())),
-                }),
-            ],
-        ),
-        make_pox_4_contract_call(
-            delegate_key,
-            delegate_nonce,
-            "delegate-stack-stx",
-            vec![
-                Value::Principal(stacker_address.clone()),
-                Value::UInt(min_ustx),
-                pox_addr.clone(),
-                Value::UInt(block_height as u128),
-                Value::UInt(lock_period),
-                signer_key_val.clone(),
-            ],
-        ),
-    ];
-    // (define-public (delegate-stack-stx (stacker principal)
-    //                                (amount-ustx uint)
-    //                                (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-    //                                (start-burn-ht uint)
-    //                                (lock-period uint)
-    //                                (signer-key (buff 33)))
+    let delegate_stack_stx = make_pox_4_delegate_stack_stx(
+        delegate_key,
+        delegate_nonce,
+        PrincipalData::from(key_to_stacks_addr(stacker_key)).into(),
+        min_ustx,
+        pox_addr.clone(),
+        block_height as u128,
+        lock_period,
+        signer_public_key.clone(),
+    );
 
-    // (define-public (delegate-stack-extend (stacker principal)
-    //     (extend-count uint)
-    //     (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-    //     (signer-key (buff 33)))
+    let txs = vec![delegate_stx, delegate_stack_stx];
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
