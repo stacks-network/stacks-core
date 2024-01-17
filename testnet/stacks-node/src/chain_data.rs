@@ -56,7 +56,7 @@ struct UnconfirmedBlockCommit {
     /// PoX payouts
     pox_addrs: Vec<String>,
     /// UTXO spent to create this block-commit
-    input_vout: u32,
+    input_index: u32,
     input_txid: String,
     /// transaction ID
     txid: String,
@@ -294,7 +294,7 @@ impl MinerStats {
                 memo: vec![],
                 commit_outs: decoded_pox_addrs,
                 burn_fee: unconfirmed_commit.burn,
-                input: (input_txid, unconfirmed_commit.input_vout),
+                input: (input_txid, unconfirmed_commit.input_index),
                 apparent_sender: BurnchainSigner(unconfirmed_commit.address),
                 txid,
                 vtxindex: 1,
