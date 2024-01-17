@@ -15,7 +15,7 @@ resolver = "2"
 
 [lib]
 name = "clarity"
-path = "./src/lib.rs"
+path = "./src/libclarity.rs"
 
 [dependencies]
 rand = "0.7.3"

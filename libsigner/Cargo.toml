@@ -13,7 +13,7 @@ edition = "2021"
 
 [lib]
 name = "libsigner"
-path = "./src/lib.rs"
+path = "./src/libsigner.rs"
 
 [dependencies]
 clarity = { path = "../clarity" }
