@@ -7042,6 +7042,28 @@ impl StacksChainState {
         query_row(&self.db(), sql, args).map_err(Error::DBError)
     }
 
+    /// Get all possible canonical chain tips
+    pub fn get_stacks_chain_tips(&self, sortdb: &SortitionDB) -> Result<Vec<StagingBlock>, Error> {
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
+        let args: &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
+        let Some(staging_block): Option<StagingBlock> =
+            query_row(&self.db(), sql, args).map_err(Error::DBError)?
+        else {
+            return Ok(vec![]);
+        };
+        self.get_stacks_chain_tips_at_height(staging_block.height)
+    }
+
+    /// Get all Stacks blocks at a given height
+    pub fn get_stacks_chain_tips_at_height(&self, height: u64) -> Result<Vec<StagingBlock>, Error> {
+        let sql =
+            "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND height = ?1";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        query_rows(&self.db(), sql, args).map_err(Error::DBError)
+    }
+
     /// Get the parent block of `staging_block`.
     pub fn get_stacks_block_parent(
         &self,

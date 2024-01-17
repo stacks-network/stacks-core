@@ -91,6 +91,24 @@ should reference the issue in the commit message. For example:
 fix: incorporate unlocks in mempool admitter, #3623
 ```
 
+## Recommended developer setup
+### Recommended githooks
+
+It is helpful to set up the pre-commit git hook set up, so that Rust formatting issues are caught before
+you push your code. Follow these instruction to set it up:
+
+1. Rename `.git/hooks/pre-commit.sample` to `.git/hooks/pre-commit`
+2. Change the content of `.git/hooks/pre-commit` to be the following
+```sh
+#!/bin/sh
+git diff --name-only --staged | grep '\.rs$' | xargs -P 8 -I {} rustfmt {} --edition 2021 --check --config group_imports=StdExternalCrate,imports_granularity=Module || (
+  echo 'rustfmt failed: run "cargo fmt-stacks"';
+  exit 1
+)
+```
+3. Make it executable by running `chmod +x .git/hooks/pre-commit`
+   That's it! Now your pre-commit hook should be configured on your local machine.
+
 # Creating and Reviewing PRs
 
 This section describes some best practices on how to create and review PRs in this context.  The target audience is people who have commit access to this repository (reviewers), and people who open PRs (submitters).  This is a living document -- developers can and should document their own additional guidelines here.
@@ -366,19 +384,20 @@ A test should be marked `#[ignore]` if:
 
 ## Formatting
 
-This repository uses the default rustfmt formatting style. PRs will be checked against `rustfmt` and will _fail_ if not
-properly formatted.
+PRs will be checked against `rustfmt` and will _fail_ if not properly formatted.
+Unfortunately, some config options that we require cannot currently be set in `.rustfmt` files, so arguments must be passed via the command line.
+Therefore, we handle `rustfmt` configuration using a Cargo alias: `cargo fmt-stacks`
 
 You can check the formatting locally via:
 
 ```bash
-cargo fmt --all -- --check --config group_imports=StdExternalCrate
+cargo fmt-stacks --check
 ```
 
 You can automatically reformat your commit via:
 
 ```bash
-cargo fmt --all -- --config group_imports=StdExternalCrate
+cargo fmt-stacks
 ```
 
 ## Comments

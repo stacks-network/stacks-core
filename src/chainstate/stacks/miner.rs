@@ -114,6 +114,7 @@ impl MinerStatus {
     pub fn get_spend_amount(&self) -> u64 {
         return self.spend_amount;
     }
+
     pub fn set_spend_amount(&mut self, amt: u64) {
         self.spend_amount = amt;
     }

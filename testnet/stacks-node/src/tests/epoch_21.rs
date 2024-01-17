@@ -4987,7 +4987,6 @@ fn test_v1_unlock_height_with_current_stackers() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
@@ -5249,7 +5248,6 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
