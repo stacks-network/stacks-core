@@ -20,9 +20,9 @@ use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Instant;
 use std::{fs, io};
-use std::str::FromStr;
 
 use clarity::vm::types::PrincipalData;
 use rand::distributions::Uniform;

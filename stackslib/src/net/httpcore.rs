@@ -32,8 +32,8 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
 use stacks_common::util::chunked_encoding::*;
-use stacks_common::util::retry::{BoundReader, RetryReader};
 use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::retry::{BoundReader, RetryReader};
 use url::Url;
 
 use crate::burnchains::Txid;
@@ -436,12 +436,16 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
 pub struct StacksHttpRequest {
     preamble: HttpRequestPreamble,
     contents: HttpRequestContents,
-    start_time: u128
+    start_time: u128,
 }
 
 impl StacksHttpRequest {
     pub fn new(preamble: HttpRequestPreamble, contents: HttpRequestContents) -> Self {
-        Self { preamble, contents, start_time: get_epoch_time_ms() }
+        Self {
+            preamble,
+            contents,
+            start_time: get_epoch_time_ms(),
+        }
     }
 
     /// Instantiate a request to a remote Stacks peer
@@ -472,7 +476,11 @@ impl StacksHttpRequest {
             preamble.path_and_query_str = decoded_path;
         }
 
-        Ok(Self { preamble, contents, start_time: get_epoch_time_ms() })
+        Ok(Self {
+            preamble,
+            contents,
+            start_time: get_epoch_time_ms(),
+        })
     }
 
     /// Get a reference to the request premable metadata

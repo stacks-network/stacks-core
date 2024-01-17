@@ -58,8 +58,8 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::core::mempool::{
-    db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag, BLOOM_COUNTER_DEPTH,
-    BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
+    db_get_all_nonces, MemPoolSyncData, MemPoolWalkSettings, MemPoolWalkTxTypes, TxTag,
+    BLOOM_COUNTER_DEPTH, BLOOM_COUNTER_ERROR_RATE, MAX_BLOOM_COUNTER_TXS,
 };
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::net::Error as NetError;
