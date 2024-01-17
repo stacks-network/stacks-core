@@ -39,6 +39,8 @@ mod tests;
 mod error;
 mod events;
 mod http;
+/// Benchmark RTT in StackerDB.
+pub mod ping;
 mod runloop;
 mod session;
 

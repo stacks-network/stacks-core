@@ -333,6 +333,7 @@ impl<C: Coordinator> RunLoop<C> {
                 SignerMessage::Packet(packet) => {
                     self.verify_packet(packet, &coordinator_public_key)
                 }
+                SignerMessage::Ping(_) => todo!(),
             })
             .collect();
         self.handle_packets(res, &packets);

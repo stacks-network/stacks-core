@@ -1975,6 +1975,7 @@ dependencies = [
  "clarity",
  "libc",
  "libstackerdb",
+ "rand_core 0.6.4",
  "secp256k1",
  "serde",
  "serde_derive",

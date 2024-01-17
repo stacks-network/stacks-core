@@ -30,6 +30,7 @@ stacks-common = { path = "../stacks-common" }
 stackslib = { path = "../stackslib"}
 thiserror = "1.0"
 tiny_http = "0.12"
+rand_core = "0.6"
 wsts = { workspace = true }
 
 [dependencies.serde_json]
