@@ -1821,6 +1821,33 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_pox_4_delegate_stack_stx(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: PrincipalData,
+        amount: u128,
+        pox_addr: PoxAddress,
+        start_burn_height: u128,
+        lock_period: u128,
+        signer_key: StacksPublicKey,
+    ) -> StacksTransaction {
+        let payload: TransactionPayload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-stx",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::UInt(amount),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(start_burn_height),
+                Value::UInt(lock_period),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
+        ).unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
     pub fn make_pox_4_delegate_increase(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -1864,7 +1891,7 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    pub fn make_pox_4_increase_stx(
+    pub fn make_pox_4_stack_increase(
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
