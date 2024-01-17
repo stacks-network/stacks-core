@@ -905,22 +905,24 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Self::new(db, cost_track, contract_identifier, clarity_version)
     }
 
-    /// Make `contract_context` public for testing
     #[cfg(any(test, feature = "testing"))]
-    pub fn _get_contract_context(self) -> ContractContext {
+    pub fn get_contract_context(self) -> ContractContext {
         self.contract_context
     }
 
-    /// Make `function_return_tracker` public for testing
     #[cfg(any(test, feature = "testing"))]
-    pub fn _get_db(self) -> &'a mut AnalysisDatabase<'b> {
+    pub fn get_contract_context_clone(self) -> ContractContext {
+        self.contract_context.clone()
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn get_db(self) -> &'a mut AnalysisDatabase<'b> {
         self.db
     }
 
-    /// Make `function_return_tracker` public for testing
     #[cfg(any(test, feature = "testing"))]
-    pub fn _get_function_return_tracker(self) -> Option<Option<TypeSignature>> {
-        self.function_return_tracker
+    pub fn set_function_return_tracker(&mut self, val: Option<Option<TypeSignature>>) {
+        self.function_return_tracker = val;
     }
 
     fn into_contract_analysis(

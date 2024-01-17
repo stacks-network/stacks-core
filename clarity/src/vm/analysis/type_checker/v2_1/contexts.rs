@@ -24,6 +24,7 @@ use crate::vm::types::signatures::{CallableSubtype, FunctionSignature};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
 
+#[derive(Clone)]
 enum TraitContext {
     /// Traits stored in this context use the trait type-checking behavior defined in Clarity1
     Clarity1(HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>),
@@ -125,6 +126,7 @@ impl TraitContext {
     }
 }
 
+#[derive(Clone)]
 pub struct ContractContext {
     contract_identifier: QualifiedContractIdentifier,
     map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,
@@ -367,5 +369,10 @@ impl ContractContext {
         for trait_identifier in self.implemented_traits.drain() {
             contract_analysis.add_implemented_trait(trait_identifier);
         }
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn clear_variable_types(&mut self) {
+        self.variable_types.clear();
     }
 }
