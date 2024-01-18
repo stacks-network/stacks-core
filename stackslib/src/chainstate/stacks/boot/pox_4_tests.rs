@@ -1698,6 +1698,8 @@ fn delegate_stack_stx_extend_signer_key() {
     let delegate_principal = PrincipalData::from(key_to_stacks_addr(delegate_key));
     let signer_private_key = &keys[2];
     let signer_public_key = StacksPublicKey::from_private(signer_private_key);
+    let new_signer_private_key = &keys[3];
+    let new_signer_public_key = StacksPublicKey::from_private(new_signer_private_key);
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
         key_to_stacks_addr(delegate_key).bytes,
@@ -1750,9 +1752,6 @@ fn delegate_stack_stx_extend_signer_key() {
     );
 
     stacker_nonce += 1;
-
-    let new_signer_private_key = &keys[3];
-    let new_signer_public_key = StacksPublicKey::from_private(new_signer_private_key);
 
     let delegate_stack_extend = make_pox_4_delegate_stack_extend(
         delegate_key,
