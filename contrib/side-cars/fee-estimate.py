@@ -23,7 +23,7 @@ from sys import argv
 FEE_ESTIMATIONS = [
     # Bitcoiner Live API
     (
-        'https://bitcoiner.live/api/fees/estimates/latest',
+        'https://bitcoiner.live/api/fees/estimates/latest?confidence=0.9',
         lambda response_json: response_json["estimates"]["30"]["sat_per_vbyte"],
     ),
 
@@ -139,7 +139,7 @@ def update_config_fee(toml_file_location: str, polling_delay_seconds: int):
         with open(toml_file_location, 'w') as toml_file:
             toml.dump(toml_data, toml_file)
 
-        time.sleep()
+        time.sleep(polling_delay_seconds)
 
 def read_config(config_location: str):
     """
