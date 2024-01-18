@@ -1681,7 +1681,7 @@ fn delegate_stack_stx_signer_key() {
 
     assert_eq!(
         state_signer_key.to_string(),
-        format!("0x,{}", signer_public_key.to_hex())
+        format!("0x{}", signer_public_key.to_hex())
     );
 }
 
@@ -1748,7 +1748,7 @@ fn delegate_stack_stx_extend_signer_key() {
     let state_signer_key = stacking_state.get("signer-key").unwrap();
     assert_eq!(
         state_signer_key.to_string(),
-        format!("0x,{}", signer_public_key.to_hex())
+        format!("0x{}", signer_public_key.to_hex())
     );
 
     stacker_nonce += 1;
@@ -1775,8 +1775,8 @@ fn delegate_stack_stx_extend_signer_key() {
 
     let state_signer_key_new = new_stacking_state.get("signer-key").unwrap();
     assert_eq!(
-        state_signer_key.to_string(),
-        format!("0x,{}", signer_public_key.to_hex())
+        state_signer_key_new.to_string(),
+        format!("0x{}", new_signer_public_key.to_hex())
     );
 }
 
