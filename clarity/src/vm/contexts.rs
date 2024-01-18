@@ -1278,6 +1278,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         let result = {
             #[cfg(feature = "canonical")]
             if next_contract_context.wasm_module.is_some() {
+                info!("Executing function {} as WASM", function.get_name());
                 call_function(
                     &function.get_name(),
                     args,
@@ -1289,6 +1290,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                     self.sponsor.clone(),
                 )
             } else {
+                info!("Executing function {} with interpreter", function.get_name());
                 let mut nested_env = Environment::new(
                     self.global_context,
                     next_contract_context,
@@ -1301,6 +1303,7 @@ impl<'a, 'b> Environment<'a, 'b> {
             }
             #[cfg(not(feature = "canonical"))]
             {
+                info!("Executing function {} with interpreter (wasm not active)", function.get_name());
                 let mut nested_env = Environment::new(
                     self.global_context,
                     next_contract_context,
