@@ -2687,7 +2687,7 @@ where
 
         debug!("Random order = {:?}", &random_order);
         for i in random_order.into_iter() {
-            let _ = peers[i].step();
+            let _ = peers[i].step_with_ibd(false);
             let nk = peers[i].config.to_neighbor().addr;
             debug!("Step peer {:?}", &nk);
 

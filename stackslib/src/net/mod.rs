@@ -2393,6 +2393,7 @@ pub mod test {
                 &config.stacker_dbs,
                 &config.stacker_db_configs,
             );
+            let stackerdb_contracts: Vec<_> = stacker_dbs.keys().map(|cid| cid.clone()).collect();
 
             let mut peer_network = PeerNetwork::new(
                 peerdb,
@@ -2418,8 +2419,25 @@ pub mod test {
             let p2p_port = peer_network.bound_neighbor_key().port;
             let http_port = peer_network.http.as_ref().unwrap().http_server_addr.port();
 
-            config.server_port = p2p_port;
-            config.http_port = http_port;
+            config.data_url =
+                UrlString::try_from(format!("http://127.0.0.1:{}", http_port).as_str()).unwrap();
+
+            peer_network
+                .peerdb
+                .update_local_peer(
+                    config.network_id,
+                    config.burnchain.network_id,
+                    config.data_url.clone(),
+                    p2p_port,
+                    &stackerdb_contracts,
+                )
+                .unwrap();
+
+            let local_peer = PeerDB::get_local_peer(peer_network.peerdb.conn()).unwrap();
+            debug!(
+                "{:?}: initial neighbors: {:?}",
+                &local_peer, &config.initial_neighbors
+            );
 
             TestPeer {
                 config: config,

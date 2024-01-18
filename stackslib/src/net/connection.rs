@@ -77,7 +77,7 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
         match self.receiver_input.send(msg) {
             Ok(_) => {}
             Err(e) => {
-                warn!(
+                debug!(
                     "Failed to reply message {} ({} {}): {:?}",
                     self.expected_seq, msg_name, msg_id, &e
                 );
