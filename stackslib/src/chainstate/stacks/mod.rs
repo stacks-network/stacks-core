@@ -731,10 +731,6 @@ pub struct TenureChangePayload {
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
-    /// The Stacker signature
-    pub signature: ThresholdSignature,
-    /// A bitmap of which Stackers signed
-    pub signers: Vec<u8>,
 }
 
 impl TenureChangePayload {
@@ -752,8 +748,6 @@ impl TenureChangePayload {
             previous_tenure_blocks: num_blocks_so_far,
             cause: TenureChangeCause::Extended,
             pubkey_hash: self.pubkey_hash.clone(),
-            signature: ThresholdSignature::mock(),
-            signers: vec![],
         }
     }
 }
@@ -1400,8 +1394,6 @@ pub mod test {
                 previous_tenure_blocks: 0,
                 cause: TenureChangeCause::BlockFound,
                 pubkey_hash: Hash160([0x00; 20]),
-                signature: ThresholdSignature::mock(),
-                signers: vec![],
             }),
         ];
 
