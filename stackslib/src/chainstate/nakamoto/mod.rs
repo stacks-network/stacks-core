@@ -14,14 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::BurnStateDB;
+use clarity::vm::database::{BurnStateDB, ClarityDatabase};
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::test_util::symbols_from_values;
+use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
@@ -52,19 +53,21 @@ use super::burn::db::sortdb::{
     SortitionHandleConn, SortitionHandleTx,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
-use super::stacks::boot::{BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME};
+use super::stacks::boot::{
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_NAME,
+};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
 };
-use super::stacks::events::StacksTransactionReceipt;
+use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
     TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
 };
-use crate::burnchains::{PoxConstants, Txid};
+use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
@@ -76,17 +79,21 @@ use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
-use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
+use crate::clarity_vm::clarity::{
+    ClarityInstance, ClarityTransactionConnection, PreCommitClarityBlock,
+};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
 use crate::monitoring;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::Error as net_error;
+use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
 };
+use crate::{chainstate, monitoring};
 
 pub mod coordinator;
 pub mod miner;
@@ -1807,6 +1814,152 @@ impl NakamotoChainState {
         }
     }
 
+    pub fn calculate_signer_slots(
+        clarity: &mut ClarityTransactionConnection,
+        pox_constants: &PoxConstants,
+    ) -> Result<HashMap<Value, u128>, clarity::vm::errors::Error> {
+        let is_mainnet = clarity.is_mainnet();
+        let pox4_contract = &boot_code_id(POX_4_NAME, is_mainnet);
+        let reward_cycle = clarity
+            .eval_read_only(pox4_contract, &"(current-pox-reward-cycle)")
+            .unwrap()
+            .expect_u128();
+        let list_length = clarity
+            .eval_read_only(
+                pox4_contract,
+                &format!("(get-signer-key-list-length u{})", reward_cycle),
+            )
+            .unwrap()
+            .expect_u128();
+
+        let mut signers: HashMap<Value, u128> = HashMap::new();
+        let mut total_ustx: u128 = 0;
+        for index in 0..list_length {
+            if let Ok(Value::Optional(entry)) = clarity.eval_read_only(
+                pox4_contract,
+                &format!("(get-signer-key u{} u{})", reward_cycle, index),
+            ) {
+                if let Some(data) = entry.data {
+                    let data = data.expect_tuple();
+                    let key = data.get("signer-key")?.to_owned();
+                    let amount = data.get("ustx")?.to_owned().expect_u128();
+                    let sum = signers.get(&key).cloned().unwrap_or_default();
+                    //TODO HashMap insert order is not guaranteed
+                    signers.insert(key, sum + amount);
+                    total_ustx = total_ustx
+                        .checked_add(amount)
+                        .expect("CORRUPTION: Stacker stacked > u128 max amount");
+                }
+            }
+        }
+
+        // TODO: calculation
+        let threshold = total_ustx / 4000;
+        signers.retain(|_, value: &mut u128| {
+            if *value >= threshold {
+                *value = *value / threshold;
+                true
+            } else {
+                false
+            }
+        });
+        Ok(signers)
+    }
+    pub fn handle_signer_stackerdb_update(
+        clarity: &mut ClarityTransactionConnection,
+        chain_id: u32,
+        pox_constants: &PoxConstants,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        let is_mainnet = clarity.is_mainnet();
+        let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
+        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
+
+        let signers = Self::calculate_signer_slots(clarity, pox_constants).unwrap_or_default();
+
+        let signers_list_data: Vec<Value> = signers
+            .iter()
+            .map(|(signer_key, slots)| {
+                let key =
+                    StacksPublicKey::from_slice(signer_key.to_owned().expect_buff(33).as_slice())
+                        .expect("TODO: invalid key");
+                let addr = StacksAddress::from_public_keys(
+                    if is_mainnet {
+                        C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+                    } else {
+                        C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+                    },
+                    &AddressHashMode::SerializeP2PKH,
+                    1,
+                    &vec![key],
+                )
+                .unwrap();
+                Value::Tuple(
+                    TupleData::from_data(vec![
+                        ("signer".into(), Value::Principal(PrincipalData::from(addr))),
+                        ("num-slots".into(), Value::UInt(slots.to_owned())),
+                    ])
+                    .unwrap(),
+                )
+            })
+            .collect();
+
+        info!(
+            "Handling stackerdb update, {} signers in list",
+            signers_list_data.len()
+        );
+
+        let signers_list = Value::cons_list_unsanitized(signers_list_data).unwrap();
+
+        let (value, _, events, _) = clarity
+            .with_abort_callback(
+                |vm_env| {
+                    vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
+                        env.execute_contract_allow_private(
+                            &signers_contract,
+                            "stackerdb-set-signer-slots",
+                            &symbols_from_values(vec![signers_list]),
+                            false,
+                        )
+                    })
+                },
+                |_, _| false,
+            )
+            .expect("FATAL: failed to update signer stackerdb");
+
+        if let Value::Response(data) = value {
+            if !data.committed {
+                info!("stackerdb update error, data: {}", data);
+            }
+        }
+        Ok(events)
+    }
+
+    pub fn check_and_handle_prepare_phase_start(
+        clarity_tx: &mut ClarityTx,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+        burn_tip_height: u64,
+    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        if clarity_tx.get_epoch() < StacksEpochId::Epoch25
+            || !pox_constants.is_prepare_phase_start(first_block_height, burn_tip_height)
+        {
+            return Ok(vec![]);
+        }
+
+        info!(
+            "handling stackerdb update at burn height {}",
+            burn_tip_height
+        );
+
+        clarity_tx.block.as_free_transaction(|clarity| {
+            Self::handle_signer_stackerdb_update(
+                clarity,
+                clarity_tx.config.chain_id,
+                &pox_constants,
+            )
+        })
+    }
+
     /// Get the aggregate public key for a block.
     /// TODO: The block at which the aggregate public key is queried needs to be better defined.
     /// See https://github.com/stacks-network/stacks-core/issues/4109
@@ -2547,6 +2700,18 @@ impl NakamotoChainState {
                 pox_constants,
                 burn_header_height.into(),
             );
+        }
+
+        // Handle signer stackerdb updates
+        if evaluated_epoch >= StacksEpochId::Epoch25 {
+            let receipts = Self::check_and_handle_prepare_phase_start(
+                &mut clarity_tx,
+                first_block_height,
+                &pox_constants,
+                burn_header_height.into(),
+            );
+            //TODO
+            // tx_receipts.extend(receipts);
         }
 
         debug!(

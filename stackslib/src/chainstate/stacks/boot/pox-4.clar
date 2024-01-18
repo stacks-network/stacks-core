@@ -191,6 +191,15 @@
 ;; Stackers' signer keys that have been used before.
  (define-map used-signer-keys (buff 33) uint)
 
+;; Stackers' signer key locked Stacks per cycle
+(define-map signer-key-stx-total-ustx {reward-cycle: uint, signer-key: (buff 33)} uint)
+
+;; List of Stackers' signer key ustx commitments per cycle
+(define-map signer-key-ustx-list {reward-cycle: uint, index: uint} {signer-key: (buff 33), ustx: uint})
+
+;; Length of Stackers' signer key ustx commitment lists per cycle
+(define-map signer-key-ustx-list-len uint uint)
+
 ;; The stackers' aggregate public key
 ;;   for the given reward cycle
 (define-map aggregate-public-keys uint (buff 33))
@@ -259,6 +268,20 @@
     (default-to
         u0
         (get len (map-get? reward-cycle-pox-address-list-len { reward-cycle: reward-cycle }))))
+
+;; Get the signer key list length for a reward cycle.
+;; Note that this _does_ return duplicate signer keys.
+;; Used internally by the Stacks node, which will sum the amounts
+;; for each unique signer key and filter those that are below the
+;; minimum threshold.
+(define-read-only (get-signer-key-list-length (reward-cycle uint))
+  (default-to u0 (map-get? signer-key-ustx-list-len reward-cycle))
+)
+
+;; Called internally by the node to iterate through the list of signer keys in this reward cycle.
+(define-read-only (get-signer-key (reward-cycle uint) (index uint))
+  (map-get? signer-key-ustx-list {reward-cycle: reward-cycle, index: index})
+)
 
 ;; Add a single PoX address to a single reward cycle.
 ;; Used to build up a set of per-reward-cycle PoX addresses.
@@ -584,7 +607,10 @@
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
       ;; ensure the signer key can be used
-      (try! (insert-signer-key signer-key))
+      (try! (insert-signer-key signer-key first-reward-cycle))
+
+      ;; update the total ustx for the signer key
+      (increment-signer-key-total-ustx first-reward-cycle signer-key amount-ustx)
 
       ;; register the PoX address with the amount stacked
       (let ((reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx tx-sender))))
@@ -846,7 +872,10 @@
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
       ;; ensure the signer key can be used
-      (try! (insert-signer-key signer-key))
+      (try! (insert-signer-key signer-key first-reward-cycle))
+
+      ;; update the total ustx for the signer key
+     (increment-signer-key-total-ustx first-reward-cycle signer-key amount-ustx)
 
       ;; ensure that stacking can be performed
       (try! (minimal-can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
@@ -994,7 +1023,10 @@
               (err ERR_STACKING_IS_DELEGATED))
 
     ;; ensure the signer key can be used
-    (try! (insert-signer-key signer-key))
+    (try! (insert-signer-key signer-key first-extend-cycle))
+
+    ;; update the total ustx for the signer key
+    (increment-signer-key-total-ustx first-reward-cycle signer-key amount-ustx)
 
     ;; TODO: add more assertions to sanity check the `stacker-info` values with
     ;;       the `stacker-state` values
@@ -1280,12 +1312,27 @@
     )
 )
 
-;; Check if a provided signer key is valid. For now it only asserts length.
+;; Check if a provided signer key is valid to use.
+;; - It must be a buffer with length 33.
+;; - It must be a new signer key, or a signer key that was first seen in this cycle.
 ;; *New in Stacks 3.0*
-(define-private (insert-signer-key (signer-key (buff 33)))
-    (begin
+(define-private (insert-signer-key (signer-key (buff 33)) (reward-cycle uint))
+    (let ((first-seen-cycle (default-to reward-cycle (map-get? used-signer-keys signer-key))))
       (asserts! (is-eq (len signer-key) u33) (err ERR_INVALID_SIGNER_KEY))
-      (asserts! (map-insert used-signer-keys signer-key burn-block-height) (err ERR_REUSED_SIGNER_KEY))
+      (asserts! (and (is-eq first-seen-cycle reward-cycle) (map-insert used-signer-keys signer-key reward-cycle)) (err ERR_REUSED_SIGNER_KEY))
       (ok true)
     )
+)
+
+;; Increment the total number of ustx for the specified signer key.
+;; *New in Stacks 3.0*
+(define-private (increment-signer-key-total-ustx (reward-cycle-id uint) (signer-key (buff 33)) (amount uint))
+  (let ((list-index (default-to u0 (map-get? signer-key-ustx-list-len reward-cycle-id))))
+    (map-set signer-key-ustx-list {reward-cycle: reward-cycle-id, index: list-index} {signer-key: signer-key, ustx: amount})
+    (map-set signer-key-ustx-list-len reward-cycle-id (+ list-index u1))
+    (map-set signer-key-stx-total-ustx
+      {reward-cycle: reward-cycle-id, signer-key: signer-key}
+      (+ (default-to u0 (map-get? signer-key-stx-total-ustx {reward-cycle: reward-cycle-id, signer-key: signer-key})) amount)
+    )
+  )
 )

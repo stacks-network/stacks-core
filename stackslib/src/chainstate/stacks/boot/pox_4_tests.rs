@@ -86,7 +86,7 @@ fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
 }
 
-fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
+pub fn make_test_epochs_pox() -> (Vec<StacksEpoch>, PoxConstants) {
     let EMPTY_SORTITIONS = 25;
     let EPOCH_2_1_HEIGHT = EMPTY_SORTITIONS + 11; // 36
     let EPOCH_2_2_HEIGHT = EPOCH_2_1_HEIGHT + 14; // 50
@@ -1340,7 +1340,7 @@ fn pox_4_revoke_delegate_stx_events() {
     );
 }
 
-fn assert_latest_was_burn(peer: &mut TestPeer) {
+pub fn assert_latest_was_burn(peer: &mut TestPeer) {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;

@@ -25,10 +25,14 @@ use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, CostStateSummary, LimitedCostTracker};
-use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use clarity::vm::errors::{Error as VmError, InterpreterError};
+use clarity::vm::database::{
+    ClarityDatabase, DataVariableMetadata, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
+use clarity::vm::errors::{Error as VmError, InterpreterError, InterpreterResult};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::tests::symbols_from_values;
+use clarity::vm::types::TypeSignature::UIntType;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TypeSignature, Value,
@@ -75,10 +79,12 @@ pub const POX_1_NAME: &'static str = "pox";
 pub const POX_2_NAME: &'static str = "pox-2";
 pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
+pub const SIGNERS_NAME: &'static str = "signers";
 
 const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
+pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -1255,6 +1261,8 @@ pub mod pox_2_tests;
 pub mod pox_3_tests;
 #[cfg(test)]
 pub mod pox_4_tests;
+#[cfg(test)]
+mod signers_tests;
 
 #[cfg(test)]
 pub mod test {
