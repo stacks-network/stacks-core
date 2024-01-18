@@ -47,8 +47,8 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
-    POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME,
-    POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
+    MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
+    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -786,6 +786,16 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         self.cost_track.unwrap()
     }
 
+    /// Get the boot code account
+    fn get_boot_code_account(&mut self) -> Result<StacksAccount, Error> {
+        let boot_code_address = boot_code_addr(self.mainnet);
+        let boot_code_nonce = self
+            .with_clarity_db_readonly(|db| db.get_account_nonce(&boot_code_address.clone().into()));
+
+        let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
+        Ok(boot_code_account)
+    }
+
     pub fn initialize_epoch_2_05(&mut self) -> Result<StacksTransactionReceipt, Error> {
         // use the `using!` statement to ensure that the old cost_tracker is placed
         //  back in all branches after initialization
@@ -803,12 +813,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 TransactionVersion::Testnet
             };
 
-            let boot_code_address = boot_code_addr(mainnet);
-            let boot_code_auth = boot_code_tx_auth(boot_code_address);
-            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-                db.get_account_nonce(&boot_code_address.clone().into())
-            });
-            let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
+            let boot_code_account = self
+                .get_boot_code_account()
+                .expect("FATAL: did not get boot account");
 
             // instantiate costs 2 contract...
             let cost_2_code = if mainnet {
@@ -826,6 +833,10 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 },
                 None,
             );
+
+            let boot_code_address = boot_code_addr(self.mainnet);
+
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let costs_2_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
@@ -906,26 +917,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-                db.get_account_nonce(&boot_code_address.clone().into())
-            });
-
-            let boot_code_account = StacksAccount {
-                principal: PrincipalData::Standard(boot_code_address.into()),
-                nonce: boot_code_nonce,
-                stx_balance: STXBalance::zero(),
-            };
+            let boot_code_account = self
+                .get_boot_code_account()
+                .expect("FATAL: did not get boot account");
 
             /////////////////// .pox-2 ////////////////////////
             let pox_2_code = if mainnet {
@@ -1170,26 +1166,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-                db.get_account_nonce(&boot_code_address.clone().into())
-            });
-
-            let boot_code_account = StacksAccount {
-                principal: PrincipalData::Standard(boot_code_address.into()),
-                nonce: boot_code_nonce,
-                stx_balance: STXBalance::zero(),
-            };
+            let boot_code_account = self
+                .get_boot_code_account()
+                .expect("FATAL: did not get boot account");
 
             let pox_3_code = if mainnet {
                 &*POX_3_MAINNET_CODE
@@ -1284,11 +1265,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             });
 
             /////////////////// .pox-4 ////////////////////////
-            let mainnet = self.mainnet;
             let first_block_height = self.burn_state_db.get_burn_start_height();
             let pox_prepare_length = self.burn_state_db.get_pox_prepare_length();
             let pox_reward_cycle_length = self.burn_state_db.get_pox_reward_cycle_length();
-            let pox_rejection_fraction = self.burn_state_db.get_pox_rejection_fraction();
             let pox_4_activation_height = self.burn_state_db.get_pox_4_activation_height();
 
             let pox_4_first_cycle = PoxConstants::static_block_height_to_reward_cycle(
@@ -1298,8 +1277,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             )
             .expect("PANIC: PoX-4 first reward cycle begins *before* first burn block height")
                 + 1;
-
             // get tx_version & boot code account information for pox-3 contract init
+            let mainnet = self.mainnet;
             let tx_version = if mainnet {
                 TransactionVersion::Mainnet
             } else {
@@ -1308,26 +1287,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_address = boot_code_addr(mainnet);
 
-            let boot_code_auth = TransactionAuth::Standard(
-                TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
-                    signer: boot_code_address.bytes.clone(),
-                    hash_mode: SinglesigHashMode::P2PKH,
-                    key_encoding: TransactionPublicKeyEncoding::Uncompressed,
-                    nonce: 0,
-                    tx_fee: 0,
-                    signature: MessageSignature::empty(),
-                }),
-            );
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-                db.get_account_nonce(&boot_code_address.clone().into())
-            });
-
-            let boot_code_account = StacksAccount {
-                principal: PrincipalData::Standard(boot_code_address.into()),
-                nonce: boot_code_nonce,
-                stx_balance: STXBalance::zero(),
-            };
+            let boot_code_account = self
+                .get_boot_code_account()
+                .expect("FATAL: did not get boot account");
 
             let pox_4_code = if mainnet {
                 &*POX_4_MAINNET_CODE
@@ -1385,7 +1349,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &boot_code_account,
                     ASTRules::PrecheckSize,
                 )
-                .expect("FATAL: Failed to process PoX 3 contract initialization");
+                .expect("FATAL: Failed to process PoX 4 contract initialization");
 
                 // set burnchain params
                 let consts_setter = PrincipalData::from(pox_4_contract_id.clone());
@@ -1393,7 +1357,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     Value::UInt(u128::from(first_block_height)),
                     Value::UInt(u128::from(pox_prepare_length)),
                     Value::UInt(u128::from(pox_reward_cycle_length)),
-                    Value::UInt(u128::from(pox_rejection_fraction)),
                     Value::UInt(u128::from(pox_4_first_cycle)),
                 ];
 

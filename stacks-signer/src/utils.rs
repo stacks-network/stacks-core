@@ -1,3 +1,18 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::time::Duration;
 
 use rand_core::OsRng;
@@ -7,15 +22,12 @@ use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use wsts::curve::ecdsa;
 use wsts::curve::scalar::Scalar;
 
-use crate::stacks_client::SLOTS_PER_USER;
-
 /// Helper function for building a signer config for each provided signer private key
 pub fn build_signer_config_tomls(
     signer_stacks_private_keys: &[StacksPrivateKey],
     num_keys: u32,
     node_host: &str,
     stackerdb_contract_id: &str,
-    pox_contract_id: Option<&str>,
     timeout: Option<Duration>,
 ) -> Vec<String> {
     let num_signers = signer_stacks_private_keys.len() as u32;
@@ -89,14 +101,6 @@ event_timeout = {event_timeout_ms}
 "#
             )
         }
-        if let Some(pox_contract_id) = pox_contract_id {
-            signer_config_toml = format!(
-                r#"
-{signer_config_toml}
-pox_contract_id = "{pox_contract_id}"
-"#
-            );
-        }
 
         signer_config_tomls.push(signer_config_toml);
     }
@@ -105,7 +109,10 @@ pox_contract_id = "{pox_contract_id}"
 }
 
 /// Helper function for building a stackerdb contract from the provided signer stacks addresses
-pub fn build_stackerdb_contract(signer_stacks_addresses: &[StacksAddress]) -> String {
+pub fn build_stackerdb_contract(
+    signer_stacks_addresses: &[StacksAddress],
+    slots_per_user: u32,
+) -> String {
     let mut stackerdb_contract = String::new(); // "
     stackerdb_contract += "        ;; stacker DB\n";
     stackerdb_contract += "        (define-read-only (stackerdb-get-signer-slots)\n";
@@ -115,7 +122,7 @@ pub fn build_stackerdb_contract(signer_stacks_addresses: &[StacksAddress]) -> St
         stackerdb_contract +=
             format!("                    signer: '{},\n", signer_stacks_address).as_str();
         stackerdb_contract +=
-            format!("                    num-slots: u{}\n", SLOTS_PER_USER).as_str();
+            format!("                    num-slots: u{}\n", slots_per_user).as_str();
         stackerdb_contract += "                }\n";
     }
     stackerdb_contract += "                )))\n";

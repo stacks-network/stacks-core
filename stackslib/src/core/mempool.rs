@@ -58,6 +58,7 @@ use crate::core::{
 use crate::cost_estimates::metrics::{CostMetric, UnitMetric};
 use crate::cost_estimates::{CostEstimator, EstimatorError, UnitEstimator};
 use crate::monitoring::increment_stx_mempool_gc;
+use crate::net::api::postblock_proposal::{BlockValidateOk, BlockValidateReject};
 use crate::net::Error as net_error;
 use crate::util_lib::bloom::{BloomCounter, BloomFilter, BloomNodeHasher};
 use crate::util_lib::db::{
@@ -363,7 +364,12 @@ impl std::fmt::Display for MemPoolDropReason {
     }
 }
 
+pub trait ProposalCallbackReceiver: Send {
+    fn notify_proposal_result(&self, result: Result<BlockValidateOk, BlockValidateReject>);
+}
+
 pub trait MemPoolEventDispatcher {
+    fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>>;
     fn mempool_txs_dropped(&self, txids: Vec<Txid>, reason: MemPoolDropReason);
     fn mined_block_event(
         &self,

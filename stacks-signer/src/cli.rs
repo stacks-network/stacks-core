@@ -1,3 +1,18 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::{self, Read};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -125,9 +140,12 @@ pub struct RunDkgArgs {
 #[derive(Parser, Debug, Clone)]
 /// Arguments for the generate-files command
 pub struct GenerateFilesArgs {
-    /// The base arguments
-    #[clap(flatten)]
-    pub db_args: StackerDBArgs,
+    /// The Stacks node to connect to
+    #[arg(long)]
+    pub host: SocketAddr,
+    /// The signers stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
+    #[arg(short, long, value_parser = parse_contract)]
+    pub signers_contract: QualifiedContractIdentifier,
     #[arg(
         long,
         required_unless_present = "private_keys",
@@ -136,7 +154,7 @@ pub struct GenerateFilesArgs {
     /// The number of signers to generate
     pub num_signers: Option<u32>,
     #[clap(long, value_name = "FILE")]
-    /// A path to a file containing a list of hexadecimal Stacks private keys
+    /// A path to a file containing a list of hexadecimal Stacks private keys of the signers
     pub private_keys: Option<PathBuf>,
     #[arg(long)]
     /// The total number of key ids to distribute among the signers

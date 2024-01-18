@@ -20,23 +20,31 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::stacks::boot::MINERS_NAME;
+use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
+use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
+use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libstackerdb::StackerDBChunkData;
 use serde::{Deserialize, Serialize};
+use stacks_common::codec::{
+    read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
+};
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
+use wsts::net::{Message, Packet};
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
-/// Event structure for newly-arrived StackerDB data
+/// Event enum for newly-arrived signer subscribed events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct StackerDBChunksEvent {
-    /// The contract ID for the StackerDB instance
-    pub contract_id: QualifiedContractIdentifier,
-    /// The chunk data for newly-modified slots
-    pub modified_slots: Vec<StackerDBChunkData>,
+pub enum SignerEvent {
+    /// A new stackerDB chunk was received
+    StackerDB(StackerDBChunksEvent),
+    /// A new block proposal was received
+    BlockProposal(BlockValidateResponse),
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
@@ -47,7 +55,7 @@ pub trait EventStopSignaler {
     fn send(&mut self);
 }
 
-/// Trait to implement to handle StackerDB events sent by the Stacks node
+/// Trait to implement to handle StackerDB and BlockProposal events sent by the Stacks node
 pub trait EventReceiver {
     /// The implementation of ST will ensure that a call to ST::send() will cause
     /// the call to `is_stopped()` below to return true.
@@ -56,11 +64,11 @@ pub trait EventReceiver {
     /// Open a server socket to the given socket address.
     fn bind(&mut self, listener: SocketAddr) -> Result<SocketAddr, EventError>;
     /// Return the next event
-    fn next_event(&mut self) -> Result<StackerDBChunksEvent, EventError>;
+    fn next_event(&mut self) -> Result<SignerEvent, EventError>;
     /// Add a downstream event consumer
-    fn add_consumer(&mut self, event_out: Sender<StackerDBChunksEvent>);
+    fn add_consumer(&mut self, event_out: Sender<SignerEvent>);
     /// Forward the event to downstream consumers
-    fn forward_event(&mut self, ev: StackerDBChunksEvent) -> bool;
+    fn forward_event(&mut self, ev: SignerEvent) -> bool;
     /// Determine if the receiver should hang up
     fn is_stopped(&self) -> bool;
     /// Get a stop signal instance that, when sent, will cause this receiver to stop accepting new
@@ -100,25 +108,25 @@ pub trait EventReceiver {
     }
 }
 
-/// Event receiver for StackerDB events
-pub struct StackerDBEventReceiver {
-    /// contracts we're listening for
+/// Event receiver for Signer events
+pub struct SignerEventReceiver {
+    /// stacker db contracts we're listening for
     pub stackerdb_contract_ids: Vec<QualifiedContractIdentifier>,
     /// Address we bind to
     local_addr: Option<SocketAddr>,
     /// server socket that listens for HTTP POSTs from the node
     http_server: Option<HttpServer>,
     /// channel into which to write newly-discovered data
-    out_channels: Vec<Sender<StackerDBChunksEvent>>,
+    out_channels: Vec<Sender<SignerEvent>>,
     /// inter-thread stop variable -- if set to true, then the `main_loop` will exit
     stop_signal: Arc<AtomicBool>,
 }
 
-impl StackerDBEventReceiver {
-    /// Make a new StackerDB event receiver, and return both the receiver and the read end of a
+impl SignerEventReceiver {
+    /// Make a new Signer event receiver, and return both the receiver and the read end of a
     /// channel into which node-received data can be obtained.
-    pub fn new(contract_ids: Vec<QualifiedContractIdentifier>) -> StackerDBEventReceiver {
-        StackerDBEventReceiver {
+    pub fn new(contract_ids: Vec<QualifiedContractIdentifier>) -> SignerEventReceiver {
+        SignerEventReceiver {
             stackerdb_contract_ids: contract_ids,
             http_server: None,
             local_addr: None,
@@ -130,7 +138,7 @@ impl StackerDBEventReceiver {
     /// Do something with the socket
     pub fn with_server<F, R>(&mut self, todo: F) -> Result<R, EventError>
     where
-        F: FnOnce(&mut StackerDBEventReceiver, &mut HttpServer) -> R,
+        F: FnOnce(&SignerEventReceiver, &mut HttpServer, &[QualifiedContractIdentifier]) -> R,
     {
         let mut server = if let Some(s) = self.http_server.take() {
             s
@@ -138,7 +146,7 @@ impl StackerDBEventReceiver {
             return Err(EventError::NotBound);
         };
 
-        let res = todo(self, &mut server);
+        let res = todo(self, &mut server, &self.stackerdb_contract_ids);
 
         self.http_server = Some(server);
         Ok(res)
@@ -146,22 +154,22 @@ impl StackerDBEventReceiver {
 }
 
 /// Stop signaler implementation
-pub struct StackerDBStopSignaler {
+pub struct SignerStopSignaler {
     stop_signal: Arc<AtomicBool>,
     local_addr: SocketAddr,
 }
 
-impl StackerDBStopSignaler {
+impl SignerStopSignaler {
     /// Make a new stop signaler
-    pub fn new(sig: Arc<AtomicBool>, local_addr: SocketAddr) -> StackerDBStopSignaler {
-        StackerDBStopSignaler {
+    pub fn new(sig: Arc<AtomicBool>, local_addr: SocketAddr) -> SignerStopSignaler {
+        SignerStopSignaler {
             stop_signal: sig,
             local_addr,
         }
     }
 }
 
-impl EventStopSignaler for StackerDBStopSignaler {
+impl EventStopSignaler for SignerStopSignaler {
     fn send(&mut self) {
         self.stop_signal.store(true, Ordering::SeqCst);
         // wake up the thread so the atomicbool can be checked
@@ -179,8 +187,8 @@ impl EventStopSignaler for StackerDBStopSignaler {
     }
 }
 
-impl EventReceiver for StackerDBEventReceiver {
-    type ST = StackerDBStopSignaler;
+impl EventReceiver for SignerEventReceiver {
+    type ST = SignerStopSignaler;
 
     /// Start listening on the given socket address.
     /// Returns the address that was bound.
@@ -194,8 +202,8 @@ impl EventReceiver for StackerDBEventReceiver {
     /// Wait for the node to post something, and then return it.
     /// Errors are recoverable -- the caller should call this method again even if it returns an
     /// error.
-    fn next_event(&mut self) -> Result<StackerDBChunksEvent, EventError> {
-        self.with_server(|event_receiver, http_server| {
+    fn next_event(&mut self) -> Result<SignerEvent, EventError> {
+        self.with_server(|event_receiver, http_server, contract_ids| {
             let mut request = http_server.recv()?;
 
             // were we asked to terminate?
@@ -209,7 +217,73 @@ impl EventReceiver for StackerDBEventReceiver {
                     &request.method(),
                 )));
             }
-            if request.url() != "/stackerdb_chunks" {
+            if request.url() == "/stackerdb_chunks" {
+                debug!("Got stackerdb_chunks event");
+                let mut body = String::new();
+                if let Err(e) = request
+                    .as_reader()
+                    .read_to_string(&mut body) {
+                    error!("Failed to read body: {:?}", &e);
+
+                    request
+                        .respond(HttpResponse::empty(200u16))
+                        .expect("response failed");
+                    return Err(EventError::MalformedRequest(format!(
+                        "Failed to read body: {:?}",
+                        &e
+                    )));
+                    }
+
+                let event: StackerDBChunksEvent =
+                    serde_json::from_slice(body.as_bytes()).map_err(|e| {
+                        EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
+                    })?;
+
+                if !contract_ids.contains(&event.contract_id) {
+                    info!(
+                        "[{:?}] next_event got event from an unexpected contract id {}, return OK so other side doesn't keep sending this",
+                        event_receiver.local_addr,
+                        event.contract_id
+                    );
+                    request
+                        .respond(HttpResponse::empty(200u16))
+                        .expect("response failed");
+                    return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
+                }
+
+                request
+                    .respond(HttpResponse::empty(200u16))
+                    .expect("response failed");
+
+                Ok(SignerEvent::StackerDB(event))
+            } else if request.url() == "/proposal_response" {
+                debug!("Got proposal_response event");
+                let mut body = String::new();
+                if let Err(e) = request
+                    .as_reader()
+                    .read_to_string(&mut body) {
+                    error!("Failed to read body: {:?}", &e);
+
+                    request
+                        .respond(HttpResponse::empty(200u16))
+                        .expect("response failed");
+                    return Err(EventError::MalformedRequest(format!(
+                        "Failed to read body: {:?}",
+                        &e
+                    )));
+                    }
+
+                let event: BlockValidateResponse =
+                    serde_json::from_slice(body.as_bytes()).map_err(|e| {
+                        EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
+                    })?;
+
+                request
+                    .respond(HttpResponse::empty(200u16))
+                    .expect("response failed");
+
+                Ok(SignerEvent::BlockProposal(event))
+            } else {
                 let url = request.url().to_string();
 
                 info!(
@@ -222,23 +296,6 @@ impl EventReceiver for StackerDBEventReceiver {
                     .respond(HttpResponse::empty(200u16))
                     .expect("response failed");
                 Err(EventError::UnrecognizedEvent(url))
-            } else {
-                let mut body = String::new();
-                request
-                    .as_reader()
-                    .read_to_string(&mut body)
-                    .expect("failed to read body");
-
-                let event: StackerDBChunksEvent =
-                    serde_json::from_slice(body.as_bytes()).map_err(|e| {
-                        EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e))
-                    })?;
-
-                request
-                    .respond(HttpResponse::empty(200u16))
-                    .expect("response failed");
-
-                Ok(event)
             }
         })?
     }
@@ -251,7 +308,7 @@ impl EventReceiver for StackerDBEventReceiver {
     /// Forward an event
     /// Return true on success; false on error.
     /// Returning false terminates the event receiver.
-    fn forward_event(&mut self, ev: StackerDBChunksEvent) -> bool {
+    fn forward_event(&mut self, ev: SignerEvent) -> bool {
         if self.out_channels.is_empty() {
             // nothing to do
             error!("No channels connected to event receiver");
@@ -275,15 +332,15 @@ impl EventReceiver for StackerDBEventReceiver {
     }
 
     /// Add an event consumer.  A received event will be forwarded to this Sender.
-    fn add_consumer(&mut self, out_channel: Sender<StackerDBChunksEvent>) {
+    fn add_consumer(&mut self, out_channel: Sender<SignerEvent>) {
         self.out_channels.push(out_channel);
     }
 
     /// Get a stopped signaler.  The caller can then use it to terminate the event receiver loop,
     /// even if it's in a different thread.
-    fn get_stop_signaler(&mut self) -> Result<StackerDBStopSignaler, EventError> {
+    fn get_stop_signaler(&mut self) -> Result<SignerStopSignaler, EventError> {
         if let Some(local_addr) = self.local_addr {
-            Ok(StackerDBStopSignaler::new(
+            Ok(SignerStopSignaler::new(
                 self.stop_signal.clone(),
                 local_addr,
             ))

@@ -760,6 +760,7 @@ pub struct SortitionDB {
     pub first_block_height: u64,
     pub first_burn_header_hash: BurnchainHeaderHash,
     pub pox_constants: PoxConstants,
+    pub path: String,
 }
 
 #[derive(Clone)]
@@ -2662,6 +2663,7 @@ impl SortitionDB {
         let first_snapshot = SortitionDB::get_first_block_snapshot(marf.sqlite_conn())?;
 
         let mut db = SortitionDB {
+            path: path.to_string(),
             marf,
             readwrite,
             pox_constants,
@@ -2671,6 +2673,12 @@ impl SortitionDB {
 
         db.check_schema_version_or_error()?;
         Ok(db)
+    }
+
+    /// Open a new copy of this SortitionDB. Will use the same `readwrite` flag
+    ///  of `self`.
+    pub fn reopen(&self) -> Result<SortitionDB, db_error> {
+        Self::open(&self.path, self.readwrite, self.pox_constants.clone())
     }
 
     /// Open the burn database at the given path.  Open read-only or read/write.
@@ -2711,6 +2719,7 @@ impl SortitionDB {
         let marf = SortitionDB::open_index(&index_path)?;
 
         let mut db = SortitionDB {
+            path: path.to_string(),
             marf,
             readwrite,
             first_block_height,
@@ -2824,6 +2833,7 @@ impl SortitionDB {
         let marf = SortitionDB::open_index(&index_path)?;
 
         let mut db = SortitionDB {
+            path: path.to_string(),
             marf,
             readwrite,
             first_block_height,
@@ -3385,6 +3395,7 @@ impl SortitionDB {
             let index_path = db_mkdirs(path)?;
             let marf = SortitionDB::open_index(&index_path)?;
             let mut db = SortitionDB {
+                path: path.to_string(),
                 marf,
                 readwrite: true,
                 // not used by migration logic

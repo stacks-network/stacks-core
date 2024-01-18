@@ -3801,82 +3801,41 @@ impl StacksNode {
         let atlasdb =
             AtlasDB::connect(atlas_config.clone(), &config.get_atlas_db_file_path(), true).unwrap();
 
-        let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
-
         let mut chainstate =
             open_chainstate_with_faults(config).expect("FATAL: could not open chainstate DB");
 
         let mut stackerdb_machines = HashMap::new();
-        for stackerdb_contract_id in config.node.stacker_dbs.iter() {
-            // attempt to load the config
-            let (instantiate, stacker_db_config) = match StackerDBConfig::from_smart_contract(
-                &mut chainstate,
-                &sortdb,
-                stackerdb_contract_id,
-            ) {
-                Ok(c) => (true, c),
-                Err(e) => {
-                    warn!(
-                        "Failed to load StackerDB config for {}: {:?}",
-                        stackerdb_contract_id, &e
-                    );
-                    (false, StackerDBConfig::noop())
-                }
-            };
-            let mut stackerdbs =
-                StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+        let mut stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
 
-            if instantiate {
-                match stackerdbs.get_stackerdb_id(stackerdb_contract_id) {
-                    Ok(..) => {
-                        // reconfigure
-                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
-                        tx.reconfigure_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
-                            .expect(&format!(
-                                "FATAL: failed to reconfigure StackerDB replica {}",
-                                stackerdb_contract_id
-                            ));
-                        tx.commit().unwrap();
-                    }
-                    Err(NetError::NoSuchStackerDB(..)) => {
-                        // instantiate replica
-                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
-                        tx.create_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
-                            .expect(&format!(
-                                "FATAL: failed to instantiate StackerDB replica {}",
-                                stackerdb_contract_id
-                            ));
-                        tx.commit().unwrap();
-                    }
-                    Err(e) => {
-                        panic!("FATAL: failed to query StackerDB state: {:?}", &e);
-                    }
-                }
-            }
+        let mut stackerdb_configs = HashMap::new();
+        for contract in config.node.stacker_dbs.iter() {
+            stackerdb_configs.insert(contract.clone(), StackerDBConfig::noop());
+        }
+        let stackerdb_configs = stackerdbs
+            .create_or_reconfigure_stackerdbs(&mut chainstate, &sortdb, stackerdb_configs)
+            .unwrap();
+
+        let stackerdb_contract_ids: Vec<QualifiedContractIdentifier> =
+            stackerdb_configs.keys().cloned().collect();
+        for (contract_id, stackerdb_config) in stackerdb_configs {
+            let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
             let stacker_db_sync = match StackerDBSync::new(
-                stackerdb_contract_id.clone(),
-                &stacker_db_config,
+                contract_id.clone(),
+                &stackerdb_config,
                 PeerNetworkComms::new(),
                 stackerdbs,
             ) {
                 Ok(s) => s,
                 Err(e) => {
                     warn!(
-                        "Failed to instantiate StackerDB sync machine for {}: {:?}",
-                        stackerdb_contract_id, &e
+                        "Failed to instantiate StackerDB sync machine for {contract_id}: {:?}",
+                        &e
                     );
                     continue;
                 }
             };
-
-            stackerdb_machines.insert(
-                stackerdb_contract_id.clone(),
-                (stacker_db_config, stacker_db_sync),
-            );
+            stackerdb_machines.insert(contract_id, (stackerdb_config, stacker_db_sync));
         }
-
-        let stackerdb_contract_ids: Vec<_> =
-            stackerdb_machines.keys().map(|sc| sc.clone()).collect();
         let peerdb = Self::setup_peer_db(config, &burnchain, &stackerdb_contract_ids);
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {

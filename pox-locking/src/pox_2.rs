@@ -484,6 +484,7 @@ pub fn handle_contract_call(
                 sender_opt,
                 function_name,
                 args,
+                response,
             ) {
                 Ok(Some(event_info)) => Some(event_info),
                 Ok(None) => None,
