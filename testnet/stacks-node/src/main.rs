@@ -487,14 +487,14 @@ start\t\tStart a node with a config of your own. Can be used for joining a netwo
 \t\tArguments:
 \t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/testnet/stacks-node/conf/testnet-follower-conf.toml).
 \t\tExample:
-\t\t  stacks-node start --config=/path/to/config.toml
+\t\t  stacks-node start --config /path/to/config.toml
 
 check-config\t\tValidates the config file without starting up the node. Uses same arguments as start subcommand.
 
 version\t\tDisplay information about the current version and our release cycle.
 
 key-for-seed\tOutput the associated secret key for a burnchain signer created with a given seed.
-\t\tCan be passed a config file for the seed via the `--config=<file>` option *or* by supplying the hex seed on
+\t\tCan be passed a config file for the seed via the `--config <file>` option *or* by supplying the hex seed on
 \t\tthe command line directly.
 
 help\t\tDisplay this help.
