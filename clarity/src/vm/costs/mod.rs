@@ -20,12 +20,14 @@ use std::{cmp, fmt};
 
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
+use stacks_common::types::StacksEpochId;
 
 use crate::boot_util::boot_code_id;
 use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::database::{clarity_store::NullBackingStore, ClarityDatabase};
+use crate::vm::database::clarity_store::NullBackingStore;
+use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{Error, InterpreterResult};
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::{FunctionSignature, TupleTypeSignature};
@@ -35,7 +37,6 @@ use crate::vm::types::{
     TypeSignature, NONE,
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
-use stacks_common::types::StacksEpochId;
 
 pub mod constants;
 pub mod cost_functions;

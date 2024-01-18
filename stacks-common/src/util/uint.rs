@@ -19,9 +19,10 @@
 //! Implementation of a various large-but-fixed sized unsigned integer types.
 //! The functions here are designed to be fast.
 //!
-use crate::util::hash::{hex_bytes, to_hex};
 /// Borrowed with gratitude from Andrew Poelstra's rust-bitcoin library
 use std::fmt;
+
+use crate::util::hash::{hex_bytes, to_hex};
 
 /// A trait which allows numbers to act as fixed-size bit arrays
 pub trait BitArray {
@@ -497,25 +498,20 @@ impl Uint512 {
     /// from Uint256
     pub fn from_uint256(n: &Uint256) -> Uint512 {
         let mut tmp = [0u64; 8];
-        for i in 0..4 {
-            tmp[i] = n.0[i];
-        }
+        tmp[..4].copy_from_slice(&n.0[0..4]);
         Uint512(tmp)
     }
 
     pub fn to_uint256(&self) -> Uint256 {
         let mut tmp = [0u64; 4];
-        for i in 0..4 {
-            tmp[i] = self.0[i];
-        }
+        tmp[..4].copy_from_slice(&self.0[0..4]);
         Uint256(tmp)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::util::uint::BitArray;
-    use crate::util::uint::Uint256;
+    use crate::util::uint::{BitArray, Uint256};
 
     #[test]
     pub fn uint256_bits_test() {
@@ -741,13 +737,13 @@ mod tests {
 
         // little-endian representation
         let hex_init = "0807060504030201efbeaddeefbeadde00000000000000000000000000000000";
-        assert_eq!(Uint256::from_hex_le(&hex_init).unwrap(), init);
+        assert_eq!(Uint256::from_hex_le(hex_init).unwrap(), init);
         assert_eq!(&init.to_hex_le(), hex_init);
         assert_eq!(Uint256::from_hex_le(&init.to_hex_le()).unwrap(), init);
 
         // big-endian representation
         let hex_init = "00000000000000000000000000000000deadbeefdeadbeef0102030405060708";
-        assert_eq!(Uint256::from_hex_be(&hex_init).unwrap(), init);
+        assert_eq!(Uint256::from_hex_be(hex_init).unwrap(), init);
         assert_eq!(&init.to_hex_be(), hex_init);
         assert_eq!(Uint256::from_hex_be(&init.to_hex_be()).unwrap(), init);
     }

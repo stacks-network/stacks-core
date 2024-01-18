@@ -5,6 +5,8 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
@@ -12,8 +14,7 @@ use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
-use stacks::core::mempool::MemPoolWalkSettings;
-use stacks::core::mempool::MemPoolWalkTxTypes;
+use stacks::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
 use stacks::core::{
     StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
     PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
@@ -23,16 +24,15 @@ use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
 use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
+use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
-use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::util::get_epoch_time_ms;
-use stacks::util::hash::hex_bytes;
-use stacks::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
-
+use stacks::net::{Neighbor, NeighborKey};
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::Address;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::chain_data::MinerStats;
 
@@ -49,10 +49,11 @@ pub struct ConfigFile {
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
-    pub events_observer: Option<Vec<EventObserverConfigFile>>,
+    pub events_observer: Option<HashSet<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
+    pub atlas: Option<AtlasConfigFile>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -206,7 +207,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:20444".to_string()),
+            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -251,7 +252,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444".to_string()),
+            bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444,02539449ad94e6e6392d8c1deb2b4e61f80ae2a18964349bc14336d8b903c46a8c@cet.stacksnodes.org:20444,02ececc8ce79b8adf813f13a0255f8ae58d4357309ba0cedd523d9f1a306fcfb79@sgt.stacksnodes.org:20444,0303144ba518fe7a0fb56a8a7d488f950307a4330f146e1e1458fc63fb33defe96@est.stacksnodes.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -357,10 +358,11 @@ pub struct Config {
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
-    pub events_observers: Vec<EventObserverConfig>,
+    pub events_observers: HashSet<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
     pub estimation: FeeEstimationConfig,
+    pub atlas: AtlasConfig,
 }
 
 lazy_static! {
@@ -736,6 +738,14 @@ impl Config {
                     chain_liveness_poll_time_secs: node
                         .chain_liveness_poll_time_secs
                         .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+                    stacker_dbs: node
+                        .stacker_dbs
+                        .unwrap_or(vec![])
+                        .iter()
+                        .filter_map(|contract_id| {
+                            QualifiedContractIdentifier::parse(contract_id).ok()
+                        })
+                        .collect(),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -1039,7 +1049,7 @@ impl Config {
 
         let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
-                let mut observers = vec![];
+                let mut observers = HashSet::new();
                 for observer in raw_observers {
                     let events_keys: Vec<EventKeyType> = observer
                         .events_keys
@@ -1049,22 +1059,25 @@ impl Config {
 
                     let endpoint = format!("{}", observer.endpoint);
 
-                    observers.push(EventObserverConfig {
+                    observers.insert(EventObserverConfig {
                         endpoint,
                         events_keys,
                     });
                 }
                 observers
             }
-            None => vec![],
+            None => HashSet::new(),
         };
 
         // check for observer config in env vars
         match std::env::var("STACKS_EVENT_OBSERVER") {
-            Ok(val) => events_observers.push(EventObserverConfig {
-                endpoint: val,
-                events_keys: vec![EventKeyType::AnyEvent],
-            }),
+            Ok(val) => {
+                events_observers.insert(EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                });
+                ()
+            }
             _ => (),
         };
 
@@ -1209,7 +1222,7 @@ impl Config {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
                     }),
                     connect_timeout: opts.connect_timeout.unwrap_or(10),
-                    handshake_timeout: opts.connect_timeout.unwrap_or(5),
+                    handshake_timeout: opts.handshake_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     antientropy_public: opts.antientropy_public.unwrap_or(true),
                     ..ConnectionOptions::default()
@@ -1223,6 +1236,16 @@ impl Config {
             None => FeeEstimationConfig::default(),
         };
 
+        let mainnet = burnchain.mode == "mainnet";
+        let atlas = match config_file.atlas {
+            Some(f) => f.into_config(mainnet),
+            None => AtlasConfig::new(mainnet),
+        };
+
+        atlas
+            .validate()
+            .map_err(|e| format!("Atlas config error: {e}"))?;
+
         Ok(Config {
             config_path: config_file.__path,
             node,
@@ -1232,6 +1255,7 @@ impl Config {
             connection_options,
             estimation,
             miner,
+            atlas,
         })
     }
 
@@ -1302,6 +1326,12 @@ impl Config {
     pub fn get_atlas_db_file_path(&self) -> String {
         let mut path = self.get_chainstate_path();
         path.set_file_name("atlas.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
+    }
+
+    pub fn get_stacker_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("stacker_db.sqlite");
         path.to_str().expect("Unable to produce path").to_string()
     }
 
@@ -1396,16 +1426,18 @@ impl std::default::Default for Config {
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let estimation = FeeEstimationConfig::default();
+        let mainnet = burnchain.mode == "mainnet";
 
         Config {
             config_path: None,
             burnchain,
             node,
             initial_balances: vec![],
-            events_observers: vec![],
+            events_observers: HashSet::new(),
             connection_options,
             estimation,
             miner: MinerConfig::default(),
+            atlas: AtlasConfig::new(mainnet),
         }
     }
 }
@@ -1477,7 +1509,6 @@ impl BurnchainConfig {
             ast_precheck_size_height: None,
         }
     }
-
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
         let scheme = match self.rpc_ssl {
             true => "https://",
@@ -1590,6 +1621,8 @@ pub struct NodeConfig {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: u64,
+    /// stacker DBs we replicate
+    pub stacker_dbs: Vec<QualifiedContractIdentifier>,
 }
 
 #[derive(Clone, Debug)]
@@ -1868,6 +1901,7 @@ impl NodeConfig {
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            stacker_dbs: vec![],
         }
     }
 
@@ -1907,7 +1941,7 @@ impl NodeConfig {
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
-        debug!("Resolve '{}'", &hostport);
+        info!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
@@ -2109,9 +2143,11 @@ pub struct NodeConfigFile {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    /// Stacker DBs we replicate
+    pub stacker_dbs: Option<Vec<String>>,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -2120,20 +2156,6 @@ pub struct FeeEstimationConfigFile {
     pub log_error: Option<bool>,
     pub fee_rate_fuzzer_fraction: Option<f64>,
     pub fee_rate_window_size: Option<u64>,
-}
-
-impl Default for FeeEstimationConfigFile {
-    fn default() -> Self {
-        Self {
-            cost_estimator: None,
-            fee_estimator: None,
-            cost_metric: None,
-            disabled: None,
-            log_error: None,
-            fee_rate_fuzzer_fraction: None,
-            fee_rate_window_size: None,
-        }
-    }
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -2160,18 +2182,46 @@ pub struct MinerConfigFile {
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+pub struct AtlasConfigFile {
+    pub attachments_max_size: Option<u32>,
+    pub max_uninstantiated_attachments: Option<u32>,
+    pub uninstantiated_attachments_expire_after: Option<u32>,
+    pub unresolved_attachment_instances_expire_after: Option<u32>,
+}
+
+impl AtlasConfigFile {
+    // Can't inplement `Into` trait because this takes a parameter
+    fn into_config(&self, mainnet: bool) -> AtlasConfig {
+        let mut conf = AtlasConfig::new(mainnet);
+        if let Some(val) = self.attachments_max_size {
+            conf.attachments_max_size = val
+        }
+        if let Some(val) = self.max_uninstantiated_attachments {
+            conf.max_uninstantiated_attachments = val
+        }
+        if let Some(val) = self.uninstantiated_attachments_expire_after {
+            conf.uninstantiated_attachments_expire_after = val
+        }
+        if let Some(val) = self.unresolved_attachment_instances_expire_after {
+            conf.unresolved_attachment_instances_expire_after = val
+        }
+        conf
+    }
+}
+
+#[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
@@ -2182,6 +2232,7 @@ pub enum EventKeyType {
     BurnchainBlocks,
     MinedBlocks,
     MinedMicroblocks,
+    StackerDBChunks,
 }
 
 impl EventKeyType {
@@ -2204,6 +2255,10 @@ impl EventKeyType {
 
         if raw_key == "microblocks" {
             return Some(EventKeyType::Microblocks);
+        }
+
+        if raw_key == "stackerdb" {
+            return Some(EventKeyType::StackerDBChunks);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();

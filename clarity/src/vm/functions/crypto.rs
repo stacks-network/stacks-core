@@ -14,6 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash;
+use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
+
 use crate::vm::callables::{CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
@@ -25,20 +32,11 @@ use crate::vm::errors::{
 };
 use crate::vm::representations::SymbolicExpressionType::{Atom, List};
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::StacksAddressExtensions;
 use crate::vm::types::{
-    BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
-    BUFF_33, BUFF_65,
+    BuffData, CharType, PrincipalData, ResponseData, SequenceData, StacksAddressExtensions,
+    TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65,
 };
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
-use stacks_common::address::AddressHashMode;
-use stacks_common::address::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use stacks_common::util::hash;
-use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-
-use crate::types::chainstate::StacksAddress;
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
@@ -119,7 +117,7 @@ pub fn special_principal_of(
         _ => return Err(CheckErrors::TypeValueError(BUFF_33.clone(), param0).into()),
     };
 
-    if let Ok(pub_key) = Secp256k1PublicKey::from_slice(&pub_key) {
+    if let Ok(pub_key) = Secp256k1PublicKey::from_slice(pub_key) {
         // Note: Clarity1 had a bug in how the address is computed (issues/2619).
         // We want to preserve the old behavior unless the version is greater.
         let addr = if *env.contract_context.get_clarity_version() > ClarityVersion::Clarity1 {
@@ -131,7 +129,7 @@ pub fn special_principal_of(
         return Ok(Value::okay(Value::Principal(principal))
             .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?);
     } else {
-        return Ok(Value::err_uint(1));
+        Ok(Value::err_uint(1))
     }
 }
 
@@ -235,6 +233,6 @@ pub fn special_secp256k1_verify(
     };
 
     Ok(Value::Bool(
-        secp256k1_verify(&message, &signature, &pubkey).is_ok(),
+        secp256k1_verify(message, signature, pubkey).is_ok(),
     ))
 }

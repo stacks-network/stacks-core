@@ -28,16 +28,13 @@ use std::default::Default;
 use std::{error, fmt};
 
 use serde;
+use sha2::{Digest, Sha256};
 
 use crate::deps_common::bitcoin::blockdata::opcodes;
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
-
 // careful...
 use crate::deps_common::bitcoin::util::hash::Hash160;
-
-use sha2::Digest;
-use sha2::Sha256;
 
 #[derive(Clone, Default, PartialOrd, Ord, PartialEq, Eq, Hash)]
 /// A Bitcoin script
@@ -64,7 +61,7 @@ impl fmt::Debug for Script {
                         match read_uint(&self.0[index..], 1) {
                             Ok(n) => {
                                 index += 1;
-                                n as usize
+                                n
                             }
                             Err(_) => {
                                 f.write_str("<bad length>")?;
@@ -80,7 +77,7 @@ impl fmt::Debug for Script {
                         match read_uint(&self.0[index..], 2) {
                             Ok(n) => {
                                 index += 2;
-                                n as usize
+                                n
                             }
                             Err(_) => {
                                 f.write_str("<bad length>")?;
@@ -96,7 +93,7 @@ impl fmt::Debug for Script {
                         match read_uint(&self.0[index..], 4) {
                             Ok(n) => {
                                 index += 4;
-                                n as usize
+                                n
                             }
                             Err(_) => {
                                 f.write_str("<bad length>")?;
@@ -297,7 +294,7 @@ impl Script {
 
     /// Returns the script data
     pub fn as_bytes(&self) -> &[u8] {
-        &*self.0
+        &self.0
     }
 
     /// Returns a copy of the script data
@@ -325,7 +322,7 @@ impl Script {
         let mut tmp = [0; 32];
         let mut sha2 = Sha256::new();
         sha2.update(&self.0);
-        tmp.copy_from_slice(&sha2.finalize().as_slice());
+        tmp.copy_from_slice(sha2.finalize().as_slice());
         Builder::new().push_int(0).push_slice(&tmp).into_script()
     }
 
@@ -392,7 +389,7 @@ impl Script {
     pub fn iter(&self, enforce_minimal: bool) -> Instructions {
         Instructions {
             data: &self.0[..],
-            enforce_minimal: enforce_minimal,
+            enforce_minimal,
         }
     }
 }
@@ -438,12 +435,12 @@ impl<'a> Iterator for Instructions<'a> {
                     self.data = &[]; // Kill iterator so that it does not return an infinite stream of errors
                     return Some(Instruction::Error(Error::EarlyEndOfScript));
                 }
-                if self.enforce_minimal {
-                    if n == 1 && (self.data[1] == 0x81 || (self.data[1] > 0 && self.data[1] <= 16))
-                    {
-                        self.data = &[];
-                        return Some(Instruction::Error(Error::NonMinimalPush));
-                    }
+                if self.enforce_minimal
+                    && n == 1
+                    && (self.data[1] == 0x81 || (self.data[1] > 0 && self.data[1] <= 16))
+                {
+                    self.data = &[];
+                    return Some(Instruction::Error(Error::NonMinimalPush));
                 }
                 let ret = Some(Instruction::PushBytes(&self.data[1..n + 1]));
                 self.data = &self.data[n + 1..];
@@ -552,7 +549,7 @@ impl Builder {
     /// dedicated opcodes to push some small integers.
     pub fn push_int(mut self, data: i64) -> Builder {
         // We can special-case -1, 1-16
-        if data == -1 || (data >= 1 && data <= 16) {
+        if data == -1 || (1..=16).contains(&data) {
             self.0.push((data - 1 + opcodes::OP_TRUE as i64) as u8);
             self
         }
@@ -702,13 +699,10 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Script {
 
 #[cfg(test)]
 mod test {
-    use crate::util::hash::hex_bytes as hex_decode;
-
-    use super::build_scriptint;
-    use super::*;
-
+    use super::{build_scriptint, *};
     use crate::deps_common::bitcoin::blockdata::opcodes;
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn script() {
@@ -819,32 +813,24 @@ mod test {
     #[test]
     fn provably_unspendable_test() {
         // p2pk
-        assert_eq!(hex_script!("410446ef0102d1ec5240f0d061a4246c1bdef63fc3dbab7733052fbbf0ecd8f41fc26bf049ebb4f9527f374280259e7cfa99c48b0e3f39c51347a19a5819651503a5ac").is_provably_unspendable(), false);
-        assert_eq!(hex_script!("4104ea1feff861b51fe3f5f8a3b12d0f4712db80e919548a80839fc47c6a21e66d957e9c5d8cd108c7a2d2324bad71f9904ac0ae7336507d785b17a2c115e427a32fac").is_provably_unspendable(), false);
+        assert!(!hex_script!("410446ef0102d1ec5240f0d061a4246c1bdef63fc3dbab7733052fbbf0ecd8f41fc26bf049ebb4f9527f374280259e7cfa99c48b0e3f39c51347a19a5819651503a5ac").is_provably_unspendable());
+        assert!(!hex_script!("4104ea1feff861b51fe3f5f8a3b12d0f4712db80e919548a80839fc47c6a21e66d957e9c5d8cd108c7a2d2324bad71f9904ac0ae7336507d785b17a2c115e427a32fac").is_provably_unspendable());
         // p2pkhash
-        assert_eq!(
-            hex_script!("76a914ee61d57ab51b9d212335b1dba62794ac20d2bcf988ac")
-                .is_provably_unspendable(),
-            false
+        assert!(
+            !hex_script!("76a914ee61d57ab51b9d212335b1dba62794ac20d2bcf988ac")
+                .is_provably_unspendable()
         );
-        assert_eq!(
+        assert!(
             hex_script!("6aa9149eb21980dc9d413d8eac27314938b9da920ee53e87")
-                .is_provably_unspendable(),
-            true
+                .is_provably_unspendable()
         );
     }
 
     #[test]
     fn op_return_test() {
-        assert_eq!(
-            hex_script!("6aa9149eb21980dc9d413d8eac27314938b9da920ee53e87").is_op_return(),
-            true
-        );
-        assert_eq!(
-            hex_script!("76a914ee61d57ab51b9d212335b1dba62794ac20d2bcf988ac").is_op_return(),
-            false
-        );
-        assert_eq!(hex_script!("").is_op_return(), false);
+        assert!(hex_script!("6aa9149eb21980dc9d413d8eac27314938b9da920ee53e87").is_op_return());
+        assert!(!hex_script!("76a914ee61d57ab51b9d212335b1dba62794ac20d2bcf988ac").is_op_return());
+        assert!(!hex_script!("").is_op_return());
     }
 
     #[test]

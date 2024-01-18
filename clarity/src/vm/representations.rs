@@ -14,17 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::errors::RuntimeErrorType;
-use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
-use regex::Regex;
-use stacks_common::codec::Error as codec_error;
-use stacks_common::codec::{read_next, read_next_at_most, write_next, StacksMessageCodec};
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
+
+use regex::Regex;
+use stacks_common::codec::{
+    read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
+};
+
+use crate::vm::errors::RuntimeErrorType;
+use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
@@ -67,6 +70,7 @@ guarded_string!(
     ClarityName,
     "ClarityName",
     CLARITY_NAME_REGEX,
+    MAX_STRING_LEN,
     RuntimeErrorType,
     RuntimeErrorType::BadNameValue
 );
@@ -74,6 +78,7 @@ guarded_string!(
     ContractName,
     "ContractName",
     CONTRACT_NAME_REGEX,
+    MAX_STRING_LEN,
     RuntimeErrorType,
     RuntimeErrorType::BadNameValue
 );
@@ -255,6 +260,24 @@ impl PreSymbolicExpression {
     ) {
     }
 
+    #[cfg(feature = "developer-mode")]
+    pub fn copy_span(&mut self, src: &Span) {
+        self.span = src.clone();
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn copy_span(&mut self, _src: &Span) {}
+
+    #[cfg(feature = "developer-mode")]
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn span(&self) -> &Span {
+        &Span::ZERO
+    }
+
     pub fn sugared_contract_identifier(val: ContractName) -> PreSymbolicExpression {
         PreSymbolicExpression {
             pre_expr: PreSymbolicExpressionType::SugaredContractIdentifier(val),
@@ -433,6 +456,13 @@ pub struct SymbolicExpression {
 
     #[cfg(feature = "developer-mode")]
     pub span: Span,
+
+    #[cfg(feature = "developer-mode")]
+    pub pre_comments: Vec<(String, Span)>,
+    #[cfg(feature = "developer-mode")]
+    pub end_line_comment: Option<String>,
+    #[cfg(feature = "developer-mode")]
+    pub post_comments: Vec<(String, Span)>,
 }
 
 impl SymbolicExpression {
@@ -440,8 +470,11 @@ impl SymbolicExpression {
     fn cons() -> SymbolicExpression {
         SymbolicExpression {
             id: 0,
-            span: Span::zero(),
             expr: SymbolicExpressionType::AtomValue(Value::Bool(false)),
+            span: Span::zero(),
+            pre_comments: vec![],
+            end_line_comment: None,
+            post_comments: vec![],
         }
     }
     #[cfg(not(feature = "developer-mode"))]
@@ -470,6 +503,24 @@ impl SymbolicExpression {
         _end_line: u32,
         _end_column: u32,
     ) {
+    }
+
+    #[cfg(feature = "developer-mode")]
+    pub fn copy_span(&mut self, src: &Span) {
+        self.span = src.clone();
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn copy_span(&mut self, _src: &Span) {}
+
+    #[cfg(feature = "developer-mode")]
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn span(&self) -> &Span {
+        &Span::ZERO
     }
 
     pub fn atom_value(val: Value) -> SymbolicExpression {
@@ -609,6 +660,13 @@ pub struct Span {
 }
 
 impl Span {
+    pub const ZERO: Span = Span {
+        start_line: 0,
+        start_column: 0,
+        end_line: 0,
+        end_column: 0,
+    };
+
     pub fn zero() -> Span {
         Span {
             start_line: 0,

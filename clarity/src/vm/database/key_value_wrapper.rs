@@ -14,9 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::clone::Clone;
+use std::cmp::Eq;
 use std::collections::HashMap;
-use std::{clone::Clone, cmp::Eq, hash::Hash};
+use std::hash::Hash;
 
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::Sha512Trunc256Sum;
+
+use super::clarity_store::SpecialCaseHandler;
+use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::vm::database::clarity_store::make_contract_hash_key;
 use crate::vm::errors::{InterpreterError, InterpreterResult};
 use crate::vm::types::serialization::SerializationError;
@@ -24,13 +32,6 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
 };
 use crate::vm::{StacksEpoch, Value};
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::Sha512Trunc256Sum;
-
-use crate::types::chainstate::StacksBlockId;
-
-use super::clarity_store::SpecialCaseHandler;
-use super::{ClarityBackingStore, ClarityDeserializable};
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;
@@ -68,7 +69,7 @@ where
         })
         .collect();
 
-    assert!(lookup_map.len() == 0);
+    assert!(lookup_map.is_empty());
     output
 }
 
@@ -99,7 +100,7 @@ where
     for (key, value) in edits.iter() {
         rollback_lookup_map(key, &value, lookup_map);
     }
-    assert!(lookup_map.len() == 0);
+    assert!(lookup_map.is_empty());
     edits
 }
 
@@ -155,6 +156,12 @@ impl From<RollbackWrapper<'_>> for RollbackWrapperPersistedLog {
     }
 }
 
+impl Default for RollbackWrapperPersistedLog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RollbackWrapperPersistedLog {
     pub fn new() -> RollbackWrapperPersistedLog {
         RollbackWrapperPersistedLog {
@@ -191,7 +198,7 @@ where
             InterpreterError::Expect("ERROR: expected value in edit history".into())
         })?;
         rollback_value_check(&popped_value, value);
-        key_edit_history.len() == 0
+        key_edit_history.is_empty()
     };
     if remove_edit_deque {
         lookup_map.remove(key);
@@ -342,13 +349,13 @@ impl<'a> RollbackWrapper<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> InterpreterResult<StacksBlockId> {
-        self.store.set_block_hash(bhh).and_then(|x| {
+        self.store.set_block_hash(bhh).map(|x| {
             // use and_then so that query_pending_data is only set once set_block_hash succeeds
             //  this doesn't matter in practice, because a set_block_hash failure always aborts
             //  the transaction with a runtime error (destroying its environment), but it's much
             //  better practice to do this, especially if the abort behavior changes in the future.
             self.query_pending_data = query_pending_data;
-            Ok(x)
+            x
         })
     }
 
@@ -548,9 +555,6 @@ impl<'a> RollbackWrapper<'a> {
         contract: &QualifiedContractIdentifier,
         key: &str,
     ) -> bool {
-        match self.get_metadata(contract, key) {
-            Ok(Some(_)) => true,
-            _ => false,
-        }
+        matches!(self.get_metadata(contract, key), Ok(Some(_)))
     }
 }

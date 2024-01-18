@@ -21,11 +21,14 @@ use std::iter::FromIterator;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::costs::{cost_functions, runtime_cost};
-
+use super::costs::{CostErrors, CostOverflowingMath};
+use super::errors::InterpreterError;
+use super::types::signatures::CallableSubtype;
+use super::ClarityVersion;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost};
 use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
 use crate::vm::representations::{ClarityName, Span, SymbolicExpression};
 use crate::vm::types::Value::UInt;
@@ -35,11 +38,6 @@ use crate::vm::types::{
     TupleData, TupleTypeSignature, TypeSignature,
 };
 use crate::vm::{eval, Environment, LocalContext, Value};
-
-use super::costs::{CostErrors, CostOverflowingMath};
-use super::errors::InterpreterError;
-use super::types::signatures::CallableSubtype;
-use super::ClarityVersion;
 
 pub enum CallableType {
     UserFunction(DefinedFunction),
@@ -514,9 +512,8 @@ fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Val
 
 #[cfg(test)]
 mod test {
-    use crate::vm::types::StandardPrincipalData;
-
     use super::*;
+    use crate::vm::types::StandardPrincipalData;
 
     #[test]
     fn test_implicit_cast() {

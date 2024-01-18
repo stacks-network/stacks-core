@@ -45,9 +45,7 @@ impl AnalysisPass for TraitChecker {
 
 impl TraitChecker {
     fn new(epoch: &StacksEpochId) -> Self {
-        Self {
-            epoch: epoch.clone(),
-        }
+        Self { epoch: *epoch }
     }
 
     pub fn run(

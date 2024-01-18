@@ -14,21 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[allow(clippy::result_large_err)]
 pub mod serialization;
+#[allow(clippy::result_large_err)]
 pub mod signatures;
 
 use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
-use std::{char, str};
-use std::{cmp, fmt};
+use std::{char, cmp, fmt, str};
 
 use regex::Regex;
-
 use stacks_common::address::c32;
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
-
-use stacks_common::types::chainstate::StacksAddress;
 
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
@@ -36,14 +35,12 @@ use crate::vm::errors::{
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
-
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
     StringUTF8Length, TupleTypeSignature, TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32,
     BUFF_33, BUFF_64, BUFF_65,
 };
-
 use crate::vm::ClarityVersion;
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
@@ -111,7 +108,7 @@ impl QualifiedContractIdentifier {
     }
 
     pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
-        let split: Vec<_> = literal.splitn(2, ".").collect();
+        let split: Vec<_> = literal.splitn(2, '.').collect();
         if split.len() != 2 {
             return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
@@ -123,15 +120,11 @@ impl QualifiedContractIdentifier {
         let name = split[1].to_string().try_into()?;
         Ok(QualifiedContractIdentifier::new(sender, name))
     }
-
-    pub fn to_string(&self) -> String {
-        format!("{}.{}", self.issuer, self.name.to_string())
-    }
 }
 
 impl fmt::Display for QualifiedContractIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}.{}", self.issuer, self.name)
     }
 }
 
@@ -175,10 +168,7 @@ pub trait StacksAddressExtensions {
 
 impl StacksAddressExtensions for StacksAddress {
     fn to_account_principal(&self) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData(
-            self.version,
-            self.bytes.as_bytes().clone(),
-        ))
+        PrincipalData::Standard(StandardPrincipalData(self.version, *self.bytes.as_bytes()))
     }
 }
 
@@ -211,7 +201,7 @@ impl TraitIdentifier {
     pub fn parse(
         literal: &str,
     ) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
-        let split: Vec<_> = literal.splitn(3, ".").collect();
+        let split: Vec<_> = literal.splitn(3, '.').collect();
         if split.len() != 3 {
             return Err(RuntimeErrorType::ParseError(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
@@ -356,7 +346,7 @@ impl SequenceData {
             _ => return Err(CheckErrors::ListTypesMustMatch.into()),
         };
 
-        Ok(Value::some(Value::Sequence(new_seq_data))?)
+        Value::some(Value::Sequence(new_seq_data))
     }
 
     pub fn contains(&self, to_find: Value) -> Result<Option<usize>> {
@@ -542,11 +532,7 @@ impl SequenceData {
     }
 
     pub fn is_list(&self) -> bool {
-        if let SequenceData::List(..) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, SequenceData::List(..))
     }
 }
 
@@ -583,7 +569,7 @@ impl fmt::Display for ASCIIData {
             let escaped_char = format!("{}", std::ascii::escape_default(*c));
             escaped_str.push_str(&escaped_char);
         }
-        write!(f, "{}", format!("\"{}\"", escaped_str))
+        write!(f, "\"{}\"", escaped_str)
     }
 }
 
@@ -605,7 +591,7 @@ impl fmt::Display for UTF8Data {
                 result.push_str(&escaped_char);
             }
         }
-        write!(f, "{}", format!("u\"{}\"", result))
+        write!(f, "u\"{}\"", result)
     }
 }
 
@@ -932,7 +918,7 @@ impl Value {
             let expected_item_type = expected_type.get_list_item_type();
 
             for item in &list_data {
-                if !expected_item_type.admits(epoch, &item)? {
+                if !expected_item_type.admits(epoch, item)? {
                     return Err(InterpreterError::FailureConstructingListWithType.into());
                 }
             }
@@ -1250,7 +1236,7 @@ impl ListData {
     fn append(&mut self, epoch: &StacksEpochId, other_seq: ListData) -> Result<()> {
         let entry_type_a = self.type_signature.get_list_item_type();
         let entry_type_b = other_seq.type_signature.get_list_item_type();
-        let entry_type = TypeSignature::factor_out_no_type(epoch, &entry_type_a, &entry_type_b)?;
+        let entry_type = TypeSignature::factor_out_no_type(epoch, entry_type_a, entry_type_b)?;
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         for item in other_seq.data.into_iter() {
             let (item, _) = Value::sanitize_value(epoch, &entry_type, item)
@@ -1358,13 +1344,9 @@ impl PrincipalData {
 
     pub fn parse(literal: &str) -> Result<PrincipalData> {
         // be permissive about leading single-quote
-        let literal = if literal.starts_with("'") {
-            &literal[1..]
-        } else {
-            literal
-        };
+        let literal = literal.strip_prefix('\'').unwrap_or(literal);
 
-        if literal.contains(".") {
+        if literal.contains('.') {
             PrincipalData::parse_qualified_contract_principal(literal)
         } else {
             PrincipalData::parse_standard_principal(literal).map(PrincipalData::from)
@@ -1377,7 +1359,7 @@ impl PrincipalData {
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
-        let (version, data) = c32::c32_address_decode(&literal).map_err(|x| {
+        let (version, data) = c32::c32_address_decode(literal).map_err(|x| {
             RuntimeErrorType::ParseError(format!("Invalid principal literal: {}", x))
         })?;
         if data.len() != 20 {
@@ -1419,8 +1401,7 @@ impl fmt::Display for PrincipalData {
             PrincipalData::Contract(contract_identifier) => write!(
                 f,
                 "{}.{}",
-                contract_identifier.issuer,
-                contract_identifier.name.to_string()
+                contract_identifier.issuer, contract_identifier.name
             ),
         }
     }
@@ -1442,7 +1423,7 @@ impl fmt::Display for CallableData {
 
 impl fmt::Display for TraitIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}.{}", self.contract_identifier, self.name.to_string())
+        write!(f, "{}.{}", self.contract_identifier, self.name)
     }
 }
 
@@ -1535,6 +1516,11 @@ impl TupleData {
         self.data_map.len() as u64
     }
 
+    /// Checks whether the tuple value is empty
+    pub fn is_empty(&self) -> bool {
+        self.data_map.is_empty()
+    }
+
     pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
@@ -1625,7 +1611,7 @@ mod test {
             Err(InterpreterError::FailureConstructingListWithType.into())
         );
         assert_eq!(
-            ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE as u32),
+            ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE),
             Err(CheckErrors::ValueTooLarge)
         );
 

@@ -14,27 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ast::errors::ParseErrors;
-use crate::vm::ast::ASTRules;
-use crate::vm::contexts::Environment;
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::execute as vm_execute;
-use crate::vm::tests::{
-    env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
-    tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
-};
-use crate::vm::tests::{test_clarity_versions, test_epochs};
-use crate::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TypeSignature, Value,
-};
-use crate::vm::ClarityVersion;
 #[cfg(any(test, feature = "testing"))]
 use rstest::rstest;
 use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::ContractContext;
+use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::ASTRules;
+use crate::vm::contexts::Environment;
+use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::tests::{
+    env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
+    test_clarity_versions, test_epochs, tl_env_factory, MemoryEnvironmentGenerator,
+    TopLevelMemoryEnvironmentGenerator,
+};
+use crate::vm::types::{
+    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
+    TypeSignature, Value,
+};
+use crate::vm::{execute as vm_execute, ClarityVersion, ContractContext};
 
 const FACTORIAL_CONTRACT: &str = "(define-map factorials { id: int } { current: int, index: int })
          (define-private (init-factorial (id int) (factorial int))
@@ -147,11 +145,7 @@ fn test_get_block_info_eval(
             Ok(Value::UInt(0)) => {
                 assert!(
                     if let Ok(Value::Optional(OptionalData { data: Some(x) })) = eval_result {
-                        if let Value::UInt(_) = *x {
-                            true
-                        } else {
-                            false
-                        }
+                        matches!(*x, Value::UInt(_))
                     } else {
                         false
                     }
@@ -211,7 +205,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-a").unwrap(),
                 "get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -221,7 +215,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -231,7 +225,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "cc-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -241,7 +235,7 @@ fn test_contract_caller(epoch: StacksEpochId, mut env_factory: MemoryEnvironment
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-cc-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -259,7 +253,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
         env.execute_contract(
             &QualifiedContractIdentifier::local("contract-a").unwrap(),
             "get-sponsor",
-            &vec![],
+            &[],
             false
         )
         .unwrap(),
@@ -269,7 +263,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
         env.execute_contract(
             &QualifiedContractIdentifier::local("contract-b").unwrap(),
             "as-contract-get-sponsor",
-            &vec![],
+            &[],
             false
         )
         .unwrap(),
@@ -279,7 +273,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
         env.execute_contract(
             &QualifiedContractIdentifier::local("contract-b").unwrap(),
             "cc-get-sponsor",
-            &vec![],
+            &[],
             false
         )
         .unwrap(),
@@ -289,7 +283,7 @@ fn tx_sponsor_contract_asserts(env: &mut Environment, sponsor: Option<PrincipalD
         env.execute_contract(
             &QualifiedContractIdentifier::local("contract-b").unwrap(),
             "as-contract-cc-get-sponsor",
-            &vec![],
+            &[],
             false
         )
         .unwrap(),
@@ -423,7 +417,7 @@ fn test_fully_qualified_contract_call(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-a").unwrap(),
                 "get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -433,7 +427,7 @@ fn test_fully_qualified_contract_call(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -443,7 +437,7 @@ fn test_fully_qualified_contract_call(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "cc-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -453,7 +447,7 @@ fn test_fully_qualified_contract_call(
             env.execute_contract(
                 &QualifiedContractIdentifier::local("contract-b").unwrap(),
                 "as-contract-cc-get-caller",
-                &vec![],
+                &[],
                 false
             )
             .unwrap(),
@@ -947,7 +941,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
     for (arguments, expectation) in arguments_to_test.iter().zip(expected.iter()) {
         env.execute_contract(
             &QualifiedContractIdentifier::local("factorial").unwrap(),
-            &tx_name,
+            tx_name,
             arguments,
             false,
         )
@@ -974,13 +968,10 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
             false,
         )
         .unwrap_err();
-    match err_result {
-        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _)) => {}
-        _ => {
-            println!("{:?}", err_result);
-            panic!("Attempt to call init-factorial should fail!")
-        }
-    }
+    assert!(matches!(
+        err_result,
+        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _))
+    ));
 
     let err_result = env
         .execute_contract(
@@ -990,13 +981,10 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
             false,
         )
         .unwrap_err();
-    match err_result {
-        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => {}
-        _ => {
-            println!("{:?}", err_result);
-            assert!(false, "Attempt to call compute with void type should fail!")
-        }
-    }
+    assert!(matches!(
+        err_result,
+        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+    ));
 }
 
 #[apply(test_epochs)]
@@ -1011,7 +999,7 @@ fn test_at_unknown_block(
     let err = owned_env
         .initialize_contract(
             QualifiedContractIdentifier::local("contract").unwrap(),
-            &contract,
+            contract,
             None,
             ASTRules::PrecheckSize,
         )
@@ -1021,7 +1009,7 @@ fn test_at_unknown_block(
         Error::Runtime(x, _) => assert_eq!(
             x,
             RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                vec![2 as u8; 32].as_slice()
+                vec![2_u8; 32].as_slice()
             ))
         ),
         _ => panic!("Unexpected error"),
@@ -1038,7 +1026,7 @@ fn test_as_max_len(epoch: StacksEpochId, mut tl_env_factory: TopLevelMemoryEnvir
     owned_env
         .initialize_contract(
             QualifiedContractIdentifier::local("contract").unwrap(),
-            &contract,
+            contract,
             None,
             ASTRules::PrecheckSize,
         )

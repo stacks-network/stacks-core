@@ -15,16 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::convert::TryFrom;
 
+use super::errors::InterpreterError;
 use crate::vm::contexts::{Environment, LocalContext};
-use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
-use crate::vm::types::BuffData;
-use crate::vm::types::Value;
-use crate::vm::ClarityVersion;
-
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-
-use super::errors::InterpreterError;
+use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
+use crate::vm::types::{BuffData, Value};
+use crate::vm::ClarityVersion;
 
 define_versioned_named_enum!(NativeVariables(ClarityVersion) {
     ContractCaller("contract-caller", ClarityVersion::Clarity1),

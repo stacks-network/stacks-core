@@ -23,15 +23,11 @@ use crate::vm::errors::{
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
-use crate::vm::{self, ClarityVersion};
-use crate::vm::{ClarityName, SymbolicExpression};
+use crate::vm::{self, ClarityName, ClarityVersion, SymbolicExpression};
 
 fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
     let result = match to_unwrap {
-        Value::Optional(data) => match data.data {
-            Some(data) => Some(*data),
-            None => None,
-        },
+        Value::Optional(data) => data.data.map(|data| *data),
         Value::Response(data) => {
             if data.committed {
                 Some(*data.data)
@@ -221,7 +217,7 @@ pub fn special_match(
 }
 
 pub fn native_some(input: Value) -> Result<Value> {
-    Ok(Value::some(input)?)
+    Value::some(input)
 }
 
 fn is_some(input: Value) -> Result<bool> {
@@ -239,7 +235,7 @@ fn is_okay(input: Value) -> Result<bool> {
 }
 
 pub fn native_is_some(input: Value) -> Result<Value> {
-    is_some(input).map(|is_some| Value::Bool(is_some))
+    is_some(input).map(Value::Bool)
 }
 
 pub fn native_is_none(input: Value) -> Result<Value> {
@@ -247,7 +243,7 @@ pub fn native_is_none(input: Value) -> Result<Value> {
 }
 
 pub fn native_is_okay(input: Value) -> Result<Value> {
-    is_okay(input).map(|is_ok| Value::Bool(is_ok))
+    is_okay(input).map(Value::Bool)
 }
 
 pub fn native_is_err(input: Value) -> Result<Value> {
@@ -255,11 +251,11 @@ pub fn native_is_err(input: Value) -> Result<Value> {
 }
 
 pub fn native_okay(input: Value) -> Result<Value> {
-    Ok(Value::okay(input)?)
+    Value::okay(input)
 }
 
 pub fn native_error(input: Value) -> Result<Value> {
-    Ok(Value::error(input)?)
+    Value::error(input)
 }
 
 pub fn native_default_to(default: Value, input: Value) -> Result<Value> {

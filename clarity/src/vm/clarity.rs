@@ -1,22 +1,17 @@
-use crate::vm::analysis;
-use crate::vm::analysis::ContractAnalysis;
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors};
+use std::fmt;
+
+use stacks_common::types::StacksEpochId;
+
+use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
-use crate::vm::ast::ASTRules;
-use crate::vm::ast::ContractAST;
-use crate::vm::contexts::Environment;
-use crate::vm::contexts::{AssetMap, OwnedEnvironment};
-use crate::vm::costs::ExecutionCost;
-use crate::vm::costs::LimitedCostTracker;
+use crate::vm::ast::{ASTRules, ContractAST};
+use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
+use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::Error as InterpreterError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
-use crate::vm::ClarityVersion;
-use crate::vm::ContractContext;
-use crate::vm::{ast, SymbolicExpression, Value};
-use stacks_common::types::StacksEpochId;
-use std::fmt;
+use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
 
 #[derive(Debug)]
 pub enum Error {

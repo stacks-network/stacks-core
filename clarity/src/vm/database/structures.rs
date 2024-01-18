@@ -14,6 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryInto;
+use std::io::Write;
+
+use serde::Deserialize;
+use stacks_common::util::hash::{hex_bytes, to_hex};
+
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::contracts::Contract;
 use crate::vm::database::ClarityDatabase;
@@ -23,10 +29,6 @@ use crate::vm::errors::{
 use crate::vm::types::{
     OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
-use serde::Deserialize;
-use stacks_common::util::hash::{hex_bytes, to_hex};
-use std::convert::TryInto;
-use std::io::Write;
 
 pub trait ClaritySerializable {
     fn serialize(&self) -> String;
@@ -1049,27 +1051,15 @@ impl STXBalance {
     }
 
     pub fn was_locked_by_v1(&self) -> bool {
-        if let STXBalance::LockedPoxOne { .. } = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, STXBalance::LockedPoxOne { .. })
     }
 
     pub fn was_locked_by_v2(&self) -> bool {
-        if let STXBalance::LockedPoxTwo { .. } = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, STXBalance::LockedPoxTwo { .. })
     }
 
     pub fn was_locked_by_v3(&self) -> bool {
-        if let STXBalance::LockedPoxThree { .. } = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, STXBalance::LockedPoxThree { .. })
     }
 
     pub fn has_locked_tokens_at_burn_block(

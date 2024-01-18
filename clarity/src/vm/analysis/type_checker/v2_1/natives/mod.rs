@@ -14,21 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryFrom;
+
 use stacks_common::types::StacksEpochId;
 
 use super::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, no_type, TypeChecker,
     TypeResult, TypingContext,
 };
-use std::convert::TryFrom;
-
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{
+    analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
+};
 use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
-    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
+    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
+    UTF8_40,
 };
-use crate::vm::types::signatures::{ASCII_40, UTF8_40};
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
@@ -36,11 +40,6 @@ use crate::vm::types::{
     BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
-
-use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{
-    analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
-};
 
 mod assets;
 mod conversions;
@@ -307,15 +306,15 @@ fn check_special_set_var(
         &mut checker.cost_track,
         expected_value_type.type_size()?,
     )?;
-    analysis_typecheck_cost(&mut checker.cost_track, &value_type, &expected_value_type)?;
+    analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
-        return Err(CheckError::new(CheckErrors::TypeError(
+        Err(CheckError::new(CheckErrors::TypeError(
             expected_value_type.clone(),
             value_type,
-        )));
+        )))
     } else {
-        return Ok(TypeSignature::BoolType);
+        Ok(TypeSignature::BoolType)
     }
 }
 
@@ -378,14 +377,14 @@ fn check_contract_call(
             // Static dispatch
             let contract_call_function = {
                 if let Some(FunctionType::Fixed(function)) = checker.db.get_public_function_type(
-                    &contract_identifier,
+                    contract_identifier,
                     func_name,
                     &StacksEpochId::Epoch21,
                 )? {
                     Ok(function)
                 } else if let Some(FunctionType::Fixed(function)) =
                     checker.db.get_read_only_function_type(
-                        &contract_identifier,
+                        contract_identifier,
                         func_name,
                         &StacksEpochId::Epoch21,
                     )?
@@ -423,7 +422,7 @@ fn check_contract_call(
 
                 runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
 
-                let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
+                let trait_signature = checker.contract_context.get_trait(trait_id).ok_or(
                     CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
                 )?;
                 let func_signature =
@@ -451,7 +450,7 @@ fn check_contract_call(
                         let contract_call_function = {
                             if let Some(FunctionType::Fixed(function)) =
                                 checker.db.get_public_function_type(
-                                    &contract_identifier,
+                                    contract_identifier,
                                     func_name,
                                     &StacksEpochId::Epoch21,
                                 )?
@@ -459,7 +458,7 @@ fn check_contract_call(
                                 Ok(function)
                             } else if let Some(FunctionType::Fixed(function)) =
                                 checker.db.get_read_only_function_type(
-                                    &contract_identifier,
+                                    contract_identifier,
                                     func_name,
                                     &StacksEpochId::Epoch21,
                                 )?
@@ -501,7 +500,7 @@ fn check_contract_call(
 
                         runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
 
-                        let trait_signature = checker.contract_context.get_trait(&trait_id).ok_or(
+                        let trait_signature = checker.contract_context.get_trait(trait_id).ok_or(
                             CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
                         )?;
                         let func_signature = trait_signature.get(func_name).ok_or(
@@ -554,7 +553,7 @@ fn check_contract_of(
 
     checker
         .contract_context
-        .get_trait(&trait_id)
+        .get_trait(trait_id)
         .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
 
     Ok(TypeSignature::PrincipalType)
@@ -654,7 +653,7 @@ fn check_get_block_info(
                 block_info_prop_str.to_string(),
             )))?;
 
-    checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
@@ -678,7 +677,7 @@ fn check_get_burn_block_info(
             CheckErrors::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
         ))?;
 
-    checker.type_check_expects(&args[1], &context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
     Ok(TypeSignature::new_option(
         block_info_prop

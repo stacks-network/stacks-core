@@ -26,7 +26,6 @@ use crate::vm::database::{
 use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
-
 use crate::vm::ClarityVersion;
 
 pub struct AnalysisDatabase<'a> {
@@ -182,7 +181,7 @@ impl<'a> AnalysisDatabase<'a> {
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract
             .get_public_function_type(function_name)
-            .and_then(|x| Some(x.canonicalize(epoch))))
+            .map(|x| x.canonicalize(epoch)))
     }
 
     pub fn get_read_only_function_type(
@@ -200,7 +199,7 @@ impl<'a> AnalysisDatabase<'a> {
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
         Ok(contract
             .get_read_only_function_type(function_name)
-            .and_then(|x| Some(x.canonicalize(epoch))))
+            .map(|x| x.canonicalize(epoch)))
     }
 
     pub fn get_defined_trait(
@@ -216,16 +215,12 @@ impl<'a> AnalysisDatabase<'a> {
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-        Ok(contract
-            .get_defined_trait(trait_name)
-            .and_then(|trait_map| {
-                Some(
-                    trait_map
-                        .into_iter()
-                        .map(|(name, sig)| (name.clone(), sig.canonicalize(epoch)))
-                        .collect(),
-                )
-            }))
+        Ok(contract.get_defined_trait(trait_name).map(|trait_map| {
+            trait_map
+                .iter()
+                .map(|(name, sig)| (name.clone(), sig.canonicalize(epoch)))
+                .collect()
+        }))
     }
 
     pub fn get_implemented_traits(

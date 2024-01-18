@@ -1,75 +1,50 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::env;
-use std::thread;
+use std::collections::{HashMap, HashSet};
+use std::{env, thread};
 
-use stacks::burnchains::Burnchain;
-use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::chainstate::stacks::StacksBlockHeader;
-use stacks::types::chainstate::StacksAddress;
-
-use crate::config::Config;
-use crate::config::EventKeyType;
-use crate::config::EventObserverConfig;
-use crate::config::InitialBalance;
-use crate::neon;
-use crate::neon::RunLoopCounter;
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
-use crate::tests::neon_integrations::*;
-use crate::tests::*;
-use crate::BitcoinRegtestController;
-use crate::BurnchainController;
-use stacks::core;
-
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-use stacks::chainstate::burn::operations::leader_block_commit::OUTPUTS_PER_COMMIT;
-use stacks::chainstate::burn::operations::BlockstackOperationType;
-use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
-use stacks::chainstate::burn::operations::PreStxOp;
-use stacks::chainstate::burn::operations::TransferStxOp;
-
-use stacks::chainstate::stacks::address::PoxAddress;
-
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::ClarityVersion;
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
 };
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::PoxConstants;
-use stacks::burnchains::Txid;
+use stacks::burnchains::{Burnchain, PoxConstants, Txid};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::leader_block_commit::{
+    BURN_BLOCK_MINED_AT_MODULUS, OUTPUTS_PER_COMMIT,
+};
+use stacks::chainstate::burn::operations::{
+    BlockstackOperationType, LeaderBlockCommitOp, PreStxOp, TransferStxOp,
+};
+use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::{
+    set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
+};
+use stacks::chainstate::stacks::StacksBlockHeader;
+use stacks::clarity_cli::vm_execute as execute;
+use stacks::core;
+use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
+use stacks::util_lib::boot::boot_code_id;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
+};
+use stacks_common::types::PrivateKey;
+use stacks_common::util::hash::{Hash160, Sha256Sum};
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
+use stacks_common::util::sleep_ms;
 
+use crate::burnchains::bitcoin_regtest_controller::UTXO;
+use crate::config::{Config, EventKeyType, EventObserverConfig, InitialBalance};
+use crate::neon::RunLoopCounter;
+use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::address::AddressHashMode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::{bytes_to_hex, hex_bytes};
-
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::VRFSeed;
-use stacks_common::types::PrivateKey;
-use stacks_common::util::hash::Hash160;
-use stacks_common::util::hash::Sha256Sum;
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-
-use stacks::chainstate::coordinator::comm::CoordinatorChannels;
-use stacks::chainstate::stacks::miner::set_mining_spend_amount;
-use stacks::chainstate::stacks::miner::signal_mining_blocked;
-use stacks::chainstate::stacks::miner::signal_mining_ready;
-
-use stacks::clarity_cli::vm_execute as execute;
-
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::ClarityVersion;
-use stacks::core::BURNCHAIN_TX_SEARCH_WINDOW;
-
-use crate::burnchains::bitcoin_regtest_controller::UTXO;
-use crate::neon_node::StacksNode;
-use crate::operations::BurnchainOpSigner;
-use crate::Keychain;
-
-use stacks::util::sleep_ms;
-
-use stacks::util_lib::boot::boot_code_id;
-use stacks_common::types::chainstate::StacksBlockId;
+use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::tests::neon_integrations::*;
+use crate::tests::*;
+use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
 
 const MINER_BURN_PUBLIC_KEY: &'static str =
     "03dc62fe0b8964d01fc9ca9a5eec0e22e557a12cc656919e648f04e0b26fea5faa";
@@ -97,7 +72,7 @@ fn advance_to_2_1(
     conf.initial_balances.append(&mut initial_balances);
     conf.miner.block_reward_recipient = block_reward_recipient;
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -600,7 +575,7 @@ fn transition_fixes_bitcoin_rigidity() {
     ];
 
     conf.initial_balances.append(&mut initial_balances);
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1499,7 +1474,7 @@ fn transition_removes_pox_sunset() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1813,7 +1788,7 @@ fn transition_empty_blocks() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -2163,8 +2138,7 @@ fn test_pox_reorgs_three_flaps() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -2700,8 +2674,7 @@ fn test_pox_reorg_one_flap() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3125,8 +3098,7 @@ fn test_pox_reorg_flap_duel() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3560,8 +3532,7 @@ fn test_pox_reorg_flap_reward_cycles() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -3989,8 +3960,7 @@ fn test_pox_missing_five_anchor_blocks() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -4390,8 +4360,7 @@ fn test_sortition_divergence_pre_21() {
         confs.push(conf);
     }
 
-    let node_privkey_1 =
-        StacksNode::make_node_private_key_from_seed(&confs[0].node.local_peer_seed);
+    let node_privkey_1 = Secp256k1PrivateKey::from_seed(&confs[0].node.local_peer_seed);
     for i in 1..num_miners {
         let chain_id = confs[0].burnchain.chain_id;
         let peer_version = confs[0].burnchain.peer_version;
@@ -4760,7 +4729,7 @@ fn trait_invocation_cross_epoch() {
         amount: 200_000_000,
     }];
     conf.initial_balances.append(&mut initial_balances);
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -5005,7 +4974,7 @@ fn test_v1_unlock_height_with_current_stackers() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -5269,7 +5238,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
