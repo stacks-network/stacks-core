@@ -1211,7 +1211,9 @@ fn write_to_wasm(
             // written to the memory at `offset`. The `in_mem_offset` for the
             // list elements should be after their representations.
             let val_offset = in_mem_offset;
-            let val_in_mem_offset = in_mem_offset + get_type_in_memory_size(ty, false);
+            let val_in_mem_offset = in_mem_offset
+                + list_data.data.len() as i32
+                    * get_type_size(list_data.type_signature.get_list_item_type());
             let mut val_written = 0;
             let mut val_in_mem_written = 0;
             for elem in &list_data.data {
