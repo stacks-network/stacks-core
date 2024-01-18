@@ -30,8 +30,8 @@ use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
-    TenureChangeCause, TenureChangePayload, ThresholdSignature, TransactionAnchorMode,
-    TransactionPayload, TransactionVersion,
+    TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
+    TransactionVersion,
 };
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::net::stackerdb::StackerDBs;
@@ -299,11 +299,6 @@ impl BlockMinerThread {
         parent_tenure_blocks: u64,
         miner_pkh: Hash160,
     ) -> Result<StacksTransaction, NakamotoNodeError> {
-        if self.config.self_signing().is_none() {
-            // if we're not self-signing, then we can't generate a tenure change tx: it has to come from the signers.
-            warn!("Tried to generate a tenure change transaction, but we aren't self-signing");
-            return Err(NakamotoNodeError::CannotSelfSign);
-        }
         let is_mainnet = self.config.is_mainnet();
         let chain_id = self.config.burnchain.chain_id;
         let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
@@ -315,8 +310,6 @@ impl BlockMinerThread {
                 .expect("FATAL: more than u32 blocks in a tenure"),
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: miner_pkh,
-            signers: vec![],
-            signature: ThresholdSignature::mock(),
         });
 
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();

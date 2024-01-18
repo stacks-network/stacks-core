@@ -476,8 +476,6 @@ impl TestStacksNode {
             previous_tenure_blocks,
             cause: tenure_change_cause,
             pubkey_hash: miner.nakamoto_miner_hash160(),
-            signature: ThresholdSignature::mock(),
-            signers: vec![],
         };
 
         let block_commit_op = self.make_nakamoto_tenure_commitment(
