@@ -1832,7 +1832,6 @@ fn stack_increase() {
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
     let stacker_transactions = get_last_block_sender_transactions(&observer, stacker_address);
 
-
     let transaction_result = stacker_transactions
         .first()
         .map(|tx| tx.result.clone())
@@ -1845,7 +1844,7 @@ fn stack_increase() {
         .expect("total-locked key not found")
         .clone()
         .expect_u128();
-    
+
     assert_eq!(total_locked, min_ustx * 2);
 }
 
