@@ -70,6 +70,7 @@ use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
@@ -966,10 +967,11 @@ impl MockamotoNode {
                 burn_spent: sortition_tip.total_burn,
                 tx_merkle_root: tx_merkle_tree.root(),
                 state_index_root,
-                signer_signature: ThresholdSignature::mock(),
+                signer_signature: ThresholdSignature::empty(),
                 miner_signature: MessageSignature::empty(),
                 consensus_hash: sortition_tip.consensus_hash.clone(),
                 parent_block_id: StacksBlockId::new(&chain_tip_ch, &chain_tip_bh),
+                signer_bitvec: BitVec::zeros(1),
             },
             txs: builder.txs,
         };

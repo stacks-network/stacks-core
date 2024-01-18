@@ -1420,7 +1420,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
 
     let mut proposed_zero_block = proposed_block.clone();
     proposed_zero_block.header.miner_signature = MessageSignature::empty();
-    proposed_zero_block.header.signer_signature = ThresholdSignature::mock();
+    proposed_zero_block.header.signer_signature = ThresholdSignature::empty();
     let proposed_zero_block_hash = format!("0x{}", proposed_zero_block.header.block_hash());
 
     coord_channel

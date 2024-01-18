@@ -16,6 +16,7 @@
 
 use std::boxed::Box;
 use std::cmp;
+use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::CheckErrors;
@@ -34,11 +35,12 @@ use clarity::vm::types::{
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
 use lazy_static::lazy_static;
+use serde::Deserialize;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
-use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
 
@@ -153,6 +155,7 @@ pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,
     pub amount_stacked: u128,
     pub stacker: Option<PrincipalData>,
+    pub signing_key: Option<[u8; 33]>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -166,10 +169,40 @@ pub struct PoxStartCycleInfo {
     pub missed_reward_slots: Vec<(PrincipalData, u128)>,
 }
 
+fn hex_serialize<S: serde::Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+    let inst = to_hex(bytes);
+    s.serialize_str(inst.as_str())
+}
+
+fn hex_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[u8; 33], D::Error> {
+    let inst_str = String::deserialize(d)?;
+    let mut out = [0; 33];
+    let bytes = hex_bytes(&inst_str).map_err(serde::de::Error::custom)?;
+    if bytes.len() != out.len() {
+        return Err(serde::de::Error::invalid_length(
+            bytes.len(),
+            &"Expected hex-encoded buffer of byte-length 33",
+        ));
+    }
+    out.copy_from_slice(bytes.as_slice());
+    Ok(out)
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct NakamotoSignerEntry {
+    #[serde(serialize_with = "hex_serialize", deserialize_with = "hex_deserialize")]
+    pub signing_key: [u8; 33],
+    pub stacked_amt: u128,
+    pub slots: u32,
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RewardSet {
     pub rewarded_addresses: Vec<PoxAddress>,
     pub start_cycle_state: PoxStartCycleInfo,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    // only generated for nakamoto reward sets
+    pub signers: Option<Vec<NakamotoSignerEntry>>,
 }
 
 const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
@@ -196,6 +229,7 @@ impl RewardSet {
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
+            signers: None,
         }
     }
 }
@@ -575,6 +609,58 @@ impl StacksChainState {
         .map(|value| value.expect_bool())
     }
 
+    pub fn make_signer_set(
+        threshold: u128,
+        entries: &[RawRewardSetEntry],
+    ) -> Option<Vec<NakamotoSignerEntry>> {
+        let Some(first_entry) = entries.first() else {
+            // entries is empty: there's no signer set
+            return None;
+        };
+        // signing keys must be all-or-nothing in the reward set
+        let expects_signing_keys = first_entry.signing_key.is_some();
+        for entry in entries.iter() {
+            if entry.signing_key.is_some() != expects_signing_keys {
+                panic!("FATAL: stacking-set contains mismatched entries with and without signing keys.");
+            }
+        }
+        if !expects_signing_keys {
+            return None;
+        }
+
+        let mut signer_set = BTreeMap::new();
+        for entry in entries.iter() {
+            let signing_key = entry.signing_key.as_ref().unwrap();
+            if let Some(existing_entry) = signer_set.get_mut(signing_key) {
+                *existing_entry += entry.amount_stacked;
+            } else {
+                signer_set.insert(signing_key.clone(), entry.amount_stacked);
+            };
+        }
+
+        let mut signer_set: Vec<_> = signer_set
+            .into_iter()
+            .filter_map(|(signing_key, stacked_amt)| {
+                let slots = u32::try_from(stacked_amt / threshold)
+                    .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
+                if slots == 0 {
+                    return None;
+                }
+                Some(NakamotoSignerEntry {
+                    signing_key,
+                    stacked_amt,
+                    slots,
+                })
+            })
+            .collect();
+
+        // finally, we must sort the signer set: the signer participation bit vector depends
+        //  on a consensus-critical ordering of the signer set.
+        signer_set.sort_by_key(|entry| entry.signing_key);
+
+        Some(signer_set)
+    }
+
     /// Given a threshold and set of registered addresses, return a reward set where
     ///   every entry address has stacked more than the threshold, and addresses
     ///   are repeated floor(stacked_amt / threshold) times.
@@ -593,10 +679,14 @@ impl StacksChainState {
         } else {
             addresses.sort_by_cached_key(|k| k.reward_address.to_burnchain_repr());
         }
+
+        let signer_set = Self::make_signer_set(threshold, &addresses);
+
         while let Some(RawRewardSetEntry {
             reward_address: address,
             amount_stacked: mut stacked_amt,
             stacker,
+            ..
         }) = addresses.pop()
         {
             let mut contributed_stackers = vec![];
@@ -673,6 +763,7 @@ impl StacksChainState {
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: missed_slots,
             },
+            signers: signer_set,
         }
     }
 
@@ -800,6 +891,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker: None,
+                signing_key: None,
             })
         }
 
@@ -889,6 +981,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
+                signing_key: None,
             })
         }
 
@@ -978,6 +1071,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
+                signing_key: None,
             })
         }
 
@@ -1061,6 +1155,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
+                signing_key: None,
             })
         }
 
@@ -1209,6 +1304,7 @@ pub mod test {
                 ),
                 amount_stacked: 1500,
                 stacker: None,
+                signing_key: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1218,6 +1314,7 @@ pub mod test {
 
                 amount_stacked: 500,
                 stacker: None,
+                signing_key: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1226,6 +1323,7 @@ pub mod test {
                 ),
                 amount_stacked: 1500,
                 stacker: None,
+                signing_key: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1234,6 +1332,7 @@ pub mod test {
                 ),
                 amount_stacked: 400,
                 stacker: None,
+                signing_key: None,
             },
         ];
         assert_eq!(
@@ -1283,6 +1382,7 @@ pub mod test {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
                     stacker: None,
+                    signing_key: None,
                 }],
                 liquid,
             )
@@ -1309,6 +1409,7 @@ pub mod test {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid / 4,
                     stacker: None,
+                    signing_key: None,
                 }],
                 liquid,
             )
@@ -1324,11 +1425,13 @@ pub mod test {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
                         stacker: None,
+                        signing_key: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: 10_000_000 * (MICROSTACKS_PER_STACKS as u128),
                         stacker: None,
+                        signing_key: None,
                     },
                 ],
                 liquid,
@@ -1346,11 +1449,13 @@ pub mod test {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
                         stacker: None,
+                        signing_key: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: MICROSTACKS_PER_STACKS as u128,
                         stacker: None,
+                        signing_key: None,
                     },
                 ],
                 liquid,
@@ -1367,6 +1472,7 @@ pub mod test {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
                     stacker: None,
+                    signing_key: None,
                 }],
                 liquid,
             )

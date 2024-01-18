@@ -22,6 +22,7 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
 use stacks_common::address::AddressHashMode;
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{
@@ -116,10 +117,11 @@ fn codec_nakamoto_header() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(8),
     };
 
-    let bytes = vec![
+    let mut bytes = vec![
         // version
         0x01, // chain length
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, // burn spent
@@ -147,6 +149,9 @@ fn codec_nakamoto_header() {
         0x00, 0x00, 0x00, 0x00, 0x00,
     ];
 
+    let signer_bitvec_serialization = "00080000000100";
+    bytes.append(&mut hex_bytes(signer_bitvec_serialization).unwrap());
+
     check_codec_and_corruption(&header, &bytes);
 }
 
@@ -162,7 +167,8 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1),
     };
 
     // sortition-inducing tenure change
@@ -659,7 +665,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1),
     };
 
     let nakamoto_header_info = StacksHeaderInfo {
@@ -702,7 +709,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
         tx_merkle_root: nakamoto_tx_merkle_root_2,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1),
     };
 
     let nakamoto_header_info_2 = StacksHeaderInfo {
@@ -1338,7 +1346,8 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1),
     };
     nakamoto_header.sign_miner(&private_key).unwrap();
 
@@ -1356,7 +1365,8 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root_bad_ch,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1),
     };
     nakamoto_header_bad_ch.sign_miner(&private_key).unwrap();
 
@@ -1374,7 +1384,8 @@ fn test_nakamoto_block_static_verification() {
         tx_merkle_root: nakamoto_tx_merkle_root_bad_miner_sig,
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1),
     };
     nakamoto_header_bad_miner_sig
         .sign_miner(&private_key)
@@ -1524,7 +1535,8 @@ pub fn test_get_highest_nakamoto_tenure() {
             tx_merkle_root: Sha512Trunc256Sum([0x00; 32]),
             state_index_root: TrieHash([0x00; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1),
         };
         let tenure_change = TenureChangePayload {
             tenure_consensus_hash: sn.consensus_hash.clone(),
@@ -1821,7 +1833,8 @@ fn test_make_miners_stackerdb_config() {
             tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
             state_index_root: TrieHash([0x07; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1),
         };
         let block = NakamotoBlock {
             header,

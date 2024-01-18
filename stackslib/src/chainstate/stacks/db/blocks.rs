@@ -208,6 +208,18 @@ impl BlockEventDispatcher for DummyEventDispatcher {
             "We should never try to announce to the dummy dispatcher"
         );
     }
+
+    fn announce_reward_set(
+        &self,
+        _reward_set: &RewardSet,
+        _block_id: &StacksBlockId,
+        _cycle_number: u64,
+    ) {
+        assert!(
+            false,
+            "We should never try to announce to the dummy dispatcher"
+        );
+    }
 }
 
 impl MemPoolRejection {

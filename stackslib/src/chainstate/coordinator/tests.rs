@@ -447,15 +447,22 @@ impl BlockEventDispatcher for NullEventDispatcher {
 pub fn make_coordinator<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
-{
+) -> ChainsCoordinator<
+    'a,
+    NullEventDispatcher,
+    (),
+    OnChainRewardSetProvider<'a, NullEventDispatcher>,
+    (),
+    (),
+    BitcoinIndexer,
+> {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new(
         &burnchain,
         0x80000000,
         path,
-        OnChainRewardSetProvider(),
+        OnChainRewardSetProvider(None),
         indexer,
     )
 }
@@ -464,15 +471,22 @@ pub fn make_coordinator_atlas<'a>(
     path: &str,
     burnchain: Option<Burnchain>,
     atlas_config: Option<AtlasConfig>,
-) -> ChainsCoordinator<'a, NullEventDispatcher, (), OnChainRewardSetProvider, (), (), BitcoinIndexer>
-{
+) -> ChainsCoordinator<
+    'a,
+    NullEventDispatcher,
+    (),
+    OnChainRewardSetProvider<'a, NullEventDispatcher>,
+    (),
+    (),
+    BitcoinIndexer,
+> {
     let burnchain = burnchain.unwrap_or_else(|| get_burnchain(path, None));
     let indexer = BitcoinIndexer::new_unit_test(&burnchain.working_dir);
     ChainsCoordinator::test_new_full(
         &burnchain,
         0x80000000,
         path,
-        OnChainRewardSetProvider(),
+        OnChainRewardSetProvider(None),
         None,
         indexer,
         atlas_config,
@@ -495,6 +509,7 @@ impl RewardSetProvider for StubbedRewardSetProvider {
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
+            signers: None,
         })
     }
 }

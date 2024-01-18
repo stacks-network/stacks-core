@@ -50,7 +50,7 @@ use crate::util_lib::db::Error as DBError;
 #[cfg(test)]
 pub mod tests;
 
-impl OnChainRewardSetProvider {
+impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
     pub fn get_reward_set_nakamoto(
         &self,
         cycle_start_burn_height: u64,
@@ -63,8 +63,19 @@ impl OnChainRewardSetProvider {
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
 
-        let registered_addrs =
+        let mut registered_addrs =
             chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
+
+        // TODO (pox-4-workstream): the pox-4 contract must be able to return signing keys
+        //   associated with reward set entries (i.e., via `get-reward-set-pox-addresses`)
+        //   *not* stacking-state entries (as it is currently implemented). Until that's done,
+        //   this method just mocks that data.
+        for (index, entry) in registered_addrs.iter_mut().enumerate() {
+            let index = u64::try_from(index).expect("FATAL: more than u64 reward set entries");
+            let mut bytes = [0; 33];
+            bytes[0..8].copy_from_slice(&index.to_be_bytes());
+            entry.signing_key = Some(bytes);
+        }
 
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
@@ -93,11 +104,13 @@ impl OnChainRewardSetProvider {
               "liquid_ustx" => liquid_ustx,
               "registered_addrs" => registered_addrs.len());
 
-        Ok(StacksChainState::make_reward_set(
-            threshold,
-            registered_addrs,
-            cur_epoch.epoch_id,
-        ))
+        let reward_set =
+            StacksChainState::make_reward_set(threshold, registered_addrs, cur_epoch.epoch_id);
+        if reward_set.signers.is_none() {
+            error!("FATAL: PoX reward set did not specify signer set in Nakamoto");
+            return Err(Error::PoXAnchorBlockRequired);
+        }
+        Ok(reward_set)
     }
 }
 

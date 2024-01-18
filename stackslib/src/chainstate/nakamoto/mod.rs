@@ -27,6 +27,7 @@ use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
@@ -189,6 +190,8 @@ lazy_static! {
                      miner_signature TEXT NOT NULL,
                      -- signers' signature over the block
                      signer_signature TEXT NOT NULL,
+                     -- bitvec capturing stacker participation in signature
+                     signer_bitvec TEXT NOT NULL,
           -- The following fields are not part of either the StacksHeaderInfo struct
           --   or its contained NakamotoBlockHeader struct, but are used for querying
                      -- what kind of header this is (nakamoto or stacks 2.x)
@@ -313,6 +316,8 @@ pub struct NakamotoBlockHeader {
     pub miner_signature: MessageSignature,
     /// Schnorr signature over the block header from the signer set active during the tenure.
     pub signer_signature: ThresholdSignature,
+    /// A bitvec which represents the signers that participated in this block signature.
+    pub signer_bitvec: BitVec,
 }
 
 impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
@@ -330,6 +335,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let state_index_root = row.get("state_index_root")?;
         let signer_signature = row.get("signer_signature")?;
         let miner_signature = row.get("miner_signature")?;
+        let signer_bitvec = row.get("signer_bitvec")?;
 
         Ok(NakamotoBlockHeader {
             version,
@@ -341,6 +347,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             state_index_root,
             signer_signature,
             miner_signature,
+            signer_bitvec,
         })
     }
 }
@@ -364,6 +371,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.signer_signature)?;
+        write_next(fd, &self.signer_bitvec)?;
 
         Ok(())
     }
@@ -379,6 +387,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             state_index_root: read_next(fd)?,
             miner_signature: read_next(fd)?,
             signer_signature: read_next(fd)?,
+            signer_bitvec: read_next(fd)?,
         })
     }
 }
@@ -412,6 +421,7 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
+        write_next(fd, &self.signer_bitvec)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
@@ -463,8 +473,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            // TODO: `mock()` should be updated to `empty()` and rustdocs updated
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1),
         }
     }
 
@@ -479,7 +489,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1),
         }
     }
 
@@ -494,7 +505,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1),
         }
     }
 }
@@ -2165,6 +2177,7 @@ impl NakamotoChainState {
             &header.parent_block_id,
             if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
+            &header.signer_bitvec,
         ];
 
         chainstate_tx.execute(
@@ -2184,8 +2197,10 @@ impl NakamotoChainState {
                      tenure_tx_fees,
                      parent_block_id,
                      tenure_changed,
-                     vrf_proof)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                     vrf_proof,
+                     signer_bitvec
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             args
         )?;
 

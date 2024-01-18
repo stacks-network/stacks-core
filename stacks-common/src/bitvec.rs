@@ -1,6 +1,11 @@
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef};
+use rusqlite::ToSql;
+use serde::{Deserialize, Serialize};
+
 use crate::codec::{
     read_next, read_next_exact, write_next, Error as CodecError, StacksMessageCodec,
 };
+use crate::util::hash::{bytes_to_hex, hex_bytes};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BitVec {
@@ -48,6 +53,36 @@ impl StacksMessageCodec for BitVec {
 
         let data = read_next_exact(fd, Self::data_len(len).into())?;
         Ok(BitVec { data, len })
+    }
+}
+
+impl Serialize for BitVec {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let hex = bytes_to_hex(self.serialize_to_vec().as_slice());
+        serializer.serialize_str(&hex)
+    }
+}
+
+impl<'de> Deserialize<'de> for BitVec {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let hex: &str = Deserialize::deserialize(deserializer)?;
+        let bytes = hex_bytes(hex).map_err(serde::de::Error::custom)?;
+        Self::consensus_deserialize(&mut bytes.as_slice()).map_err(serde::de::Error::custom)
+    }
+}
+
+impl FromSql for BitVec {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let bytes = hex_bytes(value.as_str()?).map_err(|e| FromSqlError::Other(Box::new(e)))?;
+        Self::consensus_deserialize(&mut bytes.as_slice())
+            .map_err(|e| FromSqlError::Other(Box::new(e)))
+    }
+}
+
+impl ToSql for BitVec {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        let hex = bytes_to_hex(self.serialize_to_vec().as_slice());
+        Ok(hex.into())
     }
 }
 

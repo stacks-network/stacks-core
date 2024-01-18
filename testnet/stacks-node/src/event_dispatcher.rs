@@ -17,6 +17,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet};
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
@@ -71,6 +72,7 @@ pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
 pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
+pub const PATH_POX_ANCHOR: &str = "new_pox_anchor";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
@@ -101,6 +103,15 @@ pub struct MinedNakamotoBlockEvent {
     pub block_size: u64,
     pub cost: ExecutionCost,
     pub tx_events: Vec<TransactionEvent>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PoxAnchorBlockEvent {
+    /// the StacksBlockId of the PoX anchor block
+    pub block_id: String,
+    pub reward_cycle: u64,
+    pub total_stx_stacked: u128,
+    pub signer_set: Vec<NakamotoSignerEntry>,
 }
 
 impl EventObserver {
@@ -613,6 +624,15 @@ impl BlockEventDispatcher for EventDispatcher {
             burns,
             recipient_info,
         )
+    }
+
+    fn announce_reward_set(
+        &self,
+        reward_set: &RewardSet,
+        block_id: &StacksBlockId,
+        cycle_number: u64,
+    ) {
+        todo!("Announce PoX block `{block_id}` for cycle `{cycle_number}`: {reward_set:?}");
     }
 }
 

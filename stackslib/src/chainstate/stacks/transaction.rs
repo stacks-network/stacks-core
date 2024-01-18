@@ -183,9 +183,9 @@ impl ThresholdSignature {
         self.0.verify(public_key, msg)
     }
 
-    /// Create mock data for testing. Not valid data
-    // TODO: `mock()` should be updated to `empty()` and rustdocs updated
-    pub fn mock() -> Self {
+    /// Create an empty/null signature. This is not valid data, but it is used
+    ///  as a placeholder in the header during mining.
+    pub fn empty() -> Self {
         Self(Secp256k1Signature {
             R: Secp256k1Point::G(),
             z: Secp256k1Scalar::new(),

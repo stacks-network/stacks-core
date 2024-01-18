@@ -2099,7 +2099,7 @@ pub mod test {
             'a,
             TestEventObserver,
             (),
-            OnChainRewardSetProvider,
+            OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
             BitcoinIndexer,
@@ -2337,7 +2337,7 @@ pub mod test {
                 &config.burnchain,
                 config.network_id,
                 &test_path,
-                OnChainRewardSetProvider(),
+                OnChainRewardSetProvider(observer),
                 observer,
                 indexer,
                 None,
@@ -3342,7 +3342,7 @@ pub mod test {
                 &mut stacks_node.chainstate,
                 &mut sortdb,
                 &self.config.burnchain,
-                &OnChainRewardSetProvider(),
+                &OnChainRewardSetProvider::new(),
                 true,
             ) {
                 Ok(recipients) => {
