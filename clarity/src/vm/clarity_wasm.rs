@@ -1327,6 +1327,8 @@ fn write_to_wasm(
                 )?;
                 written += new_written;
                 in_mem_written += new_in_mem_written;
+            } else {
+                written += get_type_size(&inner_ty);
             }
             Ok((written, in_mem_written))
         }
