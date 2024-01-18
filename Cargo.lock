@@ -156,9 +156,9 @@ dependencies = [
 
 [[package]]
 name = "anstream"
-version = "0.6.8"
+version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "628a8f9bd1e24b4e0db2b4bc2d000b001e7dd032d54afa60a68836aeec5aa54a"
+checksum = "6e2e1ebcb11de5c03c67de28a7df593d32191b44939c482e97702baaaa6ab6a5"
 dependencies = [
  "anstyle",
  "anstyle-parse",
@@ -807,6 +807,19 @@ name = "clar2wasm"
 version = "0.1.0"
 source = "git+https://github.com/stacks-network/clarity-wasm.git?branch=devnet#1ffab6c23532cbafdcaaef2e5cc89425e82a284c"
 dependencies = [
+ "clap 4.4.18",
+ "clarity",
+ "lazy_static",
+ "regex",
+ "walrus",
+ "wat",
+]
+
+[[package]]
+name = "clar2wasm"
+version = "0.1.0"
+source = "git+https://github.com/stacks-network/clarity-wasm.git?branch=feat/devnet-wasm-test#4be763e4413e7c5a9eeb203ea973829f73ea9960"
+dependencies = [
  "chrono",
  "clap 4.4.18",
  "clarity",
@@ -837,7 +850,7 @@ dependencies = [
  "serde_stacker",
  "sha2-asm 0.5.5",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "time 0.2.27",
  "wasmtime",
 ]
@@ -2335,7 +2348,7 @@ version = "0.0.1"
 dependencies = [
  "clarity",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "secp256k1",
  "serde",
  "serde_derive",
@@ -2345,17 +2358,17 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "thiserror",
  "tiny_http",
- "wsts 6.1.0",
+ "wsts",
 ]
 
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#1d721cbcf774347ef22b3c56d039623c32eaefbc"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#a8c73c77f46618fffcf917e5b6fb4a36d8c8ff07"
 dependencies = [
  "clarity",
  "libc",
@@ -2369,8 +2382,33 @@ dependencies = [
  "slog",
  "slog-term",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
  "thiserror",
  "tiny_http",
+ "wsts",
+]
+
+[[package]]
+name = "libsigner"
+version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test#6a6f985bbe59411fd7221aae111ee0c1c61dfafa"
+dependencies = [
+ "clarity",
+ "libc",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2 0.10.8",
+ "slog",
+ "slog-term",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "thiserror",
+ "tiny_http",
+ "wsts",
 ]
 
 [[package]]
@@ -2394,13 +2432,27 @@ dependencies = [
  "serde_derive",
  "serde_stacker",
  "sha2 0.10.8",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
+]
+
+[[package]]
+name = "libstackerdb"
+version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#a8c73c77f46618fffcf917e5b6fb4a36d8c8ff07"
+dependencies = [
+ "clarity",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_stacker",
+ "sha2 0.10.8",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
 ]
 
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#1d721cbcf774347ef22b3c56d039623c32eaefbc"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test#6a6f985bbe59411fd7221aae111ee0c1c61dfafa"
 dependencies = [
  "clarity",
  "secp256k1",
@@ -3015,13 +3067,23 @@ version = "2.4.0"
 dependencies = [
  "clarity",
  "slog",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
+]
+
+[[package]]
+name = "pox-locking"
+version = "2.4.0"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#a8c73c77f46618fffcf917e5b6fb4a36d8c8ff07"
+dependencies = [
+ "clarity",
+ "slog",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
 ]
 
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#1d721cbcf774347ef22b3c56d039623c32eaefbc"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test#6a6f985bbe59411fd7221aae111ee0c1c61dfafa"
 dependencies = [
  "clarity",
  "slog",
@@ -4050,13 +4112,42 @@ dependencies = [
  "slog-term",
  "time 0.2.27",
  "winapi 0.3.9",
- "wsts 6.1.0",
+ "wsts",
 ]
 
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#1d721cbcf774347ef22b3c56d039623c32eaefbc"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#a8c73c77f46618fffcf917e5b6fb4a36d8c8ff07"
+dependencies = [
+ "chrono",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "lazy_static",
+ "libc",
+ "nix",
+ "percent-encoding",
+ "rand 0.7.3",
+ "ripemd",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.8",
+ "sha3",
+ "slog",
+ "slog-json",
+ "slog-term",
+ "time 0.2.27",
+ "winapi 0.3.9",
+ "wsts",
+]
+
+[[package]]
+name = "stacks-common"
+version = "0.0.2"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test#6a6f985bbe59411fd7221aae111ee0c1c61dfafa"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -4080,7 +4171,7 @@ dependencies = [
  "slog-term",
  "time 0.2.27",
  "winapi 0.3.9",
- "wsts 5.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4096,7 +4187,7 @@ dependencies = [
  "http-types",
  "lazy_static",
  "libc",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "pico-args",
  "rand 0.8.5",
  "rand_core 0.6.4",
@@ -4109,16 +4200,16 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
- "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
- "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
+ "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
+ "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "tokio",
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
  "warp",
- "wsts 6.1.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4130,8 +4221,8 @@ dependencies = [
  "clap 4.4.18",
  "clarity",
  "hashbrown 0.14.3",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "rand_core 0.6.4",
  "reqwest",
  "secp256k1",
@@ -4142,19 +4233,19 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "thiserror",
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
- "wsts 6.1.0",
+ "wsts",
 ]
 
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#1d721cbcf774347ef22b3c56d039623c32eaefbc"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test#6a6f985bbe59411fd7221aae111ee0c1c61dfafa"
 dependencies = [
  "backoff",
  "bincode",
@@ -4178,7 +4269,7 @@ dependencies = [
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
- "wsts 5.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4187,7 +4278,7 @@ version = "0.0.1"
 dependencies = [
  "assert-json-diff",
  "chrono",
- "clar2wasm",
+ "clar2wasm 0.1.0 (git+https://github.com/stacks-network/clarity-wasm.git?branch=feat/devnet-wasm-test)",
  "clarity",
  "criterion",
  "curve25519-dalek",
@@ -4195,12 +4286,12 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "mio 0.6.23",
  "nix",
  "p256k1 5.5.0",
  "percent-encoding",
- "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "prometheus",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
@@ -4220,22 +4311,63 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "stdext",
- "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test)",
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
- "wsts 6.1.0",
+ "wsts",
 ]
 
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#1d721cbcf774347ef22b3c56d039623c32eaefbc"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#a8c73c77f46618fffcf917e5b6fb4a36d8c8ff07"
 dependencies = [
  "chrono",
- "clar2wasm",
+ "clar2wasm 0.1.0 (git+https://github.com/stacks-network/clarity-wasm.git?branch=devnet)",
+ "clarity",
+ "curve25519-dalek",
+ "ed25519-dalek",
+ "integer-sqrt",
+ "lazy_static",
+ "libc",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "mio 0.6.23",
+ "nix",
+ "p256k1 5.5.0",
+ "percent-encoding",
+ "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "rand 0.7.3",
+ "rand_chacha 0.2.2",
+ "rand_core 0.6.4",
+ "regex",
+ "ripemd",
+ "rusqlite",
+ "secp256k1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2 0.10.8",
+ "sha3",
+ "siphasher",
+ "slog",
+ "slog-term",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet)",
+ "time 0.2.27",
+ "url",
+ "winapi 0.3.9",
+ "wsts",
+]
+
+[[package]]
+name = "stackslib"
+version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test#6a6f985bbe59411fd7221aae111ee0c1c61dfafa"
+dependencies = [
+ "chrono",
+ "clar2wasm 0.1.0 (git+https://github.com/stacks-network/clarity-wasm.git?branch=devnet)",
  "clarity",
  "curve25519-dalek",
  "ed25519-dalek",
@@ -4269,7 +4401,7 @@ dependencies = [
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
- "wsts 5.0.0",
+ "wsts",
 ]
 
 [[package]]
@@ -4359,7 +4491,7 @@ dependencies = [
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next-devnet#1d721cbcf774347ef22b3c56d039623c32eaefbc"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/devnet-wasm-test#6a6f985bbe59411fd7221aae111ee0c1c61dfafa"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
@@ -5752,28 +5884,6 @@ checksum = "d59cefebd0c892fa2dd6de581e937301d8552cb44489cdff035c6187cb63fa5e"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
-]
-
-[[package]]
-name = "wsts"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c250118354755b4abb091a83cb8d659b511c0ae211ccdb3b1254e3db199cb86"
-dependencies = [
- "aes-gcm 0.10.3",
- "bs58 0.5.0",
- "hashbrown 0.14.3",
- "hex",
- "num-traits",
- "p256k1 6.0.0",
- "polynomial",
- "primitive-types",
- "rand_core 0.6.4",
- "serde",
- "sha2 0.10.8",
- "thiserror",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

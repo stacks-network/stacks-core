@@ -20,9 +20,9 @@ path = "src/lib.rs"
 
 [dependencies]
 # clarity = { package = "clarity", path = "../clarity" }
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 # stacks_common = { package = "stacks-common", path = "../stacks-common" }
-stacks_common = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+stacks_common = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 
 [features]

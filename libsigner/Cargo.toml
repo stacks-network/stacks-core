@@ -17,18 +17,18 @@ path = "./src/libsigner.rs"
 
 [dependencies]
 # clarity = { path = "../clarity" }
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 libc = "0.2"
 # libstackerdb = { path = "../libstackerdb" }
-libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
-stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
-stackslib = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
+stackslib = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 thiserror = "1.0"
 tiny_http = "0.12"
 wsts = { workspace = true }

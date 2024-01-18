@@ -50,19 +50,19 @@ slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
 # clarity = { path = "../clarity" }
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 # stacks-common = { path = "../stacks-common" }
-stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 # pox-locking = { path = "../pox-locking" }
-pox-locking = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+pox-locking = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 # libstackerdb = { path = "../libstackerdb" }
-libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 siphasher = "0.3.7"
 wsts = {workspace = true}
 rand_core = {workspace = true}
 p256k1 = "5.5.0"
 # clar2wasm = { package = "clar2wasm", path = "../../clar2wasm/." }
-clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "devnet" }
+clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "feat/devnet-wasm-test" }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -102,11 +102,11 @@ assert-json-diff = "1.0.0"
 criterion = "0.3.5"
 stdext = "0.3.1"
 # stx-genesis = { path = "../stx-genesis"}
-stx-genesis = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+stx-genesis = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 # clarity = { features = ["default", "testing"], path = "../clarity" }
-clarity = { features = ["default", "testing"], git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+clarity = { features = ["default", "testing"], git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 # stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
-stacks-common = { features = ["default", "testing"], git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+stacks-common = { features = ["default", "testing"], git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 

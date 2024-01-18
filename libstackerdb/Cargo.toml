@@ -20,9 +20,9 @@ serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
 # stacks-common = { path = "../stacks-common" }
-stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 # clarity = { path = "../clarity" }
-clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/devnet-wasm-test" }
 
 [dependencies.secp256k1]
 version = "0.24.3"
