@@ -3823,7 +3823,7 @@ pub mod test {
                             parent_microblock_header_opt.as_ref(),
                         );
 
-                    builder.epoch_finish(epoch);
+                    builder.epoch_finish(epoch).unwrap();
                     (stacks_block, microblocks)
                 },
             );

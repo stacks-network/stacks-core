@@ -537,6 +537,7 @@ impl<'a> Parser<'a> {
 
         // Peek ahead for a '.', indicating a contract identifier
         if self.peek_next_token().token == Token::Dot {
+            #[allow(clippy::unwrap_used)]
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, contract_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -601,6 +602,7 @@ impl<'a> Parser<'a> {
 
             // Peek ahead for a '.', indicating a trait identifier
             if self.peek_next_token().token == Token::Dot {
+                #[allow(clippy::unwrap_used)]
                 let dot = self.next_token().unwrap(); // skip over the dot
                 let (name, trait_span) = match self.next_token() {
                     Some(PlacedToken {
@@ -742,6 +744,7 @@ impl<'a> Parser<'a> {
 
         // Peek ahead for a '.', indicating a trait identifier
         if self.peek_next_token().token == Token::Dot {
+            #[allow(clippy::unwrap_used)]
             let dot = self.next_token().unwrap(); // skip over the dot
             let (name, trait_span) = match self.next_token() {
                 Some(PlacedToken {
@@ -1008,7 +1011,8 @@ impl<'a> Parser<'a> {
                         | Token::LessEqual
                         | Token::Greater
                         | Token::GreaterEqual => {
-                            let name = ClarityName::try_from(token.token.to_string()).unwrap();
+                            let name = ClarityName::try_from(token.token.to_string())
+                                .map_err(|_| ParseErrors::InterpreterFailure)?;
                             let mut e = PreSymbolicExpression::atom(name);
                             e.span = token.span;
                             Some(e)
@@ -1115,6 +1119,7 @@ pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 pub fn parse_collect_diagnostics(
     input: &str,
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
@@ -1382,7 +1387,7 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         assert_eq!(diagnostics.len(), 0);
         if let Some(v) = stmts[0].match_atom_value() {
-            assert_eq!(v.clone().expect_ascii(), "new\nline");
+            assert_eq!(v.clone().expect_ascii().unwrap(), "new\nline");
         } else {
             panic!("failed to parse ascii string");
         }
@@ -3405,7 +3410,7 @@ mod tests {
             }
         );
         let val = stmts[0].match_atom_value().unwrap().clone();
-        assert_eq!(val.expect_buff(2), vec![0x12, 0x34]);
+        assert_eq!(val.expect_buff(2).unwrap(), vec![0x12, 0x34]);
     }
 
     #[test]

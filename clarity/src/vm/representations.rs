@@ -51,10 +51,16 @@ lazy_static! {
     pub static ref CLARITY_NAME_REGEX_STRING: String =
         "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
-        Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap();
+    {
+        #[allow(clippy::unwrap_used)]
+        Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
+    };
     pub static ref CONTRACT_NAME_REGEX: Regex =
+    {
+        #[allow(clippy::unwrap_used)]
         Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING.as_str()).as_str())
-            .unwrap();
+            .unwrap()
+    };
 }
 
 guarded_string!(
@@ -395,7 +401,7 @@ pub enum TraitDefinition {
     Imported(TraitIdentifier),
 }
 
-pub fn depth_traverse<F, T, E>(expr: &SymbolicExpression, mut visit: F) -> Result<T, E>
+pub fn depth_traverse<F, T, E>(expr: &SymbolicExpression, mut visit: F) -> Result<Option<T>, E>
 where
     F: FnMut(&SymbolicExpression) -> Result<T, E>,
 {
@@ -411,7 +417,7 @@ where
         }
     }
 
-    Ok(last.unwrap())
+    Ok(last)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

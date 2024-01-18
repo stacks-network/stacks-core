@@ -3038,7 +3038,7 @@ impl HttpRequestType {
             ) => {
                 let mut request_bytes = vec![];
                 key.serialize_write(&mut request_bytes)
-                    .map_err(net_error::WriteError)?;
+                    .map_err(|e| net_error::SerializeError(format!("{e:?}")))?;
                 let request_json = format!("\"{}\"", to_hex(&request_bytes));
 
                 HttpRequestPreamble::new_serialized(
@@ -3069,7 +3069,7 @@ impl HttpRequestType {
                 for arg in func_args.iter() {
                     let mut arg_bytes = vec![];
                     arg.serialize_write(&mut arg_bytes)
-                        .map_err(net_error::WriteError)?;
+                        .map_err(|e| net_error::SerializeError(format!("{e:?}")))?;
                     args.push(to_hex(&arg_bytes));
                 }
 

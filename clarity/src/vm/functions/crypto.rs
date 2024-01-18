@@ -20,7 +20,7 @@ use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, Error,
+    check_argument_count, check_arguments_at_least, CheckErrors, Error, InterpreterError,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
 use crate::vm::representations::SymbolicExpressionType::{Atom, List};
@@ -51,7 +51,7 @@ macro_rules! native_hash_func {
                     vec![
                         TypeSignature::IntType,
                         TypeSignature::UIntType,
-                        TypeSignature::max_buffer(),
+                        TypeSignature::max_buffer()?,
                     ],
                     input,
                 )),
@@ -70,19 +70,19 @@ native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
 // This method preserves the old, incorrect behavior for those running Clarity1.
-fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> StacksAddress {
+fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> Result<StacksAddress> {
     StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
         &vec![pub_key],
     )
-    .unwrap()
+    .ok_or_else(|| InterpreterError::Expect("Failed to create address from pubkey".into()).into())
 }
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
 // This version contains the code for Clarity2 and going forward.
-fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> StacksAddress {
+fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> Result<StacksAddress> {
     let network_byte = if is_mainnet {
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG
     } else {
@@ -94,7 +94,7 @@ fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> Stacks
         1,
         &vec![pub_key],
     )
-    .unwrap()
+    .ok_or_else(|| InterpreterError::Expect("Failed to create address from pubkey".into()).into())
 }
 
 pub fn special_principal_of(
@@ -123,12 +123,13 @@ pub fn special_principal_of(
         // Note: Clarity1 had a bug in how the address is computed (issues/2619).
         // We want to preserve the old behavior unless the version is greater.
         let addr = if *env.contract_context.get_clarity_version() > ClarityVersion::Clarity1 {
-            pubkey_to_address_v2(pub_key, env.global_context.mainnet)
+            pubkey_to_address_v2(pub_key, env.global_context.mainnet)?
         } else {
-            pubkey_to_address_v1(pub_key)
+            pubkey_to_address_v1(pub_key)?
         };
         let principal = addr.to_account_principal();
-        return Ok(Value::okay(Value::Principal(principal)).unwrap());
+        return Ok(Value::okay(Value::Principal(principal))
+            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?);
     } else {
         return Ok(Value::err_uint(1));
     }
@@ -172,7 +173,13 @@ pub fn special_secp256k1_recover(
 
     match secp256k1_recover(&message, &signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature)
     {
-        Ok(pubkey) => return Ok(Value::okay(Value::buff_from(pubkey.to_vec()).unwrap()).unwrap()),
+        Ok(pubkey) => {
+            return Ok(Value::okay(
+                Value::buff_from(pubkey.to_vec())
+                    .map_err(|_| InterpreterError::Expect("Failed to construct buff".into()))?,
+            )
+            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?)
+        }
         _ => return Ok(Value::err_uint(1)),
     };
 }

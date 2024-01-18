@@ -40,7 +40,7 @@ pub fn list_cons(
 
     let mut arg_size = 0;
     for a in args.iter() {
-        arg_size = arg_size.cost_overflow_add(a.size().into())?;
+        arg_size = arg_size.cost_overflow_add(a.size()?.into())?;
     }
 
     runtime_cost(ClarityCostFunction::ListCons, env, arg_size)?;
@@ -74,7 +74,7 @@ pub fn special_filter(
                 }
             })?;
         }
-        _ => return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
+        _ => return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into()),
     };
     Ok(sequence)
 }
@@ -95,20 +95,18 @@ pub fn special_fold(
     let initial = eval(&args[2], env, context)?;
 
     match sequence {
-        Value::Sequence(ref mut sequence_data) => {
-            sequence_data
-                .atom_values()
-                .into_iter()
-                .try_fold(initial, |acc, x| {
-                    apply(
-                        &function,
-                        &[x, SymbolicExpression::atom_value(acc)],
-                        env,
-                        context,
-                    )
-                })
-        }
-        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
+        Value::Sequence(ref mut sequence_data) => sequence_data
+            .atom_values()?
+            .into_iter()
+            .try_fold(initial, |acc, x| {
+                apply(
+                    &function,
+                    &[x, SymbolicExpression::atom_value(acc)],
+                    env,
+                    context,
+                )
+            }),
+        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into()),
     }
 }
 
@@ -134,7 +132,7 @@ pub fn special_map(
         match sequence {
             Value::Sequence(ref mut sequence_data) => {
                 min_args_len = min_args_len.min(sequence_data.len());
-                for (apply_index, value) in sequence_data.atom_values().into_iter().enumerate() {
+                for (apply_index, value) in sequence_data.atom_values()?.into_iter().enumerate() {
                     if apply_index > min_args_len {
                         break;
                     }
@@ -146,7 +144,9 @@ pub fn special_map(
                 }
             }
             _ => {
-                return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+                return Err(
+                    CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into(),
+                )
             }
         }
     }
@@ -186,11 +186,11 @@ pub fn special_append(
                 type_signature,
             } = list;
             let (entry_type, size) = type_signature.destruct();
-            let element_type = TypeSignature::type_of(&element);
+            let element_type = TypeSignature::type_of(&element)?;
             runtime_cost(
                 ClarityCostFunction::Append,
                 env,
-                u64::from(cmp::max(entry_type.size(), element_type.size())),
+                u64::from(cmp::max(entry_type.size()?, element_type.size()?)),
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
@@ -231,7 +231,7 @@ pub fn special_concat_v200(
     runtime_cost(
         ClarityCostFunction::Concat,
         env,
-        u64::from(wrapped_seq.size()).cost_overflow_add(u64::from(other_wrapped_seq.size()))?,
+        u64::from(wrapped_seq.size()?).cost_overflow_add(u64::from(other_wrapped_seq.size()?))?,
     )?;
 
     match (&mut wrapped_seq, other_wrapped_seq) {
@@ -288,7 +288,9 @@ pub fn special_as_max_len(
         let sequence_len = match sequence {
             Value::Sequence(ref sequence_data) => sequence_data.len() as u128,
             _ => {
-                return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+                return Err(
+                    CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into(),
+                )
             }
         };
         if sequence_len > *expected_len {
@@ -301,17 +303,18 @@ pub fn special_as_max_len(
         }
     } else {
         let actual_len = eval(&args[1], env, context)?;
-        Err(
-            CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::type_of(&actual_len))
-                .into(),
+        Err(CheckErrors::TypeError(
+            TypeSignature::UIntType,
+            TypeSignature::type_of(&actual_len)?,
         )
+        .into())
     }
 }
 
 pub fn native_len(sequence: Value) -> Result<Value> {
     match sequence {
         Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
-        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into()),
+        _ => Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into()),
     }
 }
 
@@ -322,7 +325,7 @@ pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value> {
             None => Ok(Value::none()),
         }
     } else {
-        Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into())
+        Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into())
     }
 }
 
@@ -330,7 +333,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
     let sequence_data = if let Value::Sequence(sequence_data) = sequence {
         sequence_data
     } else {
-        return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)).into());
+        return Err(CheckErrors::ExpectedSequence(TypeSignature::type_of(&sequence)?).into());
     };
 
     let index = if let Value::UInt(index_u128) = index {
@@ -343,7 +346,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
         return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, index).into());
     };
 
-    if let Some(result) = sequence_data.element_at(index) {
+    if let Some(result) = sequence_data.element_at(index)? {
         Value::some(result)
     } else {
         Ok(Value::none())
@@ -382,7 +385,7 @@ pub fn special_slice(
                 runtime_cost(
                     ClarityCostFunction::Slice,
                     env,
-                    (right_position - left_position) * seq.element_size(),
+                    (right_position - left_position) * seq.element_size()?,
                 )?;
                 let seq_value =
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
@@ -409,13 +412,13 @@ pub fn special_replace_at(
     check_argument_count(3, args)?;
 
     let seq = eval(&args[0], env, context)?;
-    let seq_type = TypeSignature::type_of(&seq);
+    let seq_type = TypeSignature::type_of(&seq)?;
 
     // runtime is the cost to copy over one element into its place
-    runtime_cost(ClarityCostFunction::ReplaceAt, env, seq_type.size())?;
+    runtime_cost(ClarityCostFunction::ReplaceAt, env, seq_type.size()?)?;
 
     let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
-        seq_subtype.unit_type()
+        seq_subtype.unit_type()?
     } else {
         return Err(CheckErrors::ExpectedSequence(seq_type).into());
     };

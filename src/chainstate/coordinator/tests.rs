@@ -632,7 +632,7 @@ fn make_genesis_block_with_recipients(
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
-    builder.epoch_finish(epoch_tx);
+    builder.epoch_finish(epoch_tx).unwrap();
 
     let commit_outs = if let Some(recipients) = recipients {
         let mut commit_outs = recipients
@@ -891,7 +891,7 @@ fn make_stacks_block_with_input(
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
-    builder.epoch_finish(epoch_tx);
+    builder.epoch_finish(epoch_tx).unwrap();
 
     let commit_outs = if let Some(recipients) = recipients {
         let mut commit_outs = recipients
@@ -2843,7 +2843,7 @@ fn test_pox_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_account_stx_balance(&stacker.clone().into()).unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -2860,11 +2860,13 @@ fn test_pox_btc_ops() {
                 assert_eq!(stacker_balance.amount_locked(), stacked_amt);
             } else {
                 assert_eq!(
-                    stacker_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
-                    ),
+                    stacker_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht
+                        )
+                        .unwrap(),
                     balance as u128,
                     "No lock should be active"
                 );
@@ -3140,7 +3142,7 @@ fn test_stx_transfer_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&stacker.clone().into()),
+                                db.get_account_stx_balance(&stacker.clone().into()).unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -3155,7 +3157,8 @@ fn test_stx_transfer_btc_ops() {
                     |conn| {
                         conn.with_clarity_db_readonly(|db| {
                             (
-                                db.get_account_stx_balance(&recipient.clone().into()),
+                                db.get_account_stx_balance(&recipient.clone().into())
+                                    .unwrap(),
                                 db.get_current_block_height(),
                             )
                         })
@@ -3165,38 +3168,46 @@ fn test_stx_transfer_btc_ops() {
 
             if ix > 2 {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
-                    ),
+                    sender_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht
+                        )
+                        .unwrap(),
                     (balance as u128) - transfer_amt,
                     "Transfer should have decremented balance"
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
-                    ),
+                    recipient_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht
+                        )
+                        .unwrap(),
                     transfer_amt,
                     "Recipient should have incremented balance"
                 );
             } else {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
-                    ),
+                    sender_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht
+                        )
+                        .unwrap(),
                     balance as u128,
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht
-                    ),
+                    recipient_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht
+                        )
+                        .unwrap(),
                     0,
                 );
             }
@@ -3311,14 +3322,24 @@ fn get_delegation_info_pox_2(
             .unwrap()
         })
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     match result {
         None => None,
         Some(tuple) => {
-            let data = tuple.expect_tuple().data_map;
-            let delegated_amt = data.get("amount-ustx").cloned().unwrap().expect_u128();
-            let reward_addr_opt = if let Some(reward_addr) =
-                data.get("pox-addr").cloned().unwrap().expect_optional()
+            let data = tuple.expect_tuple().unwrap().data_map;
+            let delegated_amt = data
+                .get("amount-ustx")
+                .cloned()
+                .unwrap()
+                .expect_u128()
+                .unwrap();
+            let reward_addr_opt = if let Some(reward_addr) = data
+                .get("pox-addr")
+                .cloned()
+                .unwrap()
+                .expect_optional()
+                .unwrap()
             {
                 Some(PoxAddress::try_from_pox_tuple(false, &reward_addr).unwrap())
             } else {
@@ -4522,7 +4543,7 @@ fn get_total_stacked_info(
                         reward_cycle
                     );
 
-                    let result = env.eval_raw(&eval_str).map(|v| v.expect_u128());
+                    let result = env.eval_raw(&eval_str).map(|v| v.expect_u128().unwrap());
                     Ok(result)
                 },
             )

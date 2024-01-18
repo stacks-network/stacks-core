@@ -53,33 +53,40 @@ use crate::vm::costs::runtime_cost;
 fn parse_pox_stacking_result(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok { stacker: principal, lock-amount: uint, unlock-burn-height: uint .. } .. })))
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
                 .expect(&format!("FATAL: no 'stacker'"))
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let lock_amount = tuple_data
                 .get("lock-amount")
                 .expect(&format!("FATAL: no 'lock-amount'"))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .expect("FATAL: unexpected clarity value");
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
                 .expect(&format!("FATAL: no 'unlock-burn-height'"))
                 .to_owned()
                 .expect_u128()
+                .expect("FATAL: unexpected clarity value")
                 .try_into()
                 .expect("FATAL: 'unlock-burn-height' overflow");
 
             Ok((stacker, lock_amount, unlock_burn_height))
         }
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -89,33 +96,40 @@ fn parse_pox_stacking_result(
 fn parse_pox_stacking_result_v1(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok (tuple (stacker principal) (lock-amount uint) (unlock-burn-height uint)))
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
                 .expect(&format!("FATAL: no 'stacker'"))
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let lock_amount = tuple_data
                 .get("lock-amount")
                 .expect(&format!("FATAL: no 'lock-amount'"))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .expect("FATAL: unexpected clarity value");
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
                 .expect(&format!("FATAL: no 'unlock-burn-height'"))
                 .to_owned()
                 .expect_u128()
+                .expect("FATAL: unexpected clarity value")
                 .try_into()
                 .expect("FATAL: 'unlock-burn-height' overflow");
 
             Ok((stacker, lock_amount, unlock_burn_height))
         }
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -123,28 +137,34 @@ fn parse_pox_stacking_result_v1(
 ///  into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData, u64), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok { stacker: principal, unlock-burn-height: uint .. } .. })
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
                 .expect(&format!("FATAL: no 'stacker'"))
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
                 .expect(&format!("FATAL: no 'unlock-burn-height'"))
                 .to_owned()
                 .expect_u128()
+                .expect("FATAL: unexpected clarity value")
                 .try_into()
                 .expect("FATAL: 'unlock-burn-height' overflow");
 
             Ok((stacker, unlock_burn_height))
         }
         // in the error case, the function should have returned `int` error code
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -152,26 +172,32 @@ fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData
 ///  into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
 fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData, u128), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok { stacker: principal, total-locked: uint .. } .. })
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
                 .expect(&format!("FATAL: no 'stacker'"))
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let total_locked = tuple_data
                 .get("total-locked")
                 .expect(&format!("FATAL: no 'total-locked'"))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .expect("FATAL: unexpected clarity value");
 
             Ok((stacker, total_locked))
         }
         // in the error case, the function should have returned `int` error code
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -644,8 +670,8 @@ fn synthesize_pox_2_or_3_event_info(
                         })?;
 
                     // merge them
-                    let base_event_tuple = base_event_info.expect_tuple();
-                    let data_tuple = data_event_info.expect_tuple();
+                    let base_event_tuple = base_event_info.expect_tuple()?;
+                    let data_tuple = data_event_info.expect_tuple()?;
                     let event_tuple = TupleData::shallow_merge(base_event_tuple, data_tuple)
                         .map_err(|e| {
                             error!("Failed to merge data-info and event-info: {:?}", &e);
@@ -1232,12 +1258,14 @@ pub fn handle_contract_call_special_cases(
     if *contract_id == boot_code_id(POX_1_NAME, global_context.mainnet) {
         if !is_pox_v1_read_only(function_name)
             && global_context.database.get_v1_unlock_height()
-                <= global_context.database.get_current_burnchain_block_height()
+                <= global_context
+                    .database
+                    .get_current_burnchain_block_height()?
         {
             // NOTE: get-pox-info is read-only, so it can call old pox v1 stuff
             warn!("PoX-1 function call attempted on an account after v1 unlock height";
                   "v1_unlock_ht" => global_context.database.get_v1_unlock_height(),
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
@@ -1248,8 +1276,8 @@ pub fn handle_contract_call_special_cases(
         if !is_pox_v2_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch22
         {
             warn!("PoX-2 function call attempted on an account after Epoch 2.2";
-                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height(),
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
+                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height()?,
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );

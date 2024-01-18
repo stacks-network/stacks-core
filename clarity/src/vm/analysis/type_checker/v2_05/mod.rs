@@ -24,6 +24,7 @@ use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, ClarityCostFunctionReference,
     CostErrors, CostOverflowingMath, CostTracker, ExecutionCost, LimitedCostTracker,
 };
+use crate::vm::errors::InterpreterError;
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
@@ -96,7 +97,7 @@ impl CostTracker for TypeChecker<'_, '_> {
     fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_memory(memory)
     }
-    fn drop_memory(&mut self, memory: u64) {
+    fn drop_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
         self.cost_track.drop_memory(memory)
     }
     fn reset_memory(&mut self) {
@@ -239,7 +240,12 @@ impl FunctionType {
 
                 Ok(TypeSignature::BoolType)
             }
-            FunctionType::Binary(_, _, _) => unreachable!("Binary type should be reached in 2.05"),
+            FunctionType::Binary(_, _, _) => {
+                return Err(CheckErrors::Expects(
+                    "Binary type should not be reached in 2.05".into(),
+                )
+                .into())
+            }
         }
     }
 
@@ -250,7 +256,7 @@ impl FunctionType {
     ) -> CheckResult<TypeSignature> {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
-            _ => panic!("Unexpected function type"),
+            _ => return Err(CheckErrors::Expects("Unexpected function type".into()).into()),
         };
         check_argument_count(expected_args.len(), func_args)?;
 
@@ -261,10 +267,8 @@ impl FunctionType {
                     Value::Principal(PrincipalData::Contract(contract)),
                 ) => {
                     let contract_to_check = db
-                        .load_contract(contract, &StacksEpochId::Epoch2_05)
-                        .ok_or_else(|| {
-                        CheckErrors::NoSuchContract(contract.name.to_string())
-                    })?;
+                        .load_contract(contract, &StacksEpochId::Epoch2_05)?
+                        .ok_or_else(|| CheckErrors::NoSuchContract(contract.name.to_string()))?;
                     let trait_definition = db
                         .get_defined_trait(
                             &trait_id.contract_identifier,
@@ -285,7 +289,7 @@ impl FunctionType {
                 }
                 (expected_type, value) => {
                     if !expected_type.admits(&StacksEpochId::Epoch2_05, &value)? {
-                        let actual_type = TypeSignature::type_of(&value);
+                        let actual_type = TypeSignature::type_of(&value)?;
                         return Err(
                             CheckErrors::TypeError(expected_type.clone(), actual_type).into()
                         );
@@ -305,7 +309,7 @@ fn trait_type_size(trait_sig: &BTreeMap<ClarityName, FunctionSignature>) -> Chec
     Ok(total_size)
 }
 
-fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
+fn type_reserved_variable(variable_name: &str) -> CheckResult<Option<TypeSignature>> {
     if let Some(variable) =
         NativeVariables::lookup_by_name_at_version(variable_name, &ClarityVersion::Clarity1)
     {
@@ -315,18 +319,22 @@ fn type_reserved_variable(variable_name: &str) -> Option<TypeSignature> {
             ContractCaller => TypeSignature::PrincipalType,
             BlockHeight => TypeSignature::UIntType,
             BurnBlockHeight => TypeSignature::UIntType,
-            NativeNone => TypeSignature::new_option(no_type()).unwrap(),
+            NativeNone => TypeSignature::new_option(no_type())
+                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             NativeTrue => TypeSignature::BoolType,
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
             Regtest => TypeSignature::BoolType,
             TxSponsor | Mainnet | ChainId => {
-                unreachable!("tx-sponsor, mainnet, and chain-id should not reach here in 2.05")
+                return Err(CheckErrors::Expects(
+                    "tx-sponsor, mainnet, and chain-id should not reach here in 2.05".into(),
+                )
+                .into())
             }
         };
-        Some(var_type)
+        Ok(Some(var_type))
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -399,7 +407,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     Ok(())
                 }
                 Err(e) => Err(e),
-            })?;
+            })?
+            .ok_or_else(|| CheckErrors::Expects("Expected a depth result".into()))?;
         }
 
         runtime_cost(ClarityCostFunction::AnalysisStorage, self, size)?;
@@ -437,7 +446,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             ) => {
                 let contract_to_check = self
                     .db
-                    .load_contract(&contract_identifier, &StacksEpochId::Epoch2_05)
+                    .load_contract(&contract_identifier, &StacksEpochId::Epoch2_05)?
                     .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
                 let contract_defining_trait = self
@@ -445,7 +454,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                     .load_contract(
                         &trait_identifier.contract_identifier,
                         &StacksEpochId::Epoch2_05,
-                    )
+                    )?
                     .ok_or(CheckErrors::NoSuchContract(
                         trait_identifier.contract_identifier.to_string(),
                     ))?;
@@ -559,7 +568,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
             .map_err(|_| CheckErrors::BadSyntaxBinding)?;
 
         if self.function_return_tracker.is_some() {
-            panic!("Interpreter error: Previous function define left dirty typecheck state.");
+            return Err(CheckErrors::Expects(
+                "Interpreter error: Previous function define left dirty typecheck state.".into(),
+            )
+            .into());
         }
 
         let mut function_context = context.extend()?;
@@ -652,7 +664,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         if let Some(ref native_function) =
             NativeFunctions::lookup_by_name_at_version(function, &ClarityVersion::Clarity1)
         {
-            let typed_function = TypedNativeFunction::type_native_function(native_function);
+            let typed_function = match TypedNativeFunction::type_native_function(native_function) {
+                Ok(f) => f,
+                Err(e) => return Some(Err(e.into())),
+            };
             Some(typed_function.type_check_application(self, args, context))
         } else {
             None
@@ -693,7 +708,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
     fn lookup_variable(&mut self, name: &str, context: &TypingContext) -> TypeResult {
         runtime_cost(ClarityCostFunction::AnalysisLookupVariableConst, self, 0)?;
 
-        if let Some(type_result) = type_reserved_variable(name) {
+        if let Some(type_result) = type_reserved_variable(name)? {
             Ok(type_result)
         } else if let Some(type_result) = self.contract_context.get_variable_type(name) {
             Ok(type_result.clone())
@@ -720,7 +735,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         context: &TypingContext,
     ) -> TypeResult {
         let type_sig = match expr.expr {
-            AtomValue(ref value) | LiteralValue(ref value) => TypeSignature::type_of(value),
+            AtomValue(ref value) | LiteralValue(ref value) => TypeSignature::type_of(value)?,
             Atom(ref name) => self.lookup_variable(name, context)?,
             List(ref expression) => self.type_check_function_application(expression, context)?,
             TraitReference(_, _) | Field(_) => {

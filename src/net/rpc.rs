@@ -339,57 +339,69 @@ impl RPCPoxInfoData {
             .map_err(|_| net_error::NotFoundError)?;
 
         let res = match data {
-            Some(Ok(res)) => res.expect_result_ok().expect_tuple(),
+            Some(Ok(res)) => res
+                .expect_result_ok()
+                .map_err(|e| net_error::ClarityError(e.into()))?
+                .expect_tuple()
+                .map_err(|e| net_error::ClarityError(e.into()))?,
             _ => return Err(net_error::DBError(db_error::NotFoundError)),
         };
 
-        let first_burnchain_block_height = res
-            .get("first-burnchain-block-height")
-            .expect(&format!("FATAL: no 'first-burnchain-block-height'"))
-            .to_owned()
-            .expect_u128() as u64;
+        let first_burnchain_block_height =
+            res.get("first-burnchain-block-height")
+                .expect(&format!("FATAL: no 'first-burnchain-block-height'"))
+                .to_owned()
+                .expect_u128()
+                .map_err(|e| net_error::ClarityError(e.into()))? as u64;
 
-        let min_stacking_increment_ustx = res
-            .get("min-amount-ustx")
-            .expect(&format!("FATAL: no 'min-amount-ustx'"))
-            .to_owned()
-            .expect_u128() as u64;
+        let min_stacking_increment_ustx =
+            res.get("min-amount-ustx")
+                .expect(&format!("FATAL: no 'min-amount-ustx'"))
+                .to_owned()
+                .expect_u128()
+                .map_err(|e| net_error::ClarityError(e.into()))? as u64;
 
-        let prepare_cycle_length = res
-            .get("prepare-cycle-length")
-            .expect(&format!("FATAL: no 'prepare-cycle-length'"))
-            .to_owned()
-            .expect_u128() as u64;
+        let prepare_cycle_length =
+            res.get("prepare-cycle-length")
+                .expect(&format!("FATAL: no 'prepare-cycle-length'"))
+                .to_owned()
+                .expect_u128()
+                .map_err(|e| net_error::ClarityError(e.into()))? as u64;
 
-        let rejection_fraction = res
-            .get("rejection-fraction")
-            .expect(&format!("FATAL: no 'rejection-fraction'"))
-            .to_owned()
-            .expect_u128() as u64;
+        let rejection_fraction =
+            res.get("rejection-fraction")
+                .expect(&format!("FATAL: no 'rejection-fraction'"))
+                .to_owned()
+                .expect_u128()
+                .map_err(|e| net_error::ClarityError(e.into()))? as u64;
 
         let reward_cycle_id = res
             .get("reward-cycle-id")
             .expect(&format!("FATAL: no 'reward-cycle-id'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()
+            .map_err(|e| net_error::ClarityError(e.into()))? as u64;
 
-        let reward_cycle_length = res
-            .get("reward-cycle-length")
-            .expect(&format!("FATAL: no 'reward-cycle-length'"))
-            .to_owned()
-            .expect_u128() as u64;
+        let reward_cycle_length =
+            res.get("reward-cycle-length")
+                .expect(&format!("FATAL: no 'reward-cycle-length'"))
+                .to_owned()
+                .expect_u128()
+                .map_err(|e| net_error::ClarityError(e.into()))? as u64;
 
-        let current_rejection_votes = res
-            .get("current-rejection-votes")
-            .expect(&format!("FATAL: no 'current-rejection-votes'"))
-            .to_owned()
-            .expect_u128() as u64;
+        let current_rejection_votes =
+            res.get("current-rejection-votes")
+                .expect(&format!("FATAL: no 'current-rejection-votes'"))
+                .to_owned()
+                .expect_u128()
+                .map_err(|e| net_error::ClarityError(e.into()))? as u64;
 
-        let total_liquid_supply_ustx = res
-            .get("total-liquid-supply-ustx")
-            .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
-            .to_owned()
-            .expect_u128() as u64;
+        let total_liquid_supply_ustx =
+            res.get("total-liquid-supply-ustx")
+                .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
+                .to_owned()
+                .expect_u128()
+                .map_err(|e| net_error::ClarityError(e.into()))? as u64;
 
         let total_required = (total_liquid_supply_ustx as u128 / 100)
             .checked_mul(rejection_fraction as u128)
@@ -1273,17 +1285,22 @@ impl ConversationHttp {
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
                     let key = ClarityDatabase::make_key_for_account_balance(&account);
-                    let burn_block_height = clarity_db.get_current_burnchain_block_height() as u64;
+                    let burn_block_height =
+                        clarity_db.get_current_burnchain_block_height().ok()? as u64;
                     let v1_unlock_height = clarity_db.get_v1_unlock_height();
-                    let v2_unlock_height = clarity_db.get_v2_unlock_height();
+                    let v2_unlock_height = clarity_db.get_v2_unlock_height().ok()?;
                     let (balance, balance_proof) = if with_proof {
                         clarity_db
                             .get_with_proof::<STXBalance>(&key)
+                            .ok()
+                            .flatten()
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                     } else {
                         clarity_db
                             .get::<STXBalance>(&key)
+                            .ok()
+                            .flatten()
                             .map(|a| (a, None))
                             .unwrap_or_else(|| (STXBalance::zero(), None))
                     };
@@ -1292,20 +1309,26 @@ impl ConversationHttp {
                     let (nonce, nonce_proof) = if with_proof {
                         clarity_db
                             .get_with_proof(&key)
+                            .ok()
+                            .flatten()
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| (0, Some("".into())))
                     } else {
                         clarity_db
                             .get(&key)
+                            .ok()
+                            .flatten()
                             .map(|a| (a, None))
                             .unwrap_or_else(|| (0, None))
                     };
 
-                    let unlocked = balance.get_available_balance_at_burn_block(
-                        burn_block_height,
-                        v1_unlock_height,
-                        v2_unlock_height,
-                    );
+                    let unlocked = balance
+                        .get_available_balance_at_burn_block(
+                            burn_block_height,
+                            v1_unlock_height,
+                            v2_unlock_height,
+                        )
+                        .ok()?;
                     let (locked, unlock_height) = balance.get_locked_balance_at_burn_block(
                         burn_block_height,
                         v1_unlock_height,
@@ -1315,18 +1338,18 @@ impl ConversationHttp {
                     let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
                     let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
 
-                    AccountEntryResponse {
+                    Some(AccountEntryResponse {
                         balance,
                         locked,
                         unlock_height,
                         nonce,
                         balance_proof,
                         nonce_proof,
-                    }
+                    })
                 })
             }) {
-                Ok(Some(data)) => HttpResponseType::GetAccount(response_metadata, data),
-                Ok(None) | Err(_) => {
+                Ok(Some(Some(data))) => HttpResponseType::GetAccount(response_metadata, data),
+                Ok(None) | Ok(Some(None)) | Err(_) => {
                     HttpResponseType::NotFound(response_metadata, "Chain tip not found".into())
                 }
             };
@@ -1366,9 +1389,11 @@ impl ConversationHttp {
                     let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
                             .get_with_proof(&key)
+                            .ok()
+                            .flatten()
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
-                        clarity_db.get(&key).map(|a| (a, None))?
+                        clarity_db.get(&key).ok().flatten().map(|a| (a, None))?
                     };
 
                     let data = format!("0x{}", value_hex);
@@ -1408,27 +1433,35 @@ impl ConversationHttp {
         let contract_identifier =
             QualifiedContractIdentifier::new(contract_addr.clone().into(), contract_name.clone());
 
+        let none_response = Value::none()
+            .serialize_to_hex()
+            .map_err(|e| net_error::SerializeError(format!("{e:?}")))?;
+        let key = ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, map_name, key)
+            .map_err(|e| net_error::SerializeError(format!("{e:?}")))?;
+
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                    let key = ClarityDatabase::make_key_for_data_map_entry(
-                        &contract_identifier,
-                        map_name,
-                        key,
-                    );
                     let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
                             .get_with_proof(&key)
+                            .ok()
+                            .flatten()
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| {
                                 test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none().serialize_to_hex(), Some("".into()))
+                                (none_response, Some("".into()))
                             })
                     } else {
-                        clarity_db.get(&key).map(|a| (a, None)).unwrap_or_else(|| {
-                            test_debug!("No value for '{}' in {}", &key, tip);
-                            (Value::none().serialize_to_hex(), None)
-                        })
+                        clarity_db
+                            .get(&key)
+                            .ok()
+                            .flatten()
+                            .map(|a| (a, None))
+                            .unwrap_or_else(|| {
+                                test_debug!("No value for '{}' in {}", &key, tip);
+                                (none_response, None)
+                            })
                     };
 
                     let data = format!("0x{}", value_hex);
@@ -1521,14 +1554,20 @@ impl ConversationHttp {
             });
 
         let response = match data_opt_res {
-            Ok(Some(Ok(data))) => HttpResponseType::CallReadOnlyFunction(
-                response_metadata,
-                CallReadOnlyResponse {
-                    okay: true,
-                    result: Some(format!("0x{}", data.serialize_to_hex())),
-                    cause: None,
-                },
-            ),
+            Ok(Some(Ok(data))) => {
+                let hex_result = data
+                    .serialize_to_hex()
+                    .map_err(|e| net_error::SerializeError(format!("{e:?}")))?;
+
+                HttpResponseType::CallReadOnlyFunction(
+                    response_metadata,
+                    CallReadOnlyResponse {
+                        okay: true,
+                        result: Some(format!("0x{hex_result}")),
+                        cause: None,
+                    },
+                )
+            }
             Ok(Some(Err(e))) => match e {
                 Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
                     if actual_cost.write_count > 0 =>
@@ -1584,12 +1623,14 @@ impl ConversationHttp {
                     let contract_commit_key = make_contract_hash_key(&contract_identifier);
                     let (contract_commit, proof) = if with_proof {
                         db.get_with_proof::<ContractCommitment>(&contract_commit_key)
-                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
-                            .expect("BUG: obtained source, but couldn't get contract commit")
+                            .ok()
+                            .flatten()
+                            .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
                         db.get::<ContractCommitment>(&contract_commit_key)
-                            .map(|a| (a, None))
-                            .expect("BUG: obtained source, but couldn't get contract commit")
+                            .ok()
+                            .flatten()
+                            .map(|a| (a, None))?
                     };
 
                     let publish_height = contract_commit.block_height;
@@ -1634,19 +1675,24 @@ impl ConversationHttp {
         let response =
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|db| {
-                    let analysis = db.load_contract_analysis(&contract_identifier)?;
+                    let analysis = db
+                        .load_contract_analysis(&contract_identifier)
+                        .ok()
+                        .flatten()?;
                     if analysis.implemented_traits.contains(trait_id) {
                         Some(GetIsTraitImplementedResponse {
                             is_implemented: true,
                         })
                     } else {
-                        let trait_defining_contract =
-                            db.load_contract_analysis(&trait_id.contract_identifier)?;
+                        let trait_defining_contract = db
+                            .load_contract_analysis(&trait_id.contract_identifier)
+                            .ok()
+                            .flatten()?;
                         let trait_definition =
                             trait_defining_contract.get_defined_trait(&trait_id.name)?;
                         let is_implemented = analysis
                             .check_trait_compliance(
-                                &db.get_clarity_epoch_version(),
+                                &db.get_clarity_epoch_version().ok()?,
                                 trait_id,
                                 trait_definition,
                             )
@@ -1695,7 +1741,10 @@ impl ConversationHttp {
             match chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), tip, |clarity_tx| {
                 let epoch = clarity_tx.get_epoch();
                 clarity_tx.with_analysis_db_readonly(|db| {
-                    let contract = db.load_contract(&contract_identifier, &epoch)?;
+                    let contract = db
+                        .load_contract(&contract_identifier, &epoch)
+                        .ok()
+                        .flatten()?;
                     contract.contract_interface
                 })
             }) {

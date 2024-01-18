@@ -91,6 +91,8 @@ pub enum ParseErrors {
 
     /// Should be an unreachable error
     UnexpectedParserFailure,
+    /// Should be an unreachable failure which invalidates the transaction
+    InterpreterFailure,
 }
 
 #[derive(Debug, PartialEq)]
@@ -107,6 +109,13 @@ impl ParseError {
             err,
             pre_expressions: None,
             diagnostic,
+        }
+    }
+
+    pub fn rejectable(&self) -> bool {
+        match self.err {
+            ParseErrors::InterpreterFailure => true,
+            _ => false,
         }
     }
 
@@ -169,6 +178,9 @@ impl From<CostErrors> for ParseError {
             CostErrors::CostContractLoadFailure => ParseError::new(
                 ParseErrors::CostComputationFailed("Failed to load cost contract".into()),
             ),
+            CostErrors::InterpreterFailure | CostErrors::Expect(_) => {
+                ParseError::new(ParseErrors::InterpreterFailure)
+            }
         }
     }
 }
@@ -298,6 +310,7 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::ExpectedWhitespace => "expected whitespace before expression".to_string(),
             ParseErrors::NoteToMatchThis(token) => format!("to match this '{}'", token),
             ParseErrors::UnexpectedParserFailure => "unexpected failure while parsing".to_string(),
+            ParseErrors::InterpreterFailure => "unexpected failure while parsing".to_string(),
         }
     }
 

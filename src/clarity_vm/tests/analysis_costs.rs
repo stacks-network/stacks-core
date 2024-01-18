@@ -130,7 +130,7 @@ pub fn test_tracked_costs(
         );
 
         assert_eq!(
-            conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version()),
+            conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version().unwrap()),
             epoch
         );
 

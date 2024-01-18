@@ -29,6 +29,8 @@ use std::error;
 use std::error::Error as ErrorTrait;
 use std::fmt;
 
+use super::ast::errors::ParseErrors;
+
 #[derive(Debug)]
 pub struct IncomparableError<T> {
     pub err: T,
@@ -64,6 +66,7 @@ pub enum InterpreterError {
     InsufficientBalance,
     CostContractLoadFailure,
     DBError(String),
+    Expect(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected
@@ -167,21 +170,28 @@ impl error::Error for RuntimeErrorType {
     }
 }
 
-impl From<CostErrors> for Error {
-    fn from(err: CostErrors) -> Self {
-        Error::from(CheckErrors::from(err))
-    }
-}
-
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        Error::from(RuntimeErrorType::ASTError(err))
+        match &err.err {
+            ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+                "Unexpected interpreter failure during parsing".into(),
+            )),
+            _ => Error::from(RuntimeErrorType::ASTError(err)),
+        }
     }
 }
 
-impl From<SerdeJSONErr> for Error {
-    fn from(err: SerdeJSONErr) -> Self {
-        Error::from(RuntimeErrorType::JSONParseError(IncomparableError { err }))
+impl From<CostErrors> for Error {
+    fn from(err: CostErrors) -> Self {
+        match err {
+            CostErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+                "Interpreter failure during cost calculation".into(),
+            )),
+            CostErrors::Expect(s) => Error::from(InterpreterError::Expect(format!(
+                "Interpreter failure during cost calculation: {s}"
+            ))),
+            other_err => Error::from(CheckErrors::from(other_err)),
+        }
     }
 }
 

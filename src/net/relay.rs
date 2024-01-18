@@ -3692,9 +3692,11 @@ pub mod test {
                         .chainstate
                         .with_read_only_clarity_tx(&sortdb.index_conn(), &chain_tip, |clarity_tx| {
                             clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                                clarity_db.get_account_nonce(
-                                    &spending_account.origin_address().unwrap().into(),
-                                )
+                                clarity_db
+                                    .get_account_nonce(
+                                        &spending_account.origin_address().unwrap().into(),
+                                    )
+                                    .unwrap()
                             })
                         })
                         .unwrap();

@@ -3213,6 +3213,7 @@ pub mod test {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db
                             .get_account_nonce(&spending_account.origin_address().unwrap().into())
+                            .unwrap()
                     })
                 })
                 .unwrap()

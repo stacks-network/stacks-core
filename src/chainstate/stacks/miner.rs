@@ -114,7 +114,6 @@ impl MinerStatus {
     pub fn get_spend_amount(&self) -> u64 {
         return self.spend_amount;
     }
-
     pub fn set_spend_amount(&mut self, amt: u64) {
         self.spend_amount = amt;
     }
@@ -2141,7 +2140,7 @@ impl StacksBlockBuilder {
     }
 
     /// Finish up mining an epoch's transactions
-    pub fn epoch_finish(self, tx: ClarityTx) -> ExecutionCost {
+    pub fn epoch_finish(self, tx: ClarityTx) -> Result<ExecutionCost, clarity_error> {
         let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
@@ -2153,7 +2152,7 @@ impl StacksBlockBuilder {
         //        let moved_name = format!("{}.mined", index_block_hash);
 
         // write out the trie...
-        let consumed = tx.commit_mined_block(&index_block_hash);
+        let consumed = tx.commit_mined_block(&index_block_hash)?;
 
         test_debug!(
             "\n\nMiner {}: Finished mining child of {}/{}. Trie is in mined_blocks table.\n",
@@ -2162,7 +2161,7 @@ impl StacksBlockBuilder {
             self.chain_tip.anchored_header.block_hash()
         );
 
-        consumed
+        Ok(consumed)
     }
     /// Unconditionally build an anchored block from a list of transactions.
     ///  Used in test cases
@@ -2239,7 +2238,7 @@ impl StacksBlockBuilder {
             None
         };
 
-        let cost = builder.epoch_finish(epoch_tx);
+        let cost = builder.epoch_finish(epoch_tx)?;
         Ok((block, size, cost, mblock_opt))
     }
 
@@ -2633,7 +2632,7 @@ impl StacksBlockBuilder {
         // save the block so we can build microblocks off of it
         let block = builder.mine_anchored_block(&mut epoch_tx);
         let size = builder.bytes_so_far;
-        let consumed = builder.epoch_finish(epoch_tx);
+        let consumed = builder.epoch_finish(epoch_tx)?;
 
         let ts_end = get_epoch_time_ms();
 
