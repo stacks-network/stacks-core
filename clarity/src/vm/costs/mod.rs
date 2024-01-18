@@ -46,9 +46,9 @@ type Result<T> = std::result::Result<T, CostErrors>;
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 
 // TODO: factor out into a boot lib?
-pub const COSTS_1_NAME: &str = "costs";
-pub const COSTS_2_NAME: &str = "costs-2";
-pub const COSTS_3_NAME: &str = "costs-3";
+pub const COSTS_1_NAME: &'static str = "costs";
+pub const COSTS_2_NAME: &'static str = "costs-2";
+pub const COSTS_3_NAME: &'static str = "costs-3";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = TypeSignature::TupleType(
@@ -245,7 +245,6 @@ pub struct TrackerData {
     chain_id: u32,
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone)]
 pub enum LimitedCostTracker {
     Limited(TrackerData),
@@ -600,7 +599,7 @@ fn load_cost_functions(
                             continue;
                         }
                         for arg in &cost_func_type.args {
-                            if arg.signature != TypeSignature::UIntType {
+                            if &arg.signature != &TypeSignature::UIntType {
                                 warn!("Confirmed cost proposal invalid: contains non uint argument";
                                       "confirmed_proposal_id" => confirmed_proposal,
                                 );
@@ -753,7 +752,7 @@ impl TrackerData {
         let mut cost_contracts = HashMap::new();
         let mut m = HashMap::new();
         for f in ClarityCostFunction::ALL.iter() {
-            let cost_function_ref = cost_function_references.remove(f).unwrap_or_else(|| {
+            let cost_function_ref = cost_function_references.remove(&f).unwrap_or_else(|| {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
             if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
@@ -799,7 +798,7 @@ impl TrackerData {
             clarity_db.roll_back();
         }
 
-        Ok(())
+        return Ok(());
     }
 }
 
@@ -810,7 +809,7 @@ impl LimitedCostTracker {
             Self::Free => ExecutionCost::zero(),
         }
     }
-    pub fn set_total(&mut self, total: ExecutionCost) {
+    pub fn set_total(&mut self, total: ExecutionCost) -> () {
         // used by the miner to "undo" the cost of a transaction when trying to pack a block.
         match self {
             Self::Limited(ref mut data) => data.total = total,
@@ -972,7 +971,7 @@ impl CostTracker for LimitedCostTracker {
         match self {
             Self::Free => {
                 // tracker is free, return zero!
-                Ok(ExecutionCost::zero())
+                return Ok(ExecutionCost::zero());
             }
             Self::Limited(ref mut data) => {
                 if cost_function == ClarityCostFunction::Unimplemented {
@@ -1112,13 +1111,16 @@ pub trait CostOverflowingMath<T> {
 
 impl CostOverflowingMath<u64> for u64 {
     fn cost_overflow_mul(self, other: u64) -> Result<u64> {
-        self.checked_mul(other).ok_or(CostErrors::CostOverflow)
+        self.checked_mul(other)
+            .ok_or_else(|| CostErrors::CostOverflow)
     }
     fn cost_overflow_add(self, other: u64) -> Result<u64> {
-        self.checked_add(other).ok_or(CostErrors::CostOverflow)
+        self.checked_add(other)
+            .ok_or_else(|| CostErrors::CostOverflow)
     }
     fn cost_overflow_sub(self, other: u64) -> Result<u64> {
-        self.checked_sub(other).ok_or(CostErrors::CostOverflow)
+        self.checked_sub(other)
+            .ok_or_else(|| CostErrors::CostOverflow)
     }
 }
 
@@ -1135,7 +1137,7 @@ impl ExecutionCost {
 
     /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.
     pub fn proportion_largest_dimension(&self, numerator: &ExecutionCost) -> u64 {
-        *[
+        [
             numerator.runtime / cmp::max(1, self.runtime / 100),
             numerator.write_length / cmp::max(1, self.write_length / 100),
             numerator.write_count / cmp::max(1, self.write_count / 100),
@@ -1145,6 +1147,7 @@ impl ExecutionCost {
         .iter()
         .max()
         .expect("BUG: should find maximum")
+        .clone()
     }
 
     /// Returns the dot product of this execution cost with `resolution`/block_limit

@@ -112,7 +112,7 @@ pub type InterpreterResult<R> = Result<R, Error>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
-        false
+        return false;
     }
 }
 
@@ -132,12 +132,14 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::Runtime(ref err, ref stack) => {
-                write!(f, "{}", err)?;
+                match err {
+                    _ => write!(f, "{}", err),
+                }?;
 
                 if let Some(ref stack_trace) = stack {
                     write!(f, "\n Stack Trace: \n")?;
                     for item in stack_trace.iter() {
-                        writeln!(f, "{}", item)?;
+                        write!(f, "{}\n", item)?;
                     }
                 }
                 Ok(())
@@ -212,9 +214,9 @@ impl From<Error> for () {
     fn from(err: Error) -> Self {}
 }
 
-impl From<ShortReturnType> for Value {
-    fn from(val: ShortReturnType) -> Self {
-        match val {
+impl Into<Value> for ShortReturnType {
+    fn into(self) -> Value {
+        match self {
             ShortReturnType::ExpectedValue(v) => v,
             ShortReturnType::AssertionFailed(v) => v,
         }
