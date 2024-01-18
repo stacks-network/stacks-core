@@ -35,6 +35,7 @@ use crate::chainstate::nakamoto::tests::node::TestSigners;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{make_pox_4_aggregate_key, make_pox_4_lockup};
+use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
@@ -44,12 +45,20 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
 use crate::net::relay::Relayer;
+use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestPeer, TestPeerConfig};
+use crate::util_lib::boot::boot_code_id;
 
 /// Bring a TestPeer into the Nakamoto Epoch
 fn advance_to_nakamoto(peer: &mut TestPeer) {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
+    let signer_key = StacksPublicKey::from_slice(&[
+        0x02, 0xb6, 0x19, 0x6d, 0xe8, 0x8b, 0xce, 0xe7, 0x93, 0xfa, 0x9a, 0x8a, 0x85, 0x96, 0x9b,
+        0x64, 0x7f, 0x84, 0xc9, 0x0e, 0x9d, 0x13, 0xf9, 0xc8, 0xb8, 0xce, 0x42, 0x6c, 0xc8, 0x1a,
+        0x59, 0x98, 0x3c,
+    ])
+    .unwrap();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -68,6 +77,7 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
                 1_000_000_000_000_000_000,
                 PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone()),
                 12,
+                signer_key,
                 34,
             );
             vec![stack_tx]
@@ -77,7 +87,6 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
 
         peer.tenure_with_txs(&txs, &mut peer_nonce);
     }
-
     // peer is at the start of cycle 8
 }
 
@@ -89,7 +98,6 @@ pub fn boot_nakamoto(
     aggregate_public_key: Point,
 ) -> TestPeer {
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
-    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -103,6 +111,10 @@ pub fn boot_nakamoto(
     // first 25 blocks are boot-up
     // reward cycle 6 instantiates pox-3
     // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
+    peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
+    peer_config
+        .stacker_dbs
+        .push(boot_code_id(MINERS_NAME, false));
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config.initial_balances.append(&mut initial_balances);
@@ -110,7 +122,6 @@ pub fn boot_nakamoto(
     peer_config.burnchain.pox_constants.pox_3_activation_height = 26;
     peer_config.burnchain.pox_constants.v3_unlock_height = 27;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
-
     let mut peer = TestPeer::new(peer_config);
     advance_to_nakamoto(&mut peer);
     peer
@@ -593,7 +604,7 @@ fn test_nakamoto_chainstate_getters() {
 
         assert!(NakamotoChainState::check_first_nakamoto_tenure_change(
             chainstate.db(),
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_some());
@@ -601,24 +612,24 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             sort_tx.sqlite(),
             &blocks[0].header.consensus_hash,
-            &blocks[1].header
+            &blocks[1].header,
         )
         .unwrap());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.tenure_consensus_hash
+            &tenure_change_payload.tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.prev_tenure_consensus_hash
+            &tenure_change_payload.prev_tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.burn_view_consensus_hash
+            &tenure_change_payload.burn_view_consensus_hash,
         )
         .unwrap()
         .is_some());
@@ -628,7 +639,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &mut sort_tx,
             &blocks[0].header,
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_none());
@@ -657,7 +668,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &mut sort_tx,
             &blocks[0].header,
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_some());
@@ -782,7 +793,7 @@ fn test_nakamoto_chainstate_getters() {
 
         assert!(NakamotoChainState::check_first_nakamoto_tenure_change(
             chainstate.db(),
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_none());
@@ -790,50 +801,50 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             sort_tx.sqlite(),
             &new_blocks[0].header.consensus_hash,
-            &new_blocks[1].header
+            &new_blocks[1].header,
         )
         .unwrap());
         assert!(!NakamotoChainState::check_tenure_continuity(
             chainstate.db(),
             sort_tx.sqlite(),
             &blocks[0].header.consensus_hash,
-            &new_blocks[1].header
+            &new_blocks[1].header,
         )
         .unwrap());
 
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.tenure_consensus_hash
+            &tenure_change_payload.tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.prev_tenure_consensus_hash
+            &tenure_change_payload.prev_tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &tenure_change_payload.burn_view_consensus_hash
+            &tenure_change_payload.burn_view_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &old_tenure_change_payload.tenure_consensus_hash
+            &old_tenure_change_payload.tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &old_tenure_change_payload.prev_tenure_consensus_hash
+            &old_tenure_change_payload.prev_tenure_consensus_hash,
         )
         .unwrap()
         .is_some());
         assert!(NakamotoChainState::check_valid_consensus_hash(
             &mut sort_tx,
-            &old_tenure_change_payload.burn_view_consensus_hash
+            &old_tenure_change_payload.burn_view_consensus_hash,
         )
         .unwrap()
         .is_some());
@@ -860,7 +871,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &mut sort_tx,
             &new_blocks[0].header,
-            &tenure_change_payload
+            &tenure_change_payload,
         )
         .unwrap()
         .is_some());
@@ -870,7 +881,7 @@ fn test_nakamoto_chainstate_getters() {
             chainstate.db(),
             &mut sort_tx,
             &blocks[0].header,
-            &old_tenure_change_payload
+            &old_tenure_change_payload,
         )
         .unwrap()
         .is_none());
@@ -1132,7 +1143,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
                 matured_reward.parent_miner.tx_fees,
                 MinerPaymentTxFees::Epoch2 {
                     anchored: 0,
-                    streamed: 0
+                    streamed: 0,
                 }
             );
         } else if i == 11 {
@@ -1166,7 +1177,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
                 miner_reward.tx_fees,
                 MinerPaymentTxFees::Epoch2 {
                     anchored: 0,
-                    streamed: 0
+                    streamed: 0,
                 }
             );
         } else if i == 10 {

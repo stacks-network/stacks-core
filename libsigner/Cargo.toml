@@ -27,10 +27,11 @@ serde_stacker = "0.1"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
 slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
-# stacks-common = { path = "../stacks-common" }
 stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
+stackslib = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next-devnet" }
 thiserror = "1.0"
 tiny_http = "0.12"
+wsts = { workspace = true }
 
 [dependencies.serde_json]
 version = "1.0"

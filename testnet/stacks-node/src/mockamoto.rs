@@ -832,6 +832,9 @@ impl MockamotoNode {
             Some(AddressHashMode::SerializeP2PKH),
         );
 
+        let mut signer_key = miner_nonce.to_be_bytes().to_vec();
+        signer_key.resize(33, 0);
+
         let stack_stx_payload = if parent_chain_length < 2 {
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress::burn_address(false),
@@ -842,6 +845,7 @@ impl MockamotoNode {
                     pox_address.as_clarity_tuple().unwrap().into(),
                     ClarityValue::UInt(u128::from(parent_burn_height)),
                     ClarityValue::UInt(12),
+                    ClarityValue::buff_from(signer_key).unwrap(),
                 ],
             })
         } else {
@@ -854,6 +858,7 @@ impl MockamotoNode {
                 function_args: vec![
                     ClarityValue::UInt(5),
                     pox_address.as_clarity_tuple().unwrap().into(),
+                    ClarityValue::buff_from(signer_key).unwrap(),
                 ],
             })
         };

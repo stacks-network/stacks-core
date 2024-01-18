@@ -10,7 +10,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{DataEventType, FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
-pub use libsigner::StackerDBChunksEvent;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -22,14 +21,18 @@ use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
-    StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+    StackerDBChunksEvent, StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt,
+    TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
-use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
+use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use stacks::libstackerdb::StackerDBChunkData;
+use stacks::net::api::postblock_proposal::{
+    BlockValidateOk, BlockValidateReject, BlockValidateResponse,
+};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks_common::codec::StacksMessageCodec;
@@ -68,6 +71,7 @@ pub const PATH_STACKERDB_CHUNKS: &str = "stackerdb_chunks";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
+pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
@@ -437,6 +441,31 @@ pub struct EventDispatcher {
     miner_observers_lookup: HashSet<u16>,
     mined_microblocks_observers_lookup: HashSet<u16>,
     stackerdb_observers_lookup: HashSet<u16>,
+    block_proposal_observers_lookup: HashSet<u16>,
+}
+
+/// This struct is used specifically for receiving proposal responses.
+/// It's constructed separately to play nicely with threading.
+struct ProposalCallbackHandler {
+    observers: Vec<EventObserver>,
+}
+
+impl ProposalCallbackReceiver for ProposalCallbackHandler {
+    fn notify_proposal_result(&self, result: Result<BlockValidateOk, BlockValidateReject>) {
+        let response = match serde_json::to_value(BlockValidateResponse::from(result)) {
+            Ok(x) => x,
+            Err(e) => {
+                error!(
+                    "Failed to serialize block proposal validation response, will not notify over event observer";
+                    "error" => ?e
+                );
+                return;
+            }
+        };
+        for observer in self.observers.iter() {
+            observer.send_payload(&response, PATH_PROPOSAL_RESPONSE);
+        }
+    }
 }
 
 impl MemPoolEventDispatcher for EventDispatcher {
@@ -495,6 +524,33 @@ impl MemPoolEventDispatcher for EventDispatcher {
             consumed,
             tx_events,
         )
+    }
+
+    fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>> {
+        let callback_receivers: Vec<_> = self
+            .block_proposal_observers_lookup
+            .iter()
+            .filter_map(|observer_ix|
+                match self.registered_observers.get(usize::from(*observer_ix)) {
+                    Some(x) => Some(x.clone()),
+                    None => {
+                        warn!(
+                            "Event observer index not found in registered observers. Ignoring that index.";
+                            "index" => observer_ix,
+                            "observers_len" => self.registered_observers.len()
+                        );
+                        None
+                    }
+                }
+            )
+            .collect();
+        if callback_receivers.is_empty() {
+            return None;
+        }
+        let handler = ProposalCallbackHandler {
+            observers: callback_receivers,
+        };
+        Some(Box::new(handler))
     }
 }
 
@@ -575,6 +631,7 @@ impl EventDispatcher {
             miner_observers_lookup: HashSet::new(),
             mined_microblocks_observers_lookup: HashSet::new(),
             stackerdb_observers_lookup: HashSet::new(),
+            block_proposal_observers_lookup: HashSet::new(),
         }
     }
 
@@ -1195,6 +1252,9 @@ impl EventDispatcher {
                 }
                 EventKeyType::StackerDBChunks => {
                     self.stackerdb_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::BlockProposal => {
+                    self.block_proposal_observers_lookup.insert(observer_index);
                 }
             }
         }

@@ -200,7 +200,7 @@ fn advance_to_2_1(
     // these should all succeed across the epoch 2.1 boundary
     for _i in 0..5 {
         let tip_info = get_chain_info(&conf);
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
 
         eprintln!(
             "\nPoX info at {}\n{:?}\n\n",
@@ -1576,7 +1576,7 @@ fn transition_removes_pox_sunset() {
     assert_eq!(account.balance, first_bal as u128);
     assert_eq!(account.nonce, 0);
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     assert_eq!(
         &pox_info.contract_id,
@@ -1619,7 +1619,7 @@ fn transition_removes_pox_sunset() {
     }
 
     // pox must activate
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     eprintln!("pox_info in pox-1 = {:?}", &pox_info);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
     assert_eq!(
@@ -1634,7 +1634,7 @@ fn transition_removes_pox_sunset() {
         eprintln!("Sort height pox-1: {} <= {}", sort_height, epoch_21);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
 
     // pox is still "active" despite unlock, because there's enough participation, and also even
     // though the v1 block height has passed, the pox-2 contract won't be managing reward sets
@@ -1679,7 +1679,7 @@ fn transition_removes_pox_sunset() {
         sort_height
     );
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
 
     // get pox back online
@@ -1689,7 +1689,7 @@ fn transition_removes_pox_sunset() {
         eprintln!("Sort height pox-2: {}", sort_height);
     }
 
-    let pox_info = get_pox_info(&http_origin);
+    let pox_info = get_pox_info(&http_origin).unwrap();
     eprintln!("pox_info = {:?}", &pox_info);
     assert_eq!(pox_info.current_cycle.is_pox_active, true);
 
@@ -1868,7 +1868,7 @@ fn transition_empty_blocks() {
         // also, make *huge* block-commits with invalid marker bytes once we reach the new
         // epoch, and verify that it fails.
         let tip_info = get_chain_info(&conf);
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
 
         eprintln!(
             "\nPoX info at {}\n{:?}\n\n",
