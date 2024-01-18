@@ -16,10 +16,8 @@ name = "libsigner"
 path = "./src/libsigner.rs"
 
 [dependencies]
-# clarity = { path = "../clarity" }
 clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
 libc = "0.2"
-# libstackerdb = { path = "../libstackerdb" }
 libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
 serde = "1"
 serde_derive = "1"
