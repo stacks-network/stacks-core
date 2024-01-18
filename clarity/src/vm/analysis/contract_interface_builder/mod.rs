@@ -19,15 +19,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::analysis::CheckResult;
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
 };
-use crate::vm::{ClarityName, ClarityVersion};
-use crate::vm::CheckErrors;
-use crate::vm::analysis::CheckResult;
+use crate::vm::{CheckErrors, ClarityName, ClarityVersion};
 
-pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> CheckResult<ContractInterface> {
+pub fn build_contract_interface(
+    contract_analysis: &ContractAnalysis,
+) -> CheckResult<ContractInterface> {
     let mut contract_interface =
         ContractInterface::new(contract_analysis.epoch, contract_analysis.clarity_version);
 

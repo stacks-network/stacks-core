@@ -1561,7 +1561,8 @@ pub mod test {
             // bump the epoch in the Clarity DB
             tx_conn
                 .with_clarity_db(|db| {
-                    db.set_clarity_epoch_version(StacksEpochId::Epoch21).unwrap();
+                    db.set_clarity_epoch_version(StacksEpochId::Epoch21)
+                        .unwrap();
                     Ok(())
                 })
                 .unwrap();
