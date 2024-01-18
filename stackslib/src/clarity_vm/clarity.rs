@@ -49,6 +49,7 @@ use crate::chainstate::stacks::boot::{
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
     MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
     POX_3_NAME, POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
+    SIGNERS_BODY, SIGNERS_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1415,6 +1416,42 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 panic!(
                     "FATAL: Failure processing PoX 4 contract initialization: {:#?}",
                     &pox_4_initialization_receipt
+                );
+            }
+
+            let signers_contract_id = boot_code_id(SIGNERS_NAME, mainnet);
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(SIGNERS_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(SIGNERS_BODY)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity2),
+            );
+
+            let signers_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            let signers_initialization_receipt = self.as_transaction(|tx_conn| {
+                // initialize with a synthetic transaction
+                debug!("Instantiate {} contract", &signers_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &signers_contract_tx,
+                    &boot_code_account,
+                    ASTRules::PrecheckSize,
+                )
+                .expect("FATAL: Failed to process .miners contract initialization");
+                receipt
+            });
+
+            if signers_initialization_receipt.result != Value::okay_true()
+                || signers_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing signers contract initialization: {:#?}",
+                    &signers_initialization_receipt
                 );
             }
 

@@ -520,6 +520,17 @@ impl PoxConstants {
         (effective_height % u64::from(self.reward_cycle_length)) == 1
     }
 
+    pub fn is_prepare_phase_start(&self, first_block_height: u64, burn_height: u64) -> bool {
+        if burn_height < first_block_height {
+            false
+        } else {
+            let effective_height = burn_height - first_block_height;
+            (effective_height + u64::from(self.prepare_length))
+                % u64::from(self.reward_cycle_length)
+                == 0
+        }
+    }
+
     pub fn reward_cycle_to_block_height(&self, first_block_height: u64, reward_cycle: u64) -> u64 {
         // NOTE: the `+ 1` is because the height of the first block of a reward cycle is mod 1, not
         // mod 0.
