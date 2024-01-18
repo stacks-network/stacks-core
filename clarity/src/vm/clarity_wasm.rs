@@ -792,7 +792,7 @@ fn read_indirect_offset_and_length(
 /// memory, then read the actual value.
 fn read_from_wasm_indirect(
     memory: Memory,
-    mut store: &mut impl AsContextMut,
+    store: &mut impl AsContextMut,
     ty: &TypeSignature,
     mut offset: i32,
     epoch: StacksEpochId,
