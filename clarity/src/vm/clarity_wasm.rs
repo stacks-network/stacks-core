@@ -769,6 +769,23 @@ fn read_identifier_from_wasm(
     String::from_utf8(buffer).map_err(|e| Error::Wasm(WasmError::UnableToReadIdentifier(e)))
 }
 
+fn read_indirect_offset_and_length(
+    memory: Memory,
+    mut store: &mut impl AsContextMut,
+    offset: i32,
+) -> Result<(i32, i32), Error> {
+    let mut buffer: [u8; 4] = [0; 4];
+    memory
+        .read(&mut store, offset as usize, &mut buffer)
+        .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+    let indirect_offset = i32::from_le_bytes(buffer);
+    memory
+        .read(&mut store, (offset + 4) as usize, &mut buffer)
+        .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+    let length = i32::from_le_bytes(buffer);
+    Ok((indirect_offset, length))
+}
+
 /// Read a value from the Wasm memory at `offset` with `length` given the
 /// provided Clarity `TypeSignature`. In-memory values require one extra level
 /// of indirection, so this function will read the offset and length from the
@@ -785,16 +802,7 @@ fn read_from_wasm_indirect(
     // For in-memory types, first read the offset and length from the memory,
     // then read the actual value.
     if is_in_memory_type(ty) {
-        let mut buffer: [u8; 4] = [0; 4];
-        memory
-            .read(&mut store, offset as usize, &mut buffer)
-            .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-        let indirect_offset = i32::from_le_bytes(buffer);
-        memory
-            .read(&mut store, (offset + 4) as usize, &mut buffer)
-            .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
-        length = i32::from_le_bytes(buffer);
-        offset = indirect_offset;
+        (offset, length) = read_indirect_offset_and_length(memory, store, offset)?;
     };
 
     read_from_wasm(memory, store, ty, offset, length, epoch)
@@ -1900,8 +1908,8 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
             |mut caller: Caller<'_, ClarityWasmContext>,
              name_offset: i32,
              name_length: i32,
-             value_offset: i32,
-             value_length: i32| {
+             mut value_offset: i32,
+             mut value_length: i32| {
                 // TODO: Include this cost
                 // runtime_cost(ClarityCostFunction::CreateVar, global_context, value_type.size())?;
 
@@ -1929,6 +1937,10 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                 let contract = caller.data().contract_context().contract_identifier.clone();
 
                 // Read the initial value from the memory
+                if is_in_memory_type(&value_type) {
+                    (value_offset, value_length) =
+                        read_indirect_offset_and_length(memory, &mut caller, value_offset)?;
+                }
                 let value = read_from_wasm(
                     memory,
                     &mut caller,
