@@ -2,7 +2,6 @@ use std::convert::TryInto;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use bitcoin_regtest::BitcoinCoreController;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::events::STXEventType;

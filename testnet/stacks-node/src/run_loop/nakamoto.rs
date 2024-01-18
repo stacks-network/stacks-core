@@ -50,7 +50,6 @@ use crate::{
     run_loop, BitcoinRegtestController, BurnchainController, Config, EventDispatcher, Keychain,
 };
 
-pub const STDERR: i32 = 2;
 pub type Globals = GenericGlobals<nakamoto_node::relayer::RelayerDirective>;
 
 /// Coordinating a node running in nakamoto mode. This runloop operates very similarly to the neon runloop.

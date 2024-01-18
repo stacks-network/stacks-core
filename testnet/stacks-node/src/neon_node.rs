@@ -190,9 +190,10 @@ use stacks::net::{
 };
 use stacks::util_lib::strings::{UrlString, VecDisplay};
 use stacks_common::codec::StacksMessageCodec;
+#[cfg(test)]
+use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
-    StacksPrivateKey, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
@@ -3604,6 +3605,7 @@ impl PeerThread {
 
 impl StacksNode {
     /// Create a StacksPrivateKey from a given seed buffer
+    #[cfg(test)]
     pub fn make_node_private_key_from_seed(seed: &[u8]) -> StacksPrivateKey {
         let node_privkey = {
             let mut re_hashed_seed = seed.to_vec();
