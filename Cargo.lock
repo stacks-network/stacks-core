@@ -170,9 +170,9 @@ dependencies = [
 
 [[package]]
 name = "anstyle"
-version = "1.0.4"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7079075b41f533b8c61d2a4d073c4676e1f8b249ff94a393b0595db304e0dd87"
+checksum = "2faccea4cc4ab4a667ce676a30e8ec13922a692c99bb8f5b11f1502c72e04220"
 
 [[package]]
 name = "anstyle-parse"
@@ -309,7 +309,7 @@ checksum = "05b1b633a2115cd122d73b955eadd9916c18c8f510ec9cd1686404c60ad1c29c"
 dependencies = [
  "async-channel 2.1.1",
  "async-executor",
- "async-io 2.3.0",
+ "async-io 2.3.1",
  "async-lock 3.3.0",
  "blocking",
  "futures-lite 2.2.0",
@@ -355,9 +355,9 @@ dependencies = [
 
 [[package]]
 name = "async-io"
-version = "2.3.0"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb41eb19024a91746eba0773aa5e16036045bbf45733766661099e182ea6a744"
+checksum = "8f97ab0c5b00a7cdbe5a371b9a782ee7be1316095885c8a4ea1daf490eb0ef65"
 dependencies = [
  "async-lock 3.3.0",
  "cfg-if 1.0.0",
@@ -703,16 +703,16 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.31"
+version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f2c685bad3eb3d45a01354cedb7d5faa66194d1d58ba6e267a8de788f79db38"
+checksum = "9f13690e35a5e4ace198e7beea2895d29f3a9cc55015fcebe6336bd2010af9eb"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
  "js-sys",
  "num-traits",
  "wasm-bindgen",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.0",
 ]
 
 [[package]]
@@ -805,11 +805,11 @@ checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/clarity-wasm.git#040dda52c38657012deeeaeac4cc1393fe9257e6"
+source = "git+https://github.com/stacks-network//clarity-wasm?branch=test/always-wasm#f27bf5997360b73fd101ed72706f52d33914961c"
 dependencies = [
  "chrono",
  "clap 4.4.18",
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "lazy_static",
  "regex",
  "rusqlite",
@@ -837,7 +837,7 @@ dependencies = [
  "serde_stacker",
  "sha2-asm 0.5.5",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "time 0.2.27",
  "wasmtime",
 ]
@@ -845,7 +845,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.2.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d199dc50a4c9097d991591c0f121ae08aabb1204"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
 dependencies = [
  "integer-sqrt",
  "lazy_static",
@@ -861,7 +861,7 @@ dependencies = [
  "serde_stacker",
  "sha2-asm 0.5.5",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "time 0.2.27",
  "wasmtime",
 ]
@@ -1721,7 +1721,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 dependencies = [
  "fallible-iterator 0.3.0",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "stable_deref_trait",
 ]
 
@@ -1755,7 +1755,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "slab",
  "tokio",
  "tokio-util",
@@ -2091,9 +2091,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.1.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d530e1a18b1cb4c484e6e34556a0d948706958449fca0cab753d649f2bce3d1f"
+checksum = "433de089bd45971eecf4668ee0ee8f4cec17db4f8bd8f7bc3197a6ce37aa7d9b"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.3",
@@ -2357,9 +2357,9 @@ dependencies = [
 name = "libsigner"
 version = "0.0.1"
 dependencies = [
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "secp256k1",
  "serde",
  "serde_derive",
@@ -2369,8 +2369,8 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "thiserror",
  "tiny_http",
  "wsts",
@@ -2379,11 +2379,11 @@ dependencies = [
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d199dc50a4c9097d991591c0f121ae08aabb1204"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
 dependencies = [
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "secp256k1",
  "serde",
  "serde_derive",
@@ -2392,8 +2392,8 @@ dependencies = [
  "sha2 0.10.8",
  "slog",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "thiserror",
  "tiny_http",
  "wsts",
@@ -2414,27 +2414,27 @@ dependencies = [
 name = "libstackerdb"
 version = "0.0.1"
 dependencies = [
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "secp256k1",
  "serde",
  "serde_derive",
  "serde_stacker",
  "sha2 0.10.8",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
 ]
 
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d199dc50a4c9097d991591c0f121ae08aabb1204"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
 dependencies = [
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "secp256k1",
  "serde",
  "serde_derive",
  "serde_stacker",
  "sha2 0.10.8",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
 ]
 
 [[package]]
@@ -2698,7 +2698,7 @@ checksum = "a6a622008b6e321afc04970976f62ee297fdbaa6f95318ca343e3eebb9648441"
 dependencies = [
  "crc32fast",
  "hashbrown 0.14.3",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "memchr",
 ]
 
@@ -2891,18 +2891,18 @@ checksum = "28b9b4df73455c861d7cbf8be42f01d3b373ed7f02e378d55fa84eafc6f638b1"
 
 [[package]]
 name = "pin-project"
-version = "1.1.3"
+version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fda4ed1c6c173e3fc7a83629421152e01d7b1f9b7f65fb301e490e8cfc656422"
+checksum = "0302c4a0442c456bd56f841aee5c3bfd17967563f6fadc9ceb9f9c23cf3807e0"
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.3"
+version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4359fd9c9171ec6e8c62926d6faaf553a8dc3f64e1507e76da7911b4f6a04405"
+checksum = "266c042b60c9c76b8d53061e52b2e0d1116abc57cefc8c5cd671619a56ac3690"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3039,19 +3039,19 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 name = "pox-locking"
 version = "2.4.0"
 dependencies = [
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
 ]
 
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d199dc50a4c9097d991591c0f121ae08aabb1204"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
 dependencies = [
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
 ]
 
 [[package]]
@@ -3112,9 +3112,9 @@ checksum = "dc375e1527247fe1a97d8b7156678dfe7c1af2fc075c9a4db3690ecd2a148068"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.76"
+version = "1.0.78"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95fc56cda0b5c3325f5fbbd7ff9fda9e02bb00bb3dac51252d2f1bfa1cb8cc8c"
+checksum = "e2422ad645d89c99f8f3e6b88a9fdeca7fabeac836b1002371c4367c8f984aae"
 dependencies = [
  "unicode-ident",
 ]
@@ -3289,13 +3289,13 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.10.2"
+version = "1.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "380b951a9c5e80ddfd6136919eef32310721aa4aacd4889a8d39124b026ab343"
+checksum = "b62dbe01f0b06f9d8dc7d49e05a0785f153b00b2c227856282f671e0318c9b15"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-automata 0.4.3",
+ "regex-automata 0.4.5",
  "regex-syntax 0.8.2",
 ]
 
@@ -3310,9 +3310,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.3"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f804c7828047e88b2d32e2d7fe5a105da8ee3264f01902f796c8e067dc2483f"
+checksum = "5bb987efffd3c6d0d8f5f89510bb458559eab11e4f869acb20bf845e016259cd"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -3744,9 +3744,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.195"
+version = "1.0.196"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63261df402c67811e9ac6def069e4786148c4563f4b50fd4bf30aa370d626b02"
+checksum = "870026e60fa08c69f064aa766c10f10b1d62db9ccd4d0abb206472bee0ce3b32"
 dependencies = [
  "serde_derive",
 ]
@@ -3763,9 +3763,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.195"
+version = "1.0.196"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46fe8f8603d81ba86327b23a2e9cdf49e1255fb94a4c5f297f6ee0547178ea2c"
+checksum = "33c85360c95e7d137454dc81d9a4ed2b8efd8fbe19cee57357b32b9771fccb67"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3774,9 +3774,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.111"
+version = "1.0.113"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "176e46fa42316f18edd598015a5166857fc835ec732f5215eac6b7bdbf0a84f4"
+checksum = "69801b70b1c3dac963ecb03a364ba0ceda9cf60c71cfe475e99864759c8b8a79"
 dependencies = [
  "itoa",
  "ryu",
@@ -3985,9 +3985,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.12.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2593d31f82ead8df961d8bd23a64c2ccf2eb5dd34b0a34bfb4dd54011c72009e"
+checksum = "e6ecd384b10a64542d77071bd64bd7b231f4ed5940fba55e98c3de13824cf3d7"
 
 [[package]]
 name = "socket2"
@@ -4082,7 +4082,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d199dc50a4c9097d991591c0f121ae08aabb1204"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -4118,11 +4118,11 @@ dependencies = [
  "backtrace",
  "base64 0.12.3",
  "chrono",
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "http-types",
  "lazy_static",
  "libc",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "pico-args",
  "rand 0.8.5",
  "rand_core 0.6.4",
@@ -4135,10 +4135,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "stacks-signer 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "stx-genesis 0.1.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "tokio",
  "toml 0.5.11",
  "tracing",
@@ -4154,10 +4154,10 @@ dependencies = [
  "backoff",
  "bincode",
  "clap 4.4.18",
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "hashbrown 0.14.3",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "rand_core 0.6.4",
  "reqwest",
  "secp256k1",
@@ -4168,8 +4168,8 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "thiserror",
  "toml 0.5.11",
  "tracing",
@@ -4180,15 +4180,15 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d199dc50a4c9097d991591c0f121ae08aabb1204"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
 dependencies = [
  "backoff",
  "bincode",
  "clap 4.4.18",
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "hashbrown 0.14.3",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "rand_core 0.6.4",
  "reqwest",
  "secp256k1",
@@ -4198,8 +4198,8 @@ dependencies = [
  "serde_stacker",
  "slog",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "thiserror",
  "toml 0.5.11",
  "tracing",
@@ -4214,19 +4214,19 @@ dependencies = [
  "assert-json-diff",
  "chrono",
  "clar2wasm",
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
  "integer-sqrt",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "mio 0.6.23",
  "nix",
  "p256k1 5.5.0",
  "percent-encoding",
- "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "pox-locking 2.4.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "prometheus",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
@@ -4246,9 +4246,9 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "stdext",
- "stx-genesis 0.1.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stx-genesis 0.1.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
@@ -4258,22 +4258,22 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d199dc50a4c9097d991591c0f121ae08aabb1204"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
 dependencies = [
  "chrono",
  "clar2wasm",
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "curve25519-dalek",
  "ed25519-dalek",
  "integer-sqrt",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "mio 0.6.23",
  "nix",
  "p256k1 5.5.0",
  "percent-encoding",
- "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "pox-locking 2.4.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "prometheus",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
@@ -4291,7 +4291,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
@@ -4385,7 +4385,7 @@ dependencies = [
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#d199dc50a4c9097d991591c0f121ae08aabb1204"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
@@ -4730,7 +4730,7 @@ version = "0.20.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70f427fce4d84c72b5b732388bf4a9f4531b53f74e2887e3ecb2481f68f66d81"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "toml_datetime",
  "winnow",
 ]
@@ -4741,7 +4741,7 @@ version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d34d383cd00a163b4a5b85053df514d45bc330f6de7737edfe0a93311d1eaa03"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -5194,9 +5194,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-encoder"
-version = "0.40.0"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d162eb64168969ae90e8668ca0593b0e47667e315aa08e717a9c9574d700d826"
+checksum = "e09bca7d6388637d27fb5edbeab11f56bfabcef8743c55ae34370e1e5030a071"
 dependencies = [
  "leb128",
 ]
@@ -5213,7 +5213,7 @@ version = "0.116.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a58e28b80dd8340cb07b8242ae654756161f6fc8d0038123d679b7b99964fa50"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "semver 1.0.21",
 ]
 
@@ -5229,7 +5229,7 @@ dependencies = [
  "bumpalo",
  "cfg-if 1.0.0",
  "fxprof-processed-profile",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "libc",
  "log",
  "object",
@@ -5354,7 +5354,7 @@ dependencies = [
  "anyhow",
  "cranelift-entity",
  "gimli 0.28.1",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "log",
  "object",
  "serde",
@@ -5439,7 +5439,7 @@ dependencies = [
  "anyhow",
  "cc",
  "cfg-if 1.0.0",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "libc",
  "log",
  "mach",
@@ -5491,7 +5491,7 @@ checksum = "4b804dfd3d0c0d6d37aa21026fe7772ba1a769c89ee4f5c4f13b82d91d75216f"
 dependencies = [
  "anyhow",
  "heck 0.4.1",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "wit-parser",
 ]
 
@@ -5503,21 +5503,22 @@ checksum = "9b6060bc082cc32d9a45587c7640e29e3c7b89ada82677ac25d87850aaccb368"
 
 [[package]]
 name = "wast"
-version = "70.0.1"
+version = "70.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5d415036fe747a32b30c76c8bd6c73f69b7705fb7ebca5f16e852eef0c95802"
+checksum = "a3d5061300042ff5065123dae1e27d00c03f567d34a2937c8472255148a216dc"
 dependencies = [
+ "bumpalo",
  "leb128",
  "memchr",
  "unicode-width",
- "wasm-encoder 0.40.0",
+ "wasm-encoder 0.41.0",
 ]
 
 [[package]]
 name = "wat"
-version = "1.0.84"
+version = "1.0.85"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8241f34599d413d2243a21015ab43aef68bfb32a0e447c54eef8d423525ca15e"
+checksum = "afd7357b6cc46d46a2509c43dcb1dd4131dafbf4e75562d87017b5a05ffad2d6"
 dependencies = [
  "wast",
 ]
@@ -5736,9 +5737,9 @@ checksum = "dff9641d1cd4be8d1a070daf9e3773c5f67e78b4d9d42263020c057706765c04"
 
 [[package]]
 name = "winnow"
-version = "0.5.34"
+version = "0.5.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7cf47b659b318dccbd69cc4797a39ae128f533dce7902a1096044d1967b9c16"
+checksum = "1931d78a9c73861da0134f453bb1f790ce49b2e30eba8410b4b79bac72b46a2d"
 dependencies = [
  "memchr",
 ]
@@ -5761,7 +5762,7 @@ checksum = "df4913a2219096373fd6512adead1fb77ecdaa59d7fc517972a7d30b12f625be"
 dependencies = [
  "anyhow",
  "id-arena",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "log",
  "semver 1.0.21",
  "serde",
