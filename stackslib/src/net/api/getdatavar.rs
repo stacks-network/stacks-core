@@ -143,22 +143,23 @@ impl RPCRequestHandler for RPCGetDataVarRequestHandler {
         };
 
         let with_proof = contents.get_with_proof();
+        let key = ClarityDatabase::make_key_for_trip(
+            &contract_identifier,
+            StoreType::Variable,
+            &var_name,
+        );
 
         let data_opt = node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
             chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                    let key = ClarityDatabase::make_key_for_trip(
-                        &contract_identifier,
-                        StoreType::Variable,
-                        &var_name,
-                    );
-
                     let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
                             .get_with_proof(&key)
+                            .ok()
+                            .flatten()
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
-                        clarity_db.get(&key).map(|a| (a, None))?
+                        clarity_db.get(&key).ok().flatten().map(|a| (a, None))?
                     };
 
                     let data = format!("0x{}", value_hex);

@@ -711,16 +711,16 @@ fn test_index_of() {
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
         CheckErrors::TypeError(
-            TypeSignature::min_buffer(),
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_buffer().unwrap(),
+            TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_utf8(),
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_string_utf8().unwrap(),
+            TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_ascii(),
-            TypeSignature::min_string_utf8(),
+            TypeSignature::min_string_ascii().unwrap(),
+            TypeSignature::min_string_utf8().unwrap(),
         ),
         CheckErrors::CouldNotDetermineType,
         CheckErrors::CouldNotDetermineType,

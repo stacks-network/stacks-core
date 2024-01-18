@@ -280,11 +280,17 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
 
         // decode the response
         let data_resp = match data_resp {
-            Ok(Some(Ok(data))) => CallReadOnlyResponse {
-                okay: true,
-                result: Some(format!("0x{}", data.serialize_to_hex())),
-                cause: None,
-            },
+            Ok(Some(Ok(data))) => {
+                let hex_result = data
+                    .serialize_to_hex()
+                    .map_err(|e| NetError::SerializeError(format!("{:?}", &e)))?;
+
+                CallReadOnlyResponse {
+                    okay: true,
+                    result: Some(format!("0x{}", hex_result)),
+                    cause: None,
+                }
+            }
             Ok(Some(Err(e))) => match e {
                 Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
                     if actual_cost.write_count > 0 =>

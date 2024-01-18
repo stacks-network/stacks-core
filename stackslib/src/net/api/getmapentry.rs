@@ -170,29 +170,37 @@ impl RPCRequestHandler for RPCGetMapEntryRequestHandler {
             }
         };
         let with_proof = contents.get_with_proof();
+        let key =
+            ClarityDatabase::make_key_for_data_map_entry(&contract_identifier, &map_name, &key)
+                .map_err(|e| NetError::SerializeError(format!("{:?}", &e)))?;
+        let none_response = Value::none()
+            .serialize_to_hex()
+            .map_err(|e| NetError::SerializeError(format!("{:?}", &e)))?;
 
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        let key = ClarityDatabase::make_key_for_data_map_entry(
-                            &contract_identifier,
-                            &map_name,
-                            &key,
-                        );
                         let (value_hex, marf_proof): (String, _) = if with_proof {
                             clarity_db
                                 .get_with_proof(&key)
+                                .ok()
+                                .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                                 .unwrap_or_else(|| {
                                     test_debug!("No value for '{}' in {}", &key, tip);
-                                    (Value::none().serialize_to_hex(), Some("".into()))
+                                    (none_response, Some("".into()))
                                 })
                         } else {
-                            clarity_db.get(&key).map(|a| (a, None)).unwrap_or_else(|| {
-                                test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none().serialize_to_hex(), None)
-                            })
+                            clarity_db
+                                .get(&key)
+                                .ok()
+                                .flatten()
+                                .map(|a| (a, None))
+                                .unwrap_or_else(|| {
+                                    test_debug!("No value for '{}' in {}", &key, tip);
+                                    (none_response, None)
+                                })
                         };
 
                         let data = format!("0x{}", value_hex);
@@ -253,7 +261,10 @@ impl StacksHttpRequest {
             HttpRequestContents::new()
                 .for_tip(tip_req)
                 .query_arg("proof".into(), if with_proof { "1" } else { "0" }.into())
-                .payload_json(serde_json::Value::String(key.serialize_to_hex())),
+                .payload_json(serde_json::Value::String(
+                    key.serialize_to_hex()
+                        .expect("FATAL: invalid key could not be serialized"),
+                )),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }

@@ -79,7 +79,7 @@ pub fn special_contract_call(
     let mut rest_args_sizes = vec![];
     for arg in args[2..].iter() {
         let evaluated_arg = eval(arg, env, context)?;
-        rest_args_sizes.push(evaluated_arg.size() as u64);
+        rest_args_sizes.push(evaluated_arg.size()? as u64);
         rest_args.push(SymbolicExpression::atom_value(evaluated_arg));
     }
 
@@ -204,14 +204,14 @@ pub fn special_contract_call(
     }?;
 
     // sanitize contract-call outputs in epochs >= 2.4
-    let result_type = TypeSignature::type_of(&result);
+    let result_type = TypeSignature::type_of(&result)?;
     let (result, _) = Value::sanitize_value(env.epoch(), &result_type, result)
         .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
-        let actual_returns = TypeSignature::type_of(&result);
+        let actual_returns = TypeSignature::type_of(&result)?;
         if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
             return Err(
                 CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
@@ -242,7 +242,7 @@ pub fn special_fetch_variable_v200(
     runtime_cost(
         ClarityCostFunction::FetchVar,
         env,
-        data_types.value_type.size(),
+        data_types.value_type.size()?,
     )?;
 
     let epoch = *env.epoch();
@@ -278,7 +278,7 @@ pub fn special_fetch_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size() as u64,
+        Err(_e) => data_types.value_type.size()? as u64,
     };
 
     runtime_cost(ClarityCostFunction::FetchVar, env, result_size)?;
@@ -312,10 +312,10 @@ pub fn special_set_variable_v200(
     runtime_cost(
         ClarityCostFunction::SetVar,
         env,
-        data_types.value_type.size(),
+        data_types.value_type.size()?,
     )?;
 
-    env.add_memory(value.get_memory_use())?;
+    env.add_memory(value.get_memory_use()?)?;
 
     let epoch = *env.epoch();
     env.global_context
@@ -357,7 +357,7 @@ pub fn special_set_variable_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.value_type.size() as u64,
+        Err(_e) => data_types.value_type.size()? as u64,
     };
 
     runtime_cost(ClarityCostFunction::SetVar, env, result_size)?;
@@ -389,7 +389,7 @@ pub fn special_fetch_entry_v200(
     runtime_cost(
         ClarityCostFunction::FetchEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size(),
+        data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
     let epoch = *env.epoch();
@@ -427,7 +427,7 @@ pub fn special_fetch_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
     };
 
     runtime_cost(ClarityCostFunction::FetchEntry, env, result_size)?;
@@ -457,7 +457,7 @@ pub fn special_at_block(
 
     env.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
     let result = env.evaluate_at_block(bhh, &args[1], context);
-    env.drop_memory(cost_constants::AT_BLOCK_MEMORY);
+    env.drop_memory(cost_constants::AT_BLOCK_MEMORY)?;
 
     result
 }
@@ -490,11 +490,11 @@ pub fn special_set_entry_v200(
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size(),
+        data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.get_memory_use())?;
-    env.add_memory(value.get_memory_use())?;
+    env.add_memory(key.get_memory_use()?)?;
+    env.add_memory(value.get_memory_use()?)?;
 
     let epoch = *env.epoch();
     env.global_context
@@ -538,7 +538,7 @@ pub fn special_set_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -576,11 +576,11 @@ pub fn special_insert_entry_v200(
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
-        data_types.value_type.size() + data_types.key_type.size(),
+        data_types.value_type.size()? + data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.get_memory_use())?;
-    env.add_memory(value.get_memory_use())?;
+    env.add_memory(key.get_memory_use()?)?;
+    env.add_memory(value.get_memory_use()?)?;
 
     let epoch = *env.epoch();
 
@@ -625,7 +625,7 @@ pub fn special_insert_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => (data_types.value_type.size() + data_types.key_type.size()) as u64,
+        Err(_e) => (data_types.value_type.size()? + data_types.key_type.size()?) as u64,
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -661,10 +661,10 @@ pub fn special_delete_entry_v200(
     runtime_cost(
         ClarityCostFunction::SetEntry,
         env,
-        data_types.key_type.size(),
+        data_types.key_type.size()?,
     )?;
 
-    env.add_memory(key.get_memory_use())?;
+    env.add_memory(key.get_memory_use()?)?;
 
     let epoch = *env.epoch();
     env.global_context
@@ -706,7 +706,7 @@ pub fn special_delete_entry_v205(
 
     let result_size = match &result {
         Ok(data) => data.serialized_byte_len,
-        Err(_e) => data_types.key_type.size() as u64,
+        Err(_e) => data_types.key_type.size()? as u64,
     };
 
     runtime_cost(ClarityCostFunction::SetEntry, env, result_size)?;
@@ -756,11 +756,14 @@ pub fn special_get_block_info(
 
     let result = match block_info_prop {
         BlockInfoProperty::Time => {
-            let block_time = env.global_context.database.get_block_time(height_value);
-            Value::UInt(block_time as u128)
+            let block_time = env.global_context.database.get_block_time(height_value)?;
+            Value::UInt(u128::from(block_time))
         }
         BlockInfoProperty::VrfSeed => {
-            let vrf_seed = env.global_context.database.get_block_vrf_seed(height_value);
+            let vrf_seed = env
+                .global_context
+                .database
+                .get_block_vrf_seed(height_value)?;
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: vrf_seed.as_bytes().to_vec(),
             }))
@@ -769,7 +772,7 @@ pub fn special_get_block_info(
             let header_hash = env
                 .global_context
                 .database
-                .get_block_header_hash(height_value);
+                .get_block_header_hash(height_value)?;
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: header_hash.as_bytes().to_vec(),
             }))
@@ -778,7 +781,7 @@ pub fn special_get_block_info(
             let burnchain_header_hash = env
                 .global_context
                 .database
-                .get_burnchain_block_header_hash(height_value);
+                .get_burnchain_block_header_hash(height_value)?;
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: burnchain_header_hash.as_bytes().to_vec(),
             }))
@@ -787,32 +790,35 @@ pub fn special_get_block_info(
             let id_header_hash = env
                 .global_context
                 .database
-                .get_index_block_header_hash(height_value);
+                .get_index_block_header_hash(height_value)?;
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: id_header_hash.as_bytes().to_vec(),
             }))
         }
         BlockInfoProperty::MinerAddress => {
-            let miner_address = env.global_context.database.get_miner_address(height_value);
+            let miner_address = env
+                .global_context
+                .database
+                .get_miner_address(height_value)?;
             Value::from(miner_address)
         }
         BlockInfoProperty::MinerSpendWinner => {
             let winner_spend = env
                 .global_context
                 .database
-                .get_miner_spend_winner(height_value);
+                .get_miner_spend_winner(height_value)?;
             Value::UInt(winner_spend)
         }
         BlockInfoProperty::MinerSpendTotal => {
             let total_spend = env
                 .global_context
                 .database
-                .get_miner_spend_total(height_value);
+                .get_miner_spend_total(height_value)?;
             Value::UInt(total_spend)
         }
         BlockInfoProperty::BlockReward => {
             // this is already an optional
-            let block_reward_opt = env.global_context.database.get_block_reward(height_value);
+            let block_reward_opt = env.global_context.database.get_block_reward(height_value)?;
             return Ok(match block_reward_opt {
                 Some(x) => Value::some(Value::UInt(x))?,
                 None => Value::none(),
@@ -871,7 +877,7 @@ pub fn special_get_burn_block_info(
             let burnchain_header_hash_opt = env
                 .global_context
                 .database
-                .get_burnchain_block_header_hash_for_burnchain_height(height_value);
+                .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
 
             match burnchain_header_hash_opt {
                 Some(burnchain_header_hash) => {
@@ -886,7 +892,7 @@ pub fn special_get_burn_block_info(
             let pox_addrs_and_payout = env
                 .global_context
                 .database
-                .get_pox_payout_addrs_for_burnchain_height(height_value);
+                .get_pox_payout_addrs_for_burnchain_height(height_value)?;
 
             match pox_addrs_and_payout {
                 Some((addrs, payout)) => Ok(Value::some(Value::Tuple(
@@ -897,13 +903,21 @@ pub fn special_get_burn_block_info(
                                 addrs.into_iter().map(Value::Tuple).collect(),
                                 env.epoch(),
                             )
-                            .expect("FATAL: could not convert address list to Value"),
+                            .map_err(|_| {
+                                InterpreterError::Expect(
+                                    "FATAL: could not convert address list to Value".into(),
+                                )
+                            })?,
                         ),
                         ("payout".into(), Value::UInt(payout)),
                     ])
-                    .expect("FATAL: failed to build pox addrs and payout tuple"),
+                    .map_err(|_| {
+                        InterpreterError::Expect(
+                            "FATAL: failed to build pox addrs and payout tuple".into(),
+                        )
+                    })?,
                 ))
-                .expect("FATAL: could not build Some(..)")),
+                .map_err(|_| InterpreterError::Expect("FATAL: could not build Some(..)".into()))?),
                 None => Ok(Value::none()),
             }
         }

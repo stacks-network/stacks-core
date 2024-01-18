@@ -82,7 +82,6 @@ fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCan
     .unwrap();
     let mut sortdb =
         SortitionDB::open(&burn_db_path, false, burnchain.pox_constants.clone()).unwrap();
-
     let max_depth = config.miner.max_reorg_depth;
 
     // There could be more than one possible chain tip. Go find them.

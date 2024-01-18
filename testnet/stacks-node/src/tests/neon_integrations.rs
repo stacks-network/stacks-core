@@ -34,11 +34,11 @@ use stacks::chainstate::stacks::{
 };
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
+use stacks::core::mempool::MemPoolWalkTxTypes;
 use stacks::core::{
-    mempool::MemPoolWalkTxTypes, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20,
-    BLOCK_LIMIT_MAINNET_205, BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20,
-    PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
-    PEER_VERSION_EPOCH_2_1,
+    StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205,
+    BLOCK_LIMIT_MAINNET_21, CHAIN_ID_TESTNET, HELIUM_BLOCK_LIMIT_20, PEER_VERSION_EPOCH_1_0,
+    PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
 };
 use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
@@ -1408,7 +1408,7 @@ fn liquid_ustx_integration() {
             if contract_call.function_name.as_str() == "execute" {
                 let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
                 let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
-                let liquid_ustx = parsed.expect_result_ok().expect_u128();
+                let liquid_ustx = parsed.expect_result_ok().unwrap().expect_u128().unwrap();
                 assert!(liquid_ustx > 0, "Should be more liquid ustx than 0");
                 tested = true;
             }
@@ -4938,7 +4938,15 @@ fn mining_events_integration_test() {
             execution_cost,
             ..
         }) => {
-            assert_eq!(result.clone().expect_result_ok().expect_bool(), true);
+            assert_eq!(
+                result
+                    .clone()
+                    .expect_result_ok()
+                    .unwrap()
+                    .expect_bool()
+                    .unwrap(),
+                true
+            );
             assert_eq!(fee, &620000);
             assert_eq!(
                 execution_cost,
@@ -4970,7 +4978,15 @@ fn mining_events_integration_test() {
                 txid.to_string(),
                 "3e04ada5426332bfef446ba0a06d124aace4ade5c11840f541bf88e2e919faf6"
             );
-            assert_eq!(result.clone().expect_result_ok().expect_bool(), true);
+            assert_eq!(
+                result
+                    .clone()
+                    .expect_result_ok()
+                    .unwrap()
+                    .expect_bool()
+                    .unwrap(),
+                true
+            );
         }
         _ => panic!("unexpected event type"),
     }
@@ -4983,7 +4999,15 @@ fn mining_events_integration_test() {
             execution_cost,
             ..
         }) => {
-            assert_eq!(result.clone().expect_result_ok().expect_bool(), true);
+            assert_eq!(
+                result
+                    .clone()
+                    .expect_result_ok()
+                    .unwrap()
+                    .expect_bool()
+                    .unwrap(),
+                true
+            );
             assert_eq!(fee, &600000);
             assert_eq!(
                 execution_cost,

@@ -258,19 +258,25 @@ impl StacksChainState {
         clarity_tx: &mut T,
         principal: &PrincipalData,
     ) -> StacksAccount {
-        clarity_tx.with_clarity_db_readonly(|ref mut db| {
-            let stx_balance = db.get_account_stx_balance(principal);
-            let nonce = db.get_account_nonce(principal);
-            StacksAccount {
-                principal: principal.clone(),
-                stx_balance,
-                nonce,
-            }
-        })
+        clarity_tx
+            .with_clarity_db_readonly(|ref mut db| {
+                let stx_balance = db.get_account_stx_balance(principal)?;
+                let nonce = db.get_account_nonce(principal)?;
+                Ok(StacksAccount {
+                    principal: principal.clone(),
+                    stx_balance,
+                    nonce,
+                })
+            })
+            .map_err(Error::ClarityError)
+            .unwrap()
     }
 
     pub fn get_nonce<T: ClarityConnection>(clarity_tx: &mut T, principal: &PrincipalData) -> u64 {
-        clarity_tx.with_clarity_db_readonly(|ref mut db| db.get_account_nonce(principal))
+        clarity_tx
+            .with_clarity_db_readonly(|ref mut db| db.get_account_nonce(principal))
+            .map_err(|x| Error::ClarityError(x.into()))
+            .unwrap()
     }
 
     pub fn get_account_ft(
@@ -316,21 +322,21 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let mut snapshot = db.get_stx_balance_snapshot(principal);
+                let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
                 // last line of defense: if we don't have sufficient funds, panic.
                 // This should be checked by the block validation logic.
-                if !snapshot.can_transfer(amount as u128) {
+                if !snapshot.can_transfer(amount as u128)? {
                     panic!(
                         "Tried to debit {} from account {} (which only has {})",
                         amount,
                         principal,
-                        snapshot.get_available_balance()
+                        snapshot.get_available_balance()?
                     );
                 }
 
-                snapshot.debit(amount as u128);
-                snapshot.save();
+                snapshot.debit(amount as u128)?;
+                snapshot.save()?;
                 Ok(())
             })
             .expect("FATAL: failed to debit account")
@@ -345,11 +351,11 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let mut snapshot = db.get_stx_balance_snapshot(principal);
-                snapshot.credit(amount as u128);
+                let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+                snapshot.credit(amount as u128)?;
 
-                let new_balance = snapshot.get_available_balance();
-                snapshot.save();
+                let new_balance = snapshot.get_available_balance()?;
+                snapshot.save()?;
 
                 info!("{} credited: {} uSTX", principal, new_balance);
                 Ok(())
@@ -365,9 +371,9 @@ impl StacksChainState {
     ) {
         clarity_tx
             .with_clarity_db(|ref mut db| {
-                let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
-                snapshot.credit(amount);
-                snapshot.save();
+                let mut snapshot = db.get_stx_balance_snapshot_genesis(principal)?;
+                snapshot.credit(amount)?;
+                snapshot.save()?;
                 Ok(())
             })
             .expect("FATAL: failed to credit account")
@@ -382,10 +388,291 @@ impl StacksChainState {
         clarity_tx
             .with_clarity_db(|ref mut db| {
                 let next_nonce = cur_nonce.checked_add(1).expect("OUT OF NONCES");
-                db.set_account_nonce(&principal, next_nonce);
+                db.set_account_nonce(&principal, next_nonce)?;
                 Ok(())
             })
             .expect("FATAL: failed to set account nonce")
+    }
+
+    /////////////////////// PoX-3 /////////////////////////////////
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock_v3(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        lock_amount: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+        if snapshot.has_locked_tokens()? {
+            return Err(Error::PoxAlreadyLocked);
+        }
+        if !snapshot.can_transfer(lock_amount)? {
+            return Err(Error::PoxInsufficientBalance);
+        }
+        snapshot.lock_tokens_v3(lock_amount, unlock_burn_height)?;
+
+        debug!(
+            "PoX v3 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save()?;
+        Ok(())
+    }
+
+    /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
+    /// Returns Ok(lock_amount) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v3 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_extend_v3(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        unlock_burn_height: u64,
+    ) -> Result<u128, Error> {
+        assert!(unlock_burn_height > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+        if !snapshot.has_locked_tokens()? {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        snapshot.extend_lock_v3(unlock_burn_height)?;
+
+        let amount_locked = snapshot.balance().amount_locked();
+
+        debug!(
+            "PoX v3 lock applied";
+            "pox_locked_ustx" => amount_locked,
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save()?;
+        Ok(amount_locked)
+    }
+
+    /// Increase a STX lock up for PoX-3.  Does NOT touch the account nonce.
+    /// Returns Ok( account snapshot ) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v3 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_increase_v3(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        new_total_locked: u128,
+    ) -> Result<STXBalance, Error> {
+        assert!(new_total_locked > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+        if !snapshot.has_locked_tokens()? {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        let bal = snapshot.canonical_balance_repr()?;
+        let total_amount = bal
+            .amount_unlocked()
+            .checked_add(bal.amount_locked())
+            .expect("STX balance overflowed u128");
+        if total_amount < new_total_locked {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        if bal.amount_locked() > new_total_locked {
+            return Err(Error::PoxInvalidIncrease);
+        }
+
+        snapshot.increase_lock_v3(new_total_locked)?;
+
+        let out_balance = snapshot.canonical_balance_repr()?;
+
+        debug!(
+            "PoX v3 lock increased";
+            "pox_locked_ustx" => out_balance.amount_locked(),
+            "available_ustx" => out_balance.amount_unlocked(),
+            "unlock_burn_height" => out_balance.unlock_height(),
+            "account" => %principal,
+        );
+
+        snapshot.save()?;
+        Ok(out_balance)
+    }
+
+    /////////////////////// PoX-2 /////////////////////////////////
+
+    /// Increase a STX lock up for PoX.  Does NOT touch the account nonce.
+    /// Returns Ok( account snapshot ) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_increase_v2(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        new_total_locked: u128,
+    ) -> Result<STXBalance, Error> {
+        assert!(new_total_locked > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+        if !snapshot.has_locked_tokens()? {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        if !snapshot.is_v2_locked()? {
+            return Err(Error::PoxIncreaseOnV1);
+        }
+
+        let bal = snapshot.canonical_balance_repr()?;
+        let total_amount = bal
+            .amount_unlocked()
+            .checked_add(bal.amount_locked())
+            .expect("STX balance overflowed u128");
+        if total_amount < new_total_locked {
+            return Err(Error::PoxInsufficientBalance);
+        }
+
+        if bal.amount_locked() > new_total_locked {
+            return Err(Error::PoxInvalidIncrease);
+        }
+
+        snapshot.increase_lock_v2(new_total_locked)?;
+
+        let out_balance = snapshot.canonical_balance_repr()?;
+
+        debug!(
+            "PoX v2 lock increased";
+            "pox_locked_ustx" => out_balance.amount_locked(),
+            "available_ustx" => out_balance.amount_unlocked(),
+            "unlock_burn_height" => out_balance.unlock_height(),
+            "account" => %principal,
+        );
+
+        snapshot.save()?;
+        Ok(out_balance)
+    }
+
+    /// Extend a STX lock up for PoX for a time.  Does NOT touch the account nonce.
+    /// Returns Ok(lock_amount) when successful
+    ///
+    /// # Errors
+    /// - Returns Error::PoxExtendNotLocked if this function was called on an account
+    ///     which isn't locked. This *should* have been checked by the PoX v2 contract,
+    ///     so this should surface in a panic.
+    pub fn pox_lock_extend_v2(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        unlock_burn_height: u64,
+    ) -> Result<u128, Error> {
+        assert!(unlock_burn_height > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+        if !snapshot.has_locked_tokens()? {
+            return Err(Error::PoxExtendNotLocked);
+        }
+
+        snapshot.extend_lock_v2(unlock_burn_height)?;
+
+        let amount_locked = snapshot.balance().amount_locked();
+
+        debug!(
+            "PoX v2 lock applied";
+            "pox_locked_ustx" => amount_locked,
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save()?;
+        Ok(amount_locked)
+    }
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock_v2(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        lock_amount: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+        if snapshot.has_locked_tokens()? {
+            return Err(Error::PoxAlreadyLocked);
+        }
+        if !snapshot.can_transfer(lock_amount)? {
+            return Err(Error::PoxInsufficientBalance);
+        }
+        snapshot.lock_tokens_v2(lock_amount, unlock_burn_height)?;
+
+        debug!(
+            "PoX v2 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save()?;
+        Ok(())
+    }
+
+    /////////////////////// PoX (first version) /////////////////////////////////
+
+    /// Lock up STX for PoX for a time.  Does NOT touch the account nonce.
+    pub fn pox_lock_v1(
+        db: &mut ClarityDatabase,
+        principal: &PrincipalData,
+        lock_amount: u128,
+        unlock_burn_height: u64,
+    ) -> Result<(), Error> {
+        assert!(unlock_burn_height > 0);
+        assert!(lock_amount > 0);
+
+        let mut snapshot = db.get_stx_balance_snapshot(principal)?;
+
+        if snapshot.balance().was_locked_by_v2() {
+            debug!("PoX Lock attempted on an account locked by v2");
+            return Err(Error::DefunctPoxContract);
+        }
+
+        if snapshot.has_locked_tokens()? {
+            return Err(Error::PoxAlreadyLocked);
+        }
+        if !snapshot.can_transfer(lock_amount)? {
+            return Err(Error::PoxInsufficientBalance);
+        }
+        snapshot.lock_tokens_v1(lock_amount, unlock_burn_height)?;
+
+        debug!(
+            "PoX v1 lock applied";
+            "pox_locked_ustx" => snapshot.balance().amount_locked(),
+            "available_ustx" => snapshot.balance().amount_unlocked(),
+            "unlock_burn_height" => unlock_burn_height,
+            "account" => %principal,
+        );
+
+        snapshot.save()?;
+        Ok(())
     }
 
     /// Schedule a miner payment in the future.
@@ -694,10 +981,8 @@ impl StacksChainState {
         height: u64,
     ) -> Result<Option<(StacksAddress, u16)>, Error> {
         let principal_seq_opt = clarity_tx
-            .with_clarity_db_readonly(|ref mut db| {
-                Ok(db.get_microblock_poison_report(height as u32))
-            })
-            .map_err(Error::ClarityError)?;
+            .with_clarity_db_readonly(|ref mut db| db.get_microblock_poison_report(height as u32))
+            .map_err(|e| Error::ClarityError(e.into()))?;
 
         Ok(principal_seq_opt.map(|(principal, seq)| (principal.into(), seq)))
     }

@@ -1177,7 +1177,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
                  confirmed-height: u1 }}",
             intercepted, "\"intercepted-function\"", cost_definer, "\"cost-definition\""
         );
-        let epoch = db.get_clarity_epoch_version();
+        let epoch = db.get_clarity_epoch_version().unwrap();
         db.set_entry_unknown_descriptor(
             voting_contract_to_use,
             "confirmed-proposals",
@@ -1186,7 +1186,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
             &epoch,
         )
         .unwrap();
-        db.commit();
+        db.commit().unwrap();
         store.test_commit();
     }
 
@@ -1499,7 +1499,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                      confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
-            let epoch = db.get_clarity_epoch_version();
+            let epoch = db.get_clarity_epoch_version().unwrap();
             db.set_entry_unknown_descriptor(
                 voting_contract_to_use,
                 "confirmed-proposals",
@@ -1509,7 +1509,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             )
             .unwrap();
         }
-        db.commit();
+        db.commit().unwrap();
         store.test_commit();
     }
 
@@ -1599,7 +1599,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
                     confirmed-height: u1 }}",
                 intercepted_ct, intercepted_f, cost_ct, cost_f
             );
-            let epoch = db.get_clarity_epoch_version();
+            let epoch = db.get_clarity_epoch_version().unwrap();
             db.set_entry_unknown_descriptor(
                 voting_contract_to_use,
                 "confirmed-proposals",
@@ -1609,7 +1609,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
             )
             .unwrap();
         }
-        db.commit();
+        db.commit().unwrap();
 
         store.test_commit();
     }

@@ -85,8 +85,8 @@ fn create_principal_destruct_tuple(
     version: u8,
     hash_bytes: &[u8; 20],
     name_opt: Option<ContractName>,
-) -> Value {
-    Value::Tuple(
+) -> Result<Value> {
+    Ok(Value::Tuple(
         TupleData::from_data(vec![
             (
                 "version".into(),
@@ -107,23 +107,25 @@ fn create_principal_destruct_tuple(
                 }),
             ),
         ])
-        .expect("FAIL: Failed to initialize tuple."),
-    )
+        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+    ))
 }
 
 /// Creates Response return type, to wrap an *actual error* result of a `principal-construct`.
 ///
 /// The response is an error Response, where the `err` value is a tuple `{error_code, parse_tuple}`.
 /// `error_int` is of type `UInt`, `parse_tuple` is None.
-fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) -> Value {
+fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) -> Result<Value> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
             ("error_code".into(), Value::UInt(error_int as u128)),
             ("value".into(), Value::none()),
         ])
-        .expect("FAIL: Failed to initialize tuple."),
+        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
-    .expect("FAIL: Failed to initialize (err ..) response")
+    .map_err(|_| {
+        InterpreterError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
+    })
 }
 
 /// Creates Response return type, to wrap a *return value returned as an error* result of a
@@ -134,18 +136,22 @@ fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) 
 fn create_principal_value_error_response(
     error_int: PrincipalConstructErrorCode,
     value: Value,
-) -> Value {
+) -> Result<Value> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
             ("error_code".into(), Value::UInt(error_int as u128)),
             (
                 "value".into(),
-                Value::some(value).expect("Unexpected problem creating Value."),
+                Value::some(value).map_err(|_| {
+                    InterpreterError::Expect("Unexpected problem creating Value.".into())
+                })?,
             ),
         ])
-        .expect("FAIL: Failed to initialize tuple."),
+        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
-    .expect("FAIL: Failed to initialize (err ..) response")
+    .map_err(|_| {
+        InterpreterError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
+    })
 }
 
 pub fn special_principal_destruct(
@@ -174,7 +180,7 @@ pub fn special_principal_destruct(
     // channel or the error channel.
     let version_byte_is_valid = version_matches_current_network(version_byte, env.global_context);
 
-    let tuple = create_principal_destruct_tuple(version_byte, &hash_bytes, name_opt);
+    let tuple = create_principal_destruct_tuple(version_byte, &hash_bytes, name_opt)?;
     Ok(Value::Response(ResponseData {
         committed: version_byte_is_valid,
         data: Box::new(tuple),
@@ -215,9 +221,7 @@ pub fn special_principal_construct(
     } else if verified_version.is_empty() {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
         // will type-check to (buff 1)
-        return Ok(create_principal_true_error_response(
-            PrincipalConstructErrorCode::BUFFER_LENGTH,
-        ));
+        return create_principal_true_error_response(PrincipalConstructErrorCode::BUFFER_LENGTH);
     } else {
         (*verified_version)[0]
     };
@@ -225,9 +229,7 @@ pub fn special_principal_construct(
     // If the version byte is >= 32, this is a runtime error, because it wasn't the job of the
     // type system.  This is a requirement for c32check encoding.
     if version_byte >= 32 {
-        return Ok(create_principal_true_error_response(
-            PrincipalConstructErrorCode::BUFFER_LENGTH,
-        ));
+        return create_principal_true_error_response(PrincipalConstructErrorCode::BUFFER_LENGTH);
     }
 
     // `version_byte_is_valid` determines whether the returned `Response` is through the success
@@ -250,9 +252,7 @@ pub fn special_principal_construct(
     // If the hash-bytes buffer has less than 20 bytes, this is a runtime error, because it
     // wasn't the job of the type system (i.e. (buff X) for all X < 20 are all also (buff 20))
     if verified_hash_bytes.len() < 20 {
-        return Ok(create_principal_true_error_response(
-            PrincipalConstructErrorCode::BUFFER_LENGTH,
-        ));
+        return create_principal_true_error_response(PrincipalConstructErrorCode::BUFFER_LENGTH);
     }
 
     // Construct the principal.
@@ -267,7 +267,7 @@ pub fn special_principal_construct(
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
             _ => {
                 return Err(CheckErrors::TypeValueError(
-                    TypeSignature::contract_name_string_ascii_type(),
+                    TypeSignature::contract_name_string_ascii_type()?,
                     name,
                 )
                 .into())
@@ -276,15 +276,15 @@ pub fn special_principal_construct(
 
         // If it's not long enough, then it's a runtime error that warrants an (err ..) response.
         if name_bytes.data.len() < CONTRACT_MIN_NAME_LENGTH {
-            return Ok(create_principal_true_error_response(
+            return create_principal_true_error_response(
                 PrincipalConstructErrorCode::CONTRACT_NAME,
-            ));
+            );
         }
 
         // if it's too long, then this should have been caught by the type-checker
         if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
             return Err(CheckErrors::TypeValueError(
-                TypeSignature::contract_name_string_ascii_type(),
+                TypeSignature::contract_name_string_ascii_type()?,
                 Value::from(name_bytes),
             )
             .into());
@@ -293,17 +293,20 @@ pub fn special_principal_construct(
         // The type-checker can't verify that the name is a valid ContractName, so we'll need to do
         // it here at runtime.  If it's not valid, then it warrants this function evaluating to
         // (err ..).
-        let name_string = String::from_utf8(name_bytes.data).expect(
-            "FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string",
-        );
+        let name_string = String::from_utf8(name_bytes.data).map_err(|_| {
+            InterpreterError::Expect(
+                "FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string"
+                    .into(),
+            )
+        })?;
 
         let contract_name = match ContractName::try_from(name_string) {
             Ok(cn) => cn,
             Err(_) => {
                 // not a valid contract name
-                return Ok(create_principal_true_error_response(
+                return create_principal_true_error_response(
                     PrincipalConstructErrorCode::CONTRACT_NAME,
-                ));
+                );
             }
         };
 
@@ -317,11 +320,10 @@ pub fn special_principal_construct(
     };
 
     if version_byte_is_valid {
-        Ok(Value::okay(principal).expect("FAIL: failed to build an (ok ..) response"))
+        Ok(Value::okay(principal).map_err(|_| {
+            InterpreterError::Expect("FAIL: failed to build an (ok ..) response".into())
+        })?)
     } else {
-        Ok(create_principal_value_error_response(
-            PrincipalConstructErrorCode::VERSION_BYTE,
-            principal,
-        ))
+        create_principal_value_error_response(PrincipalConstructErrorCode::VERSION_BYTE, principal)
     }
 }

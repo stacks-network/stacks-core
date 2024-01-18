@@ -101,7 +101,10 @@ fn test_from_consensus_buff() {
         ),
         (
             "(from-consensus-buff? int u6)",
-            CheckErrors::TypeError(TypeSignature::max_buffer(), TypeSignature::UIntType),
+            CheckErrors::TypeError(
+                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::UIntType,
+            ),
         ),
         (
             "(from-consensus-buff? (buff 1048576) 0x00)",
@@ -1043,16 +1046,16 @@ fn test_index_of() {
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
         CheckErrors::TypeError(
-            TypeSignature::min_buffer(),
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_buffer().unwrap(),
+            TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_utf8(),
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_string_utf8().unwrap(),
+            TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_ascii(),
-            TypeSignature::min_string_utf8(),
+            TypeSignature::min_string_ascii().unwrap(),
+            TypeSignature::min_string_utf8().unwrap(),
         ),
         CheckErrors::TypeError(
             TypeSignature::list_of(TypeSignature::IntType, 1).unwrap(),
@@ -1061,16 +1064,16 @@ fn test_index_of() {
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
         CheckErrors::TypeError(
-            TypeSignature::min_buffer(),
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_buffer().unwrap(),
+            TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_utf8(),
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_string_utf8().unwrap(),
+            TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_ascii(),
-            TypeSignature::min_string_utf8(),
+            TypeSignature::min_string_ascii().unwrap(),
+            TypeSignature::min_string_utf8().unwrap(),
         ),
         CheckErrors::CouldNotDetermineType,
         CheckErrors::CouldNotDetermineType,
@@ -2141,15 +2144,15 @@ fn test_string_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
             vec![
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
             ],
             SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
             ],
             IntType,
         ),
@@ -2157,15 +2160,15 @@ fn test_string_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
             vec![
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
             ],
             SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
         CheckErrors::UnionTypeError(
             vec![
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
             ],
             IntType,
         ),
@@ -3320,14 +3323,17 @@ fn test_principal_construct() {
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
             CheckErrors::TypeError(
-                TypeSignature::contract_name_string_ascii_type(),
-                TypeSignature::bound_string_ascii_type(41),
+                TypeSignature::contract_name_string_ascii_type().unwrap(),
+                TypeSignature::bound_string_ascii_type(41).unwrap(),
             ),
         ),
         // bad argument type for `name`
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 u123)"#,
-            CheckErrors::TypeError(TypeSignature::contract_name_string_ascii_type(), UIntType),
+            CheckErrors::TypeError(
+                TypeSignature::contract_name_string_ascii_type().unwrap(),
+                UIntType,
+            ),
         ),
         // too many arguments
         (

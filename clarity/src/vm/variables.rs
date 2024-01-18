@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::convert::TryFrom;
 
+use super::errors::InterpreterError;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -82,8 +83,11 @@ pub fn lookup_reserved_variable(
             NativeVariables::TxSponsor => {
                 let sponsor = match env.sponsor.clone() {
                     None => Value::none(),
-                    Some(p) => Value::some(Value::Principal(p))
-                        .expect("ERROR: principal should be a valid Clarity object"),
+                    Some(p) => Value::some(Value::Principal(p)).map_err(|_| {
+                        InterpreterError::Expect(
+                            "ERROR: principal should be a valid Clarity object".into(),
+                        )
+                    })?,
                 };
                 Ok(Some(sponsor))
             }
@@ -97,15 +101,15 @@ pub fn lookup_reserved_variable(
                 let burn_block_height = env
                     .global_context
                     .database
-                    .get_current_burnchain_block_height();
-                Ok(Some(Value::UInt(burn_block_height as u128)))
+                    .get_current_burnchain_block_height()?;
+                Ok(Some(Value::UInt(u128::from(burn_block_height))))
             }
             NativeVariables::NativeNone => Ok(Some(Value::none())),
             NativeVariables::NativeTrue => Ok(Some(Value::Bool(true))),
             NativeVariables::NativeFalse => Ok(Some(Value::Bool(false))),
             NativeVariables::TotalLiquidMicroSTX => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let liq = env.global_context.database.get_total_liquid_ustx();
+                let liq = env.global_context.database.get_total_liquid_ustx()?;
                 Ok(Some(Value::UInt(liq)))
             }
             NativeVariables::Regtest => {

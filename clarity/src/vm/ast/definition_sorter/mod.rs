@@ -117,7 +117,7 @@ impl DefinitionSorter {
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                     }
                 }
                 Ok(())
@@ -125,7 +125,7 @@ impl DefinitionSorter {
             TraitReference(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                     }
                 }
                 Ok(())
@@ -413,9 +413,17 @@ impl Graph {
         self.adjacency_list.push(vec![]);
     }
 
-    fn add_directed_edge(&mut self, src_expr_index: usize, dst_expr_index: usize) {
-        let list = self.adjacency_list.get_mut(src_expr_index).unwrap();
+    fn add_directed_edge(
+        &mut self,
+        src_expr_index: usize,
+        dst_expr_index: usize,
+    ) -> ParseResult<()> {
+        let list = self
+            .adjacency_list
+            .get_mut(src_expr_index)
+            .ok_or_else(|| ParseErrors::InterpreterFailure)?;
         list.push(dst_expr_index);
+        Ok(())
     }
 
     fn get_node_descendants(&self, expr_index: usize) -> Vec<usize> {

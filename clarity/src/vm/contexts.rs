@@ -312,14 +312,13 @@ impl AssetMap {
         asset: AssetIdentifier,
         transfered: Value,
     ) {
-        if !self.asset_map.contains_key(principal) {
-            self.asset_map.insert(principal.clone(), HashMap::new());
-        }
+        let principal_map = self
+            .asset_map
+            .entry(principal.clone())
+            .or_insert_with(|| HashMap::new());
 
-        let principal_map = self.asset_map.get_mut(principal).unwrap(); // should always exist, because of checked insert above.
-
-        if let Entry::Vacant(e) = principal_map.entry(asset.clone()) {
-            e.insert(vec![transfered]);
+        if let Some(map_entry) = principal_map.get_mut(&asset) {
+            map_entry.push(transfered);
         } else {
             principal_map.get_mut(&asset).unwrap().push(transfered);
         }
@@ -333,12 +332,10 @@ impl AssetMap {
     ) -> Result<()> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
-        if !self.token_map.contains_key(principal) {
-            self.token_map.insert(principal.clone(), HashMap::new());
-        }
-
-        let principal_map = self.token_map.get_mut(principal).unwrap(); // should always exist, because of checked insert above.
-
+        let principal_map = self
+            .token_map
+            .entry(principal.clone())
+            .or_insert_with(|| HashMap::new());
         principal_map.insert(asset, next_amount);
 
         Ok(())
@@ -371,15 +368,11 @@ impl AssetMap {
         // After this point, this function will not fail.
         for (principal, mut principal_map) in other.asset_map.drain() {
             for (asset, mut transfers) in principal_map.drain() {
-                if !self.asset_map.contains_key(&principal) {
-                    self.asset_map.insert(principal.clone(), HashMap::new());
-                }
-
-                let landing_map = self.asset_map.get_mut(&principal).unwrap(); // should always exist, because of checked insert above.
-                if let Entry::Vacant(e) = landing_map.entry(asset.clone()) {
-                    e.insert(transfers);
-                } else {
-                    let landing_vec = landing_map.get_mut(&asset).unwrap();
+                let landing_map = self
+                    .asset_map
+                    .entry(principal.clone())
+                    .or_insert_with(|| HashMap::new());
+                if let Some(landing_vec) = landing_map.get_mut(&asset) {
                     landing_vec.append(&mut transfers);
                 }
             }
@@ -394,11 +387,10 @@ impl AssetMap {
         }
 
         for (principal, asset, amount) in to_add.drain(..) {
-            if !self.token_map.contains_key(&principal) {
-                self.token_map.insert(principal.clone(), HashMap::new());
-            }
-
-            let principal_map = self.token_map.get_mut(&principal).unwrap(); // should always exist, because of checked insert above.
+            let principal_map = self
+                .token_map
+                .entry(principal)
+                .or_insert_with(|| HashMap::new());
             principal_map.insert(asset, amount);
         }
 
@@ -416,22 +408,19 @@ impl AssetMap {
         }
 
         for (principal, stx_amount) in self.stx_map.drain() {
-            let output_map = if map.contains_key(&principal) {
-                map.get_mut(&principal).unwrap()
-            } else {
-                map.insert(principal.clone(), HashMap::new());
-                map.get_mut(&principal).unwrap()
-            };
-            output_map.insert(AssetIdentifier::STX(), AssetMapEntry::STX(stx_amount));
+            let output_map = map
+                .entry(principal.clone())
+                .or_insert_with(|| HashMap::new());
+            output_map.insert(
+                AssetIdentifier::STX(),
+                AssetMapEntry::STX(stx_amount as u128),
+            );
         }
 
         for (principal, stx_burned_amount) in self.burn_map.drain() {
-            let output_map = if map.contains_key(&principal) {
-                map.get_mut(&principal).unwrap()
-            } else {
-                map.insert(principal.clone(), HashMap::new());
-                map.get_mut(&principal).unwrap()
-            };
+            let output_map = map
+                .entry(principal.clone())
+                .or_insert_with(|| HashMap::new());
             output_map.insert(
                 AssetIdentifier::STX_burned(),
                 AssetMapEntry::Burn(stx_burned_amount),
@@ -439,13 +428,9 @@ impl AssetMap {
         }
 
         for (principal, mut principal_map) in self.asset_map.drain() {
-            let output_map = if map.contains_key(&principal) {
-                map.get_mut(&principal).unwrap()
-            } else {
-                map.insert(principal.clone(), HashMap::new());
-                map.get_mut(&principal).unwrap()
-            };
-
+            let output_map = map
+                .entry(principal.clone())
+                .or_insert_with(|| HashMap::new());
             for (asset, transfers) in principal_map.drain() {
                 output_map.insert(asset, AssetMapEntry::Asset(transfers));
             }
@@ -462,14 +447,14 @@ impl AssetMap {
         self.burn_map.get(principal).copied()
     }
 
-    pub fn get_stx_burned_total(&self) -> u128 {
+    pub fn get_stx_burned_total(&self) -> Result<u128> {
         let mut total: u128 = 0;
         for principal in self.burn_map.keys() {
             total = total
                 .checked_add(*self.burn_map.get(principal).unwrap_or(&0u128))
-                .expect("BURN OVERFLOW");
+                .ok_or_else(|| InterpreterError::Expect("BURN OVERFLOW".into()))?;
         }
-        total
+        Ok(total)
     }
 
     pub fn get_fungible_tokens(
@@ -555,9 +540,9 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     #[cfg(any(test, feature = "testing"))]
     pub fn new_toplevel(mut database: ClarityDatabase<'a>) -> OwnedEnvironment<'a, '_> {
         database.begin();
-        let epoch = database.get_clarity_epoch_version();
+        let epoch = database.get_clarity_epoch_version().unwrap();
         let version = ClarityVersion::default_for_epoch(epoch);
-        database.roll_back();
+        database.roll_back().unwrap();
 
         debug!(
             "Begin OwnedEnvironment(epoch = {}, version = {})",
@@ -669,7 +654,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 Ok((return_value, asset_map, event_batch.events))
             }
             Err(e) => {
-                self.context.roll_back();
+                self.context.roll_back()?;
                 Err(e)
             }
         }
@@ -777,10 +762,11 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 let mut snapshot = env
                     .global_context
                     .database
-                    .get_stx_balance_snapshot(recipient);
+                    .get_stx_balance_snapshot(&recipient)
+                    .unwrap();
 
-                snapshot.credit(amount);
-                snapshot.save();
+                snapshot.credit(amount).unwrap();
+                snapshot.save().unwrap();
 
                 env.global_context
                     .database
@@ -879,7 +865,7 @@ impl CostTracker for Environment<'_, '_, '_> {
     fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
         self.global_context.cost_track.add_memory(memory)
     }
-    fn drop_memory(&mut self, memory: u64) {
+    fn drop_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
         self.global_context.cost_track.drop_memory(memory)
     }
     fn reset_memory(&mut self) {
@@ -912,7 +898,7 @@ impl CostTracker for GlobalContext<'_, '_> {
     fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
         self.cost_track.add_memory(memory)
     }
-    fn drop_memory(&mut self, memory: u64) {
+    fn drop_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
         self.cost_track.drop_memory(memory)
     }
     fn reset_memory(&mut self) {
@@ -1027,7 +1013,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             eval(&parsed[0], &mut nested_env, &local_context)
         };
 
-        self.global_context.roll_back();
+        self.global_context.roll_back()?;
 
         result
     }
@@ -1159,7 +1145,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                                                                                   tx_name)))?;
                     // sanitize contract-call inputs in epochs >= 2.4
                     // testing todo: ensure sanitize_value() preserves trait callability!
-                    let expected_type = TypeSignature::type_of(value);
+                    let expected_type = TypeSignature::type_of(value)?;
                     let (sanitized_value, _) = Value::sanitize_value(
                         self.epoch(),
                         &expected_type,
@@ -1231,7 +1217,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         };
 
         if make_read_only {
-            self.global_context.roll_back();
+            self.global_context.roll_back()?;
             result
         } else {
             self.global_context.handle_tx_result(result)
@@ -1255,13 +1241,15 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 self.global_context
                     .database
                     .set_block_hash(prior_bhh, true)
-                    .expect(
-                    "ERROR: Failed to restore prior active block after time-shifted evaluation.",
-                );
+                    .map_err(|_| {
+                        InterpreterError::Expect(
+                        "ERROR: Failed to restore prior active block after time-shifted evaluation."
+                            .into())
+                    })?;
                 result
             });
 
-        self.global_context.roll_back();
+        self.global_context.roll_back()?;
 
         result
     }
@@ -1334,7 +1322,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 self.global_context,
                 contract_version,
             );
-            self.drop_memory(memory_use);
+            self.drop_memory(memory_use)?;
             result
         })();
 
@@ -1343,7 +1331,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 let data_size = contract.contract_context.data_size;
                 self.global_context
                     .database
-                    .insert_contract(&contract_identifier, contract);
+                    .insert_contract(&contract_identifier, contract)?;
                 self.global_context
                     .database
                     .set_contract_data_size(&contract_identifier, data_size)?;
@@ -1352,7 +1340,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 Ok(())
             }
             Err(e) => {
-                self.global_context.roll_back();
+                self.global_context.roll_back()?;
                 Err(e)
             }
         }
@@ -1378,12 +1366,12 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                     Ok(value)
                 }
                 Err(_) => {
-                    self.global_context.roll_back();
+                    self.global_context.roll_back()?;
                     Err(InterpreterError::InsufficientBalance.into())
                 }
             },
             Err(e) => {
-                self.global_context.roll_back();
+                self.global_context.roll_back()?;
                 Err(e)
             }
         }
@@ -1402,7 +1390,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 Ok(ret)
             }
             Err(e) => {
-                self.global_context.roll_back();
+                self.global_context.roll_back()?;
                 Err(e)
             }
         }
@@ -1596,10 +1584,10 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.asset_maps.is_empty()
     }
 
-    fn get_asset_map(&mut self) -> &mut AssetMap {
+    fn get_asset_map(&mut self) -> Result<&mut AssetMap> {
         self.asset_maps
             .last_mut()
-            .expect("Failed to obtain asset map")
+            .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
     }
 
     pub fn log_asset_transfer(
@@ -1608,13 +1596,14 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &ClarityName,
         transfered: Value,
-    ) {
+    ) -> Result<()> {
         let asset_identifier = AssetIdentifier {
             contract_identifier: contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
-        self.get_asset_map()
-            .add_asset_transfer(sender, asset_identifier, transfered)
+        self.get_asset_map()?
+            .add_asset_transfer(sender, asset_identifier, transfered);
+        Ok(())
     }
 
     pub fn log_token_transfer(
@@ -1628,16 +1617,16 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             contract_identifier: contract_identifier.clone(),
             asset_name: asset_name.clone(),
         };
-        self.get_asset_map()
+        self.get_asset_map()?
             .add_token_transfer(sender, asset_identifier, transfered)
     }
 
     pub fn log_stx_transfer(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
-        self.get_asset_map().add_stx_transfer(sender, transfered)
+        self.get_asset_map()?.add_stx_transfer(sender, transfered)
     }
 
     pub fn log_stx_burn(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
-        self.get_asset_map().add_stx_burn(sender, transfered)
+        self.get_asset_map()?.add_stx_burn(sender, transfered)
     }
 
     pub fn execute<F, T>(&mut self, f: F) -> Result<T>
@@ -1645,9 +1634,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         F: FnOnce(&mut Self) -> Result<T>,
     {
         self.begin();
-        let result = f(self).map_err(|e| {
-            self.roll_back();
-            e
+        let result = f(self).or_else(|e| {
+            self.roll_back()?;
+            Err(e)
         })?;
         self.commit()?;
         Ok(result)
@@ -1683,7 +1672,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             );
             f(&mut exec_env)
         };
-        self.roll_back();
+        self.roll_back().map_err(crate::vm::errors::Error::from)?;
 
         match result {
             Ok(return_value) => Ok(return_value),
@@ -1714,19 +1703,17 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>)> {
         trace!("Calling commit");
         self.read_only.pop();
-        let asset_map = self
-            .asset_maps
-            .pop()
-            .expect("ERROR: Committed non-nested context.");
-        let mut event_batch = self
-            .event_batches
-            .pop()
-            .expect("ERROR: Committed non-nested context.");
+        let asset_map = self.asset_maps.pop().ok_or_else(|| {
+            InterpreterError::Expect("ERROR: Committed non-nested context.".into())
+        })?;
+        let mut event_batch = self.event_batches.pop().ok_or_else(|| {
+            InterpreterError::Expect("ERROR: Committed non-nested context.".into())
+        })?;
 
         let out_map = match self.asset_maps.last_mut() {
             Some(tail_back) => {
                 if let Err(e) = tail_back.commit_other(asset_map) {
-                    self.database.roll_back();
+                    self.database.roll_back()?;
                     return Err(e);
                 }
                 None
@@ -1742,19 +1729,25 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             None => Some(event_batch),
         };
 
-        self.database.commit();
+        self.database.commit()?;
         Ok((out_map, out_batch))
     }
 
-    pub fn roll_back(&mut self) {
+    pub fn roll_back(&mut self) -> Result<()> {
         let popped = self.asset_maps.pop();
-        assert!(popped.is_some());
+        if popped.is_none() {
+            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+        }
         let popped = self.read_only.pop();
-        assert!(popped.is_some());
+        if popped.is_none() {
+            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+        }
         let popped = self.event_batches.pop();
-        assert!(popped.is_some());
+        if popped.is_none() {
+            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+        }
 
-        self.database.roll_back();
+        self.database.roll_back()
     }
 
     pub fn handle_tx_result(&mut self, result: Result<Value>) -> Result<Value> {
@@ -1763,17 +1756,17 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 if data.committed {
                     self.commit()?;
                 } else {
-                    self.roll_back();
+                    self.roll_back()?;
                 }
                 Ok(Value::Response(data))
             } else {
                 Err(
-                    CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result))
+                    CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)?)
                         .into(),
                 )
             }
         } else {
-            self.roll_back();
+            self.roll_back()?;
             result
         }
     }
@@ -1967,8 +1960,11 @@ impl CallStack {
                 )
                 .into());
             }
-            if tracked && !self.set.remove(function) {
-                panic!("Tried to remove tracked function from call stack, but could not find in current context.")
+            if tracked && !self.set.remove(&function) {
+                return Err(InterpreterError::InterpreterError(
+                    "Tried to remove tracked function from call stack, but could not find in current context.".into()
+                )
+                .into());
             }
             Ok(())
         } else {

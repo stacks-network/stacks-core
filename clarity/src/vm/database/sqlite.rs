@@ -33,21 +33,21 @@ pub struct SqliteConnection {
     conn: Connection,
 }
 
-fn sqlite_put(conn: &Connection, key: &str, value: &str) {
+fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
     let params: [&dyn ToSql; 2] = [&key, &value];
     match conn.execute(
         "REPLACE INTO data_table (key, value) VALUES (?, ?)",
         &params,
     ) {
-        Ok(_) => {}
+        Ok(_) => Ok(()),
         Err(e) => {
             error!("Failed to insert/replace ({},{}): {:?}", key, value, &e);
-            panic!("{}", SQL_FAIL_MESSAGE);
+            Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
-    };
+    }
 }
 
-fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
+fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     trace!("sqlite_get {}", key);
     let params: [&dyn ToSql; 1] = [&key];
     let res = match conn
@@ -58,10 +58,10 @@ fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
         )
         .optional()
     {
-        Ok(x) => x,
+        Ok(x) => Ok(x),
         Err(e) => {
             error!("Failed to query '{}': {:?}", key, &e);
-            panic!("{}", SQL_FAIL_MESSAGE);
+            Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
     };
 
@@ -69,16 +69,16 @@ fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
     res
 }
 
-fn sqlite_has_entry(conn: &Connection, key: &str) -> bool {
-    sqlite_get(conn, key).is_some()
+fn sqlite_has_entry(conn: &Connection, key: &str) -> Result<bool> {
+    Ok(sqlite_get(conn, key)?.is_some())
 }
 
 impl SqliteConnection {
-    pub fn put(conn: &Connection, key: &str, value: &str) {
+    pub fn put(conn: &Connection, key: &str, value: &str) -> Result<()> {
         sqlite_put(conn, key, value)
     }
 
-    pub fn get(conn: &Connection, key: &str) -> Option<String> {
+    pub fn get(conn: &Connection, key: &str) -> Result<Option<String>> {
         sqlite_get(conn, key)
     }
 
@@ -88,7 +88,7 @@ impl SqliteConnection {
         contract_hash: &str,
         key: &str,
         value: &str,
-    ) {
+    ) -> Result<()> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&bhh, &key, &value];
 
@@ -103,26 +103,33 @@ impl SqliteConnection {
                 &value.to_string(),
                 &e
             );
-            panic!("{}", SQL_FAIL_MESSAGE);
+            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
+        Ok(())
     }
 
-    pub fn commit_metadata_to(conn: &Connection, from: &StacksBlockId, to: &StacksBlockId) {
+    pub fn commit_metadata_to(
+        conn: &Connection,
+        from: &StacksBlockId,
+        to: &StacksBlockId,
+    ) -> Result<()> {
         let params = [to, from];
         if let Err(e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params,
         ) {
             error!("Failed to update {} to {}: {:?}", &from, &to, &e);
-            panic!("{}", SQL_FAIL_MESSAGE);
+            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
+        Ok(())
     }
 
-    pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) {
+    pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) -> Result<()> {
         if let Err(e) = conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[from]) {
             error!("Failed to drop metadata from {}: {:?}", &from, &e);
-            panic!("{}", SQL_FAIL_MESSAGE);
+            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
+        Ok(())
     }
 
     pub fn get_metadata(
@@ -130,7 +137,7 @@ impl SqliteConnection {
         bhh: &StacksBlockId,
         contract_hash: &str,
         key: &str,
-    ) -> Option<String> {
+    ) -> Result<Option<String>> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
 
@@ -142,15 +149,15 @@ impl SqliteConnection {
             )
             .optional()
         {
-            Ok(x) => x,
+            Ok(x) => Ok(x),
             Err(e) => {
                 error!("Failed to query ({},{}): {:?}", &bhh, &key, &e);
-                panic!("{}", SQL_FAIL_MESSAGE);
+                Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
             }
         }
     }
 
-    pub fn has_entry(conn: &Connection, key: &str) -> bool {
+    pub fn has_entry(conn: &Connection, key: &str) -> Result<bool> {
         sqlite_has_entry(conn, key)
     }
 }

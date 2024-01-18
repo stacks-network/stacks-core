@@ -485,7 +485,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize_to_hex())
+                    .json(&key.serialize_to_hex().unwrap())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
@@ -500,7 +500,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize_to_hex())
+                    .json(&key.serialize_to_hex().unwrap())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
                 let result_data = Value::try_deserialize_hex_untyped(&res["data"][2..]).unwrap();
@@ -517,7 +517,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize_to_hex())
+                    .json(&key.serialize_to_hex().unwrap())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
@@ -538,7 +538,7 @@ fn integration_test_get_info() {
 
                 eprintln!("Test: POST {}", path);
                 let res = client.post(&path)
-                    .json(&key.serialize_to_hex())
+                    .json(&key.serialize_to_hex().unwrap())
                     .send()
                     .unwrap().json::<HashMap<String, String>>().unwrap();
 
@@ -621,7 +621,7 @@ fn integration_test_get_info() {
                 let res = client.get(&path).send().unwrap().json::<ContractInterface>().unwrap();
 
                 let contract_analysis = mem_type_check(GET_INFO_CONTRACT, ClarityVersion::Clarity2, StacksEpochId::Epoch21).unwrap().1;
-                let expected_interface = build_contract_interface(&contract_analysis);
+                let expected_interface = build_contract_interface(&contract_analysis).unwrap();
 
                 eprintln!("{}", serde_json::to_string(&expected_interface).unwrap());
 
@@ -666,7 +666,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(3).serialize_to_hex()]
+                    arguments: vec![Value::UInt(3).serialize_to_hex().unwrap()]
                 };
 
                 let res = client.post(&path)
@@ -734,7 +734,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(3).serialize_to_hex()]
+                    arguments: vec![Value::UInt(3).serialize_to_hex().unwrap()]
                 };
 
                 let res = client.post(&path)
@@ -757,7 +757,7 @@ fn integration_test_get_info() {
                 let body = CallReadOnlyRequestBody {
                     sender: "'SP139Q3N9RXCJCD1XVA4N5RYWQ5K9XQ0T9PKQ8EE5".into(),
                     sponsor: None,
-                    arguments: vec![Value::UInt(100).serialize_to_hex()]
+                    arguments: vec![Value::UInt(100).serialize_to_hex().unwrap()]
                 };
 
                 let res = client.post(&path)
@@ -1269,6 +1269,7 @@ fn contract_stx_transfer() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
+                                        .unwrap()
                                         .amount_unlocked()
                                     })
                                 }
@@ -1286,7 +1287,9 @@ fn contract_stx_transfer() {
                                 &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(&addr_3).amount_unlocked()
+                                        db.get_account_stx_balance(&addr_3)
+                                            .unwrap()
+                                            .amount_unlocked()
                                     })
                                 }
                             )
@@ -1320,7 +1323,9 @@ fn contract_stx_transfer() {
                                 &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(&addr_2).amount_unlocked()
+                                        db.get_account_stx_balance(&addr_2)
+                                            .unwrap()
+                                            .amount_unlocked()
                                     })
                                 }
                             )
@@ -1338,6 +1343,7 @@ fn contract_stx_transfer() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
+                                        .unwrap()
                                         .amount_unlocked()
                                     })
                                 }
@@ -1370,6 +1376,7 @@ fn contract_stx_transfer() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
+                                        .unwrap()
                                         .amount_unlocked()
                                     })
                                 }
@@ -1387,7 +1394,9 @@ fn contract_stx_transfer() {
                                 &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(&addr_3).amount_unlocked()
+                                        db.get_account_stx_balance(&addr_3)
+                                            .unwrap()
+                                            .amount_unlocked()
                                     })
                                 }
                             )
@@ -1540,6 +1549,7 @@ fn mine_transactions_out_of_order() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
+                                        .unwrap()
                                         .amount_unlocked()
                                     })
                                 }
@@ -1796,6 +1806,7 @@ fn bad_contract_tx_rollback() {
                                         db.get_account_stx_balance(
                                             &contract_identifier.clone().into(),
                                         )
+                                        .unwrap()
                                         .amount_unlocked()
                                     })
                                 }
@@ -1813,7 +1824,9 @@ fn bad_contract_tx_rollback() {
                                 &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
-                                        db.get_account_stx_balance(&addr_3).amount_unlocked()
+                                        db.get_account_stx_balance(&addr_3)
+                                            .unwrap()
+                                            .amount_unlocked()
                                     })
                                 }
                             )

@@ -425,19 +425,21 @@ fn transition_adds_burn_block_height() {
                             false,
                         )
                         .unwrap();
-                        let pair = clarity_value.expect_tuple();
-                        let height = pair.get("height").unwrap().clone().expect_u128() as u64;
-                        let bhh_opt =
-                            pair.get("hash")
-                                .unwrap()
-                                .clone()
-                                .expect_optional()
-                                .map(|inner_buff| {
-                                    let buff_bytes_vec = inner_buff.expect_buff(32);
-                                    let mut buff_bytes = [0u8; 32];
-                                    buff_bytes.copy_from_slice(&buff_bytes_vec[0..32]);
-                                    BurnchainHeaderHash(buff_bytes)
-                                });
+                        let pair = clarity_value.expect_tuple().unwrap();
+                        let height =
+                            pair.get("height").unwrap().clone().expect_u128().unwrap() as u64;
+                        let bhh_opt = pair
+                            .get("hash")
+                            .unwrap()
+                            .clone()
+                            .expect_optional()
+                            .unwrap()
+                            .map(|inner_buff| {
+                                let buff_bytes_vec = inner_buff.expect_buff(32).unwrap();
+                                let mut buff_bytes = [0u8; 32];
+                                buff_bytes.copy_from_slice(&buff_bytes_vec[0..32]);
+                                BurnchainHeaderHash(buff_bytes)
+                            });
 
                         header_hashes.insert(height, bhh_opt);
                     }
@@ -1121,7 +1123,7 @@ fn transition_adds_get_pox_addr_recipients() {
         );
 
         submit_tx(&http_origin, &tx);
-        expected_pox_addrs.insert(pox_addr_tuple);
+        expected_pox_addrs.insert(pox_addr_tuple.to_string());
     }
 
     // stack some STX to segwit addressses
@@ -1161,7 +1163,7 @@ fn transition_adds_get_pox_addr_recipients() {
         );
 
         submit_tx(&http_origin, &tx);
-        expected_pox_addrs.insert(pox_addr_tuple);
+        expected_pox_addrs.insert(pox_addr_tuple.to_string());
     }
 
     let contract = "
@@ -1257,25 +1259,36 @@ fn transition_adds_get_pox_addr_recipients() {
                             false,
                         )
                         .unwrap();
-                        let pair = clarity_value.expect_tuple();
-                        let burn_block_height =
-                            pair.get("burn-height").unwrap().clone().expect_u128() as u64;
-                        let pox_addr_tuples_opt =
-                            pair.get("pox-addrs").unwrap().clone().expect_optional();
+                        let pair = clarity_value.expect_tuple().unwrap();
+                        let burn_block_height = pair
+                            .get("burn-height")
+                            .unwrap()
+                            .clone()
+                            .expect_u128()
+                            .unwrap() as u64;
+                        let pox_addr_tuples_opt = pair
+                            .get("pox-addrs")
+                            .unwrap()
+                            .clone()
+                            .expect_optional()
+                            .unwrap();
 
                         if let Some(pox_addr_tuples_list) = pox_addr_tuples_opt {
-                            let pox_addrs_and_payout_tuple = pox_addr_tuples_list.expect_tuple();
+                            let pox_addrs_and_payout_tuple =
+                                pox_addr_tuples_list.expect_tuple().unwrap();
                             let pox_addr_tuples = pox_addrs_and_payout_tuple
                                 .get("addrs")
                                 .unwrap()
                                 .to_owned()
-                                .expect_list();
+                                .expect_list()
+                                .unwrap();
 
                             let payout = pox_addrs_and_payout_tuple
                                 .get("payout")
                                 .unwrap()
                                 .to_owned()
-                                .expect_u128();
+                                .expect_u128()
+                                .unwrap();
 
                             // NOTE: there's an even number of payouts here, so this works
                             eprintln!("payout at {} = {}", burn_block_height, &payout);
@@ -1326,7 +1339,7 @@ fn transition_adds_get_pox_addr_recipients() {
         .map(|addr| Value::Tuple(addr.as_clarity_tuple().unwrap()))
     {
         eprintln!("Contains: {:?}", &addr);
-        assert!(expected_pox_addrs.contains(&addr));
+        assert!(expected_pox_addrs.contains(&addr.to_string()));
     }
 }
 
@@ -5126,10 +5139,13 @@ fn test_v1_unlock_height_with_current_stackers() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         if height < 215 {
             if !burnchain_config.is_in_prepare_phase(height) {
@@ -5402,10 +5418,13 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {

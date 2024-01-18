@@ -90,7 +90,12 @@ impl SugarExpander {
                         .collect::<Vec<_>>();
                     pairs.insert(
                         0,
-                        SymbolicExpression::atom("tuple".to_string().try_into().unwrap()),
+                        SymbolicExpression::atom(
+                            "tuple"
+                                .to_string()
+                                .try_into()
+                                .map_err(|_| ParseErrors::InterpreterFailure)?,
+                        ),
                     );
                     SymbolicExpression::list(pairs.into_boxed_slice())
                 }

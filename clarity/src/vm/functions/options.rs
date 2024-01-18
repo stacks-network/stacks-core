@@ -18,8 +18,8 @@ use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
-    RuntimeErrorType, ShortReturnType,
+    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
+    InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
@@ -94,8 +94,11 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
             if data.committed {
                 Ok(*data.data)
             } else {
-                let short_return_val = Value::error(*data.data)
-                    .expect("BUG: Failed to construct new response type from old response type");
+                let short_return_val = Value::error(*data.data).map_err(|_| {
+                    InterpreterError::Expect(
+                        "BUG: Failed to construct new response type from old response type".into(),
+                    )
+                })?;
                 Err(ShortReturnType::ExpectedValue(short_return_val).into())
             }
         }
@@ -118,7 +121,7 @@ fn eval_with_new_binding(
         return Err(CheckErrors::NameAlreadyUsed(bind_name.into()).into());
     }
 
-    let memory_use = bind_value.get_memory_use();
+    let memory_use = bind_value.get_memory_use()?;
     env.add_memory(memory_use)?;
 
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
@@ -135,7 +138,7 @@ fn eval_with_new_binding(
     inner_context.variables.insert(bind_name, bind_value);
     let result = vm::eval(body, env, &inner_context);
 
-    env.drop_memory(memory_use);
+    env.drop_memory(memory_use)?;
 
     result
 }
@@ -209,7 +212,7 @@ pub fn special_match(
     match input {
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),
         Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
-        _ => Err(CheckErrors::BadMatchInput(TypeSignature::type_of(&input)).into()),
+        _ => return Err(CheckErrors::BadMatchInput(TypeSignature::type_of(&input)?).into()),
     }
 }
 

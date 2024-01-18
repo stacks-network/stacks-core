@@ -776,6 +776,7 @@ pub fn get_input_type_string(function_type: &FunctionType) -> String {
     }
 }
 
+#[allow(clippy::panic)]
 pub fn get_output_type_string(function_type: &FunctionType) -> String {
     match function_type {
         FunctionType::Variadic(_, ref out_type) => format!("{}", out_type),
@@ -821,6 +822,8 @@ pub fn get_signature(function_name: &str, function_type: &FunctionType) -> Optio
     }
 }
 
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 fn make_for_simple_native(
     api: &SimpleFunctionAPI,
     function: &NativeFunctions,
@@ -828,7 +831,8 @@ fn make_for_simple_native(
 ) -> FunctionAPI {
     let (input_type, output_type) = {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
-            TypedNativeFunction::type_native_function(function)
+            TypedNativeFunction::type_native_function(&function)
+                .expect("Failed to type a native function")
         {
             let input_type = get_input_type_string(&function_type);
             let output_type = get_output_type_string(&function_type);
@@ -2623,6 +2627,7 @@ fn make_all_api_reference() -> ReferenceAPIs {
     }
 }
 
+#[allow(clippy::expect_used)]
 pub fn make_json_api_reference() -> String {
     let api_out = make_all_api_reference();
     serde_json::to_string(&api_out).expect("Failed to serialize documentation")
@@ -3049,9 +3054,10 @@ mod test {
                         let mut snapshot = e
                             .global_context
                             .database
-                            .get_stx_balance_snapshot_genesis(&docs_principal_id);
+                            .get_stx_balance_snapshot_genesis(&docs_principal_id)
+                            .unwrap();
                         snapshot.set_balance(balance);
-                        snapshot.save();
+                        snapshot.save().unwrap();
                         e.global_context
                             .database
                             .increment_ustx_liquid_supply(100000)

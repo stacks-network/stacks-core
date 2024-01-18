@@ -46,7 +46,7 @@ fn helper_execute_epoch(
 ) -> (Value, Vec<StacksTransactionEvent>) {
     let contract_id = QualifiedContractIdentifier::local("contract").unwrap();
     let address = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
-    let sender = execute(address).expect_principal();
+    let sender = execute(address).expect_principal().unwrap();
 
     let marf_kv = MarfedKV::temporary();
     let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
@@ -72,7 +72,7 @@ fn helper_execute_epoch(
             // bump the epoch in the Clarity DB
             tx_conn
                 .with_clarity_db(|db| {
-                    db.set_clarity_epoch_version(epoch);
+                    db.set_clarity_epoch_version(epoch).unwrap();
                     Ok(())
                 })
                 .unwrap();

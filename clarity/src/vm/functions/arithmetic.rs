@@ -21,7 +21,9 @@ use integer_sqrt::IntegerSquareRoot;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult, RuntimeErrorType};
+use crate::vm::errors::{
+    check_argument_count, CheckErrors, InterpreterError, InterpreterResult, RuntimeErrorType,
+};
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::signatures::ListTypeData;
 use crate::vm::types::TypeSignature::BoolType;
@@ -124,9 +126,9 @@ macro_rules! type_force_binary_comparison_v2 {
                 vec![
                     TypeSignature::IntType,
                     TypeSignature::UIntType,
-                    TypeSignature::max_string_ascii(),
-                    TypeSignature::max_string_utf8(),
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_string_ascii()?,
+                    TypeSignature::max_string_utf8()?,
+                    TypeSignature::max_buffer()?,
                 ],
                 x,
             )
@@ -406,7 +408,11 @@ fn special_geq_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Geq, env, cmp::min(a.size(), b.size()))?;
+    runtime_cost(
+        ClarityCostFunction::Geq,
+        env,
+        cmp::min(a.size()?, b.size()?),
+    )?;
     type_force_binary_comparison_v2!(geq, a, b)
 }
 
@@ -449,7 +455,11 @@ fn special_leq_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Leq, env, cmp::min(a.size(), b.size()))?;
+    runtime_cost(
+        ClarityCostFunction::Leq,
+        env,
+        cmp::min(a.size()?, b.size()?),
+    )?;
     type_force_binary_comparison_v2!(leq, a, b)
 }
 
@@ -491,7 +501,7 @@ fn special_greater_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Ge, env, cmp::min(a.size(), b.size()))?;
+    runtime_cost(ClarityCostFunction::Ge, env, cmp::min(a.size()?, b.size()?))?;
     type_force_binary_comparison_v2!(greater, a, b)
 }
 
@@ -533,7 +543,7 @@ fn special_less_v2(
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
-    runtime_cost(ClarityCostFunction::Le, env, cmp::min(a.size(), b.size()))?;
+    runtime_cost(ClarityCostFunction::Le, env, cmp::min(a.size()?, b.size()?))?;
     type_force_binary_comparison_v2!(less, a, b)
 }
 
@@ -578,8 +588,9 @@ pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
 
 pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
     if let Value::UInt(u128_val) = pos {
-        let shamt =
-            u32::try_from(u128_val & 0x7f).expect("FATAL: lower 32 bits did not convert to u32");
+        let shamt = u32::try_from(u128_val & 0x7f).map_err(|_| {
+            InterpreterError::Expect("FATAL: lower 32 bits did not convert to u32".into())
+        })?;
 
         match input {
             Value::Int(input) => {
@@ -592,7 +603,7 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<
             }
             _ => Err(CheckErrors::UnionTypeError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                TypeSignature::type_of(&input),
+                TypeSignature::type_of(&input)?,
             )
             .into()),
         }
@@ -603,8 +614,9 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<
 
 pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
     if let Value::UInt(u128_val) = pos {
-        let shamt =
-            u32::try_from(u128_val & 0x7f).expect("FATAL: lower 32 bits did not convert to u32");
+        let shamt = u32::try_from(u128_val & 0x7f).map_err(|_| {
+            InterpreterError::Expect("FATAL: lower 32 bits did not convert to u32".into())
+        })?;
 
         match input {
             Value::Int(input) => {
@@ -617,7 +629,7 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult
             }
             _ => Err(CheckErrors::UnionTypeError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
-                TypeSignature::type_of(&input),
+                TypeSignature::type_of(&input)?,
             )
             .into()),
         }

@@ -28,6 +28,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
 };
@@ -547,6 +548,12 @@ impl From<burnchain_error> for Error {
 impl From<clarity_error> for Error {
     fn from(e: clarity_error) -> Self {
         Error::ClarityError(e)
+    }
+}
+
+impl From<InterpreterError> for Error {
+    fn from(e: InterpreterError) -> Self {
+        Error::ClarityError(e.into())
     }
 }
 
@@ -3370,7 +3377,7 @@ pub mod test {
                             parent_microblock_header_opt.as_ref(),
                         );
 
-                    builder.epoch_finish(epoch);
+                    builder.epoch_finish(epoch).unwrap();
                     (stacks_block, microblocks)
                 },
             );
