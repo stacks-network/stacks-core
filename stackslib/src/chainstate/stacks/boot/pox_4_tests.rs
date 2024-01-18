@@ -1833,30 +1833,21 @@ fn stack_increase() {
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
     let stacker_transactions = get_last_block_sender_transactions(&observer, stacker_address);
 
-    let stacker_locked_amount: u128 = match &stacker_transactions[0].result {
-        Value::Response(ResponseData {
-            committed: _,
-            ref data,
-        }) => {
-            match **data {
-                Value::Tuple(TupleData {
-                    type_signature: _,
-                    ref data_map,
-                }) => {
-                    match data_map.get("total-locked") {
-                        Some(&Value::UInt(total_locked)) => {
-                            total_locked // Return the u128 value
-                        }
-                        _ => panic!("'total-locked' key not found or not a UInt"),
-                    }
-                }
-                _ => panic!("Response data is not a tuple"),
-            }
-        }
-        _ => panic!("Result is not a response"),
-    };
 
-    assert_eq!(stacker_locked_amount, min_ustx * 2);
+    let transaction_result = stacker_transactions
+        .first()
+        .map(|tx| tx.result.clone())
+        .unwrap();
+    let total_locked = transaction_result
+        .expect_result_ok()
+        .expect_tuple()
+        .data_map
+        .get("total-locked")
+        .expect("total-locked key not found")
+        .clone()
+        .expect_u128();
+    
+    assert_eq!(total_locked, min_ustx * 2);
 }
 
 #[test]
@@ -1924,30 +1915,21 @@ fn delegate_stack_increase() {
     let delegate_transactions =
         get_last_block_sender_transactions(&observer, delegate_address.into());
 
-    let stacker_locked_amount: u128 = match &delegate_transactions[0].result {
-        Value::Response(ResponseData {
-            committed: _,
-            ref data,
-        }) => {
-            match **data {
-                Value::Tuple(TupleData {
-                    type_signature: _,
-                    ref data_map,
-                }) => {
-                    match data_map.get("total-locked") {
-                        Some(&Value::UInt(total_locked)) => {
-                            total_locked // Return the u128 value
-                        }
-                        _ => panic!("'total-locked' key not found or not a UInt"),
-                    }
-                }
-                _ => panic!("Response data is not a tuple"),
-            }
-        }
-        _ => panic!("Result is not a response"),
-    };
+    let transaction_result = delegate_transactions
+        .first()
+        .map(|tx| tx.result.clone())
+        .unwrap();
 
-    assert_eq!(stacker_locked_amount, min_ustx * 2);
+    let total_locked = transaction_result
+        .expect_result_ok()
+        .expect_tuple()
+        .data_map
+        .get("total-locked")
+        .expect("total-locked key not found")
+        .clone()
+        .expect_u128();
+
+    assert_eq!(total_locked, min_ustx * 2);
 }
 
 pub fn get_stacking_state_pox_4(
