@@ -55,7 +55,7 @@ pub enum ConfigError {
     UnsupportedAddressVersion,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "lowercase")]
 /// The Stacks network to use.
 pub enum Network {
@@ -97,12 +97,10 @@ impl Network {
 pub struct Config {
     /// endpoint to the stacks node
     pub node_host: SocketAddr,
-    /// endpoint to the stackerdb receiver
+    /// endpoint to the event receiver
     pub endpoint: SocketAddr,
-    /// smart contract that controls the target stackerdb
+    /// smart contract that controls the target signers' stackerdb
     pub stackerdb_contract_id: QualifiedContractIdentifier,
-    /// smart contract that controls the target stackerdb
-    pub pox_contract_id: Option<QualifiedContractIdentifier>,
     /// The Scalar representation of the private key for signer communication
     pub message_private_key: Scalar,
     /// The signer's Stacks private key
@@ -141,14 +139,13 @@ struct RawSigners {
 struct RawConfigFile {
     /// endpoint to stacks node
     pub node_host: String,
-    /// endpoint to stackerdb receiver
+    /// endpoint to event receiver
     pub endpoint: String,
-    // FIXME: these contract's should go away in non testing scenarios. Make them both optionals.
-    /// Stacker db contract identifier
+    // FIXME: this should go away once .signers contract exists at pox-4 instantiation
+    /// Signers' Stacker db contract identifier
     pub stackerdb_contract_id: String,
-    /// pox contract identifier
-    pub pox_contract_id: Option<String>,
-    /// the 32 byte ECDSA private key used to sign blocks, chunks, and transactions
+
+    /// the 32 byte ECDSA private key used to sign blocks, chunks, transactions, and WSTS messages
     pub message_private_key: String,
     /// The hex representation of the signer's Stacks private key used for communicating
     /// with the Stacks Node, including writing to the Stacker DB instance.
@@ -227,17 +224,6 @@ impl TryFrom<RawConfigFile> for Config {
                 )
             })?;
 
-        let pox_contract_id = if let Some(id) = raw_data.pox_contract_id.as_ref() {
-            Some(QualifiedContractIdentifier::parse(id).map_err(|_| {
-                ConfigError::BadField(
-                    "pox_contract_id".to_string(),
-                    raw_data.pox_contract_id.unwrap_or("".to_string()),
-                )
-            })?)
-        } else {
-            None
-        };
-
         let message_private_key =
             Scalar::try_from(raw_data.message_private_key.as_str()).map_err(|_| {
                 ConfigError::BadField(
@@ -289,7 +275,6 @@ impl TryFrom<RawConfigFile> for Config {
             node_host,
             endpoint,
             stackerdb_contract_id,
-            pox_contract_id,
             message_private_key,
             stacks_private_key,
             stacks_address,

@@ -174,8 +174,6 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
-        signature: ThresholdSignature::mock(),
-        signers: vec![],
     };
 
     // non-sortition-inducing tenure change
@@ -187,8 +185,6 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::Extended,
         pubkey_hash: Hash160([0x02; 20]),
-        signature: ThresholdSignature::mock(),
-        signers: vec![],
     };
 
     let invalid_tenure_change_payload = TenureChangePayload {
@@ -200,8 +196,6 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
-        signature: ThresholdSignature::mock(),
-        signers: vec![],
     };
 
     let proof_bytes = hex_bytes("9275df67a68c8745c0ff97b48201ee6db447f7c93b23ae24cdc2400f52fdb08a1a6ac7ec71bf9c9c76e96ee4675ebff60625af28718501047bfd87b810c2d2139b73c23bd69de66360953a642c2a330a").unwrap();
@@ -615,8 +609,6 @@ pub fn test_load_store_update_nakamoto_blocks() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]),
-        signature: ThresholdSignature::mock(),
-        signers: vec![],
     };
 
     let tenure_change_tx_payload = TransactionPayload::TenureChange(tenure_change_payload.clone());
@@ -1255,8 +1247,6 @@ fn test_nakamoto_block_static_verification() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&private_key)),
-        signature: ThresholdSignature::mock(),
-        signers: vec![],
     };
 
     let tenure_change_payload_bad_ch = TenureChangePayload {
@@ -1267,8 +1257,6 @@ fn test_nakamoto_block_static_verification() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&private_key)),
-        signature: ThresholdSignature::mock(),
-        signers: vec![],
     };
 
     let tenure_change_payload_bad_miner_sig = TenureChangePayload {
@@ -1279,8 +1267,6 @@ fn test_nakamoto_block_static_verification() {
         previous_tenure_blocks: 1,
         cause: TenureChangeCause::BlockFound,
         pubkey_hash: Hash160([0x02; 20]), // wrong
-        signature: ThresholdSignature::mock(),
-        signers: vec![],
     };
 
     let tenure_change_tx_payload = TransactionPayload::TenureChange(tenure_change_payload.clone());
@@ -1551,8 +1537,6 @@ pub fn test_get_highest_nakamoto_tenure() {
             previous_tenure_blocks: 10,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160([0x00; 20]),
-            signature: ThresholdSignature::mock(),
-            signers: vec![],
         };
 
         let tx = chainstate.db_tx_begin().unwrap();

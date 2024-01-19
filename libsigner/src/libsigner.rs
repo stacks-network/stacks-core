@@ -44,8 +44,7 @@ mod session;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
-    EventReceiver, EventStopSignaler, StackerDBChunksEvent, StackerDBEventReceiver,
-    StackerDBStopSignaler,
+    EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver, SignerStopSignaler,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};

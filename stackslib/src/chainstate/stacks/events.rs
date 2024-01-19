@@ -4,6 +4,7 @@ pub use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
 };
+use libstackerdb::StackerDBChunkData;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::hash::to_hex;
@@ -85,4 +86,13 @@ impl From<(NakamotoBlock, BlockHeaderHash)> for StacksBlockEventData {
             parent_microblock_sequence: 0,
         }
     }
+}
+
+/// Event structure for newly-arrived StackerDB data
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StackerDBChunksEvent {
+    /// The contract ID for the StackerDB instance
+    pub contract_id: QualifiedContractIdentifier,
+    /// The chunk data for newly-modified slots
+    pub modified_slots: Vec<StackerDBChunkData>,
 }

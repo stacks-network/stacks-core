@@ -16,6 +16,8 @@
 
 use std::io;
 
+use clarity::vm::types::QualifiedContractIdentifier;
+
 /// Errors originating from doing an RPC request to the Stacks node
 #[derive(thiserror::Error, Debug)]
 pub enum RPCError {
@@ -66,4 +68,7 @@ pub enum EventError {
     /// Unrecognized event error
     #[error("Unrecognized event: {0}")]
     UnrecognizedEvent(String),
+    /// Unrecognized stacker DB contract error
+    #[error("Unrecognized StackerDB contract: {0}")]
+    UnrecognizedStackerDBContract(QualifiedContractIdentifier),
 }
