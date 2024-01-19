@@ -17,9 +17,11 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::MINERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
+use blockstack_lib::chainstate::stacks::ThresholdSignature;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::{HashMap, HashSet};
@@ -32,7 +34,7 @@ use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
 use wsts::curve::keys::PublicKey;
-use wsts::net::{Message, Packet};
+use wsts::net::{Message, NonceRequest, Packet, SignatureShareRequest};
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
 use wsts::state_machine::signer::Signer;
@@ -40,8 +42,8 @@ use wsts::state_machine::{OperationResult, PublicKeys};
 use wsts::v2;
 
 use crate::client::{
-    retry_with_exponential_backoff, BlockRejection, ClientError, SignerMessage, StackerDB,
-    StacksClient,
+    retry_with_exponential_backoff, BlockRejection, BlockResponse, ClientError, RejectCode,
+    SignerMessage, StackerDB, StacksClient,
 };
 use crate::config::{Config, Network};
 
@@ -75,6 +77,16 @@ pub enum State {
     Sign,
 }
 
+/// Additional Info about a proposed block
+pub struct BlockInfo {
+    /// The block we are considering
+    block: NakamotoBlock,
+    /// Our vote on the block if we have one yet
+    vote: Option<Vec<u8>>,
+    /// Whether the block contents are valid
+    valid: bool,
+}
+
 /// The runloop for the stacks signer
 pub struct RunLoop<C> {
     /// The timeout for events
@@ -93,8 +105,10 @@ pub struct RunLoop<C> {
     pub state: State,
     /// Wether mainnet or not
     pub mainnet: bool,
-    /// Bytes we agreed to sign in a particular signing round
-    pub messages: HashMap<u64, Vec<u8>>,
+    /// Observed blocks that we have seen so far
+    pub blocks: HashMap<Vec<u8>, BlockInfo>,
+    /// Transactions that we expect to see in the next block
+    pub transactions: Vec<Txid>,
 }
 
 impl<C: Coordinator> RunLoop<C> {
@@ -200,9 +214,23 @@ impl<C: Coordinator> RunLoop<C> {
     fn handle_block_validate_response(&mut self, block_validate_response: BlockValidateResponse) {
         match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                // This is a valid block proposal from the miner. Trigger a signing round for it.
+                self.blocks
+                    .entry(
+                        block_validate_ok
+                            .block
+                            .header
+                            .signature_hash()
+                            .unwrap_or(Sha512Trunc256Sum::from_data(&[]))
+                            .0
+                            .to_vec(),
+                    )
+                    .and_modify(|block_info| {
+                        block_info.valid = true;
+                    });
+                // This is a valid block proposal from the miner. Trigger a signing round for it if we are the coordinator
                 let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
                 if coordinator_id == self.signing_round.signer_id {
+                    debug!("Received a valid block proposal from the miner: {:?}\n Triggering a signing round over it...", block_validate_ok.block);
                     // We are the coordinator. Trigger a signing round for this block
                     self.commands.push_back(RunLoopCommand::Sign {
                         message: block_validate_ok.block.serialize_to_vec(),
@@ -212,17 +240,30 @@ impl<C: Coordinator> RunLoop<C> {
                 }
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
-                warn!(
-                    "Received a block proposal that was rejected by the stacks node: {:?}",
+                // There is no point in triggering a sign round for this block if validation failed from the stacks node
+                debug!(
+                    "Received a block proposal that was rejected by the stacks node: {:?}\n. Broadcasting a rejection...",
                     block_validate_reject
                 );
+                self.blocks
+                    .entry(
+                        block_validate_reject
+                            .block
+                            .header
+                            .signature_hash()
+                            .unwrap_or(Sha512Trunc256Sum::from_data(&[]))
+                            .0
+                            .to_vec(),
+                    )
+                    .and_modify(|block_info| {
+                        block_info.valid = false;
+                    });
                 // Submit a rejection response to the .signers contract for miners
-                // to observe so they know to ignore it and to prove signers are doing work
-                let block_rejection = BlockRejection::from(block_validate_reject);
-                if let Err(e) = self
-                    .stackerdb
-                    .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
-                {
+                // to observe so they know to send another block and to prove signers are doing work);
+                if let Err(e) = self.stackerdb.send_message_with_retry(
+                    self.signing_round.signer_id,
+                    block_validate_reject.into(),
+                ) {
                     warn!("Failed to send block rejection to stacker-db: {:?}", e);
                 }
             }
@@ -274,9 +315,28 @@ impl<C: Coordinator> RunLoop<C> {
                 warn!("Received an unrecognized message type from .miners stacker-db slot id {}: {:?}", chunk.slot_id, ptr);
                 continue;
             };
-            //TODO: trigger the signing round here instead. Then deserialize the block and call the validation as you validate its contents
-            // https://github.com/stacks-network/stacks-core/issues/3930
-            // Received a block proposal from the miner. Submit it for verification.
+            let Ok(hash) = block.header.signature_hash() else {
+                warn!("Received a block proposal with an invalid signature hash. Broadcasting a block rejection...");
+                let block_rejection = BlockRejection::new(block, RejectCode::InvalidSignatureHash);
+                    // Submit signature result to miners to observe
+                    if let Err(e) = self
+                    .stackerdb
+                    .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
+                {
+                    warn!("Failed to send block submission to stacker-db: {:?}", e);
+                }
+                continue;
+            };
+            let hash_bytes = hash.0.to_vec();
+            // Store the block in our cache
+            self.blocks.insert(
+                hash_bytes,
+                BlockInfo {
+                    vote: None,
+                    valid: false,
+                    block: block.clone(),
+                },
+            );
             self.stacks_client
                 .submit_block_for_validation(block)
                 .unwrap_or_else(|e| {
@@ -285,8 +345,93 @@ impl<C: Coordinator> RunLoop<C> {
         }
     }
 
+    /// Helper function to validate a signature share request, updating its message where appropriate.
+    /// If the request is for a block it has already agreed to sign, it will overwrite the message with the agreed upon value
+    /// Returns whether the request is valid or not.
+    fn validate_signature_share_request(&self, request: &mut SignatureShareRequest) -> bool {
+        // A coordinator could have sent a signature share request with a different message than we agreed to sign
+        match self
+            .blocks
+            .get(&request.message)
+            .map(|block_info| &block_info.vote)
+        {
+            Some(Some(vote)) => {
+                // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
+                request.message = vote.clone();
+                true
+            }
+            Some(None) => {
+                // We have seen this block before, but we have not agreed to sign it. TODO: ignore it
+                debug!("Received a signature share request for a block we have not validated yet.");
+                false
+            }
+            None => {
+                // We have not seen this block before.
+                // TODO: should probably ignore any messages that are not either sBTC transactons or Nakamoto blocks. Leave now for abitrary message signing
+                debug!("Received a signature share request for an unknown message stream. Signing it as is...");
+                true
+            }
+        }
+    }
+
+    /// Helper function to validate a nonce request, updating its message appropriately.
+    /// Note that if the request is for a block, we will update the request message
+    /// as either a hash indicating a vote no or the signature hash indicating a vote yes
+    /// Returns whether the request is valid or not
+    fn validate_nonce_request(&mut self, request: &mut NonceRequest) -> bool {
+        let mut ptr = &request.message[..];
+        let Some(block) = read_next::<NakamotoBlock, _>(&mut ptr).ok() else {
+            // TODO: we should probably reject requests to sign things that are not blocks or transactions (leave for now to enable testing abitrary signing)
+            warn!("Received a nonce request for an unknown message stream. Signing the nonce request as is.");
+            return true;
+        };
+        let Ok(hash) = block.header.signature_hash() else {
+            debug!("Received a nonce request for a block with an invalid signature hash. Ignore it.");
+            return false;
+        };
+        let mut hash_bytes = hash.0.to_vec();
+        let transactions = &self.transactions;
+        let block_info = self.blocks.entry(hash_bytes.clone()).or_insert(BlockInfo {
+            vote: None,
+            valid: false,
+            block: block.clone(),
+        });
+        // Validate the block contents
+        block_info.valid = Self::validate_block(block_info, transactions);
+        if !block_info.valid {
+            // We don't like this block. Update the request to be across its hash with a byte indicating a vote no.
+            debug!("Updating the request with a block hash with a vote no.");
+            hash_bytes.push(b'n');
+        } else {
+            debug!("The block passed validation. Update the request with the signature hash.");
+        }
+        // Cache our vote
+        block_info.vote = Some(hash_bytes.clone());
+        request.message = hash_bytes;
+        true
+    }
+
+    /// Helper function to validate a block's contents
+    fn validate_block(block_info: &BlockInfo, transactions: &[Txid]) -> bool {
+        if !block_info.valid {
+            return false;
+        }
+        // Ensure the block contains the transactions we care about
+        // TODO: add cast_aggregate_public_key to the list of transactions we care about.
+        // This will also need to be flushed from the cache once these transactions are in a signed block
+        for txid in transactions {
+            if block_info.block.txs.iter().any(|tx| &tx.txid() == txid) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Helper function to verify a chunk is a valid wsts packet.
-    /// Note if the chunk is a NonceRequest for a block proposal, we will sign the block hash with an optional byte indicating a vote no if appropriate.
+    /// NOTE: The packet will be updated if the signer wishes to respond to NonceRequest
+    /// and SignatureShareRequests with a different message than what the coordinator originally sent.
+    /// This is done to prevent a malicious coordinator from sending a different message than what was
+    /// agreed upon and to support the case where the signer wishes to reject a block by voting no
     fn verify_chunk(
         &mut self,
         chunk: &StackerDBChunkData,
@@ -301,57 +446,76 @@ impl<C: Coordinator> RunLoop<C> {
         if packet.verify(&self.signing_round.public_keys, coordinator_public_key) {
             match &mut packet.msg {
                 Message::SignatureShareRequest(request) => {
-                    // A coordinator could have sent a signature share request with a different message than we agreed to sign
-                    // Either another message won majority or the coordinator is trying to cheat...Overwrite with our agreed upon value
-                    if let Some(message) = self.messages.remove(&request.sign_id) {
-                        request.message = message;
+                    if !self.validate_signature_share_request(request) {
+                        return None;
                     }
-                    Some(packet)
                 }
                 Message::NonceRequest(request) => {
-                    // This is a Nonce Request...check if it is for a block proposal...
-                    let mut ptr = &request.message[..];
-                    let Some(block) = read_next::<NakamotoBlock, _>(&mut ptr).ok() else {
-                        debug!("Received a nonce request for an unknown message stream. Signing the nonce request as is.");
-                        return Some(packet);
-                    };
-                    let mut sign_message = block
-                        .header
-                        .signature_hash()
-                        .unwrap_or(Sha512Trunc256Sum::from_data(&[]))
-                        .0
-                        .to_vec();
-                    if !self.verify_block(&block) {
-                        // We don't like this block. Update the request to be across its hash with a byte indicating a vote no.
-                        debug!("Signing the block hash with a vote no.");
-                        sign_message.push(b'n');
-                    } else {
-                        debug!("Nothing to change...");
+                    if !self.validate_nonce_request(request) {
+                        return None;
                     }
-                    //Cache what we agreed to sign
-                    request.message = sign_message;
-                    Some(packet)
                 }
-                _ => Some(packet),
+                _ => {
+                    // Nothing to do for other message types
+                }
             }
+            Some(packet)
         } else {
             debug!("Failed to verify wsts packet: {:?}", &packet);
             None
         }
     }
 
-    /// Helper function to verify a blocks contents
-    fn verify_block(&self, _block: &NakamotoBlock) -> bool {
-        // TODO: update to verify the block contents
-        // Check that we received a block proposal response that validated the current block. If not, we vote no.
-        // Check that it contains the necessary stacks transactions
-        true
-    }
-
     /// Helper function to extract block proposals from signature results and braodcast them to the stackerdb slot
-    fn send_block_response_messages(&mut self, _operation_results: &[OperationResult]) {
-        //TODO: Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
-        // https://github.com/stacks-network/stacks-core/issues/3930
+    fn send_block_response_messages(&mut self, operation_results: &[OperationResult]) {
+        let Some(aggregate_public_key) = &self
+            .coordinator
+            .get_aggregate_public_key() else {
+            debug!("No aggregate public key set. Cannot validate results. Ignoring signature results...");
+            return;
+        };
+        //Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
+        for operation_result in operation_results {
+            // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
+            if let OperationResult::Sign(signature) = operation_result {
+                let message = self.coordinator.get_message();
+                if !signature.verify(aggregate_public_key, &message) {
+                    debug!("Received a signature result for a block that was not signed by the aggregate public key...Ignoring");
+                    continue;
+                }
+
+                let Some(block_info) = self.blocks.remove(&message) else {
+                    debug!("Received a signature result for a block we have not seen before. Ignoring...");
+                    continue;
+                };
+
+                // Update the block signature hash with what the signers produced.
+                let mut block = block_info.block;
+                block.header.signer_signature = ThresholdSignature(signature.clone());
+
+                let block_submission = if block
+                    .header
+                    .signature_hash()
+                    .unwrap_or(Sha512Trunc256Sum::from_data(&[]))
+                    .0
+                    .to_vec()
+                    == message
+                {
+                    // we agreed to sign the block hash. Return an approval message
+                    BlockResponse::Accepted(block).into()
+                } else {
+                    // We signed a rejection message. Return a rejection message
+                    BlockRejection::new(block, RejectCode::SignedRejection).into()
+                };
+                // Submit signature result to miners to observe
+                if let Err(e) = self
+                    .stackerdb
+                    .send_message_with_retry(self.signing_round.signer_id, block_submission)
+                {
+                    warn!("Failed to send block submission to stacker-db: {:?}", e);
+                }
+            }
+        }
     }
 
     /// Helper function to send operation results across the provided channel
@@ -463,7 +627,8 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             commands: VecDeque::new(),
             state: State::Uninitialized,
             mainnet: config.network == Network::Mainnet,
-            messages: HashMap::new(),
+            blocks: HashMap::new(),
+            transactions: Vec::new(),
         }
     }
 }

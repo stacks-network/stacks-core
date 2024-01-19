@@ -8,11 +8,11 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerEventReceiver};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
-use stacks::chainstate::stacks::StacksPrivateKey;
+use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
-use stacks_signer::client::SIGNER_SLOTS_PER_USER;
+use stacks_signer::client::{BlockResponse, SignerMessage, SIGNER_SLOTS_PER_USER};
 use stacks_signer::config::{Config as SignerConfig, Network};
 use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
@@ -526,7 +526,7 @@ fn stackerdb_block_proposal() {
         thread::sleep(Duration::from_secs(1));
     }
     let validate_responses = test_observer::get_proposal_responses();
-    let proposed_block = match validate_responses.first().expect("No block proposal") {
+    let mut proposed_block = match validate_responses.first().expect("No block proposal") {
         BlockValidateResponse::Ok(block_validated) => block_validated.block.clone(),
         _ => panic!("Unexpected response"),
     };
@@ -538,5 +538,37 @@ fn stackerdb_block_proposal() {
         signature.verify(&aggregate_public_key, signature_hash.0.as_slice()),
         "Signature verification failed"
     );
+    // Verify that the signers broadcasted a signed NakamotoBlock back to the .signers contract
+    let t_start = std::time::Instant::now();
+    let mut chunk = None;
+    while chunk.is_none() {
+        assert!(
+            t_start.elapsed() < Duration::from_secs(30),
+            "Timed out while waiting for signers block response stacker db event"
+        );
+        thread::sleep(Duration::from_secs(1));
+
+        let nakamoto_blocks = test_observer::get_stackerdb_chunks();
+        for event in nakamoto_blocks {
+            // The tenth slot is the miners block slot
+            for slot in event.modified_slots {
+                if slot.slot_id == 10 {
+                    chunk = Some(slot.data);
+                    break;
+                }
+            }
+            if chunk.is_some() {
+                break;
+            }
+        }
+    }
+    let chunk = chunk.unwrap();
+    let signer_message = bincode::deserialize::<SignerMessage>(&chunk).unwrap();
+    if let SignerMessage::BlockResponse(BlockResponse::Accepted(block)) = signer_message {
+        proposed_block.header.signer_signature = ThresholdSignature(signature);
+        assert_eq!(block, proposed_block);
+    } else {
+        panic!("Received unexpected message");
+    }
     signer_test.shutdown();
 }
