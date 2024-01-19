@@ -155,7 +155,7 @@ pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,
     pub amount_stacked: u128,
     pub stacker: Option<PrincipalData>,
-    pub signing_key: Option<[u8; 33]>,
+    pub signing_key: Option<PrincipalData>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -169,29 +169,23 @@ pub struct PoxStartCycleInfo {
     pub missed_reward_slots: Vec<(PrincipalData, u128)>,
 }
 
-fn hex_serialize<S: serde::Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
-    let inst = to_hex(bytes);
-    s.serialize_str(inst.as_str())
+fn addr_serialize<S: serde::Serializer>(addr: &StacksAddress, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&addr.to_string())
 }
 
-fn hex_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[u8; 33], D::Error> {
-    let inst_str = String::deserialize(d)?;
-    let mut out = [0; 33];
-    let bytes = hex_bytes(&inst_str).map_err(serde::de::Error::custom)?;
-    if bytes.len() != out.len() {
-        return Err(serde::de::Error::invalid_length(
-            bytes.len(),
-            &"Expected hex-encoded buffer of byte-length 33",
-        ));
-    }
-    out.copy_from_slice(bytes.as_slice());
-    Ok(out)
+fn addr_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<StacksAddress, D::Error> {
+    let addr_str = String::deserialize(d)?;
+    StacksAddress::from_string(&addr_str)
+        .ok_or_else(|| serde::de::Error::custom("Address must be a C32 encoded StacksAddress"))
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct NakamotoSignerEntry {
-    #[serde(serialize_with = "hex_serialize", deserialize_with = "hex_deserialize")]
-    pub signing_key: [u8; 33],
+    #[serde(
+        serialize_with = "addr_serialize",
+        deserialize_with = "addr_deserialize"
+    )]
+    pub signing_address: StacksAddress,
     pub stacked_amt: u128,
     pub slots: u32,
 }
@@ -630,8 +624,13 @@ impl StacksChainState {
 
         let mut signer_set = BTreeMap::new();
         for entry in entries.iter() {
-            let signing_key = entry.signing_key.as_ref().unwrap();
-            if let Some(existing_entry) = signer_set.get_mut(signing_key) {
+            let signing_key = if let Some(PrincipalData::Standard(s)) = entry.signing_key.clone() {
+                StacksAddress::from(s)
+            } else {
+                // TODO: should figure out if in mainnet?
+                StacksAddress::burn_address(true)
+            };
+            if let Some(existing_entry) = signer_set.get_mut(&signing_key) {
                 *existing_entry += entry.amount_stacked;
             } else {
                 signer_set.insert(signing_key.clone(), entry.amount_stacked);
@@ -640,14 +639,14 @@ impl StacksChainState {
 
         let mut signer_set: Vec<_> = signer_set
             .into_iter()
-            .filter_map(|(signing_key, stacked_amt)| {
+            .filter_map(|(signing_address, stacked_amt)| {
                 let slots = u32::try_from(stacked_amt / threshold)
                     .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
                 if slots == 0 {
                     return None;
                 }
                 Some(NakamotoSignerEntry {
-                    signing_key,
+                    signing_address,
                     stacked_amt,
                     slots,
                 })
@@ -656,7 +655,7 @@ impl StacksChainState {
 
         // finally, we must sort the signer set: the signer participation bit vector depends
         //  on a consensus-critical ordering of the signer set.
-        signer_set.sort_by_key(|entry| entry.signing_key);
+        signer_set.sort_by_key(|entry| entry.signing_address);
 
         Some(signer_set)
     }

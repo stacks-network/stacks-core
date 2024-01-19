@@ -18,8 +18,10 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::types::PrincipalData;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
@@ -72,9 +74,10 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         //   this method just mocks that data.
         for (index, entry) in registered_addrs.iter_mut().enumerate() {
             let index = u64::try_from(index).expect("FATAL: more than u64 reward set entries");
-            let mut bytes = [0; 33];
-            bytes[0..8].copy_from_slice(&index.to_be_bytes());
-            entry.signing_key = Some(bytes);
+            let sk = StacksPrivateKey::from_seed(&index.to_be_bytes());
+            let addr =
+                StacksAddress::p2pkh(chainstate.mainnet, &StacksPublicKey::from_private(&sk));
+            entry.signing_key = Some(addr.into());
         }
 
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);

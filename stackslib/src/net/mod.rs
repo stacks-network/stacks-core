@@ -1880,6 +1880,15 @@ pub mod test {
         ) {
             // pass
         }
+
+        fn announce_reward_set(
+            &self,
+            _reward_set: &RewardSet,
+            _block_id: &StacksBlockId,
+            _cycle_number: u64,
+        ) {
+            // pass
+        }
     }
 
     // describes a peer's initial configuration
