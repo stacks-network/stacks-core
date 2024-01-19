@@ -33,19 +33,20 @@ use crate::config::Config;
 /// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
 /// Is equal to the number of message types
-pub const SIGNER_SLOTS_PER_USER: u32 = 10;
+pub const SIGNER_SLOTS_PER_USER: u32 = 11;
 
 // The slot IDS for each message type
 const DKG_BEGIN_SLOT_ID: u32 = 0;
 const DKG_PRIVATE_BEGIN_SLOT_ID: u32 = 1;
-const DKG_END_SLOT_ID: u32 = 2;
-const DKG_PUBLIC_SHARES_SLOT_ID: u32 = 3;
-const DKG_PRIVATE_SHARES_SLOT_ID: u32 = 4;
-const NONCE_REQUEST_SLOT_ID: u32 = 5;
-const NONCE_RESPONSE_SLOT_ID: u32 = 6;
-const SIGNATURE_SHARE_REQUEST_SLOT_ID: u32 = 7;
-const SIGNATURE_SHARE_RESPONSE_SLOT_ID: u32 = 8;
-const BLOCK_SLOT_ID: u32 = 9;
+const DKG_END_BEGIN_SLOT_ID: u32 = 2;
+const DKG_END_SLOT_ID: u32 = 3;
+const DKG_PUBLIC_SHARES_SLOT_ID: u32 = 4;
+const DKG_PRIVATE_SHARES_SLOT_ID: u32 = 5;
+const NONCE_REQUEST_SLOT_ID: u32 = 6;
+const NONCE_RESPONSE_SLOT_ID: u32 = 7;
+const SIGNATURE_SHARE_REQUEST_SLOT_ID: u32 = 8;
+const SIGNATURE_SHARE_RESPONSE_SLOT_ID: u32 = 9;
+const BLOCK_SLOT_ID: u32 = 10;
 
 /// The messages being sent through the stacker db contracts
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -122,6 +123,7 @@ impl SignerMessage {
             Self::Packet(packet) => match packet.msg {
                 Message::DkgBegin(_) => DKG_BEGIN_SLOT_ID,
                 Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_SLOT_ID,
+                Message::DkgEndBegin(_) => DKG_END_BEGIN_SLOT_ID,
                 Message::DkgEnd(_) => DKG_END_SLOT_ID,
                 Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_SLOT_ID,
                 Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_SLOT_ID,

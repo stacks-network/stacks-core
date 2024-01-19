@@ -15,13 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
+use hashbrown::HashMap;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use stacks_common::address::*;
@@ -95,7 +96,7 @@ pub struct TestSigners {
     /// The parties that will sign the blocks
     pub signer_parties: Vec<wsts::v2::Party>,
     /// The commitments to the polynomials for the aggregate public key
-    pub poly_commitments: Vec<wsts::common::PolyCommitment>,
+    pub poly_commitments: HashMap<u32, wsts::common::PolyCommitment>,
     /// The aggregate public key
     pub aggregate_public_key: Point,
     /// The total number of key ids distributed among signer_parties
@@ -110,7 +111,7 @@ impl Default for TestSigners {
         let num_keys = 10;
         let threshold = 7;
         let party_key_ids: Vec<Vec<u32>> =
-            vec![vec![0, 1, 2], vec![3, 4], vec![5, 6, 7], vec![8, 9]];
+            vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8], vec![9, 10]];
         let num_parties = party_key_ids.len().try_into().unwrap();
 
         // Create the parties
@@ -136,10 +137,11 @@ impl Default for TestSigners {
                 panic!("Got secret errors from DKG: {:?}", secret_errors);
             }
         };
-        let aggregate_public_key = poly_commitments.iter().fold(
-            Point::default(),
-            |s, poly_commitment: &wsts::common::PolyCommitment| s + poly_commitment.poly[0],
-        );
+        let mut sig_aggregator = wsts::v2::Aggregator::new(num_keys, threshold);
+        sig_aggregator
+            .init(&poly_commitments)
+            .expect("aggregator init failed");
+        let aggregate_public_key = sig_aggregator.poly[0];
         Self {
             signer_parties,
             aggregate_public_key,
@@ -163,7 +165,7 @@ impl TestSigners {
 
         let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
         sig_aggregator
-            .init(self.poly_commitments.clone())
+            .init(&self.poly_commitments)
             .expect("aggregator init failed");
         let signature = sig_aggregator
             .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)

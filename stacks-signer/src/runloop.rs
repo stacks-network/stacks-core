@@ -373,14 +373,12 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             .signer_key_ids
             .get(&config.signer_id)
             .unwrap()
-            .iter()
-            .map(|i| i - 1) // Signer::new (unlike Signer::from) doesn't do this
-            .collect::<Vec<u32>>();
+            .clone();
         // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
         let signer_key_ids = config
             .signer_key_ids
             .iter()
-            .map(|(i, ids)| (*i, ids.iter().map(|id| id - 1).collect::<HashSet<u32>>()))
+            .map(|(i, ids)| (*i, ids.iter().copied().collect::<HashSet<u32>>()))
             .collect::<HashMap<u32, HashSet<u32>>>();
 
         let coordinator_config = CoordinatorConfig {
@@ -390,6 +388,7 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             num_keys: total_keys,
             message_private_key: config.message_private_key,
             dkg_public_timeout: config.dkg_public_timeout,
+            dkg_private_timeout: config.dkg_private_timeout,
             dkg_end_timeout: config.dkg_end_timeout,
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
