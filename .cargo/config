@@ -7,16 +7,16 @@ fmt-stacks = "fmt -- --config group_imports=StdExternalCrate,imports_granularity
 #linker = "/usr/bin/clang"
 #rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
 
-# Uncomment the two patches below to use local versions of stacks-core and clarity-wasm
-# [patch.'https://github.com/stacks-network/stacks-core.git']
-# clarity = { path = "clarity" }
-# stacks-common = { path = "stacks-common" }
-# pox-locking = { path = "pox-locking" }
-# libstackerdb = { path = "libstackerdb" }
-# stx-genesis = { path = "stx-genesis"}
-# stacks = { package = "stackslib", path = "stackslib" }
-# libsigner = { path = "libsigner" }
-# stacks-signer = { path = "stacks-signer" }
+# Patch dependencies to use devnet branch.
+[patch.'https://github.com/stacks-network/stacks-core.git']
+clarity = { git = "https://github.com/stacks-network//stacks-core", branch = "devnet-wasm" }
+stacks-common = { git = "https://github.com/stacks-network//stacks-core", branch = "devnet-wasm" }
+pox-locking = { git = "https://github.com/stacks-network//stacks-core", branch = "devnet-wasm" }
+libstackerdb = { git = "https://github.com/stacks-network//stacks-core", branch = "devnet-wasm" }
+stx-genesis = { git = "https://github.com/stacks-network//stacks-core", branch = "devnet-wasm" }
+stacks = { git = "https://github.com/stacks-network//stacks-core", branch = "devnet-wasm", package = "stackslib" }
+libsigner = { git = "https://github.com/stacks-network//stacks-core", branch = "devnet-wasm" }
+stacks-signer = { git = "https://github.com/stacks-network//stacks-core", branch = "devnet-wasm" }
 
-# [patch.'https://github.com/stacks-network/clarity-wasm.git']
-# clar2wasm = { package = "clar2wasm", path = "../clar2wasm/." }
+[patch.'https://github.com/stacks-network/clarity-wasm.git']
+clar2wasm = { git = "https://github.com/stacks-network//clarity-wasm", branch = "devnet" }
