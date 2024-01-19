@@ -1941,7 +1941,7 @@ impl NodeConfig {
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
-        info!("Resolve '{}'", &hostport);
+        debug!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
