@@ -355,7 +355,7 @@ mod tests {
             network: Network::Testnet,
             signers: vec![],
             signer_id: 0,
-            event_timeout: None,
+            event_timeout_ms: None,
         };
         overrides(&mut config);
         config
