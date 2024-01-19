@@ -1,4 +1,4 @@
-FROM stacks-node:integrations AS test
+FROM stacks-blockchain:integrations AS test
 
 ARG test_name
 ENV BITCOIND_TEST 1

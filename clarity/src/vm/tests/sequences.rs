@@ -14,30 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::types::signatures::{ListTypeData, SequenceSubtype};
+use crate::vm::types::signatures::SequenceSubtype;
 use crate::vm::types::TypeSignature::{BoolType, IntType, SequenceType, UIntType};
 use crate::vm::types::{StringSubtype, StringUTF8Length, TypeSignature, Value};
-#[cfg(test)]
 use rstest::rstest;
-#[cfg(test)]
 use rstest_reuse::{self, *};
 
-use crate::vm::analysis::errors::CheckError;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
-use crate::vm::types::signatures::SequenceSubtype::{BufferType, ListType, StringType};
+use crate::vm::tests::test_clarity_versions;
+use crate::vm::types::signatures::SequenceSubtype::{BufferType, StringType};
 use crate::vm::types::signatures::StringSubtype::ASCII;
 use crate::vm::types::BufferLength;
-use crate::vm::types::CharType::UTF8;
 use crate::vm::{execute, execute_v2, ClarityVersion};
 use stacks_common::types::StacksEpochId;
 use std::convert::{TryFrom, TryInto};
-
-#[template]
-#[rstest]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)]
-#[case(ClarityVersion::Clarity1, StacksEpochId::Epoch21)]
-#[case(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_clarity_versions_sequences(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
 #[test]
 fn test_simple_list_admission() {
@@ -1166,7 +1156,7 @@ fn test_buff_len() {
     assert_eq!(expected, execute(test2).unwrap().unwrap());
 }
 
-#[apply(test_clarity_versions_sequences)]
+#[apply(test_clarity_versions)]
 fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let test1 = "(list 1 2 3 true)";
     assert_eq!(

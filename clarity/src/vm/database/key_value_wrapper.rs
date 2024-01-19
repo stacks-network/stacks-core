@@ -18,10 +18,13 @@ use std::collections::HashMap;
 use std::{clone::Clone, cmp::Eq, hash::Hash};
 
 use crate::vm::database::clarity_store::make_contract_hash_key;
-use crate::vm::errors::InterpreterResult as Result;
+use crate::vm::errors::InterpreterResult;
 use crate::vm::types::serialization::SerializationError;
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
-use crate::vm::Value;
+use crate::vm::types::{
+    QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
+};
+use crate::vm::{StacksEpoch, Value};
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::types::chainstate::StacksBlockId;
@@ -102,6 +105,7 @@ where
 
 /// Result structure for fetched values from the
 ///  underlying store.
+#[derive(Debug)]
 pub struct ValueResult {
     pub value: Value,
     pub serialized_byte_len: u64,
@@ -324,7 +328,7 @@ impl<'a> RollbackWrapper<'a> {
         &mut self,
         bhh: StacksBlockId,
         query_pending_data: bool,
-    ) -> Result<StacksBlockId> {
+    ) -> InterpreterResult<StacksBlockId> {
         self.store.set_block_hash(bhh).and_then(|x| {
             // use and_then so that query_pending_data is only set once set_block_hash succeeds
             //  this doesn't matter in practice, because a set_block_hash failure always aborts
@@ -366,31 +370,41 @@ impl<'a> RollbackWrapper<'a> {
         lookup_result.or_else(|| self.store.get(key).map(|x| T::deserialize(&x)))
     }
 
+    pub fn deserialize_value(
+        value_hex: &str,
+        expected: &TypeSignature,
+        epoch: &StacksEpochId,
+    ) -> Result<ValueResult, SerializationError> {
+        let serialized_byte_len = value_hex.len() as u64 / 2;
+        let sanitize = epoch.value_sanitizing();
+        let value = Value::try_deserialize_hex(value_hex, expected, sanitize)?;
+
+        Ok(ValueResult {
+            value,
+            serialized_byte_len,
+        })
+    }
+
     /// Get a Clarity value from the underlying Clarity KV store.
     /// Returns Some if found, with the Clarity Value and the serialized byte length of the value.
     pub fn get_value(
         &mut self,
         key: &str,
         expected: &TypeSignature,
-    ) -> std::result::Result<Option<ValueResult>, SerializationError> {
+        epoch: &StacksEpochId,
+    ) -> Result<Option<ValueResult>, SerializationError> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
 
         if self.query_pending_data {
             if let Some(x) = self.lookup_map.get(key).and_then(|x| x.last()) {
-                return Ok(Some(ValueResult {
-                    value: Value::try_deserialize_hex(x, expected)?,
-                    serialized_byte_len: x.len() as u64 / 2,
-                }));
+                return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
             }
         }
 
         match self.store.get(key) {
-            Some(x) => Ok(Some(ValueResult {
-                value: Value::try_deserialize_hex(&x, expected)?,
-                serialized_byte_len: x.len() as u64 / 2,
-            })),
+            Some(x) => Ok(Some(Self::deserialize_value(&x, expected, epoch)?)),
             None => Ok(None),
         }
     }
@@ -442,7 +456,7 @@ impl<'a> RollbackWrapper<'a> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
+    ) -> InterpreterResult<Option<String>> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
@@ -471,7 +485,7 @@ impl<'a> RollbackWrapper<'a> {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
+    ) -> InterpreterResult<Option<String>> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");

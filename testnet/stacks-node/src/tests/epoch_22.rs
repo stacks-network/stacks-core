@@ -1,14 +1,12 @@
 use std::collections::HashMap;
 use std::env;
 use std::thread;
-use std::time::Duration;
 
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::signal_mining_blocked;
 use stacks::chainstate::stacks::miner::signal_mining_ready;
-use stacks::core::PEER_VERSION_EPOCH_2_2;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks::types::chainstate::StacksAddress;
 use stacks::types::PrivateKey;
@@ -18,7 +16,6 @@ use crate::config::EventObserverConfig;
 use crate::config::InitialBalance;
 use crate::neon;
 use crate::neon_node::StacksNode;
-use crate::node::get_account_balances;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::epoch_21::wait_pox_stragglers;
 use crate::tests::neon_integrations::*;
@@ -165,13 +162,9 @@ fn disable_pox() {
     epochs[2].end_height = epoch_2_1;
     epochs[3].start_height = epoch_2_1;
     epochs[3].end_height = epoch_2_2;
-    epochs.push(StacksEpoch {
-        epoch_id: StacksEpochId::Epoch22,
-        start_height: epoch_2_2,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: epochs[3].block_limit.clone(),
-        network_epoch: PEER_VERSION_EPOCH_2_2,
-    });
+    epochs[4].start_height = epoch_2_2;
+    epochs[4].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(5);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -186,6 +179,7 @@ fn disable_pox() {
         u64::max_value() - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -612,7 +606,6 @@ fn pox_2_unlock_all() {
     let epoch_2_2 = 239; // one block before a prepare phase
 
     let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let increase_by = 1_000_0000 * (core::MICROSTACKS_PER_STACKS as u64);
 
     let spender_sk = StacksPrivateKey::new();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
@@ -699,13 +692,9 @@ fn pox_2_unlock_all() {
     epochs[2].end_height = epoch_2_1;
     epochs[3].start_height = epoch_2_1;
     epochs[3].end_height = epoch_2_2;
-    epochs.push(StacksEpoch {
-        epoch_id: StacksEpochId::Epoch22,
-        start_height: epoch_2_2,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: epochs[3].block_limit.clone(),
-        network_epoch: PEER_VERSION_EPOCH_2_2,
-    });
+    epochs[4].start_height = epoch_2_2;
+    epochs[4].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(5);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -720,6 +709,7 @@ fn pox_2_unlock_all() {
         u64::max_value() - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -899,6 +889,10 @@ fn pox_2_unlock_all() {
 
     submit_tx(&http_origin, &tx);
     let nonce_of_2_1_unlock_ht_call = 3;
+    // this mines bitcoin block epoch_2_2 - 2, and causes
+    //  the stacks-node to mine the stacks block which will be included
+    //  in bitcoin block epoch_2_2 - 1, so `nonce_of_2_1_unlock_ht_call`
+    //  will be included in that bitcoin block.
     // this will build the last block before 2.2 activates
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
@@ -915,13 +909,17 @@ fn pox_2_unlock_all() {
     submit_tx(&http_origin, &tx);
     let nonce_of_2_2_unlock_ht_call = 4;
 
+    // this mines bitcoin block epoch_2_2 - 1, and causes
+    //  the stacks-node to mine the stacks block which will be included
+    //  in bitcoin block epoch_2_2, so `nonce_of_2_2_unlock_ht_call`
+    //  will be included in that bitcoin block.
     // this block activates 2.2
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
     // this *burn block* is when the unlock occurs
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
-    // and this will wake up the node
+    // and this will mine the first block whose parent is the unlock block
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
     let spender_1_account = get_account(&http_origin, &spender_addr);
@@ -958,7 +956,7 @@ fn pox_2_unlock_all() {
         "Spender 2 should have two accepted transactions"
     );
 
-    // and this block is the first block whose parent has >= unlock burn block
+    // and this will mice the bitcoin block containing the first block whose parent has >= unlock burn block
     //  (which is the criterion for the unlock)
     next_block_and_wait(&mut &mut btc_regtest_controller, &blocks_processed);
 
@@ -1291,14 +1289,9 @@ fn test_pox_reorg_one_flap() {
     epochs[2].end_height = 151;
     epochs[3].start_height = 151;
     epochs[3].end_height = epoch_2_2;
-    epochs.push(StacksEpoch {
-        epoch_id: StacksEpochId::Epoch22,
-        start_height: epoch_2_2,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: epochs[3].block_limit.clone(),
-        network_epoch: PEER_VERSION_EPOCH_2_2,
-    });
-
+    epochs[4].start_height = epoch_2_2;
+    epochs[4].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(5);
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5)
@@ -1406,6 +1399,7 @@ fn test_pox_reorg_one_flap() {
             (1700 * reward_cycle_len).into(),
             v1_unlock_height,
             v2_unlock_height.try_into().unwrap(),
+            u32::MAX,
         );
         burnchain_config.pox_constants = pox_constants.clone();
 

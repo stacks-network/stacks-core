@@ -18,8 +18,6 @@ use std::env;
 use std::thread;
 
 use stacks::burnchains::Burnchain;
-use stacks::core::PEER_VERSION_EPOCH_2_2;
-use stacks::core::PEER_VERSION_EPOCH_2_3;
 use stacks::core::STACKS_EPOCH_MAX;
 use stacks::vm::types::QualifiedContractIdentifier;
 
@@ -124,20 +122,11 @@ fn trait_invocation_behavior() {
     epochs[2].end_height = epoch_2_1;
     epochs[3].start_height = epoch_2_1;
     epochs[3].end_height = epoch_2_2;
-    epochs.push(StacksEpoch {
-        epoch_id: StacksEpochId::Epoch22,
-        start_height: epoch_2_2,
-        end_height: epoch_2_3,
-        block_limit: epochs[3].block_limit.clone(),
-        network_epoch: PEER_VERSION_EPOCH_2_2,
-    });
-    epochs.push(StacksEpoch {
-        epoch_id: StacksEpochId::Epoch23,
-        start_height: epoch_2_3,
-        end_height: STACKS_EPOCH_MAX,
-        block_limit: epochs[3].block_limit.clone(),
-        network_epoch: PEER_VERSION_EPOCH_2_3,
-    });
+    epochs[4].start_height = epoch_2_2;
+    epochs[4].end_height = epoch_2_3;
+    epochs[5].start_height = epoch_2_3;
+    epochs[5].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate(6);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -152,6 +141,7 @@ fn trait_invocation_behavior() {
         u64::max_value() - 1,
         v1_unlock_height as u32,
         epoch_2_2 as u32 + 1,
+        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -362,7 +352,7 @@ fn trait_invocation_behavior() {
     // epoch_2_2 - 1, so these are the last transactions processed pre-2.2.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    let publish_invoke = make_contract_publish(
+    let publish_wrap = make_contract_publish(
         &spender_sk,
         spender_nonce,
         fee_amount,
@@ -371,7 +361,7 @@ fn trait_invocation_behavior() {
     );
 
     spender_nonce += 1;
-    submit_tx(&http_origin, &publish_invoke);
+    submit_tx(&http_origin, &publish_wrap);
 
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);

@@ -60,12 +60,16 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch22 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 2.3.
                 StacksEpochId::Epoch23 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 2.4.
+                StacksEpochId::Epoch24 => $Epoch205Version(args, env, context),
             }
         }
     };
 }
 
 use crate::vm::ClarityVersion;
+
+use super::errors::InterpreterError;
 
 mod arithmetic;
 mod assets;
@@ -604,7 +608,10 @@ fn special_print(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    let input = eval(&args[0], env, context)?;
+    let arg = args.get(0).ok_or_else(|| {
+        InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
+    })?;
+    let input = eval(arg, env, context)?;
 
     runtime_cost(ClarityCostFunction::Print, env, input.size())?;
 

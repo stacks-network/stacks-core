@@ -4899,6 +4899,14 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch24 => {
+                            receipts.push(clarity_tx.block.initialize_epoch_2_05()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
@@ -4919,6 +4927,13 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch24 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_1()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
@@ -4933,20 +4948,40 @@ impl StacksChainState {
                             receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
                             applied = true;
                         }
+                        StacksEpochId::Epoch24 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_2()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            applied = true;
+                        }
                         _ => {
                             panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
                         }
                     },
-                    StacksEpochId::Epoch22 => {
+                    StacksEpochId::Epoch22 => match sortition_epoch.epoch_id {
+                        StacksEpochId::Epoch23 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            applied = true;
+                        }
+                        StacksEpochId::Epoch24 => {
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                            receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
+                            applied = true;
+                        }
+                        _ => {
+                            panic!("Bad Stacks epoch transition; parent_epoch = {}, current_epoch = {}", &stacks_parent_epoch, &sortition_epoch.epoch_id);
+                        }
+                    },
+                    StacksEpochId::Epoch23 => {
                         assert_eq!(
                             sortition_epoch.epoch_id,
-                            StacksEpochId::Epoch23,
-                            "Should only transition from Epoch22 to Epoch23"
+                            StacksEpochId::Epoch24,
+                            "Should only transition from Epoch23 to Epoch24"
                         );
-                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_3()?);
+                        receipts.append(&mut clarity_tx.block.initialize_epoch_2_4()?);
                         applied = true;
                     }
-                    StacksEpochId::Epoch23 => {
+                    StacksEpochId::Epoch24 => {
                         panic!("No defined transition from Epoch23 forward")
                     }
                 }
@@ -5320,12 +5355,14 @@ impl StacksChainState {
         clarity_tx
             .connection()
             .as_transaction(|tx_connection| {
+                let epoch = tx_connection.get_epoch();
                 let result = tx_connection.with_clarity_db(|db| {
                     let block_height = Value::UInt(db.get_current_block_height().into());
                     let res = db.fetch_entry_unknown_descriptor(
                         &lockup_contract_id,
                         "lockups",
                         &block_height,
+                        &epoch,
                     )?;
                     Ok(res)
                 })?;
@@ -5534,7 +5571,10 @@ impl StacksChainState {
                 // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
                 Ok((stack_ops, transfer_ops, vec![]))
             }
-            StacksEpochId::Epoch21 | StacksEpochId::Epoch22 | StacksEpochId::Epoch23 => {
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24 => {
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
                     parent_index_hash,
@@ -5567,38 +5607,67 @@ impl StacksChainState {
         // Do not try to handle auto-unlocks on pox_reward_cycle 0
         // This cannot even occur in the mainchain, because 2.1 starts much
         //  after the 1st reward cycle, however, this could come up in mocknets or regtest.
-        if pox_reward_cycle > 1 {
-            // do not try to handle auto-unlocks before the reward set has been calculated (at block = 0 of cycle)
-            //  or written to the sortition db (at block = 1 of cycle)
-            if Burnchain::is_before_reward_cycle(
-                burn_dbconn.get_burn_start_height().into(),
-                burn_tip_height,
-                burn_dbconn.get_pox_reward_cycle_length().into(),
-            ) {
-                debug!("check_and_handle_reward_start: before reward cycle");
-                return Ok(vec![]);
-            }
-            let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
-            });
-            debug!("check_and_handle_reward_start: handled = {}", handled);
-
-            if !handled {
-                let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
-                    parent_sortition_id,
-                    chain_tip.burn_header_height.into(),
-                    pox_reward_cycle,
-                )?;
-                debug!("check_and_handle_reward_start: got pox reward cycle info");
-                let events = clarity_tx.block.as_free_transaction(|clarity_tx| {
-                    Self::handle_pox_cycle_start(clarity_tx, pox_reward_cycle, pox_start_cycle_info)
-                })?;
-                debug!("check_and_handle_reward_start: handled pox cycle start");
-                return Ok(events);
-            }
+        if pox_reward_cycle <= 1 {
+            return Ok(vec![]);
         }
 
-        Ok(vec![])
+        // do not try to handle auto-unlocks before the reward set has been calculated (at block = 0 of cycle)
+        //  or written to the sortition db (at block = 1 of cycle)
+        if Burnchain::is_before_reward_cycle(
+            burn_dbconn.get_burn_start_height().into(),
+            burn_tip_height,
+            burn_dbconn.get_pox_reward_cycle_length().into(),
+        ) {
+            debug!("check_and_handle_reward_start: before reward cycle");
+            return Ok(vec![]);
+        }
+        let handled = clarity_tx.with_clarity_db_readonly(|clarity_db| {
+            Self::handled_pox_cycle_start(clarity_db, pox_reward_cycle)
+        });
+        debug!("check_and_handle_reward_start: handled = {}", handled);
+
+        if handled {
+            // already handled this cycle, don't need to do anything
+            return Ok(vec![]);
+        }
+
+        let active_epoch = clarity_tx.get_epoch();
+
+        let pox_start_cycle_info = sortition_dbconn.get_pox_start_cycle_info(
+            parent_sortition_id,
+            chain_tip.burn_header_height.into(),
+            pox_reward_cycle,
+        )?;
+        debug!("check_and_handle_reward_start: got pox reward cycle info");
+        let events = clarity_tx.block.as_free_transaction(|clarity_tx| {
+            match active_epoch {
+                StacksEpochId::Epoch10
+                | StacksEpochId::Epoch20
+                | StacksEpochId::Epoch2_05
+                | StacksEpochId::Epoch21
+                | StacksEpochId::Epoch22
+                | StacksEpochId::Epoch23 => {
+                    // prior to epoch-2.4, the semantics of this method were such that any epoch
+                    // would invoke the `handle_pox_cycle_start_pox_2()` method.
+                    // however, only epoch-2.1 ever actually *does* invoke this method,
+                    //  so, with some careful testing, this branch could perhaps be simplified
+                    //  such that only Epoch21 matches, and all the other ones _panic_.
+                    // For now, I think it's better to preserve the exact prior semantics.
+                    Self::handle_pox_cycle_start_pox_2(
+                        clarity_tx,
+                        pox_reward_cycle,
+                        pox_start_cycle_info,
+                    )
+                }
+                StacksEpochId::Epoch24 => Self::handle_pox_cycle_start_pox_3(
+                    clarity_tx,
+                    pox_reward_cycle,
+                    pox_start_cycle_info,
+                ),
+            }
+        })?;
+        debug!("check_and_handle_reward_start: handled pox cycle start");
+        return Ok(events);
     }
 
     /// Called in both follower and miner block assembly paths.

@@ -117,7 +117,7 @@ use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME};
+use crate::chainstate::stacks::boot::{POX_1_NAME, POX_2_NAME, POX_3_NAME};
 use crate::chainstate::stacks::StacksBlockHeader;
 use crate::clarity_vm::database::marf::MarfedKV;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -314,6 +314,13 @@ impl RPCPoxInfoData {
             .block_height_to_reward_cycle(burnchain.pox_constants.v1_unlock_height as u64)
             .ok_or(net_error::ChainstateError(
                 "PoX-2 first reward cycle begins before first burn block height".to_string(),
+            ))?
+            + 1;
+
+        let pox_3_first_cycle = burnchain
+            .block_height_to_reward_cycle(burnchain.pox_constants.pox_3_activation_height as u64)
+            .ok_or(net_error::ChainstateError(
+                "PoX-3 first reward cycle begins before first burn block height".to_string(),
             ))?
             + 1;
 
@@ -519,6 +526,14 @@ impl RPCPoxInfoData {
                     activation_burnchain_block_height: burnchain.pox_constants.v1_unlock_height
                         as u64,
                     first_reward_cycle_id: pox_2_first_cycle,
+                },
+                RPCPoxContractVersion {
+                    contract_id: boot_code_id(POX_3_NAME, chainstate.mainnet).to_string(),
+                    activation_burnchain_block_height: burnchain
+                        .pox_constants
+                        .pox_3_activation_height
+                        as u64,
+                    first_reward_cycle_id: pox_3_first_cycle,
                 },
             ],
         })
@@ -1348,15 +1363,15 @@ impl ConversationHttp {
                         var_name,
                     );
 
-                    let (value, marf_proof) = if with_proof {
+                    let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
-                            .get_with_proof::<Value>(&key)
+                            .get_with_proof(&key)
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
-                        clarity_db.get::<Value>(&key).map(|a| (a, None))?
+                        clarity_db.get(&key).map(|a| (a, None))?
                     };
 
-                    let data = format!("0x{}", value.serialize());
+                    let data = format!("0x{}", value_hex);
                     Some(DataVarResponse { data, marf_proof })
                 })
             }) {
@@ -1401,25 +1416,22 @@ impl ConversationHttp {
                         map_name,
                         key,
                     );
-                    let (value, marf_proof) = if with_proof {
+                    let (value_hex, marf_proof): (String, _) = if with_proof {
                         clarity_db
-                            .get_with_proof::<Value>(&key)
+                            .get_with_proof(&key)
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                             .unwrap_or_else(|| {
                                 test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none(), Some("".into()))
+                                (Value::none().serialize_to_hex(), Some("".into()))
                             })
                     } else {
-                        clarity_db
-                            .get::<Value>(&key)
-                            .map(|a| (a, None))
-                            .unwrap_or_else(|| {
-                                test_debug!("No value for '{}' in {}", &key, tip);
-                                (Value::none(), None)
-                            })
+                        clarity_db.get(&key).map(|a| (a, None)).unwrap_or_else(|| {
+                            test_debug!("No value for '{}' in {}", &key, tip);
+                            (Value::none().serialize_to_hex(), None)
+                        })
                     };
 
-                    let data = format!("0x{}", value.serialize());
+                    let data = format!("0x{}", value_hex);
                     MapEntryResponse { data, marf_proof }
                 })
             }) {
@@ -1513,7 +1525,7 @@ impl ConversationHttp {
                 response_metadata,
                 CallReadOnlyResponse {
                     okay: true,
-                    result: Some(format!("0x{}", data.serialize())),
+                    result: Some(format!("0x{}", data.serialize_to_hex())),
                     cause: None,
                 },
             ),

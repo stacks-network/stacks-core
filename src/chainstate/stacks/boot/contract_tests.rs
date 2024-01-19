@@ -402,11 +402,15 @@ impl BurnStateDB for TestSimBurnStateDB {
     }
 
     fn get_v1_unlock_height(&self) -> u32 {
-        u32::max_value()
+        u32::MAX
     }
 
     fn get_v2_unlock_height(&self) -> u32 {
-        u32::max_value()
+        u32::MAX
+    }
+
+    fn get_pox_3_activation_height(&self) -> u32 {
+        u32::MAX
     }
 
     fn get_pox_prepare_length(&self) -> u32 {

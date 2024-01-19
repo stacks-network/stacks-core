@@ -1417,7 +1417,7 @@ The function returns the result of evaluating `expr`.
     example: "
 (define-data-var data int 1)
 (at-block 0x0000000000000000000000000000000000000000000000000000000000000000 block-height) ;; Returns u0
-(at-block (get-block-info? id-header-hash 0) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
+(at-block (unwrap-panic (get-block-info? id-header-hash u0)) (var-get data)) ;; Throws NoSuchDataVariable because `data` wasn't initialized at block height 0"
 };
 
 const AS_CONTRACT_API: SpecialAPI = SpecialAPI {
@@ -1996,7 +1996,7 @@ const DEFINE_TRAIT_API: DefineAPI = DefineAPI {
 can implement a given trait and then have their contract identifier being passed as a function argument in order to be called
 dynamically with `contract-call?`.
 
-Traits are defined with a name, and a list functions, defined with a name, a list of argument types, and return type.
+Traits are defined with a name, and a list of functions, where each function is defined with a name, a list of argument types, and a return type.
 
 In Clarity 1, a trait type can be used to specify the type of a function parameter. A parameter with a trait type can
 be used as the target of a dynamic `contract-call?`. A principal literal (e.g. `ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo`)
@@ -2766,11 +2766,15 @@ mod test {
         }
 
         fn get_v1_unlock_height(&self) -> u32 {
-            u32::max_value()
+            u32::MAX
         }
 
         fn get_v2_unlock_height(&self) -> u32 {
-            u32::max_value()
+            u32::MAX
+        }
+
+        fn get_pox_3_activation_height(&self) -> u32 {
+            u32::MAX
         }
 
         fn get_pox_prepare_length(&self) -> u32 {
