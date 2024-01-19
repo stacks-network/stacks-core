@@ -1,45 +1,42 @@
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::fs;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use rand::RngCore;
-
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::Burnchain;
-use stacks::burnchains::{MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
-use stacks::chainstate::stacks::miner::BlockBuilderSettings;
-use stacks::chainstate::stacks::miner::MinerStatus;
+use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
-use stacks::core::mempool::MemPoolWalkSettings;
-use stacks::core::StacksEpoch;
-use stacks::core::StacksEpochExtension;
-use stacks::core::StacksEpochId;
+use stacks::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
 use stacks::core::{
-    CHAIN_ID_MAINNET, CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
+    StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
+    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
 };
 use stacks::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use stacks::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
 use stacks::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
-use stacks::cost_estimates::metrics::CostMetric;
-use stacks::cost_estimates::metrics::ProportionalDotProduct;
-use stacks::cost_estimates::CostEstimator;
-use stacks::cost_estimates::FeeEstimator;
-use stacks::cost_estimates::PessimisticEstimator;
+use stacks::cost_estimates::metrics::{CostMetric, ProportionalDotProduct};
+use stacks::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator};
+use stacks::net::atlas::AtlasConfig;
 use stacks::net::connection::ConnectionOptions;
-use stacks::net::{Neighbor, NeighborKey, PeerAddress};
-use stacks::util::get_epoch_time_ms;
-use stacks::util::hash::hex_bytes;
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::secp256k1::Secp256k1PublicKey;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
+use stacks::net::{Neighbor, NeighborKey};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::net::PeerAddress;
+use stacks_common::types::Address;
+use stacks_common::util::get_epoch_time_ms;
+use stacks_common::util::hash::hex_bytes;
+use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-const DEFAULT_SATS_PER_VB: u64 = 50;
+use crate::chain_data::MinerStats;
+
+pub const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
 const DEFAULT_RBF_FEE_RATE_INCREMENT: u64 = 5;
 const LEADER_KEY_TX_ESTIM_SIZE: u64 = 290;
@@ -48,13 +45,15 @@ const INV_REWARD_CYCLES_TESTNET: u64 = 6;
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct ConfigFile {
+    pub __path: Option<String>, // Only used for config file reloads
     pub burnchain: Option<BurnchainConfigFile>,
     pub node: Option<NodeConfigFile>,
     pub ustx_balance: Option<Vec<InitialBalanceFile>>,
-    pub events_observer: Option<Vec<EventObserverConfigFile>>,
+    pub events_observer: Option<HashSet<EventObserverConfigFile>>,
     pub connection_options: Option<ConnectionOptionsFile>,
     pub fee_estimation: Option<FeeEstimationConfigFile>,
     pub miner: Option<MinerConfigFile>,
+    pub atlas: Option<AtlasConfigFile>,
 }
 
 #[derive(Clone, Deserialize, Default)]
@@ -178,7 +177,9 @@ mod tests {
 impl ConfigFile {
     pub fn from_path(path: &str) -> Result<ConfigFile, String> {
         let content = fs::read_to_string(path).map_err(|e| format!("Invalid path: {}", &e))?;
-        Self::from_str(&content)
+        let mut f = Self::from_str(&content)?;
+        f.__path = Some(path.to_string());
+        Ok(f)
     }
 
     pub fn from_str(content: &str) -> Result<ConfigFile, String> {
@@ -206,7 +207,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:20444".to_string()),
+            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -251,7 +252,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444".to_string()),
+            bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444,02539449ad94e6e6392d8c1deb2b4e61f80ae2a18964349bc14336d8b903c46a8c@cet.stacksnodes.org:20444,02ececc8ce79b8adf813f13a0255f8ae58d4357309ba0cedd523d9f1a306fcfb79@sgt.stacksnodes.org:20444,0303144ba518fe7a0fb56a8a7d488f950307a4330f146e1e1458fc63fb33defe96@est.stacksnodes.org:20444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -353,13 +354,15 @@ impl ConfigFile {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub config_path: Option<String>,
     pub burnchain: BurnchainConfig,
     pub node: NodeConfig,
     pub initial_balances: Vec<InitialBalance>,
-    pub events_observers: Vec<EventObserverConfig>,
+    pub events_observers: HashSet<EventObserverConfig>,
     pub connection_options: ConnectionOptions,
     pub miner: MinerConfig,
     pub estimation: FeeEstimationConfig,
+    pub atlas: AtlasConfig,
 }
 
 lazy_static! {
@@ -394,6 +397,36 @@ lazy_static! {
 }
 
 impl Config {
+    /// get the up-to-date burnchain options from the config.
+    /// If the config file can't be loaded, then return the existing config
+    pub fn get_burnchain_config(&self) -> BurnchainConfig {
+        let Some(path) = &self.config_path else {
+            return self.burnchain.clone();
+        };
+        let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
+            return self.burnchain.clone();
+        };
+        let Ok(config) = Config::from_config_file(config_file) else {
+            return self.burnchain.clone();
+        };
+        config.burnchain
+    }
+
+    /// get the up-to-date miner options from the config
+    /// If the config can't be loaded for some reason, then return the existing config
+    pub fn get_miner_config(&self) -> MinerConfig {
+        let Some(path) = &self.config_path else {
+            return self.miner.clone();
+        };
+        let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
+            return self.miner.clone();
+        };
+        let Ok(config) = Config::from_config_file(config_file) else {
+            return self.miner.clone();
+        };
+        return config.miner;
+    }
+
     /// Apply any test settings to this burnchain config struct
     fn apply_test_settings(&self, burnchain: &mut Burnchain) {
         if self.burnchain.get_bitcoin_network().1 == BitcoinNetworkType::Mainnet {
@@ -705,6 +738,14 @@ impl Config {
                     chain_liveness_poll_time_secs: node
                         .chain_liveness_poll_time_secs
                         .unwrap_or(default_node_config.chain_liveness_poll_time_secs),
+                    stacker_dbs: node
+                        .stacker_dbs
+                        .unwrap_or(vec![])
+                        .iter()
+                        .filter_map(|contract_id| {
+                            QualifiedContractIdentifier::parse(contract_id).ok()
+                        })
+                        .collect(),
                 };
                 (node_config, node.bootstrap_node, node.deny_nodes)
             }
@@ -881,7 +922,6 @@ impl Config {
         let miner_default_config = MinerConfig::default();
         let miner = match config_file.miner {
             Some(ref miner) => MinerConfig {
-                min_tx_fee: miner.min_tx_fee.unwrap_or(miner_default_config.min_tx_fee),
                 first_attempt_time_ms: miner
                     .first_attempt_time_ms
                     .unwrap_or(miner_default_config.first_attempt_time_ms),
@@ -909,6 +949,52 @@ impl Config {
                 unprocessed_block_deadline_secs: miner
                     .unprocessed_block_deadline_secs
                     .unwrap_or(miner_default_config.unprocessed_block_deadline_secs),
+                min_tx_count: miner.min_tx_count.unwrap_or(0),
+                only_increase_tx_count: miner.only_increase_tx_count.unwrap_or(false),
+                unconfirmed_commits_helper: miner.unconfirmed_commits_helper.clone(),
+                target_win_probability: miner.target_win_probability.unwrap_or(0.0),
+                activated_vrf_key_path: miner.activated_vrf_key_path.clone(),
+                fast_rampup: miner.fast_rampup.unwrap_or(true),
+                underperform_stop_threshold: miner.underperform_stop_threshold,
+                txs_to_consider: {
+                    if let Some(txs_to_consider) = &miner.txs_to_consider {
+                        txs_to_consider
+                            .split(",")
+                            .map(
+                                |txs_to_consider_str| match str::parse(txs_to_consider_str) {
+                                    Ok(txtype) => txtype,
+                                    Err(e) => {
+                                        panic!(
+                                            "could not parse '{}': {}",
+                                            &txs_to_consider_str, &e
+                                        );
+                                    }
+                                },
+                            )
+                            .collect()
+                    } else {
+                        MemPoolWalkTxTypes::all()
+                    }
+                },
+                filter_origins: {
+                    if let Some(filter_origins) = &miner.filter_origins {
+                        filter_origins
+                            .split(",")
+                            .map(|origin_str| match StacksAddress::from_string(origin_str) {
+                                Some(addr) => addr,
+                                None => {
+                                    panic!(
+                                        "could not parse '{}' into a Stacks address",
+                                        origin_str
+                                    );
+                                }
+                            })
+                            .collect()
+                    } else {
+                        HashSet::new()
+                    }
+                },
+                max_reorg_depth: miner.max_reorg_depth.unwrap_or(3),
             },
             None => miner_default_config,
         };
@@ -963,7 +1049,7 @@ impl Config {
 
         let mut events_observers = match config_file.events_observer {
             Some(raw_observers) => {
-                let mut observers = vec![];
+                let mut observers = HashSet::new();
                 for observer in raw_observers {
                     let events_keys: Vec<EventKeyType> = observer
                         .events_keys
@@ -973,22 +1059,25 @@ impl Config {
 
                     let endpoint = format!("{}", observer.endpoint);
 
-                    observers.push(EventObserverConfig {
+                    observers.insert(EventObserverConfig {
                         endpoint,
                         events_keys,
                     });
                 }
                 observers
             }
-            None => vec![],
+            None => HashSet::new(),
         };
 
         // check for observer config in env vars
         match std::env::var("STACKS_EVENT_OBSERVER") {
-            Ok(val) => events_observers.push(EventObserverConfig {
-                endpoint: val,
-                events_keys: vec![EventKeyType::AnyEvent],
-            }),
+            Ok(val) => {
+                events_observers.insert(EventObserverConfig {
+                    endpoint: val,
+                    events_keys: vec![EventKeyType::AnyEvent],
+                });
+                ()
+            }
             _ => (),
         };
 
@@ -1133,7 +1222,7 @@ impl Config {
                         HELIUM_DEFAULT_CONNECTION_OPTIONS.max_http_clients.clone()
                     }),
                     connect_timeout: opts.connect_timeout.unwrap_or(10),
-                    handshake_timeout: opts.connect_timeout.unwrap_or(5),
+                    handshake_timeout: opts.handshake_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     antientropy_public: opts.antientropy_public.unwrap_or(true),
                     ..ConnectionOptions::default()
@@ -1147,7 +1236,18 @@ impl Config {
             None => FeeEstimationConfig::default(),
         };
 
+        let mainnet = burnchain.mode == "mainnet";
+        let atlas = match config_file.atlas {
+            Some(f) => f.into_config(mainnet),
+            None => AtlasConfig::new(mainnet),
+        };
+
+        atlas
+            .validate()
+            .map_err(|e| format!("Atlas config error: {e}"))?;
+
         Ok(Config {
+            config_path: config_file.__path,
             node,
             burnchain,
             initial_balances,
@@ -1155,6 +1255,7 @@ impl Config {
             connection_options,
             estimation,
             miner,
+            atlas,
         })
     }
 
@@ -1228,6 +1329,12 @@ impl Config {
         path.to_str().expect("Unable to produce path").to_string()
     }
 
+    pub fn get_stacker_db_file_path(&self) -> String {
+        let mut path = self.get_chainstate_path();
+        path.set_file_name("stacker_db.sqlite");
+        path.to_str().expect("Unable to produce path").to_string()
+    }
+
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
         let new_balance = InitialBalance {
             address: PrincipalData::parse_standard_principal(&address)
@@ -1263,33 +1370,46 @@ impl Config {
         microblocks: bool,
         miner_status: Arc<Mutex<MinerStatus>>,
     ) -> BlockBuilderSettings {
+        let miner_config = self.get_miner_config();
         BlockBuilderSettings {
             max_miner_time_ms: if microblocks {
-                self.miner.microblock_attempt_time_ms
+                miner_config.microblock_attempt_time_ms
             } else if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
-                self.miner.first_attempt_time_ms
+                miner_config.first_attempt_time_ms
             } else {
                 // second or later attempt to mine a block -- give it some time
-                self.miner.subsequent_attempt_time_ms
+                miner_config.subsequent_attempt_time_ms
             },
             mempool_settings: MemPoolWalkSettings {
-                min_tx_fee: self.miner.min_tx_fee,
                 max_walk_time_ms: if microblocks {
-                    self.miner.microblock_attempt_time_ms
+                    miner_config.microblock_attempt_time_ms
                 } else if attempt <= 1 {
                     // first attempt to mine a block -- do so right away
-                    self.miner.first_attempt_time_ms
+                    miner_config.first_attempt_time_ms
                 } else {
                     // second or later attempt to mine a block -- give it some time
-                    self.miner.subsequent_attempt_time_ms
+                    miner_config.subsequent_attempt_time_ms
                 },
-                consider_no_estimate_tx_prob: self.miner.probability_pick_no_estimate_tx,
-                nonce_cache_size: self.miner.nonce_cache_size,
-                candidate_retry_cache_size: self.miner.candidate_retry_cache_size,
+                consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
+                nonce_cache_size: miner_config.nonce_cache_size,
+                candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
+                txs_to_consider: miner_config.txs_to_consider,
+                filter_origins: miner_config.filter_origins,
             },
             miner_status,
         }
+    }
+
+    pub fn get_miner_stats(&self) -> Option<MinerStats> {
+        let miner_config = self.get_miner_config();
+        if let Some(unconfirmed_commits_helper) = miner_config.unconfirmed_commits_helper.as_ref() {
+            let miner_stats = MinerStats {
+                unconfirmed_commits_helper: unconfirmed_commits_helper.clone(),
+            };
+            return Some(miner_stats);
+        }
+        None
     }
 }
 
@@ -1306,15 +1426,18 @@ impl std::default::Default for Config {
 
         let connection_options = HELIUM_DEFAULT_CONNECTION_OPTIONS.clone();
         let estimation = FeeEstimationConfig::default();
+        let mainnet = burnchain.mode == "mainnet";
 
         Config {
+            config_path: None,
             burnchain,
             node,
             initial_balances: vec![],
-            events_observers: vec![],
+            events_observers: HashSet::new(),
             connection_options,
             estimation,
             miner: MinerConfig::default(),
+            atlas: AtlasConfig::new(mainnet),
         }
     }
 }
@@ -1386,7 +1509,6 @@ impl BurnchainConfig {
             ast_precheck_size_height: None,
         }
     }
-
     pub fn get_rpc_url(&self, wallet: Option<String>) -> String {
         let scheme = match self.rpc_ssl {
             true => "https://",
@@ -1499,6 +1621,8 @@ pub struct NodeConfig {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: u64,
+    /// stacker DBs we replicate
+    pub stacker_dbs: Vec<QualifiedContractIdentifier>,
 }
 
 #[derive(Clone, Debug)]
@@ -1777,6 +1901,7 @@ impl NodeConfig {
             require_affirmed_anchor_blocks: true,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
+            stacker_dbs: vec![],
         }
     }
 
@@ -1874,9 +1999,8 @@ impl NodeConfig {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MinerConfig {
-    pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
@@ -1890,22 +2014,58 @@ pub struct MinerConfig {
     pub nonce_cache_size: u64,
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
+    /// minimum number of transactions that must be in a block if we're going to replace a pending
+    /// block-commit with a new block-commit
+    pub min_tx_count: u64,
+    /// Only allow a block's tx count to increase across RBFs.
+    pub only_increase_tx_count: bool,
+    /// Path to a script that prints out all unconfirmed block-commits for a list of addresses
+    pub unconfirmed_commits_helper: Option<String>,
+    /// Targeted win probability for this miner.  Used to deduce when to stop trying to mine.
+    pub target_win_probability: f64,
+    /// Path to a serialized RegisteredKey struct, which points to an already-registered VRF key
+    /// (so we don't have to go make a new one)
+    pub activated_vrf_key_path: Option<String>,
+    /// When estimating win probability, whether or not to use the assumed win rate 6+ blocks from
+    /// now (true), or the current win rate (false)
+    pub fast_rampup: bool,
+    /// Number of Bitcoin blocks which must pass where the boostes+neutrals are a minority, at which
+    /// point the miner will stop trying.
+    pub underperform_stop_threshold: Option<u64>,
+    /// Kinds of transactions to consider from the mempool.  This is used by boosted and neutral
+    /// miners to push past averse fee estimations.
+    pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
+    /// Origin addresses to whitelist when doing a mempool walk.  This is used by boosted and
+    /// neutral miners to push transactions through that are important to them.
+    pub filter_origins: HashSet<StacksAddress>,
+    /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
+    /// behind the highest tip.
+    pub max_reorg_depth: u64,
 }
 
 impl MinerConfig {
     pub fn default() -> MinerConfig {
         MinerConfig {
-            min_tx_fee: 1,
-            first_attempt_time_ms: 5_000,
-            subsequent_attempt_time_ms: 30_000,
+            first_attempt_time_ms: 10,
+            subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
-            probability_pick_no_estimate_tx: 5,
+            probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,
             wait_for_block_download: true,
-            nonce_cache_size: 10_000,
-            candidate_retry_cache_size: 10_000,
+            nonce_cache_size: 1024 * 1024,
+            candidate_retry_cache_size: 1024 * 1024,
             unprocessed_block_deadline_secs: 30,
+            min_tx_count: 0,
+            only_increase_tx_count: false,
+            unconfirmed_commits_helper: None,
+            target_win_probability: 0.0,
+            activated_vrf_key_path: None,
+            fast_rampup: false,
+            underperform_stop_threshold: None,
+            txs_to_consider: MemPoolWalkTxTypes::all(),
+            filter_origins: HashSet::new(),
+            max_reorg_depth: 3,
         }
     }
 }
@@ -1983,9 +2143,11 @@ pub struct NodeConfigFile {
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
+    /// Stacker DBs we replicate
+    pub stacker_dbs: Option<Vec<String>>,
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Default, Debug)]
 pub struct FeeEstimationConfigFile {
     pub cost_estimator: Option<String>,
     pub fee_estimator: Option<String>,
@@ -1996,23 +2158,8 @@ pub struct FeeEstimationConfigFile {
     pub fee_rate_window_size: Option<u64>,
 }
 
-impl Default for FeeEstimationConfigFile {
-    fn default() -> Self {
-        Self {
-            cost_estimator: None,
-            fee_estimator: None,
-            cost_metric: None,
-            disabled: None,
-            log_error: None,
-            fee_rate_fuzzer_fraction: None,
-            fee_rate_window_size: None,
-        }
-    }
-}
-
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct MinerConfigFile {
-    pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
@@ -2022,21 +2169,59 @@ pub struct MinerConfigFile {
     pub nonce_cache_size: Option<u64>,
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
+    pub min_tx_count: Option<u64>,
+    pub only_increase_tx_count: Option<bool>,
+    pub unconfirmed_commits_helper: Option<String>,
+    pub target_win_probability: Option<f64>,
+    pub activated_vrf_key_path: Option<String>,
+    pub fast_rampup: Option<bool>,
+    pub underperform_stop_threshold: Option<u64>,
+    pub txs_to_consider: Option<String>,
+    pub filter_origins: Option<String>,
+    pub max_reorg_depth: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
+pub struct AtlasConfigFile {
+    pub attachments_max_size: Option<u32>,
+    pub max_uninstantiated_attachments: Option<u32>,
+    pub uninstantiated_attachments_expire_after: Option<u32>,
+    pub unresolved_attachment_instances_expire_after: Option<u32>,
+}
+
+impl AtlasConfigFile {
+    // Can't inplement `Into` trait because this takes a parameter
+    fn into_config(&self, mainnet: bool) -> AtlasConfig {
+        let mut conf = AtlasConfig::new(mainnet);
+        if let Some(val) = self.attachments_max_size {
+            conf.attachments_max_size = val
+        }
+        if let Some(val) = self.max_uninstantiated_attachments {
+            conf.max_uninstantiated_attachments = val
+        }
+        if let Some(val) = self.uninstantiated_attachments_expire_after {
+            conf.uninstantiated_attachments_expire_after = val
+        }
+        if let Some(val) = self.unresolved_attachment_instances_expire_after {
+            conf.unresolved_attachment_instances_expire_after = val
+        }
+        conf
+    }
+}
+
+#[derive(Clone, Deserialize, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfigFile {
     pub endpoint: String,
     pub events_keys: Vec<String>,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub struct EventObserverConfig {
     pub endpoint: String,
     pub events_keys: Vec<EventKeyType>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd)]
 pub enum EventKeyType {
     SmartContractEvent((QualifiedContractIdentifier, String)),
     AssetEvent(AssetIdentifier),
@@ -2047,6 +2232,7 @@ pub enum EventKeyType {
     BurnchainBlocks,
     MinedBlocks,
     MinedMicroblocks,
+    StackerDBChunks,
 }
 
 impl EventKeyType {
@@ -2069,6 +2255,10 @@ impl EventKeyType {
 
         if raw_key == "microblocks" {
             return Some(EventKeyType::Microblocks);
+        }
+
+        if raw_key == "stackerdb" {
+            return Some(EventKeyType::StackerDBChunks);
         }
 
         let comps: Vec<_> = raw_key.split("::").collect();

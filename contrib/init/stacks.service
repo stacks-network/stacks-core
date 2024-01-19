@@ -1,4 +1,4 @@
-# # Modeled after https://github.com/bitcoin/bitcoin/blob/master/contrib/init/bitcoind.service
+## Modeled after https://github.com/bitcoin/bitcoin/blob/master/contrib/init/bitcoind.service
 
 [Unit]
 Description=Stacks Blockchain
@@ -11,22 +11,19 @@ ConditionPathExists=/etc/stacks-blockchain/Config.toml
 ConditionPathIsDirectory=/stacks-blockchain
 
 [Service]
-#ExecStart=/bin/sh -c "/usr/local/bin/stacks-node start --config=/etc/stacks-blockchain/Config.toml >> /stacks-blockchain/output.log 2>&1"
-ExecStart=/bin/sh -c "/usr/local/bin/stacks-node start --config=/etc/stacks-blockchain/Config.toml"
-ExecStartPost=/bin/sh -c "umask 022; sleep 2 && pgrep -f \"/usr/local/bin/stacks-node start --config=/etc/stacks-blockchain/Config.toml\" > /run/stacks-blockchain/stacks-blockchain.pid"
-ExecStopPost=/bin/sh -c "if [ -f \"/run/stacks-blockchain/stacks-blockchain.pid\" ]; then rm -f /run/stacks-blockchain/stacks-blockchain.pid; fi"
+ExecStart=/usr/local/bin/stacks-node start --config /etc/stacks-blockchain/Config.toml
 
 # Make sure the config directory is readable by the service user
 PermissionsStartOnly=true
-#ExecStartPre=/bin/chgrp stacks /etc/stacks-blockchain/
+ExecStartPre=/bin/chgrp stacks /etc/stacks-blockchain/
 
 # Process management
 ####################
-Type=simple
 PIDFile=/run/stacks-blockchain/stacks-blockchain.pid
 Restart=no
 TimeoutStopSec=600
-KillSignal=SIGTERM
+KillSignal=SIGINT
+SendSIGKILL=no
 
 # Directory creation and permissions
 ####################################
@@ -37,6 +34,10 @@ Group=stacks
 # /run/stacks-blockchain
 RuntimeDirectory=stacks-blockchain
 RuntimeDirectoryMode=0710
+
+# /etc/stacks-blockchain
+ConfigurationDirectory=stacks-blockchain
+ConfigurationDirectoryMode=0710
 
 # Hardening measures
 ####################
@@ -58,5 +59,10 @@ NoNewPrivileges=true
 # such as /dev/null, /dev/zero and /dev/random.
 PrivateDevices=true
 
+# Deny the creation of writable and executable memory mappings.
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
 [Install]
 WantedBy=multi-user.target
+

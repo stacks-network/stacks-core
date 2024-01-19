@@ -23,32 +23,28 @@ pub mod errors;
 pub mod stack_depth_checker;
 pub mod sugar_expander;
 pub mod types;
-use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
-use crate::vm::errors::{Error, RuntimeErrorType};
-
-use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::QualifiedContractIdentifier;
+use stacks_common::types::StacksEpochId;
 
 use self::definition_sorter::DefinitionSorter;
 use self::errors::ParseResult;
 use self::expression_identifier::ExpressionIdentifier;
-use self::parser::v1::parse as parse_v1;
-use self::parser::v1::parse_no_stack_limit as parse_v1_no_stack_limit;
+use self::parser::v1::{parse as parse_v1, parse_no_stack_limit as parse_v1_no_stack_limit};
 use self::parser::v2::parse as parse_v2;
-use self::stack_depth_checker::StackDepthChecker;
-use self::stack_depth_checker::VaryStackDepthChecker;
+use self::stack_depth_checker::{StackDepthChecker, VaryStackDepthChecker};
 use self::sugar_expander::SugarExpander;
 use self::traits_resolver::TraitsResolver;
 use self::types::BuildASTPass;
 pub use self::types::ContractAST;
-use crate::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
+use crate::vm::costs::{cost_functions, runtime_cost, CostTracker, LimitedCostTracker};
 use crate::vm::diagnostic::{Diagnostic, Level};
-use crate::vm::representations::PreSymbolicExpression;
+use crate::vm::errors::{Error, RuntimeErrorType};
+use crate::vm::representations::{PreSymbolicExpression, SymbolicExpression};
+use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
 
 /// Legacy function
-#[cfg(any(test, features = "testing"))]
+#[cfg(any(test, feature = "testing"))]
 pub fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
@@ -73,12 +69,10 @@ fn parse_in_epoch(
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
     if epoch_id >= StacksEpochId::Epoch21 {
         parse_v2(source_code)
+    } else if ast_rules == ASTRules::Typical {
+        parse_v1_no_stack_limit(source_code)
     } else {
-        if ast_rules == ASTRules::Typical {
-            parse_v1_no_stack_limit(source_code)
-        } else {
-            parse_v1(source_code)
-        }
+        parse_v1(source_code)
     }
 }
 
@@ -150,6 +144,7 @@ fn build_ast_typical<T: CostTracker>(
 /// placeholders into the AST. Collects as many diagnostics as possible.
 /// Always returns a ContractAST, a vector of diagnostics, and a boolean
 /// that indicates if the build was successful.
+#[allow(clippy::unwrap_used)]
 pub fn build_ast_with_diagnostics<T: CostTracker>(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
@@ -324,19 +319,17 @@ pub fn build_ast<T: CostTracker>(
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
+    use stacks_common::types::StacksEpochId;
+
     use crate::vm::ast::errors::ParseErrors;
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::ast::{build_ast, build_ast_with_rules, ASTRules};
-    use crate::vm::costs::LimitedCostTracker;
-    use crate::vm::costs::*;
+    use crate::vm::costs::{LimitedCostTracker, *};
     use crate::vm::representations::depth_traverse;
     use crate::vm::types::QualifiedContractIdentifier;
-    use crate::vm::ClarityCostFunction;
-    use crate::vm::ClarityName;
-    use crate::vm::ClarityVersion;
-    use crate::vm::MAX_CALL_STACK_DEPTH;
-    use stacks_common::types::StacksEpochId;
-    use std::collections::HashMap;
+    use crate::vm::{ClarityCostFunction, ClarityName, ClarityVersion, MAX_CALL_STACK_DEPTH};
 
     #[derive(PartialEq, Debug)]
     struct UnitTestTracker {
@@ -370,7 +363,9 @@ mod test {
         fn add_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
             Ok(())
         }
-        fn drop_memory(&mut self, _memory: u64) {}
+        fn drop_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
+            Ok(())
+        }
         fn reset_memory(&mut self) {}
         fn short_circuit_contract_call(
             &mut self,
@@ -606,7 +601,7 @@ mod test {
                 let mut cost_track = LimitedCostTracker::new_free();
                 let ast = build_ast(
                     &QualifiedContractIdentifier::transient(),
-                    &progn,
+                    progn,
                     &mut cost_track,
                     *version,
                     *epoch,

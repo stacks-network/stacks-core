@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -138,91 +138,87 @@
 ///
 /// This file may be refactored in the future into a full-fledged module.
 use std::cmp;
-use std::collections::HashMap;
-use std::collections::{HashSet, VecDeque};
+use std::cmp::Ordering as CmpOrdering;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::default::Default;
-use std::mem;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
-use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc, Mutex};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{thread, thread::JoinHandle};
+use std::{fs, mem, thread};
 
-use stacks::burnchains::{db::BurnchainHeaderReader, Burnchain, BurnchainParameters, Txid};
+use clarity::vm::ast::ASTRules;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
+use stacks::burnchains::db::BurnchainHeaderReader;
+use stacks::burnchains::{Burnchain, BurnchainParameters, BurnchainSigner, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::leader_block_commit::{
+    RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
+};
 use stacks::chainstate::burn::operations::{
-    leader_block_commit::{RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS},
     BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
-use stacks::chainstate::burn::BlockSnapshot;
-use stacks::chainstate::burn::ConsensusHash;
+use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::db::blocks::StagingBlock;
 use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
-use stacks::chainstate::stacks::db::StacksHeaderInfo;
-use stacks::chainstate::stacks::db::{StacksChainState, MINER_REWARD_MATURITY};
-use stacks::chainstate::stacks::Error as ChainstateError;
-use stacks::chainstate::stacks::StacksPublicKey;
-use stacks::chainstate::stacks::{
-    miner::get_mining_spend_amount, miner::signal_mining_blocked, miner::signal_mining_ready,
-    miner::BlockBuilderSettings, miner::MinerStatus, miner::StacksMicroblockBuilder,
-    StacksBlockBuilder, StacksBlockHeader,
+use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
+use stacks::chainstate::stacks::miner::{
+    signal_mining_blocked, signal_mining_ready, BlockBuilderSettings, MinerStatus,
+    StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
-    CoinbasePayload, StacksBlock, StacksMicroblock, StacksTransaction, StacksTransactionSigner,
+    CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
+    StacksMicroblock, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
     TransactionAnchorMode, TransactionPayload, TransactionVersion,
 };
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
-use stacks::core::STACKS_EPOCH_2_4_MARKER;
-use stacks::cost_estimates::metrics::CostMetric;
-use stacks::cost_estimates::metrics::UnitMetric;
-use stacks::cost_estimates::UnitEstimator;
-use stacks::cost_estimates::{CostEstimator, FeeEstimator};
+use stacks::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, STACKS_EPOCH_2_4_MARKER};
+use stacks::cost_estimates::metrics::{CostMetric, UnitMetric};
+use stacks::cost_estimates::{CostEstimator, FeeEstimator, UnitEstimator};
+use stacks::monitoring;
 use stacks::monitoring::{increment_stx_blocks_mined_counter, update_active_miners_count_gauge};
+use stacks::net::atlas::{AtlasConfig, AtlasDB};
+use stacks::net::db::{LocalPeer, PeerDB};
+use stacks::net::dns::{DNSClient, DNSResolver};
+use stacks::net::p2p::PeerNetwork;
+use stacks::net::relay::Relayer;
+use stacks::net::stackerdb::{StackerDBConfig, StackerDBSync, StackerDBs};
 use stacks::net::{
-    atlas::{AtlasConfig, AtlasDB, AttachmentInstance},
-    db::{LocalPeer, PeerDB},
-    dns::DNSClient,
-    dns::DNSResolver,
-    p2p::PeerNetwork,
-    relay::Relayer,
-    rpc::RPCHandlerArgs,
-    Error as NetError, NetworkResult, PeerAddress, ServiceFlags,
+    Error as NetError, NetworkResult, PeerNetworkComms, RPCHandlerArgs, ServiceFlags,
 };
-use stacks::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, VRFSeed,
-};
-use stacks::types::StacksEpochId;
-use stacks::util::get_epoch_time_ms;
-use stacks::util::get_epoch_time_secs;
-use stacks::util::hash::{to_hex, Hash160, Sha256Sum};
-use stacks::util::secp256k1::Secp256k1PrivateKey;
-use stacks::util::vrf::VRFPublicKey;
 use stacks::util_lib::strings::{UrlString, VecDisplay};
-use stacks::vm::costs::ExecutionCost;
-
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRegtestController;
-use crate::burnchains::bitcoin_regtest_controller::OngoingBlockCommit;
-use crate::burnchains::make_bitcoin_indexer;
-use crate::run_loop::neon::Counters;
-use crate::run_loop::neon::RunLoop;
-use crate::run_loop::RegisteredKey;
-use crate::ChainTip;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
+    StacksPrivateKey, VRFSeed,
+};
+use stacks_common::types::net::PeerAddress;
+use stacks_common::types::{PublicKey, StacksEpochId};
+use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use stacks_common::util::vrf::{VRFProof, VRFPublicKey};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
+use crate::burnchains::bitcoin_regtest_controller::{
+    addr2str, BitcoinRegtestController, OngoingBlockCommit,
+};
+use crate::burnchains::make_bitcoin_indexer;
+use crate::chain_data::MinerStats;
+use crate::config::MinerConfig;
+use crate::run_loop::neon::{Counters, RunLoop};
+use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
-use stacks::monitoring;
-
-use stacks_common::types::chainstate::StacksBlockId;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::util::vrf::VRFProof;
-
-use clarity::vm::ast::ASTRules;
-use clarity::vm::types::PrincipalData;
+use crate::ChainTip;
 
 pub const RELAYER_MAX_BUFFER: usize = 100;
 const VRF_MOCK_MINER_KEY: u64 = 1;
@@ -232,7 +228,7 @@ pub const BLOCK_PROCESSOR_STACK_SIZE: usize = 32 * 1024 * 1024; // 32 MB
 type MinedBlocks = HashMap<BlockHeaderHash, (AssembledAnchorBlock, Secp256k1PrivateKey)>;
 
 /// Result of running the miner thread.  It could produce a Stacks block or a microblock.
-enum MinerThreadResult {
+pub(crate) enum MinerThreadResult {
     Block(
         AssembledAnchorBlock,
         Secp256k1PrivateKey,
@@ -248,7 +244,7 @@ enum MinerThreadResult {
 /// linked to the burnchain and what view(s) the miner had of the burnchain before and after
 /// completing the block.
 #[derive(Clone)]
-struct AssembledAnchorBlock {
+pub struct AssembledAnchorBlock {
     /// Consensus hash of the parent Stacks block
     parent_consensus_hash: ConsensusHash,
     /// Burnchain tip's block hash when we finished mining
@@ -301,6 +297,15 @@ pub struct Globals {
     pub should_keep_running: Arc<AtomicBool>,
     /// Status of our VRF key registration state (shared between the main thread and the relayer)
     leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
+    /// Last miner config loaded
+    last_miner_config: Arc<Mutex<Option<MinerConfig>>>,
+    /// burnchain height at which we start mining
+    start_mining_height: Arc<Mutex<u64>>,
+    /// estimated winning probability at given bitcoin block heights
+    estimated_winning_probs: Arc<Mutex<HashMap<u64, f64>>>,
+    /// previously-selected best tips
+    /// maps stacks height to tip candidate
+    previous_best_tips: Arc<Mutex<BTreeMap<u64, TipCandidate>>>,
 }
 
 /// Miner chain tip, on top of which to build microblocks
@@ -344,6 +349,7 @@ impl Globals {
         counters: Counters,
         sync_comms: PoxSyncWatchdogComms,
         should_keep_running: Arc<AtomicBool>,
+        start_mining_height: u64,
     ) -> Globals {
         Globals {
             last_sortition: Arc::new(Mutex::new(None)),
@@ -357,6 +363,10 @@ impl Globals {
             leader_key_registration_state: Arc::new(Mutex::new(
                 LeaderKeyRegistrationState::Inactive,
             )),
+            last_miner_config: Arc::new(Mutex::new(None)),
+            start_mining_height: Arc::new(Mutex::new(start_mining_height)),
+            estimated_winning_probs: Arc::new(Mutex::new(HashMap::new())),
+            previous_best_tips: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -496,8 +506,8 @@ impl Globals {
         &self,
         burn_block_height: u64,
         key_registers: Vec<LeaderKeyRegisterOp>,
-    ) -> bool {
-        let mut activated = false;
+    ) -> Option<RegisteredKey> {
+        let mut activated_key = None;
         match self.leader_key_registration_state.lock() {
             Ok(ref mut leader_key_registration_state) => {
                 for op in key_registers.into_iter() {
@@ -509,14 +519,17 @@ impl Globals {
                             burn_block_height, txid
                         );
                         if txid == op.txid {
+                            let active_key = RegisteredKey {
+                                target_block_height,
+                                vrf_public_key: op.public_key,
+                                block_height: op.block_height as u64,
+                                op_vtxindex: op.vtxindex as u32,
+                            };
+
                             **leader_key_registration_state =
-                                LeaderKeyRegistrationState::Active(RegisteredKey {
-                                    target_block_height,
-                                    vrf_public_key: op.public_key,
-                                    block_height: op.block_height as u64,
-                                    op_vtxindex: op.vtxindex as u32,
-                                });
-                            activated = true;
+                                LeaderKeyRegistrationState::Active(active_key.clone());
+
+                            activated_key = Some(active_key);
                         } else {
                             debug!(
                                 "key_register_op {} does not match our pending op {}",
@@ -531,7 +544,126 @@ impl Globals {
                 panic!();
             }
         }
-        activated
+        activated_key
+    }
+
+    /// Directly set the leader key activation state from a saved key
+    pub fn resume_leader_key(&self, registered_key: RegisteredKey) {
+        match self.leader_key_registration_state.lock() {
+            Ok(ref mut leader_key_registration_state) => {
+                **leader_key_registration_state = LeaderKeyRegistrationState::Active(registered_key)
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock leader key registration state mutex");
+                panic!();
+            }
+        }
+    }
+
+    /// Get the last miner config loaded
+    pub fn get_last_miner_config(&self) -> Option<MinerConfig> {
+        match self.last_miner_config.lock() {
+            Ok(last_miner_config) => (*last_miner_config).clone(),
+            Err(_e) => {
+                error!("FATAL; failed to lock last miner config");
+                panic!();
+            }
+        }
+    }
+
+    /// Set the last miner config loaded
+    pub fn set_last_miner_config(&self, miner_config: MinerConfig) {
+        match self.last_miner_config.lock() {
+            Ok(ref mut last_miner_config) => **last_miner_config = Some(miner_config),
+            Err(_e) => {
+                error!("FATAL; failed to lock last miner config");
+                panic!();
+            }
+        }
+    }
+
+    /// Get the height at which we should start mining
+    pub fn get_start_mining_height(&self) -> u64 {
+        match self.start_mining_height.lock() {
+            Ok(ht) => *ht,
+            Err(_e) => {
+                error!("FATAL: failed to lock start_mining_height");
+                panic!();
+            }
+        }
+    }
+
+    /// Set the height at which we started mining.
+    /// Only takes effect if the current start mining height is 0.
+    pub fn set_start_mining_height_if_zero(&self, value: u64) {
+        match self.start_mining_height.lock() {
+            Ok(ref mut ht) => {
+                if **ht == 0 {
+                    **ht = value;
+                }
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock start_mining_height");
+                panic!();
+            }
+        }
+    }
+
+    /// Record an estimated winning probability
+    pub fn add_estimated_win_prob(&self, burn_height: u64, win_prob: f64) {
+        match self.estimated_winning_probs.lock() {
+            Ok(mut probs) => {
+                probs.insert(burn_height, win_prob);
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock estimated_winning_probs");
+                panic!();
+            }
+        }
+    }
+
+    /// Get the estimated winning probability, if we have one
+    pub fn get_estimated_win_prob(&self, burn_height: u64) -> Option<f64> {
+        match self.estimated_winning_probs.lock() {
+            Ok(probs) => probs.get(&burn_height).cloned(),
+            Err(_e) => {
+                error!("FATAL: failed to lock estimated_winning_probs");
+                panic!();
+            }
+        }
+    }
+
+    /// Record a best-tip
+    pub fn add_best_tip(&self, stacks_height: u64, tip_candidate: TipCandidate, max_depth: u64) {
+        match self.previous_best_tips.lock() {
+            Ok(mut tips) => {
+                tips.insert(stacks_height, tip_candidate);
+                let mut stale = vec![];
+                for (prev_height, _) in tips.iter() {
+                    if *prev_height + max_depth < stacks_height {
+                        stale.push(*prev_height);
+                    }
+                }
+                for height in stale.into_iter() {
+                    tips.remove(&height);
+                }
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock previous_best_tips");
+                panic!();
+            }
+        }
+    }
+
+    /// Get a best-tip at a previous height
+    pub fn get_best_tip(&self, stacks_height: u64) -> Option<TipCandidate> {
+        match self.previous_best_tips.lock() {
+            Ok(tips) => tips.get(&stacks_height).cloned(),
+            Err(_e) => {
+                error!("FATAL: failed to lock previous_best_tips");
+                panic!();
+            }
+        }
     }
 }
 
@@ -563,7 +695,7 @@ fn fault_injection_long_tenure() {
                     "Fault injection: sleeping for {} milliseconds to simulate a long tenure",
                     tenure_time
                 );
-                stacks::util::sleep_ms(tenure_time);
+                stacks_common::util::sleep_ms(tenure_time);
             }
             Err(_) => {
                 error!("Parse error for STX_TEST_SLOW_TENURE");
@@ -745,7 +877,7 @@ pub struct RelayerThread {
     mined_stacks_block: bool,
 }
 
-struct BlockMinerThread {
+pub(crate) struct BlockMinerThread {
     /// node config struct
     config: Config,
     /// handle to global state
@@ -1063,8 +1195,6 @@ impl MicroblockMinerThread {
 
             #[cfg(any(test, feature = "testing"))]
             {
-                use std::fs;
-                use std::io::Write;
                 use std::path::Path;
                 if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
                     // record this microblock somewhere
@@ -1216,6 +1346,46 @@ impl MicroblockMinerThread {
     }
 }
 
+/// Candidate chain tip
+#[derive(Debug, Clone, PartialEq)]
+pub struct TipCandidate {
+    pub stacks_height: u64,
+    pub consensus_hash: ConsensusHash,
+    pub anchored_block_hash: BlockHeaderHash,
+    pub parent_consensus_hash: ConsensusHash,
+    pub parent_anchored_block_hash: BlockHeaderHash,
+    /// the block's sortition's burnchain height
+    pub burn_height: u64,
+    /// the number of Stacks blocks *at the same height* as this one, but from earlier sortitions
+    /// than `burn_height`
+    pub num_earlier_siblings: u64,
+}
+
+impl TipCandidate {
+    pub fn id(&self) -> StacksBlockId {
+        StacksBlockId::new(&self.consensus_hash, &self.anchored_block_hash)
+    }
+
+    pub fn parent_id(&self) -> StacksBlockId {
+        StacksBlockId::new(
+            &self.parent_consensus_hash,
+            &self.parent_anchored_block_hash,
+        )
+    }
+
+    pub fn new(tip: StagingBlock, burn_height: u64) -> Self {
+        Self {
+            stacks_height: tip.height,
+            consensus_hash: tip.consensus_hash,
+            anchored_block_hash: tip.anchored_block_hash,
+            parent_consensus_hash: tip.parent_consensus_hash,
+            parent_anchored_block_hash: tip.parent_anchored_block_hash,
+            burn_height,
+            num_earlier_siblings: 0,
+        }
+    }
+}
+
 impl BlockMinerThread {
     /// Instantiate the miner thread from its parent RelayerThread
     pub fn from_relayer_thread(
@@ -1238,11 +1408,12 @@ impl BlockMinerThread {
 
     /// Get the coinbase recipient address, if set in the config and if allowed in this epoch
     fn get_coinbase_recipient(&self, epoch_id: StacksEpochId) -> Option<PrincipalData> {
-        if epoch_id < StacksEpochId::Epoch21 && self.config.miner.block_reward_recipient.is_some() {
+        let miner_config = self.config.get_miner_config();
+        if epoch_id < StacksEpochId::Epoch21 && miner_config.block_reward_recipient.is_some() {
             warn!("Coinbase pay-to-contract is not supported in the current epoch");
             None
         } else {
-            self.config.miner.block_reward_recipient.clone()
+            miner_config.block_reward_recipient.clone()
         }
     }
 
@@ -1353,6 +1524,320 @@ impl BlockMinerThread {
         ret
     }
 
+    /// Load all candidate tips upon which to build.  This is all Stacks blocks whose heights are
+    /// less than or equal to at `at_stacks_height` (or the canonical chain tip height, if not given),
+    /// but greater than or equal to this end height minus `max_depth`.
+    /// Returns the list of all Stacks blocks up to max_depth blocks beneath it.
+    /// The blocks will be sorted first by stacks height, and then by burnchain height
+    pub(crate) fn load_candidate_tips(
+        burn_db: &mut SortitionDB,
+        chain_state: &mut StacksChainState,
+        max_depth: u64,
+        at_stacks_height: Option<u64>,
+    ) -> Vec<TipCandidate> {
+        let stacks_tips = if let Some(start_height) = at_stacks_height {
+            chain_state
+                .get_stacks_chain_tips_at_height(start_height)
+                .expect("FATAL: could not query chain tips at start height")
+        } else {
+            chain_state
+                .get_stacks_chain_tips(burn_db)
+                .expect("FATAL: could not query chain tips")
+        };
+
+        if stacks_tips.len() == 0 {
+            return vec![];
+        }
+
+        let mut considered = HashSet::new();
+        let mut candidates = vec![];
+        let end_height = stacks_tips[0].height;
+
+        for cur_height in end_height.saturating_sub(max_depth)..=end_height {
+            let stacks_tips = chain_state
+                .get_stacks_chain_tips_at_height(cur_height)
+                .expect("FATAL: could not query chain tips at height");
+
+            for tip in stacks_tips {
+                let index_block_hash =
+                    StacksBlockId::new(&tip.consensus_hash, &tip.anchored_block_hash);
+
+                if !considered.contains(&index_block_hash) {
+                    let burn_height = burn_db
+                        .get_consensus_hash_height(&tip.consensus_hash)
+                        .expect("FATAL: could not query burnchain block height")
+                        .expect("FATAL: no burnchain block height for Stacks tip");
+                    let candidate = TipCandidate::new(tip, burn_height);
+                    candidates.push(candidate);
+                    considered.insert(index_block_hash);
+                }
+            }
+        }
+        Self::sort_and_populate_candidates(candidates)
+    }
+
+    /// Put all tip candidates in order by stacks height, breaking ties with burnchain height.
+    /// Also, count up the number of earliersiblings each tip has -- i.e. the number of stacks
+    /// blocks that have the same height, but a later burnchain sortition.
+    pub(crate) fn sort_and_populate_candidates(
+        mut candidates: Vec<TipCandidate>,
+    ) -> Vec<TipCandidate> {
+        if candidates.len() == 0 {
+            return candidates;
+        }
+        candidates.sort_by(|tip1, tip2| {
+            // stacks block height, then burnchain block height
+            let ord = tip1.stacks_height.cmp(&tip2.stacks_height);
+            if ord == CmpOrdering::Equal {
+                return tip1.burn_height.cmp(&tip2.burn_height);
+            }
+            ord
+        });
+
+        // calculate the number of earlier siblings for each block.
+        // this is the number of stacks blocks at the same height, but later burnchain heights.
+        let mut idx = 0;
+        let mut cur_stacks_height = candidates[idx].stacks_height;
+        let mut num_siblings = 0;
+        loop {
+            idx += 1;
+            if idx >= candidates.len() {
+                break;
+            }
+            if cur_stacks_height == candidates[idx].stacks_height {
+                // same stacks height, so this block has one more earlier sibling than the last
+                num_siblings += 1;
+                candidates[idx].num_earlier_siblings = num_siblings;
+            } else {
+                // new stacks height, so no earlier siblings
+                num_siblings = 0;
+                cur_stacks_height = candidates[idx].stacks_height;
+                candidates[idx].num_earlier_siblings = 0;
+            }
+        }
+
+        candidates
+    }
+
+    /// Select the best tip to mine the next block on. Potential tips are all
+    /// leaf nodes where the Stacks block height is <= the max height -
+    /// max_reorg_depth. Each potential tip is then scored based on the amount
+    /// of orphans that its chain has caused -- that is, the number of orphans
+    /// that the tip _and all of its ancestors_ (up to `max_depth`) created.
+    /// The tip with the lowest score is composed of blocks that collectively made the fewest
+    /// orphans, and is thus the "nicest" chain with the least orphaning.  This is the tip that is
+    /// selected.
+    pub fn pick_best_tip(
+        globals: &Globals,
+        config: &Config,
+        burn_db: &mut SortitionDB,
+        chain_state: &mut StacksChainState,
+        at_stacks_height: Option<u64>,
+    ) -> Option<TipCandidate> {
+        info!("Picking best Stacks tip");
+        let miner_config = config.get_miner_config();
+        let max_depth = miner_config.max_reorg_depth;
+
+        // There could be more than one possible chain tip. Go find them.
+        let stacks_tips =
+            Self::load_candidate_tips(burn_db, chain_state, max_depth, at_stacks_height);
+
+        let mut previous_best_tips = HashMap::new();
+        for tip in stacks_tips.iter() {
+            let Some(prev_best_tip) = globals.get_best_tip(tip.stacks_height) else {
+                continue;
+            };
+            previous_best_tips.insert(tip.stacks_height, prev_best_tip);
+        }
+
+        let best_tip_opt = Self::inner_pick_best_tip(stacks_tips, previous_best_tips);
+        if let Some(best_tip) = best_tip_opt.as_ref() {
+            globals.add_best_tip(best_tip.stacks_height, best_tip.clone(), max_depth);
+        } else {
+            // no best-tip found; revert to old tie-breaker logic
+            info!("No best-tips found; using old tie-breaking logic");
+            return chain_state
+                .get_stacks_chain_tip(burn_db)
+                .expect("FATAL: could not load chain tip")
+                .map(|staging_block| {
+                    let burn_height = burn_db
+                        .get_consensus_hash_height(&staging_block.consensus_hash)
+                        .expect("FATAL: could not query burnchain block height")
+                        .expect("FATAL: no burnchain block height for Stacks tip");
+                    TipCandidate::new(staging_block, burn_height)
+                });
+        }
+        best_tip_opt
+    }
+
+    /// Given a list of sorted candidate tips, pick the best one.  See `Self::pick_best_tip()`.
+    /// Takes the list of stacks tips that are eligible to be built on, and a map of
+    /// previously-chosen best tips (so if we chose a tip in the past, we keep confirming it, even
+    /// if subsequent stacks blocks show up).  The previous best tips should be from recent Stacks
+    /// heights; it's important that older best-tips are forgotten in order to ensure that miners
+    /// will eventually (e.g. after `max_reorg_depth` Stacks blocks pass) stop trying to confirm a
+    /// now-orphaned previously-chosen best-tip.  If there are multiple best-tips that conflict in
+    /// `previosu_best_tips`, then only the highest one which the leaf could confirm will be
+    /// considered (since the node updates its understanding of the best-tip on each RunTenure).
+    pub(crate) fn inner_pick_best_tip(
+        stacks_tips: Vec<TipCandidate>,
+        previous_best_tips: HashMap<u64, TipCandidate>,
+    ) -> Option<TipCandidate> {
+        // identify leaf tips -- i.e. blocks with no children
+        let parent_consensus_hashes: HashSet<_> = stacks_tips
+            .iter()
+            .map(|x| x.parent_consensus_hash.clone())
+            .collect();
+
+        let mut leaf_tips: Vec<_> = stacks_tips
+            .iter()
+            .filter(|x| !parent_consensus_hashes.contains(&x.consensus_hash))
+            .collect();
+
+        if leaf_tips.len() == 0 {
+            return None;
+        }
+
+        // Make scoring deterministic in the case of a tie.
+        // Prefer leafs that were mined earlier on the burnchain,
+        // but which pass through previously-determined best tips.
+        leaf_tips.sort_by(|tip1, tip2| {
+            // stacks block height, then burnchain block height
+            let ord = tip1.stacks_height.cmp(&tip2.stacks_height);
+            if ord == CmpOrdering::Equal {
+                return tip1.burn_height.cmp(&tip2.burn_height);
+            }
+            ord
+        });
+
+        let mut scores = BTreeMap::new();
+        for (i, leaf_tip) in leaf_tips.iter().enumerate() {
+            let leaf_id = leaf_tip.id();
+            // Score each leaf tip as the number of preceding Stacks blocks that are _not_ an
+            // ancestor.  Because stacks_tips are in order by stacks height, a linear scan of this
+            // list will allow us to match all ancestors in the last max_depth Stacks blocks.
+            // `ancestor_ptr` tracks the next expected ancestor.
+            let mut ancestor_ptr = leaf_tip.parent_id();
+            let mut score: u64 = 0;
+            let mut score_summaries = vec![];
+
+            // find the highest stacks_tip we must confirm
+            let mut must_confirm = None;
+            for tip in stacks_tips.iter().rev() {
+                if let Some(prev_best_tip) = previous_best_tips.get(&tip.stacks_height) {
+                    if leaf_id != prev_best_tip.id() {
+                        // the `ancestor_ptr` must pass through this prior best-tip
+                        must_confirm = Some(prev_best_tip.clone());
+                        break;
+                    }
+                }
+            }
+
+            for tip in stacks_tips.iter().rev() {
+                if let Some(required_ancestor) = must_confirm.as_ref() {
+                    if tip.stacks_height < required_ancestor.stacks_height
+                        && leaf_tip.stacks_height >= required_ancestor.stacks_height
+                    {
+                        // This leaf does not confirm a previous-best-tip, so assign it the
+                        // worst-possible score.
+                        info!("Tip #{} {}/{} at {}:{} conflicts with a previous best-tip {}/{} at {}:{}",
+                              i,
+                              &leaf_tip.consensus_hash,
+                              &leaf_tip.anchored_block_hash,
+                              leaf_tip.burn_height,
+                              leaf_tip.stacks_height,
+                              &required_ancestor.consensus_hash,
+                              &required_ancestor.anchored_block_hash,
+                              required_ancestor.burn_height,
+                              required_ancestor.stacks_height
+                        );
+                        score = u64::MAX;
+                        score_summaries.push(format!("{} (best-tip reorged)", u64::MAX));
+                        break;
+                    }
+                }
+                if tip.id() == leaf_id {
+                    // we can't orphan ourselves
+                    continue;
+                }
+                if leaf_tip.stacks_height < tip.stacks_height {
+                    // this tip is further along than leaf_tip, so canonicalizing leaf_tip would
+                    // orphan `tip.stacks_height - leaf_tip.stacks_height` blocks.
+                    score = score.saturating_add(tip.stacks_height - leaf_tip.stacks_height);
+                    score_summaries.push(format!(
+                        "{} (stx height diff)",
+                        tip.stacks_height - leaf_tip.stacks_height
+                    ));
+                } else if leaf_tip.stacks_height == tip.stacks_height
+                    && leaf_tip.burn_height > tip.burn_height
+                {
+                    // this tip has the same stacks height as the leaf, but its sortition happened
+                    // earlier. This means that the leaf is trying to orphan this block and all
+                    // blocks sortition'ed up to this leaf.  The miner should have instead tried to
+                    // confirm this existing tip, instead of mine a sibling.
+                    score = score.saturating_add(tip.num_earlier_siblings + 1);
+                    score_summaries.push(format!("{} (uncles)", tip.num_earlier_siblings + 1));
+                }
+                if tip.id() == ancestor_ptr {
+                    // did we confirm a previous best-tip? If so, then clear this
+                    if let Some(required_ancestor) = must_confirm.take() {
+                        if required_ancestor.id() != tip.id() {
+                            // did not confirm, so restoroe
+                            must_confirm = Some(required_ancestor);
+                        }
+                    }
+
+                    // this stacks tip is the next ancestor.  However, that ancestor may have
+                    // earlier-sortition'ed siblings that confirming this tip would orphan, so count those.
+                    ancestor_ptr = tip.parent_id();
+                    score = score.saturating_add(tip.num_earlier_siblings);
+                    score_summaries.push(format!("{} (earlier sibs)", tip.num_earlier_siblings));
+                } else {
+                    // this stacks tip is not an ancestor, and would be orphaned if leaf_tip is
+                    // canonical.
+                    score = score.saturating_add(1);
+                    score_summaries.push(format!("{} (non-ancestor)", 1));
+                }
+            }
+
+            info!(
+                "Tip #{} {}/{} at {}:{} has score {} ({})",
+                i,
+                &leaf_tip.consensus_hash,
+                &leaf_tip.anchored_block_hash,
+                leaf_tip.burn_height,
+                leaf_tip.stacks_height,
+                score,
+                score_summaries.join(" + ").to_string()
+            );
+            if score < u64::MAX {
+                scores.insert(i, score);
+            }
+        }
+
+        if scores.len() == 0 {
+            // revert to prior tie-breaking scheme
+            return None;
+        }
+
+        // The lowest score is the "nicest" tip (least amount of orphaning)
+        let best_tip_idx = scores
+            .iter()
+            .min_by_key(|(_, score)| *score)
+            .expect("FATAL: candidates should not be empty here")
+            .0;
+
+        let best_tip = leaf_tips
+            .get(*best_tip_idx)
+            .expect("FATAL: candidates should not be empty");
+
+        info!(
+            "Best tip is #{} {}/{}",
+            best_tip_idx, &best_tip.consensus_hash, &best_tip.anchored_block_hash
+        );
+        Some((*best_tip).clone())
+    }
+
     /// Load up the parent block info for mining.
     /// If there's no parent because this is the first block, then return the genesis block's info.
     /// If we can't find the parent in the DB but we expect one, return None.
@@ -1360,22 +1845,25 @@ impl BlockMinerThread {
         &self,
         burn_db: &mut SortitionDB,
         chain_state: &mut StacksChainState,
-    ) -> Option<ParentStacksBlockInfo> {
+    ) -> (Option<ParentStacksBlockInfo>, bool) {
         if let Some(stacks_tip) = chain_state
             .get_stacks_chain_tip(burn_db)
             .expect("FATAL: could not query chain tip")
         {
+            let best_stacks_tip =
+                Self::pick_best_tip(&self.globals, &self.config, burn_db, chain_state, None)
+                    .expect("FATAL: no best chain tip");
             let miner_address = self
                 .keychain
                 .origin_address(self.config.is_mainnet())
                 .unwrap();
-            match ParentStacksBlockInfo::lookup(
+            let parent_info = match ParentStacksBlockInfo::lookup(
                 chain_state,
                 burn_db,
                 &self.burn_block,
                 miner_address,
-                &stacks_tip.consensus_hash,
-                &stacks_tip.anchored_block_hash,
+                &best_stacks_tip.consensus_hash,
+                &best_stacks_tip.anchored_block_hash,
             ) {
                 Ok(parent_info) => Some(parent_info),
                 Err(Error::BurnchainTipChanged) => {
@@ -1383,7 +1871,16 @@ impl BlockMinerThread {
                     None
                 }
                 Err(..) => None,
+            };
+            if parent_info.is_none() {
+                warn!(
+                    "No parent for best-tip {}/{}",
+                    &best_stacks_tip.consensus_hash, &best_stacks_tip.anchored_block_hash
+                );
             }
+            let canonical = best_stacks_tip.consensus_hash == stacks_tip.consensus_hash
+                && best_stacks_tip.anchored_block_hash == stacks_tip.anchored_block_hash;
+            (parent_info, canonical)
         } else {
             debug!("No Stacks chain tip known, will return a genesis block");
             let (network, _) = self.config.burnchain.get_bitcoin_network();
@@ -1397,26 +1894,30 @@ impl BlockMinerThread {
                 burnchain_params.first_block_timestamp.into(),
             );
 
-            Some(ParentStacksBlockInfo {
-                stacks_parent_header: chain_tip.metadata,
-                parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-                parent_block_burn_height: 0,
-                parent_block_total_burn: 0,
-                parent_winning_vtxindex: 0,
-                coinbase_nonce: 0,
-            })
+            (
+                Some(ParentStacksBlockInfo {
+                    stacks_parent_header: chain_tip.metadata,
+                    parent_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                    parent_block_burn_height: 0,
+                    parent_block_total_burn: 0,
+                    parent_winning_vtxindex: 0,
+                    coinbase_nonce: 0,
+                }),
+                true,
+            )
         }
     }
 
     /// Determine which attempt this will be when mining a block, and whether or not an attempt
     /// should even be made.
-    /// Returns Some(attempt) if we should attempt to mine (and what attempt it will be)
+    /// Returns Some(attempt, max-txs) if we should attempt to mine (and what attempt it will be)
     /// Returns None if we should not mine.
     fn get_mine_attempt(
         &self,
         chain_state: &StacksChainState,
         parent_block_info: &ParentStacksBlockInfo,
-    ) -> Option<u64> {
+        force: bool,
+    ) -> Option<(u64, u64)> {
         let parent_consensus_hash = &parent_block_info.parent_consensus_hash;
         let stacks_parent_header = &parent_block_info.stacks_parent_header;
         let parent_block_burn_height = parent_block_info.parent_block_burn_height;
@@ -1425,22 +1926,28 @@ impl BlockMinerThread {
             Self::find_inflight_mined_blocks(self.burn_block.block_height, &self.last_mined_blocks);
 
         // has the tip changed from our previously-mined block for this epoch?
-        let attempt = if last_mined_blocks.len() <= 1 {
+        let (attempt, max_txs) = if last_mined_blocks.len() <= 1 {
             // always mine if we've not mined a block for this epoch yet, or
             // if we've mined just one attempt, unconditionally try again (so we
             // can use `subsequent_miner_time_ms` in this attempt)
             if last_mined_blocks.len() == 1 {
-                debug!("Have only attempted one block; unconditionally trying again");
+                info!("Have only attempted one block; unconditionally trying again");
             }
-            last_mined_blocks.len() as u64 + 1
+            let attempt = last_mined_blocks.len() as u64 + 1;
+            let mut max_txs = 0;
+            for last_mined_block in last_mined_blocks.iter() {
+                max_txs = cmp::max(max_txs, last_mined_block.anchored_block.txs.len());
+            }
+            (attempt, max_txs)
         } else {
             let mut best_attempt = 0;
-            debug!(
+            let mut max_txs = 0;
+            info!(
                 "Consider {} in-flight Stacks tip(s)",
                 &last_mined_blocks.len()
             );
             for prev_block in last_mined_blocks.iter() {
-                debug!(
+                info!(
                     "Consider in-flight block {} on Stacks tip {}/{} in {} with {} txs",
                     &prev_block.anchored_block.block_hash(),
                     &prev_block.parent_consensus_hash,
@@ -1448,6 +1955,7 @@ impl BlockMinerThread {
                     &prev_block.my_burn_hash,
                     &prev_block.anchored_block.txs.len()
                 );
+                max_txs = cmp::max(max_txs, prev_block.anchored_block.txs.len());
 
                 if prev_block.anchored_block.txs.len() == 1 && prev_block.attempt == 1 {
                     // Don't let the fact that we've built an empty block during this sortition
@@ -1483,47 +1991,51 @@ impl BlockMinerThread {
                                         as usize)
                                         + 1)
                         {
-                            // the chain tip hasn't changed since we attempted to build a block.  Use what we
-                            // already have.
-                            debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no new microblocks ({} <= {} + 1)",
-                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
-                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
+                            if !force {
+                                // the chain tip hasn't changed since we attempted to build a block.  Use what we
+                                // already have.
+                                info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no new microblocks ({} <= {} + 1)",
+                                       &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
+                                       prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
-                            return None;
+                                return None;
+                            }
                         } else {
                             // there are new microblocks!
                             // TODO: only consider rebuilding our anchored block if we (a) have
                             // time, and (b) the new microblocks are worth more than the new BTC
                             // fee minus the old BTC fee
-                            debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, but there are new microblocks ({} > {} + 1)",
+                            info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, but there are new microblocks ({} > {} + 1)",
                                    &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
                                    prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height, stream.len(), prev_block.anchored_block.header.parent_microblock_sequence);
 
                             best_attempt = cmp::max(best_attempt, prev_block.attempt);
                         }
                     } else {
-                        // no microblock stream to confirm, and the stacks tip hasn't changed
-                        debug!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no microblocks present",
-                               &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
-                               prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
+                        if !force {
+                            // no microblock stream to confirm, and the stacks tip hasn't changed
+                            info!("Relayer: Stacks tip is unchanged since we last tried to mine a block off of {}/{} at height {} with {} txs, in {} at burn height {}, and no microblocks present",
+                                   &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block, prev_block.anchored_block.header.total_work.work,
+                                   prev_block.anchored_block.txs.len(), prev_block.my_burn_hash, parent_block_burn_height);
 
-                        return None;
+                            return None;
+                        }
                     }
                 } else {
                     if self.burn_block.burn_header_hash == prev_block.my_burn_hash {
                         // only try and re-mine if there was no sortition since the last chain tip
-                        debug!("Relayer: Stacks tip has changed to {}/{} since we last tried to mine a block in {} at burn height {}; attempt was {} (for Stacks tip {}/{})",
+                        info!("Relayer: Stacks tip has changed to {}/{} since we last tried to mine a block in {} at burn height {}; attempt was {} (for Stacks tip {}/{})",
                                parent_consensus_hash, stacks_parent_header.anchored_header.block_hash(), prev_block.my_burn_hash, parent_block_burn_height, prev_block.attempt, &prev_block.parent_consensus_hash, &prev_block.anchored_block.header.parent_block);
                         best_attempt = cmp::max(best_attempt, prev_block.attempt);
                     } else {
-                        debug!("Relayer: Burn tip has changed to {} ({}) since we last tried to mine a block in {}",
+                        info!("Relayer: Burn tip has changed to {} ({}) since we last tried to mine a block in {}",
                                &self.burn_block.burn_header_hash, self.burn_block.block_height, &prev_block.my_burn_hash);
                     }
                 }
             }
-            best_attempt + 1
+            (best_attempt + 1, max_txs)
         };
-        Some(attempt)
+        Some((attempt, u64::try_from(max_txs).expect("too many txs")))
     }
 
     /// Generate the VRF proof for the block we're going to build.
@@ -1687,6 +2199,214 @@ impl BlockMinerThread {
         microblock_info_opt.map(|(stream, _)| stream)
     }
 
+    /// Get the list of possible burn addresses this miner is using
+    pub fn get_miner_addrs(config: &Config, keychain: &Keychain) -> Vec<String> {
+        let mut op_signer = keychain.generate_op_signer();
+        let mut btc_addrs = vec![
+            // legacy
+            BitcoinAddress::from_bytes_legacy(
+                config.burnchain.get_bitcoin_network().1,
+                LegacyBitcoinAddressType::PublicKeyHash,
+                &Hash160::from_data(&op_signer.get_public_key().to_bytes()).0,
+            )
+            .expect("FATAL: failed to construct legacy bitcoin address"),
+        ];
+        if config.miner.segwit {
+            btc_addrs.push(
+                // segwit p2wpkh
+                BitcoinAddress::from_bytes_segwit_p2wpkh(
+                    config.burnchain.get_bitcoin_network().1,
+                    &Hash160::from_data(&op_signer.get_public_key().to_bytes_compressed()).0,
+                )
+                .expect("FATAL: failed to construct segwit p2wpkh address"),
+            );
+        }
+        btc_addrs
+            .into_iter()
+            .map(|addr| format!("{}", &addr))
+            .collect()
+    }
+
+    /// Obtain the target burn fee cap, when considering how well this miner is performing.
+    pub fn get_mining_spend_amount<F, G>(
+        config: &Config,
+        keychain: &Keychain,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        recipients: &[PoxAddress],
+        start_mine_height: u64,
+        at_burn_block: Option<u64>,
+        mut get_prior_winning_prob: F,
+        mut set_prior_winning_prob: G,
+    ) -> u64
+    where
+        F: FnMut(u64) -> f64,
+        G: FnMut(u64, f64),
+    {
+        let config_file_burn_fee_cap = config.get_burnchain_config().burn_fee_cap;
+        let miner_config = config.get_miner_config();
+
+        if miner_config.target_win_probability < 0.00001 {
+            // this field is effectively zero
+            return config_file_burn_fee_cap;
+        }
+        let Some(miner_stats) = config.get_miner_stats() else {
+            return config_file_burn_fee_cap;
+        };
+
+        let Ok(tip) = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).map_err(|e| {
+            warn!("Failed to load canonical burn chain tip: {:?}", &e);
+            e
+        }) else {
+            return config_file_burn_fee_cap;
+        };
+        let tip = if let Some(at_burn_block) = at_burn_block.as_ref() {
+            let ih = sortdb.index_handle(&tip.sortition_id);
+            let Ok(Some(ancestor_tip)) = ih.get_block_snapshot_by_height(*at_burn_block) else {
+                warn!(
+                    "Failed to load ancestor tip at burn height {}",
+                    at_burn_block
+                );
+                return config_file_burn_fee_cap;
+            };
+            ancestor_tip
+        } else {
+            tip
+        };
+
+        let Ok(active_miners_and_commits) = MinerStats::get_active_miners(sortdb, at_burn_block)
+            .map_err(|e| {
+                warn!("Failed to get active miners: {:?}", &e);
+                e
+            })
+        else {
+            return config_file_burn_fee_cap;
+        };
+        if active_miners_and_commits.len() == 0 {
+            warn!("No active miners detected; using config file burn_fee_cap");
+            return config_file_burn_fee_cap;
+        }
+
+        let active_miners: Vec<_> = active_miners_and_commits
+            .iter()
+            .map(|(miner, _cmt)| miner.as_str())
+            .collect();
+
+        info!("Active miners: {:?}", &active_miners);
+
+        let Ok(unconfirmed_block_commits) = miner_stats
+            .get_unconfirmed_commits(tip.block_height + 1, &active_miners)
+            .map_err(|e| {
+                warn!("Failed to find unconfirmed block-commits: {}", &e);
+                e
+            })
+        else {
+            return config_file_burn_fee_cap;
+        };
+
+        let unconfirmed_miners_and_amounts: Vec<(String, u64)> = unconfirmed_block_commits
+            .iter()
+            .map(|cmt| (cmt.apparent_sender.to_string(), cmt.burn_fee))
+            .collect();
+
+        info!(
+            "Found unconfirmed block-commits: {:?}",
+            &unconfirmed_miners_and_amounts
+        );
+
+        let (spend_dist, _total_spend) = MinerStats::get_spend_distribution(
+            &active_miners_and_commits,
+            &unconfirmed_block_commits,
+            &recipients,
+        );
+        let win_probs = if miner_config.fast_rampup {
+            // look at spends 6+ blocks in the future
+            let win_probs = MinerStats::get_future_win_distribution(
+                &active_miners_and_commits,
+                &unconfirmed_block_commits,
+                &recipients,
+            );
+            win_probs
+        } else {
+            // look at the current spends
+            let Ok(unconfirmed_burn_dist) = miner_stats
+                .get_unconfirmed_burn_distribution(
+                    burnchain,
+                    sortdb,
+                    &active_miners_and_commits,
+                    unconfirmed_block_commits,
+                    recipients,
+                    at_burn_block,
+                )
+                .map_err(|e| {
+                    warn!("Failed to get unconfirmed burn distribution: {:?}", &e);
+                    e
+                })
+            else {
+                return config_file_burn_fee_cap;
+            };
+
+            let win_probs = MinerStats::burn_dist_to_prob_dist(&unconfirmed_burn_dist);
+            win_probs
+        };
+
+        info!("Unconfirmed spend distribution: {:?}", &spend_dist);
+        info!(
+            "Unconfirmed win probabilities (fast_rampup={}): {:?}",
+            miner_config.fast_rampup, &win_probs
+        );
+
+        let miner_addrs = Self::get_miner_addrs(config, keychain);
+        let win_prob = miner_addrs
+            .iter()
+            .find_map(|x| win_probs.get(x))
+            .copied()
+            .unwrap_or(0.0);
+
+        info!(
+            "This miner's win probability at {} is {}",
+            tip.block_height, &win_prob
+        );
+        set_prior_winning_prob(tip.block_height, win_prob);
+
+        if win_prob < config.miner.target_win_probability {
+            // no mining strategy is viable, so just quit.
+            // Unless we're spinning up, that is.
+            if start_mine_height + 6 < tip.block_height
+                && config.miner.underperform_stop_threshold.is_some()
+            {
+                let underperform_stop_threshold =
+                    config.miner.underperform_stop_threshold.unwrap_or(0);
+                info!(
+                    "Miner is spun up, but is not meeting target win probability as of {}",
+                    tip.block_height
+                );
+                // we've spun up and we're underperforming. How long do we tolerate this?
+                let mut underperformed_count = 0;
+                for depth in 0..underperform_stop_threshold {
+                    let prior_burn_height = tip.block_height.saturating_sub(depth);
+                    let prior_win_prob = get_prior_winning_prob(prior_burn_height);
+                    if prior_win_prob < config.miner.target_win_probability {
+                        info!(
+                            "Miner underperformed in block {} ({}/{})",
+                            prior_burn_height, underperformed_count, underperform_stop_threshold
+                        );
+                        underperformed_count += 1;
+                    }
+                }
+                if underperformed_count == underperform_stop_threshold {
+                    warn!(
+                        "Miner underperformed since burn height {}; spinning down",
+                        start_mine_height + 6 + underperform_stop_threshold
+                    );
+                    return 0;
+                }
+            }
+        }
+
+        config_file_burn_fee_cap
+    }
+
     /// Produce the block-commit for this anchored block, if we can.
     /// Returns the op on success
     /// Returns None if we fail somehow.
@@ -1716,15 +2436,6 @@ impl BlockMinerThread {
             }
         };
 
-        // let burn_fee_cap = self.config.burnchain.burn_fee_cap;
-        let burn_fee_cap = get_mining_spend_amount(self.globals.get_miner_status());
-        let sunset_burn = self.burnchain.expected_sunset_burn(
-            self.burn_block.block_height + 1,
-            burn_fee_cap,
-            target_epoch_id,
-        );
-        let rest_commit = burn_fee_cap - sunset_burn;
-
         let commit_outs = if !self
             .burnchain
             .pox_constants
@@ -1737,6 +2448,32 @@ impl BlockMinerThread {
         } else {
             vec![PoxAddress::standard_burn_address(self.config.is_mainnet())]
         };
+
+        let burn_fee_cap = Self::get_mining_spend_amount(
+            &self.config,
+            &self.keychain,
+            &self.burnchain,
+            burn_db,
+            &commit_outs,
+            self.globals.get_start_mining_height(),
+            None,
+            |block_height| {
+                self.globals
+                    .get_estimated_win_prob(block_height)
+                    .unwrap_or(0.0)
+            },
+            |block_height, win_prob| self.globals.add_estimated_win_prob(block_height, win_prob),
+        );
+        if burn_fee_cap == 0 {
+            warn!("Calculated burn_fee_cap is 0; will not mine");
+            return None;
+        }
+        let sunset_burn = self.burnchain.expected_sunset_burn(
+            self.burn_block.block_height + 1,
+            burn_fee_cap,
+            target_epoch_id,
+        );
+        let rest_commit = burn_fee_cap - sunset_burn;
 
         // let's commit, but target the current burnchain tip with our modulus
         let op = self.inner_generate_block_commit_op(
@@ -1840,6 +2577,19 @@ impl BlockMinerThread {
             self.ongoing_commit.clone(),
         );
 
+        let miner_config = self.config.get_miner_config();
+        let last_miner_config_opt = self.globals.get_last_miner_config();
+        let force_remine = if let Some(last_miner_config) = last_miner_config_opt {
+            last_miner_config != miner_config
+        } else {
+            false
+        };
+        if force_remine {
+            info!("Miner config changed; forcing a re-mine attempt");
+        }
+
+        self.globals.set_last_miner_config(miner_config);
+
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
         let mut burn_db =
@@ -1865,8 +2615,14 @@ impl BlockMinerThread {
                 .ok()?
                 .expect("FATAL: no epoch defined")
                 .epoch_id;
-        let mut parent_block_info = self.load_block_parent_info(&mut burn_db, &mut chain_state)?;
-        let attempt = self.get_mine_attempt(&chain_state, &parent_block_info)?;
+
+        let (Some(mut parent_block_info), _) =
+            self.load_block_parent_info(&mut burn_db, &mut chain_state)
+        else {
+            return None;
+        };
+        let (attempt, max_txs) =
+            self.get_mine_attempt(&chain_state, &parent_block_info, force_remine)?;
         let vrf_proof = self.make_vrf_proof()?;
 
         // Generates a new secret key for signing the trail of microblocks
@@ -1979,6 +2735,24 @@ impl BlockMinerThread {
             }
         };
 
+        let miner_config = self.config.get_miner_config();
+
+        if attempt > 1
+            && miner_config.min_tx_count > 0
+            && u64::try_from(anchored_block.txs.len()).expect("too many txs")
+                < miner_config.min_tx_count
+        {
+            info!("Relayer: Succeeded assembling subsequent block with {} txs, but expected at least {}", anchored_block.txs.len(), miner_config.min_tx_count);
+            return None;
+        }
+
+        if miner_config.only_increase_tx_count
+            && max_txs > u64::try_from(anchored_block.txs.len()).expect("too many txs")
+        {
+            info!("Relayer: Succeeded assembling subsequent block with {} txs, but had previously produced a block with {} txs", anchored_block.txs.len(), max_txs);
+            return None;
+        }
+
         info!(
             "Relayer: Succeeded assembling {} block #{}: {}, with {} txs, attempt {}",
             if parent_block_info.parent_block_total_burn == 0 {
@@ -2002,6 +2776,11 @@ impl BlockMinerThread {
             &vrf_proof,
             target_epoch_id,
         )?;
+        let burn_fee = if let BlockstackOperationType::LeaderBlockCommit(ref op) = &op {
+            op.burn_fee
+        } else {
+            0
+        };
 
         // last chance -- confirm that the stacks tip is unchanged (since it could have taken long
         // enough to build this block that another block could have arrived), and confirm that all
@@ -2009,10 +2788,13 @@ impl BlockMinerThread {
         let cur_burn_chain_tip = SortitionDB::get_canonical_burn_chain_tip(burn_db.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        if let Some(stacks_tip) = chain_state
-            .get_stacks_chain_tip(&burn_db)
-            .expect("FATAL: could not query chain tip")
-        {
+        if let Some(stacks_tip) = Self::pick_best_tip(
+            &self.globals,
+            &self.config,
+            &mut burn_db,
+            &mut chain_state,
+            None,
+        ) {
             let is_miner_blocked = self
                 .globals
                 .get_miner_status()
@@ -2024,7 +2806,7 @@ impl BlockMinerThread {
                 &self.burnchain,
                 &burn_db,
                 &chain_state,
-                self.config.miner.unprocessed_block_deadline_secs,
+                miner_config.unprocessed_block_deadline_secs,
             );
             if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
@@ -2032,7 +2814,7 @@ impl BlockMinerThread {
                 || is_miner_blocked
                 || has_unprocessed
             {
-                debug!(
+                info!(
                     "Relayer: Cancel block-commit; chain tip(s) have changed or cancelled";
                     "block_hash" => %anchored_block.block_hash(),
                     "tx_count" => anchored_block.txs.len(),
@@ -2059,8 +2841,9 @@ impl BlockMinerThread {
         }
 
         let mut op_signer = self.keychain.generate_op_signer();
-        debug!(
+        info!(
             "Relayer: Submit block-commit";
+            "burn_fee" => burn_fee,
             "block_hash" => %anchored_block.block_hash(),
             "tx_count" => anchored_block.txs.len(),
             "target_height" => anchored_block.header.total_work.work,
@@ -2379,8 +3162,6 @@ impl RelayerThread {
             );
             #[cfg(any(test, feature = "testing"))]
             {
-                use std::fs;
-                use std::io::Write;
                 use std::path::Path;
                 if let Ok(path) = std::env::var("STACKS_BAD_BLOCKS_DIR") {
                     // record this block somewhere
@@ -2986,11 +3767,13 @@ impl RelayerThread {
             return None;
         }
 
+        let miner_config = self.config.get_miner_config();
+
         let has_unprocessed = BlockMinerThread::unprocessed_blocks_prevent_mining(
             &self.burnchain,
             self.sortdb_ref(),
             self.chainstate_ref(),
-            self.config.miner.unprocessed_block_deadline_secs,
+            miner_config.unprocessed_block_deadline_secs,
         );
         if has_unprocessed {
             debug!(
@@ -3381,6 +4164,36 @@ impl RelayerThread {
         self.miner_thread.is_none()
     }
 
+    /// Try loading up a saved VRF key
+    pub(crate) fn load_saved_vrf_key(path: &str) -> Option<RegisteredKey> {
+        let mut f = match fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("Could not open {}: {:?}", &path, &e);
+                return None;
+            }
+        };
+        let mut registered_key_bytes = vec![];
+        if let Err(e) = f.read_to_end(&mut registered_key_bytes) {
+            warn!(
+                "Failed to read registered key bytes from {}: {:?}",
+                path, &e
+            );
+            return None;
+        }
+
+        let Ok(registered_key) = serde_json::from_slice(&registered_key_bytes) else {
+            warn!(
+                "Did not load registered key from {}: could not decode JSON",
+                &path
+            );
+            return None;
+        };
+
+        info!("Loaded registered key from {}", &path);
+        Some(registered_key)
+    }
+
     /// Top-level dispatcher
     pub fn handle_directive(&mut self, directive: RelayerDirective) -> bool {
         debug!("Relayer: received next directive");
@@ -3392,10 +4205,18 @@ impl RelayerThread {
                 true
             }
             RelayerDirective::RegisterKey(last_burn_block) => {
-                debug!("Relayer: directive Register VRF key");
-                self.rotate_vrf_and_register(&last_burn_block);
+                let mut saved_key_opt = None;
+                if let Some(path) = self.config.miner.activated_vrf_key_path.as_ref() {
+                    saved_key_opt = Self::load_saved_vrf_key(&path);
+                }
+                if let Some(saved_key) = saved_key_opt {
+                    self.globals.resume_leader_key(saved_key);
+                } else {
+                    debug!("Relayer: directive Register VRF key");
+                    self.rotate_vrf_and_register(&last_burn_block);
+                    debug!("Relayer: directive Registered VRF key");
+                }
                 self.globals.counters.bump_blocks_processed();
-                debug!("Relayer: directive Registered VRF key");
                 true
             }
             RelayerDirective::ProcessTenure(consensus_hash, burn_hash, block_header_hash) => {
@@ -3541,8 +4362,6 @@ pub struct PeerThread {
     globals: Globals,
     /// how long to wait for network messages on each poll, in millis
     poll_timeout: u64,
-    /// receiver for attachments discovered by the chains coordinator thread
-    attachments_rx: Receiver<HashSet<AttachmentInstance>>,
     /// handle to the sortition DB (optional so we can take/replace it)
     sortdb: Option<SortitionDB>,
     /// handle to the chainstate DB (optional so we can take/replace it)
@@ -3594,11 +4413,7 @@ impl PeerThread {
     /// Binds the addresses in the config (which may panic if the port is blocked).
     /// This is so the node will crash "early" before any new threads start if there's going to be
     /// a bind error anyway.
-    pub fn new(
-        runloop: &RunLoop,
-        mut net: PeerNetwork,
-        attachments_rx: Receiver<HashSet<AttachmentInstance>>,
-    ) -> PeerThread {
+    pub fn new(runloop: &RunLoop, mut net: PeerNetwork) -> PeerThread {
         let config = runloop.config().clone();
         let mempool = Self::connect_mempool_db(&config);
         let burn_db_path = config.get_burn_db_file_path();
@@ -3628,7 +4443,6 @@ impl PeerThread {
             net: Some(net),
             globals: runloop.get_globals(),
             poll_timeout,
-            attachments_rx,
             sortdb: Some(sortdb),
             chainstate: Some(chainstate),
             mempool: Some(mempool),
@@ -3710,17 +4524,6 @@ impl PeerThread {
             self.poll_timeout
         };
 
-        let mut expected_attachments = match self.attachments_rx.try_recv() {
-            Ok(expected_attachments) => {
-                debug!("Atlas: received attachments: {:?}", &expected_attachments);
-                expected_attachments
-            }
-            _ => {
-                debug!("Atlas: attachment channel is empty");
-                HashSet::new()
-            }
-        };
-
         // move over unconfirmed state obtained from the relayer
         self.with_chainstate(|p2p_thread, sortdb, chainstate, _mempool| {
             let _ = Relayer::setup_unconfirmed_state_readonly(chainstate, sortdb);
@@ -3756,7 +4559,6 @@ impl PeerThread {
                     ibd,
                     poll_ms,
                     &handler_args,
-                    &mut expected_attachments,
                 )
             })
         });
@@ -3911,7 +4713,11 @@ impl StacksNode {
     /// * bootstrap nodes
     /// Returns the instantiated PeerDB
     /// Panics on failure.
-    fn setup_peer_db(config: &Config, burnchain: &Burnchain) -> PeerDB {
+    fn setup_peer_db(
+        config: &Config,
+        burnchain: &Burnchain,
+        stackerdb_contract_ids: &[QualifiedContractIdentifier],
+    ) -> PeerDB {
         let data_url = UrlString::try_from(format!("{}", &config.node.data_url)).unwrap();
         let initial_neighbors = config.node.bootstrap_node.clone();
         if initial_neighbors.len() > 0 {
@@ -3931,8 +4737,7 @@ impl StacksNode {
             "Failed to parse socket: {}",
             &config.node.p2p_address
         ));
-        let node_privkey =
-            StacksNode::make_node_private_key_from_seed(&config.node.local_peer_seed);
+        let node_privkey = Secp256k1PrivateKey::from_seed(&config.node.local_peer_seed);
 
         let mut peerdb = PeerDB::connect(
             &config.get_peer_db_file_path(),
@@ -3944,8 +4749,9 @@ impl StacksNode {
             PeerAddress::from_socketaddr(&p2p_addr),
             p2p_sock.port(),
             data_url,
-            &vec![],
+            &[],
             Some(&initial_neighbors),
+            stackerdb_contract_ids,
         )
         .map_err(|e| {
             eprintln!(
@@ -4028,13 +4834,90 @@ impl StacksNode {
         let view = {
             let sortition_tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
                 .expect("Failed to get sortition tip");
-            SortitionDB::get_burnchain_view(&sortdb.conn(), &burnchain, &sortition_tip).unwrap()
+            SortitionDB::get_burnchain_view(&sortdb.index_conn(), &burnchain, &sortition_tip)
+                .unwrap()
         };
-
-        let peerdb = Self::setup_peer_db(config, &burnchain);
 
         let atlasdb =
             AtlasDB::connect(atlas_config.clone(), &config.get_atlas_db_file_path(), true).unwrap();
+
+        let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
+        let mut chainstate =
+            open_chainstate_with_faults(config).expect("FATAL: could not open chainstate DB");
+
+        let mut stackerdb_machines = HashMap::new();
+        for stackerdb_contract_id in config.node.stacker_dbs.iter() {
+            // attempt to load the config
+            let (instantiate, stacker_db_config) = match StackerDBConfig::from_smart_contract(
+                &mut chainstate,
+                &sortdb,
+                stackerdb_contract_id,
+            ) {
+                Ok(c) => (true, c),
+                Err(e) => {
+                    warn!(
+                        "Failed to load StackerDB config for {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                    (false, StackerDBConfig::noop())
+                }
+            };
+            let mut stackerdbs =
+                StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
+
+            if instantiate {
+                match stackerdbs.get_stackerdb_id(stackerdb_contract_id) {
+                    Ok(..) => {
+                        // reconfigure
+                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
+                        tx.reconfigure_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
+                            .expect(&format!(
+                                "FATAL: failed to reconfigure StackerDB replica {}",
+                                stackerdb_contract_id
+                            ));
+                        tx.commit().unwrap();
+                    }
+                    Err(NetError::NoSuchStackerDB(..)) => {
+                        // instantiate replica
+                        let tx = stackerdbs.tx_begin(stacker_db_config.clone()).unwrap();
+                        tx.create_stackerdb(stackerdb_contract_id, &stacker_db_config.signers)
+                            .expect(&format!(
+                                "FATAL: failed to instantiate StackerDB replica {}",
+                                stackerdb_contract_id
+                            ));
+                        tx.commit().unwrap();
+                    }
+                    Err(e) => {
+                        panic!("FATAL: failed to query StackerDB state: {:?}", &e);
+                    }
+                }
+            }
+            let stacker_db_sync = match StackerDBSync::new(
+                stackerdb_contract_id.clone(),
+                &stacker_db_config,
+                PeerNetworkComms::new(),
+                stackerdbs,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        "Failed to instantiate StackerDB sync machine for {}: {:?}",
+                        stackerdb_contract_id, &e
+                    );
+                    continue;
+                }
+            };
+
+            stackerdb_machines.insert(
+                stackerdb_contract_id.clone(),
+                (stacker_db_config, stacker_db_sync),
+            );
+        }
+
+        let stackerdb_contract_ids: Vec<_> =
+            stackerdb_machines.keys().map(|sc| sc.clone()).collect();
+        let peerdb = Self::setup_peer_db(config, &burnchain, &stackerdb_contract_ids);
 
         let local_peer = match PeerDB::get_local_peer(peerdb.conn()) {
             Ok(local_peer) => local_peer,
@@ -4044,11 +4927,13 @@ impl StacksNode {
         let p2p_net = PeerNetwork::new(
             peerdb,
             atlasdb,
+            stackerdbs,
             local_peer,
             config.burnchain.peer_version,
             burnchain,
             view,
             config.connection_options.clone(),
+            stackerdb_machines,
             epochs,
         );
 
@@ -4081,7 +4966,11 @@ impl StacksNode {
     /// Main loop of the p2p thread.
     /// Runs in a separate thread.
     /// Continuously receives, until told otherwise.
-    pub fn p2p_main(mut p2p_thread: PeerThread, event_dispatcher: EventDispatcher) {
+    pub fn p2p_main(
+        mut p2p_thread: PeerThread,
+        event_dispatcher: EventDispatcher,
+        should_keep_running: Arc<AtomicBool>,
+    ) {
         let (mut dns_resolver, mut dns_client) = DNSResolver::new(10);
 
         // spawn a daemon thread that runs the DNS resolver.
@@ -4108,7 +4997,7 @@ impl StacksNode {
             .make_cost_metric()
             .unwrap_or_else(|| Box::new(UnitMetric));
 
-        let indexer = make_bitcoin_indexer(&p2p_thread.config);
+        let indexer = make_bitcoin_indexer(&p2p_thread.config, Some(should_keep_running));
 
         // receive until we can't reach the receiver thread
         loop {
@@ -4145,19 +5034,38 @@ impl StacksNode {
         info!("P2P thread exit!");
     }
 
+    /// This function sets the global var `GLOBAL_BURNCHAIN_SIGNER`.
+    ///
+    /// This variable is used for prometheus monitoring (which only
+    /// runs when the feature flag `monitoring_prom` is activated).
+    /// The address is set using the single-signature BTC address
+    /// associated with `keychain`'s public key. This address always
+    /// assumes Epoch-2.1 rules for the miner address: if the
+    /// node is configured for segwit, then the miner address generated
+    /// is a segwit address, otherwise it is a p2pkh.
+    ///
+    fn set_monitoring_miner_address(keychain: &Keychain, relayer_thread: &RelayerThread) {
+        let public_key = keychain.get_pub_key();
+        let miner_addr = relayer_thread
+            .bitcoin_controller
+            .get_miner_address(StacksEpochId::Epoch21, &public_key);
+        let miner_addr_str = addr2str(&miner_addr);
+        let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
+            warn!("Failed to set global burnchain signer: {:?}", &e);
+            e
+        });
+    }
+
     pub fn spawn(
         runloop: &RunLoop,
         globals: Globals,
         // relay receiver endpoint for the p2p thread, so the relayer can feed it data to push
         relay_recv: Receiver<RelayerDirective>,
-        // attachments receiver endpoint for the p2p thread, so the chains coordinator can feed it
-        // attachments it discovers
-        attachments_receiver: Receiver<HashSet<AttachmentInstance>>,
     ) -> StacksNode {
         let config = runloop.config().clone();
         let is_miner = runloop.is_miner();
         let burnchain = runloop.get_burnchain();
-        let atlas_config = AtlasConfig::default(config.is_mainnet());
+        let atlas_config = config.atlas.clone();
         let keychain = Keychain::default(config.node.seed.clone());
 
         // we can call _open_ here rather than _connect_, since connect is first called in
@@ -4167,24 +5075,20 @@ impl StacksNode {
             true,
             burnchain.pox_constants.clone(),
         )
-        .expect("Error while instantiating sor/tition db");
+        .expect("Error while instantiating sortition db");
 
         Self::setup_ast_size_precheck(&config, &mut sortdb);
 
         let _ = Self::setup_mempool_db(&config);
 
         let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain.clone());
-        let relayer = Relayer::from_p2p(&mut p2p_net);
+
+        let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
+            .expect("FATAL: failed to connect to stacker DB");
+
+        let relayer = Relayer::from_p2p(&mut p2p_net, stackerdbs);
 
         let local_peer = p2p_net.local_peer.clone();
-
-        let burnchain_signer = keychain.get_burnchain_signer();
-        match monitoring::set_burnchain_signer(burnchain_signer.clone()) {
-            Err(e) => {
-                warn!("Failed to set global burnchain signer: {:?}", &e);
-            }
-            _ => {}
-        }
 
         // setup initial key registration
         let leader_key_registration_state = if config.node.mock_mining {
@@ -4202,6 +5106,9 @@ impl StacksNode {
         globals.set_initial_leader_key_registration_state(leader_key_registration_state);
 
         let relayer_thread = RelayerThread::new(runloop, local_peer.clone(), relayer);
+
+        StacksNode::set_monitoring_miner_address(&keychain, &relayer_thread);
+
         let relayer_thread_handle = thread::Builder::new()
             .name(format!("relayer-{}", &local_peer.data_url))
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
@@ -4211,8 +5118,9 @@ impl StacksNode {
             })
             .expect("FATAL: failed to start relayer thread");
 
+        let should_keep_running_clone = globals.should_keep_running.clone();
         let p2p_event_dispatcher = runloop.get_event_dispatcher();
-        let p2p_thread = PeerThread::new(runloop, p2p_net, attachments_receiver);
+        let p2p_thread = PeerThread::new(runloop, p2p_net);
         let p2p_thread_handle = thread::Builder::new()
             .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
             .name(format!(
@@ -4221,7 +5129,7 @@ impl StacksNode {
             ))
             .spawn(move || {
                 debug!("p2p thread ID is {:?}", thread::current().id());
-                Self::p2p_main(p2p_thread, p2p_event_dispatcher);
+                Self::p2p_main(p2p_thread, p2p_event_dispatcher, should_keep_running_clone);
             })
             .expect("FATAL: failed to start p2p thread");
 
@@ -4334,6 +5242,7 @@ impl StacksNode {
     /// Called from the main thread.
     pub fn process_burnchain_state(
         &mut self,
+        config: &Config,
         sortdb: &SortitionDB,
         sort_id: &SortitionId,
         ibd: bool,
@@ -4376,18 +5285,46 @@ impl StacksNode {
             SortitionDB::get_leader_keys_by_block(&ic, &block_snapshot.sortition_id)
                 .expect("Unexpected SortitionDB error fetching key registers");
 
+        self.globals.set_last_sortition(block_snapshot);
+        let ret = last_sortitioned_block.map(|x| x.0);
+
         let num_key_registers = key_registers.len();
-
-        self.globals
-            .try_activate_leader_key_registration(block_height, key_registers);
-
         debug!(
             "Processed burnchain state at height {}: {} leader keys, {} block-commits (ibd = {})",
             block_height, num_key_registers, num_block_commits, ibd
         );
 
-        self.globals.set_last_sortition(block_snapshot);
-        last_sortitioned_block.map(|x| x.0)
+        // save the registered VRF key
+        let activated_key_opt = self
+            .globals
+            .try_activate_leader_key_registration(block_height, key_registers);
+
+        let Some(activated_key) = activated_key_opt else {
+            return ret;
+        };
+        let Some(path) = config.miner.activated_vrf_key_path.as_ref() else {
+            return ret;
+        };
+        info!("Activated VRF key; saving to {}", &path);
+        let Ok(key_json) = serde_json::to_string(&activated_key) else {
+            warn!("Failed to serialize VRF key");
+            return ret;
+        };
+        let mut f = match fs::File::create(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("Failed to create {}: {:?}", &path, &e);
+                return ret;
+            }
+        };
+
+        if let Err(e) = f.write_all(key_json.as_str().as_bytes()) {
+            warn!("Failed to write activated VRF key to {}: {:?}", &path, &e);
+            return ret;
+        }
+
+        info!("Saved activated VRF key to {}", &path);
+        return ret;
     }
 
     /// Join all inner threads

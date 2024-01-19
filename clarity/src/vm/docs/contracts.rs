@@ -1,20 +1,18 @@
-use crate::vm::analysis::{mem_type_check, ContractAnalysis};
-use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
-use crate::vm::types::{FunctionType, Value};
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::iter::FromIterator;
 
-use crate::types::StacksEpochId;
+use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::types::StacksEpochId;
+
+use crate::vm::analysis::{mem_type_check, ContractAnalysis};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
+use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
 use crate::vm::{self, ContractContext};
-
-use stacks_common::consts::CHAIN_ID_TESTNET;
 
 const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
 
@@ -47,6 +45,7 @@ pub struct ContractSupportDocs {
     pub skip_func_display: HashSet<&'static str>,
 }
 
+#[allow(clippy::expect_used)]
 fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -> FunctionRef {
     let input_type = get_input_type_string(func_type);
     let output_type = get_output_type_string(func_type);
@@ -61,6 +60,7 @@ fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -
     }
 }
 
+#[allow(clippy::expect_used)]
 fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
     let to_eval = format!("{}\n{}", contract_content, var_name);
     doc_execute(&to_eval)
@@ -94,6 +94,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
     })
 }
 
+#[allow(clippy::expect_used)]
 pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractRef {
     let (_, contract_analysis) =
         mem_type_check(content, ClarityVersion::latest(), StacksEpochId::latest())
@@ -144,7 +145,8 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
     let ecode_result = doc_execute(&ecode_to_eval)
         .expect("BUG: failed to evaluate contract for constant value")
         .expect("BUG: failed to return constant value")
-        .expect_tuple();
+        .expect_tuple()
+        .expect("BUG: failed to build tuple");
 
     let error_codes = variable_types
         .iter()

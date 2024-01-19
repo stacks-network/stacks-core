@@ -14,29 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::TryInto;
+
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::mem_type_check;
-use crate::vm::analysis::type_check;
 use crate::vm::analysis::type_checker::v2_05::{TypeChecker, TypeResult, TypingContext};
 use crate::vm::analysis::types::ContractAnalysis;
-use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::analysis::{mem_type_check, type_check, AnalysisDatabase};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::contexts::OwnedEnvironment;
+use crate::vm::database::MemoryBackingStore;
 use crate::vm::representations::SymbolicExpression;
+use crate::vm::types::SequenceSubtype::*;
+use crate::vm::types::StringSubtype::*;
+use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     FixedFunction, FunctionType, PrincipalData, QualifiedContractIdentifier, TypeSignature, Value,
     BUFF_32, BUFF_64,
 };
 use crate::vm::ClarityVersion;
-
-use crate::vm::database::MemoryBackingStore;
-use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
-use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
-
-use std::convert::TryInto;
 
 mod assets;
 mod contracts;
@@ -47,11 +45,11 @@ fn type_check_helper(exp: &str) -> TypeResult {
 }
 
 fn buff_type(size: u32) -> TypeSignature {
-    TypeSignature::SequenceType(BufferType(size.try_into().unwrap())).into()
+    TypeSignature::SequenceType(BufferType(size.try_into().unwrap()))
 }
 
 fn ascii_type(size: u32) -> TypeSignature {
-    TypeSignature::SequenceType(StringType(ASCII(size.try_into().unwrap()))).into()
+    TypeSignature::SequenceType(StringType(ASCII(size.try_into().unwrap())))
 }
 
 #[test]
@@ -89,12 +87,12 @@ fn test_get_block_info() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -108,7 +106,7 @@ fn test_define_trait() {
 
     for good_test in good.iter() {
         mem_type_check(
-            &good_test,
+            good_test,
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05,
         )
@@ -131,7 +129,7 @@ fn test_define_trait() {
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 
     let bad = ["(define-trait trait-1)", "(define-trait)"];
@@ -242,12 +240,12 @@ fn test_stx_ops() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -433,20 +431,16 @@ fn test_destructuring_opts() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter() {
         assert_eq!(
             expected,
-            &mem_type_check(
-                &bad_test,
-                ClarityVersion::Clarity1,
-                StacksEpochId::Epoch2_05
-            )
-            .unwrap_err()
-            .err
+            &mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+                .unwrap_err()
+                .err
         );
     }
 }
@@ -469,12 +463,12 @@ fn test_at_block() {
     for (good_test, expected) in good.iter() {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -507,7 +501,7 @@ fn test_unexpected_use_of_field_or_trait_reference() {
     )];
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -539,12 +533,12 @@ fn test_simple_arithmetic_checks() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -587,22 +581,22 @@ fn test_simple_hash_checks() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for bad_test in bad_types.iter() {
-        assert!(match type_check_helper(&bad_test).unwrap_err().err {
-            CheckErrors::UnionTypeError(_, _) => true,
-            _ => false,
-        })
+        assert!(matches!(
+            type_check_helper(bad_test).unwrap_err().err,
+            CheckErrors::UnionTypeError(_, _)
+        ));
     }
 
     for bad_test in invalid_args.iter() {
-        assert!(match type_check_helper(&bad_test).unwrap_err().err {
-            CheckErrors::IncorrectArgumentCount(_, _) => true,
-            _ => false,
-        })
+        assert!(matches!(
+            type_check_helper(bad_test).unwrap_err().err,
+            CheckErrors::IncorrectArgumentCount(_, _)
+        ));
     }
 }
 
@@ -633,12 +627,12 @@ fn test_simple_ifs() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -668,12 +662,12 @@ fn test_simple_lets() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -698,7 +692,7 @@ fn test_index_of() {
     for good_test in good.iter() {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
@@ -717,16 +711,16 @@ fn test_index_of() {
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
         CheckErrors::TypeError(
-            TypeSignature::min_buffer(),
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_buffer().unwrap(),
+            TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_utf8(),
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_string_utf8().unwrap(),
+            TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_ascii(),
-            TypeSignature::min_string_utf8(),
+            TypeSignature::min_string_ascii().unwrap(),
+            TypeSignature::min_string_utf8().unwrap(),
         ),
         CheckErrors::CouldNotDetermineType,
         CheckErrors::CouldNotDetermineType,
@@ -734,7 +728,7 @@ fn test_index_of() {
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -766,12 +760,12 @@ fn test_element_at() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -811,12 +805,12 @@ fn test_eqs() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -844,12 +838,12 @@ fn test_asserts() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -924,12 +918,12 @@ fn test_lists() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -978,12 +972,12 @@ fn test_buff() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1024,7 +1018,7 @@ fn test_buff_map() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 }
@@ -1037,7 +1031,7 @@ fn test_native_as_max_len() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
@@ -1052,7 +1046,7 @@ fn test_native_as_max_len() {
         CheckErrors::ValueTooLarge,
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1070,7 +1064,7 @@ fn test_buff_as_max_len() {
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));
+        assert_eq!(expected, &format!("{}", type_check_helper(test).unwrap()));
     }
 }
 
@@ -1082,7 +1076,7 @@ fn test_native_append() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
@@ -1098,7 +1092,7 @@ fn test_native_append() {
         CheckErrors::IncorrectArgumentCount(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1110,7 +1104,7 @@ fn test_native_concat() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
@@ -1126,7 +1120,7 @@ fn test_native_concat() {
         CheckErrors::IncorrectArgumentCount(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1150,7 +1144,7 @@ fn test_concat_append_supertypes() {
         eprintln!("{}", good_test);
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 }
@@ -1163,7 +1157,7 @@ fn test_buff_concat() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 }
@@ -1226,12 +1220,12 @@ fn test_tuples() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(&bad_test).unwrap_err().err);
+        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1447,7 +1441,7 @@ fn test_response_inference() {
 fn test_function_arg_names() {
     use crate::vm::analysis::type_check;
 
-    let functions = vec![
+    let functions = [
         "(define-private (test (x int)) (ok 0))
          (define-public (test-pub (x int)) (ok 0))
          (define-read-only (test-ro (x int)) (ok 0))",
@@ -1708,10 +1702,7 @@ fn test_missing_value_on_declaration_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::IncorrectArgumentCount(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::IncorrectArgumentCount(_, _)));
 }
 
 #[test]
@@ -1726,10 +1717,7 @@ fn test_mismatching_type_on_declaration_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::TypeError(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
 }
 
 #[test]
@@ -1750,10 +1738,7 @@ fn test_mismatching_type_on_update_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::TypeError(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
 }
 
 #[test]
@@ -1770,10 +1755,7 @@ fn test_direct_access_to_persisted_var_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::UndefinedVariable(_) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
 }
 
 #[test]
@@ -1793,10 +1775,7 @@ fn test_data_var_shadowed_by_let_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::NameAlreadyUsed(_) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -1814,10 +1793,7 @@ fn test_mutating_unknown_data_var_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::NoSuchDataVariable(_) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::NoSuchDataVariable(_)));
 }
 
 #[test]
@@ -1833,10 +1809,7 @@ fn test_accessing_unknown_data_var_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::NoSuchDataVariable(_) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::NoSuchDataVariable(_)));
 }
 
 #[test]
@@ -1852,10 +1825,7 @@ fn test_let_shadowed_by_let_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::NameAlreadyUsed(_) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -1872,10 +1842,7 @@ fn test_let_shadowed_by_nested_let_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::NameAlreadyUsed(_) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -1893,10 +1860,7 @@ fn test_define_constant_shadowed_by_let_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::NameAlreadyUsed(_) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -1913,10 +1877,7 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::NameAlreadyUsed(_) => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -2140,10 +2101,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(match &res.err {
-            &CheckErrors::TypeError(_, _) => true,
-            _ => false,
-        });
+        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
     }
 }
 
@@ -2164,10 +2122,7 @@ fn test_fetch_entry_unbound_variables() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(match &res.err {
-            &CheckErrors::UndefinedVariable(_) => true,
-            _ => false,
-        });
+        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
     }
 }
 
@@ -2221,10 +2176,7 @@ fn test_insert_entry_mismatching_type_signatures() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(match &res.err {
-            &CheckErrors::TypeError(_, _) => true,
-            _ => false,
-        });
+        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
     }
 }
 
@@ -2248,10 +2200,7 @@ fn test_insert_entry_unbound_variables() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(match &res.err {
-            &CheckErrors::UndefinedVariable(_) => true,
-            _ => false,
-        });
+        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
     }
 }
 
@@ -2303,10 +2252,7 @@ fn test_delete_entry_mismatching_type_signatures() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(match &res.err {
-            &CheckErrors::TypeError(_, _) => true,
-            _ => false,
-        });
+        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
     }
 }
 
@@ -2327,10 +2273,7 @@ fn test_delete_entry_unbound_variables() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(match &res.err {
-            &CheckErrors::UndefinedVariable(_) => true,
-            _ => false,
-        });
+        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
     }
 }
 
@@ -2381,15 +2324,12 @@ fn test_set_entry_mismatching_type_signatures() {
             case
         );
         let res = mem_type_check(
-            &&contract_src,
+            &contract_src,
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(match &res.err {
-            &CheckErrors::TypeError(_, _) => true,
-            _ => false,
-        });
+        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
     }
 }
 
@@ -2408,15 +2348,12 @@ fn test_set_entry_unbound_variables() {
             case
         );
         let res = mem_type_check(
-            &&contract_src,
+            &contract_src,
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(match &res.err {
-            &CheckErrors::UndefinedVariable(_) => true,
-            _ => false,
-        });
+        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
     }
 }
 
@@ -2463,7 +2400,7 @@ fn test_string_ascii_as_max_len() {
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));
+        assert_eq!(expected, &format!("{}", type_check_helper(test).unwrap()));
     }
 }
 
@@ -2475,7 +2412,7 @@ fn test_string_ascii_concat() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 }
@@ -2523,7 +2460,7 @@ fn test_string_utf8_as_max_len() {
     ];
 
     for (test, expected) in tests.iter().zip(expected.iter()) {
-        assert_eq!(expected, &format!("{}", type_check_helper(&test).unwrap()));
+        assert_eq!(expected, &format!("{}", type_check_helper(test).unwrap()));
     }
 }
 
@@ -2535,7 +2472,7 @@ fn test_string_utf8_concat() {
     for (good_test, expected) in good.iter().zip(expected.iter()) {
         assert_eq!(
             expected,
-            &format!("{}", type_check_helper(&good_test).unwrap())
+            &format!("{}", type_check_helper(good_test).unwrap())
         );
     }
 }
@@ -2546,15 +2483,12 @@ fn test_buff_negative_len() {
         (func 0x00)";
 
     let res = mem_type_check(
-        &contract_src,
+        contract_src,
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::BadSyntaxBinding => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
 }
 
 #[test]
@@ -2563,15 +2497,12 @@ fn test_string_ascii_negative_len() {
         (func \"\")";
 
     let res = mem_type_check(
-        &contract_src,
+        contract_src,
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::BadSyntaxBinding => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
 }
 
 #[test]
@@ -2580,13 +2511,10 @@ fn test_string_utf8_negative_len() {
         (func u\"\")";
 
     let res = mem_type_check(
-        &contract_src,
+        contract_src,
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(match &res.err {
-        &CheckErrors::BadSyntaxBinding => true,
-        _ => false,
-    });
+    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
 }

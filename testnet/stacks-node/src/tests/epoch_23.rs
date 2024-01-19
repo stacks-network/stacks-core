@@ -14,27 +14,19 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::env;
-use std::thread;
+use std::{env, thread};
 
-use stacks::burnchains::Burnchain;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use stacks::burnchains::{Burnchain, PoxConstants};
+use stacks::core;
 use stacks::core::STACKS_EPOCH_MAX;
-use stacks::vm::types::QualifiedContractIdentifier;
+use stacks_common::util::sleep_ms;
 
-use crate::config::EventKeyType;
-use crate::config::EventObserverConfig;
-use crate::config::InitialBalance;
-use crate::neon;
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
-use crate::BitcoinRegtestController;
-use crate::BurnchainController;
-use stacks::core;
-
-use stacks::burnchains::PoxConstants;
-
-use clarity::vm::types::PrincipalData;
+use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[test]
 #[ignore]
@@ -104,13 +96,12 @@ fn trait_invocation_behavior() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -436,6 +427,8 @@ fn trait_invocation_behavior() {
     // stacks node to mine the stacks block which will be included in
     // epoch_2_3 - 1, so these are the last transactions processed pre-2.3.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // this sleep is placed here to reduce test flakiness
+    sleep_ms(10_000);
 
     let tx_3 = make_contract_call(
         &spender_sk,

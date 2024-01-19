@@ -4,38 +4,44 @@ version = "0.1.0"
 authors = ["Jude Nelson <jude@stacks.org>", "Aaron Blankstein <aaron@blockstack.com>", "Ludo Galabru <ludovic@blockstack.com>"]
 edition = "2021"
 resolver = "2"
-rust-version = "1.61" 
+rust-version = "1.61"
 
 [dependencies]
 lazy_static = "1.4.0"
-pico-args = "0.3.1"
+pico-args = "0.5.0"
 rand = "0.7.3"
 serde = "1"
 serde_derive = "1"
 serde_json = { version = "1.0", features = ["arbitrary_precision", "raw_value"] }
-stacks = { package = "blockstack-core", path = "../../." }
-stx_genesis = { package = "stx-genesis", path = "../../stx-genesis/."}
+stacks = { package = "stackslib", path = "../../stackslib" }
+stx-genesis = { path = "../../stx-genesis"}
 toml = "0.5.6"
 async-h1 = "2.3.2"
 async-std = { version = "1.6", features = ["attributes"] }
 http-types = "2.12"
 base64 = "0.12.0"
 backtrace = "0.3.50"
-libc = "0.2"
+libc = "0.2.151"
 slog = { version = "2.5.2", features = [ "max_level_trace" ] }
-clarity = { package = "clarity", path = "../../clarity/." }
-stacks_common = { package = "stacks-common", path = "../../stacks-common/." }
+clarity = { path = "../../clarity" }
+stacks-common = { path = "../../stacks-common" }
 chrono = "0.4.19"
 regex = "1"
+libsigner = { path = "../../libsigner" }
 
 [dev-dependencies]
 ring = "0.16.19"
-warp = "0.3"
+warp = "0.3.5"
 tokio = "1.15"
 reqwest = { version = "0.11", default_features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
-clarity = { package = "clarity", path = "../../clarity/.", features = ["default", "testing"]}
-stacks_common = { package = "stacks-common", path = "../../stacks-common/.", features = ["default", "testing"] }
-stacks = { package = "blockstack-core", path = "../../.", features = ["default", "testing"] }
+clarity = { path = "../../clarity", features = ["default", "testing"]}
+stacks-common = { path = "../../stacks-common", features = ["default", "testing"] }
+stacks = { package = "stackslib", path = "../../stackslib", features = ["default", "testing"] }
+stacks-signer = { path = "../../stacks-signer" }
+p256k1 = "5.5"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+wsts = "4.0.0"
 
 [dev-dependencies.rusqlite]
 version = "=0.24.2"
@@ -51,6 +57,6 @@ path = "src/stacks_events.rs"
 
 [features]
 monitoring_prom = ["stacks/monitoring_prom"]
-slog_json = ["stacks/slog_json", "stacks_common/slog_json", "clarity/slog_json"]
+slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []

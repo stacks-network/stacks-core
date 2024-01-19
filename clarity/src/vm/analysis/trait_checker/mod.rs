@@ -45,9 +45,7 @@ impl AnalysisPass for TraitChecker {
 
 impl TraitChecker {
     fn new(epoch: &StacksEpochId) -> Self {
-        Self {
-            epoch: epoch.clone(),
-        }
+        Self { epoch: *epoch }
     }
 
     pub fn run(
@@ -58,7 +56,7 @@ impl TraitChecker {
         for trait_identifier in &contract_analysis.implemented_traits {
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db
-                .load_contract(&trait_identifier.contract_identifier, &self.epoch)
+                .load_contract(&trait_identifier.contract_identifier, &self.epoch)?
                 .ok_or(CheckErrors::TraitReferenceUnknown(
                     trait_identifier.name.to_string(),
                 ))?;

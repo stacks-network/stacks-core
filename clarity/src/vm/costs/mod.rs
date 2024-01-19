@@ -20,12 +20,14 @@ use std::{cmp, fmt};
 
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
+use stacks_common::types::StacksEpochId;
 
 use crate::boot_util::boot_code_id;
 use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{ContractContext, Environment, GlobalContext, OwnedEnvironment};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::database::{clarity_store::NullBackingStore, ClarityDatabase};
+use crate::vm::database::clarity_store::NullBackingStore;
+use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{Error, InterpreterResult};
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::{FunctionSignature, TupleTypeSignature};
@@ -35,7 +37,6 @@ use crate::vm::types::{
     TypeSignature, NONE,
 };
 use crate::vm::{ast, eval_all, ClarityName, SymbolicExpression, Value};
-use stacks_common::types::StacksEpochId;
 
 pub mod constants;
 pub mod cost_functions;
@@ -50,16 +51,19 @@ pub const COSTS_2_NAME: &'static str = "costs-2";
 pub const COSTS_3_NAME: &'static str = "costs-3";
 
 lazy_static! {
-    static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = TypeSignature::TupleType(
-        TupleTypeSignature::try_from(vec![
-            ("runtime".into(), TypeSignature::UIntType),
-            ("write_length".into(), TypeSignature::UIntType),
-            ("write_count".into(), TypeSignature::UIntType),
-            ("read_count".into(), TypeSignature::UIntType),
-            ("read_length".into(), TypeSignature::UIntType),
-        ])
-        .expect("BUG: failed to construct type signature for cost tuple")
-    );
+    static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = {
+        #[allow(clippy::expect_used)]
+        TypeSignature::TupleType(
+            TupleTypeSignature::try_from(vec![
+                ("runtime".into(), TypeSignature::UIntType),
+                ("write_length".into(), TypeSignature::UIntType),
+                ("write_count".into(), TypeSignature::UIntType),
+                ("read_count".into(), TypeSignature::UIntType),
+                ("read_length".into(), TypeSignature::UIntType),
+            ])
+            .expect("BUG: failed to construct type signature for cost tuple"),
+        )
+    };
 }
 
 pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
@@ -76,7 +80,7 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
 macro_rules! finally_drop_memory {
     ( $env: expr, $used_mem:expr; $exec:expr ) => {{
         let result = (|| $exec)();
-        $env.drop_memory($used_mem);
+        $env.drop_memory($used_mem)?;
         result
     }};
 }
@@ -96,12 +100,15 @@ pub fn analysis_typecheck_cost<T: CostTracker>(
 }
 
 pub trait MemoryConsumer {
-    fn get_memory_use(&self) -> u64;
+    fn get_memory_use(&self) -> Result<u64>;
 }
 
 impl MemoryConsumer for Value {
-    fn get_memory_use(&self) -> u64 {
-        self.size().into()
+    fn get_memory_use(&self) -> Result<u64> {
+        Ok(self
+            .size()
+            .map_err(|_| CostErrors::InterpreterFailure)?
+            .into())
     }
 }
 
@@ -113,7 +120,7 @@ pub trait CostTracker {
     ) -> Result<ExecutionCost>;
     fn add_cost(&mut self, cost: ExecutionCost) -> Result<()>;
     fn add_memory(&mut self, memory: u64) -> Result<()>;
-    fn drop_memory(&mut self, memory: u64);
+    fn drop_memory(&mut self, memory: u64) -> Result<()>;
     fn reset_memory(&mut self);
     /// Check if the given contract-call should be short-circuited.
     ///  If so: this charges the cost to the CostTracker, and return true
@@ -141,7 +148,9 @@ impl CostTracker for () {
     fn add_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
         Ok(())
     }
-    fn drop_memory(&mut self, _memory: u64) {}
+    fn drop_memory(&mut self, _memory: u64) -> Result<()> {
+        Ok(())
+    }
     fn reset_memory(&mut self) {}
     fn short_circuit_contract_call(
         &mut self,
@@ -319,18 +328,37 @@ pub enum CostErrors {
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
     MemoryBalanceExceeded(u64, u64),
     CostContractLoadFailure,
+    InterpreterFailure,
+    Expect(String),
+}
+
+impl CostErrors {
+    fn rejectable(&self) -> bool {
+        match self {
+            CostErrors::InterpreterFailure => true,
+            CostErrors::Expect(_) => true,
+            _ => false,
+        }
+    }
 }
 
 fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
 
-    let clarity_epoch = clarity_db.get_clarity_epoch_version();
+    let clarity_epoch = clarity_db
+        .get_clarity_epoch_version()
+        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
     let last_processed_at = match clarity_db.get_value(
         "vm-costs::last-processed-at-height",
         &TypeSignature::UIntType,
         &clarity_epoch,
     ) {
-        Ok(Some(v)) => u32::try_from(v.value.expect_u128()).expect("Block height overflowed u32"),
+        Ok(Some(v)) => u32::try_from(
+            v.value
+                .expect_u128()
+                .map_err(|_| CostErrors::InterpreterFailure)?,
+        )
+        .map_err(|_| CostErrors::InterpreterFailure)?,
         Ok(None) => return Ok(CostStateSummary::empty()),
         Err(e) => return Err(CostErrors::CostComputationFailed(e.to_string())),
     };
@@ -343,7 +371,9 @@ fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result
         )
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
     let serialized: SerializedCostStateSummary = match metadata_result {
-        Some(serialized) => serde_json::from_str(&serialized).unwrap(),
+        Some(serialized) => {
+            serde_json::from_str(&serialized).map_err(|_| CostErrors::InterpreterFailure)?
+        }
         None => return Ok(CostStateSummary::empty()),
     };
     Ok(CostStateSummary::from(serialized))
@@ -356,7 +386,9 @@ fn store_state_summary(
 ) -> Result<()> {
     let block_height = clarity_db.get_current_block_height();
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
-    let epoch = clarity_db.get_clarity_epoch_version();
+    let epoch = clarity_db
+        .get_clarity_epoch_version()
+        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
     clarity_db
         .put_value(
             "vm-costs::last-processed-at-height",
@@ -366,12 +398,14 @@ fn store_state_summary(
         .map_err(|_e| CostErrors::CostContractLoadFailure)?;
     let serialized_summary =
         serde_json::to_string(&SerializedCostStateSummary::from(to_store.clone()))
-            .expect("BUG: failure to serialize cost state summary struct");
-    clarity_db.set_metadata(
-        &cost_voting_contract,
-        "::state_summary",
-        &serialized_summary,
-    );
+            .map_err(|_| CostErrors::InterpreterFailure)?;
+    clarity_db
+        .set_metadata(
+            &cost_voting_contract,
+            "::state_summary",
+            &serialized_summary,
+        )
+        .map_err(|e| CostErrors::Expect(e.to_string()))?;
 
     Ok(())
 }
@@ -391,7 +425,9 @@ fn load_cost_functions(
     clarity_db: &mut ClarityDatabase,
     apply_updates: bool,
 ) -> Result<CostStateSummary> {
-    let clarity_epoch = clarity_db.get_clarity_epoch_version();
+    let clarity_epoch = clarity_db
+        .get_clarity_epoch_version()
+        .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
     let last_processed_count = clarity_db
         .get_value(
             "vm-costs::last_processed_count",
@@ -401,7 +437,8 @@ fn load_cost_functions(
         .map_err(|_e| CostErrors::CostContractLoadFailure)?
         .map(|result| result.value)
         .unwrap_or(Value::UInt(0))
-        .expect_u128();
+        .expect_u128()
+        .map_err(|_| CostErrors::InterpreterFailure)?;
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
     let confirmed_proposals_count = clarity_db
         .lookup_variable_unknown_descriptor(
@@ -410,7 +447,8 @@ fn load_cost_functions(
             &clarity_epoch,
         )
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
-        .expect_u128();
+        .expect_u128()
+        .map_err(|_| CostErrors::InterpreterFailure)?;
     debug!("Check cost voting contract";
            "confirmed_proposal_count" => confirmed_proposals_count,
            "last_processed_count" => last_processed_count);
@@ -433,19 +471,26 @@ fn load_cost_functions(
                         "confirmed-id".into(),
                         Value::UInt(confirmed_proposal),
                     )])
-                    .expect("BUG: failed to construct simple tuple"),
+                    .map_err(|_| {
+                        CostErrors::Expect("BUG: failed to construct simple tuple".into())
+                    })?,
                 ),
                 &clarity_epoch,
             )
-            .expect("BUG: Failed querying confirmed-proposals")
+            .map_err(|_| CostErrors::Expect("BUG: Failed querying confirmed-proposals".into()))?
             .expect_optional()
-            .expect("BUG: confirmed-proposal-count exceeds stored proposals")
-            .expect_tuple();
+            .map_err(|_| CostErrors::InterpreterFailure)?
+            .ok_or_else(|| {
+                CostErrors::Expect("BUG: confirmed-proposal-count exceeds stored proposals".into())
+            })?
+            .expect_tuple()
+            .map_err(|_| CostErrors::InterpreterFailure)?;
         let target_contract = match entry
             .get("function-contract")
-            .expect("BUG: malformed cost proposal tuple")
+            .map_err(|_| CostErrors::Expect("BUG: malformed cost proposal tuple".into()))?
             .clone()
             .expect_principal()
+            .map_err(|_| CostErrors::InterpreterFailure)?
         {
             PrincipalData::Contract(contract_id) => contract_id,
             _ => {
@@ -457,9 +502,10 @@ fn load_cost_functions(
         let target_function = match ClarityName::try_from(
             entry
                 .get("function-name")
-                .expect("BUG: malformed cost proposal tuple")
+                .map_err(|_| CostErrors::Expect("BUG: malformed cost proposal tuple".into()))?
                 .clone()
-                .expect_ascii(),
+                .expect_ascii()
+                .map_err(|_| CostErrors::InterpreterFailure)?,
         ) {
             Ok(x) => x,
             Err(_) => {
@@ -470,9 +516,10 @@ fn load_cost_functions(
         };
         let cost_contract = match entry
             .get("cost-function-contract")
-            .expect("BUG: malformed cost proposal tuple")
+            .map_err(|_| CostErrors::Expect("BUG: malformed cost proposal tuple".into()))?
             .clone()
             .expect_principal()
+            .map_err(|_| CostErrors::InterpreterFailure)?
         {
             PrincipalData::Contract(contract_id) => contract_id,
             _ => {
@@ -485,8 +532,9 @@ fn load_cost_functions(
         let cost_function = match ClarityName::try_from(
             entry
                 .get_owned("cost-function-name")
-                .expect("BUG: malformed cost proposal tuple")
-                .expect_ascii(),
+                .map_err(|_| CostErrors::Expect("BUG: malformed cost proposal tuple".into()))?
+                .expect_ascii()
+                .map_err(|_| CostErrors::InterpreterFailure)?,
         ) {
             Ok(x) => x,
             Err(_) => {
@@ -505,6 +553,7 @@ fn load_cost_functions(
         //  arithmetic-checking analysis pass
         let (cost_func_ref, cost_func_type) = match clarity_db
             .load_contract_analysis(&cost_contract)
+            .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
         {
             Some(c) => {
                 if !c.is_cost_contract_eligible {
@@ -586,7 +635,10 @@ fn load_cost_functions(
                 .insert(target, cost_func_ref);
         } else {
             // referring to a user-defined function
-            match clarity_db.load_contract_analysis(&target_contract) {
+            match clarity_db
+                .load_contract_analysis(&target_contract)
+                .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?
+            {
                 Some(c) => {
                     if let Some(Fixed(tf)) = c.read_only_function_types.get(&target_function) {
                         if cost_func_type.args.len() != tf.args.len() {
@@ -711,10 +763,10 @@ impl LimitedCostTracker {
         Self::Free
     }
 
-    fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> String {
-        match epoch_id {
+    fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String> {
+        let result = match epoch_id {
             StacksEpochId::Epoch10 => {
-                panic!("Attempted to get default cost functions for Epoch 1.0 where Clarity does not exist");
+                return Err(CostErrors::Expect("Attempted to get default cost functions for Epoch 1.0 where Clarity does not exist".into()));
             }
             StacksEpochId::Epoch20 => COSTS_1_NAME.to_string(),
             StacksEpochId::Epoch2_05 => COSTS_2_NAME.to_string(),
@@ -722,7 +774,8 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
             | StacksEpochId::Epoch24 => COSTS_3_NAME.to_string(),
-        }
+        };
+        Ok(result)
     }
 }
 
@@ -732,9 +785,11 @@ impl TrackerData {
     ///   fork.
     fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
         clarity_db.begin();
-        let epoch_id = clarity_db.get_clarity_epoch_version();
+        let epoch_id = clarity_db
+            .get_clarity_epoch_version()
+            .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
         let boot_costs_id = boot_code_id(
-            &LimitedCostTracker::default_cost_contract_for_epoch(epoch_id),
+            &LimitedCostTracker::default_cost_contract_for_epoch(epoch_id)?,
             self.mainnet,
         );
 
@@ -742,8 +797,13 @@ impl TrackerData {
             contract_call_circuits,
             mut cost_function_references,
         } = load_cost_functions(self.mainnet, clarity_db, apply_updates).map_err(|e| {
-            clarity_db.roll_back();
-            e
+            let result = clarity_db
+                .roll_back()
+                .map_err(|e| CostErrors::Expect(e.to_string()));
+            match result {
+                Ok(_) => e,
+                Err(rollback_err) => rollback_err,
+            }
         })?;
 
         self.contract_call_circuits = contract_call_circuits;
@@ -762,7 +822,9 @@ impl TrackerData {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
                                "error" => ?e);
-                        clarity_db.roll_back();
+                        clarity_db
+                            .roll_back()
+                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
@@ -780,7 +842,9 @@ impl TrackerData {
                         error!("Failed to load intended Clarity cost contract";
                                "contract" => %boot_costs_id.to_string(),
                                "error" => %format!("{:?}", e));
-                        clarity_db.roll_back();
+                        clarity_db
+                            .roll_back()
+                            .map_err(|e| CostErrors::Expect(e.to_string()))?;
                         return Err(CostErrors::CostContractLoadFailure);
                     }
                 };
@@ -792,9 +856,13 @@ impl TrackerData {
         self.cost_contracts = cost_contracts;
 
         if apply_updates {
-            clarity_db.commit();
+            clarity_db
+                .commit()
+                .map_err(|e| CostErrors::Expect(e.to_string()))?;
         } else {
-            clarity_db.roll_back();
+            clarity_db
+                .roll_back()
+                .map_err(|e| CostErrors::Expect(e.to_string()))?;
         }
 
         return Ok(());
@@ -808,6 +876,7 @@ impl LimitedCostTracker {
             Self::Free => ExecutionCost::zero(),
         }
     }
+    #[allow(clippy::panic)]
     pub fn set_total(&mut self, total: ExecutionCost) -> () {
         // used by the miner to "undo" the cost of a transaction when trying to pack a block.
         match self {
@@ -954,11 +1023,12 @@ fn add_memory(s: &mut TrackerData, memory: u64) -> std::result::Result<(), CostE
     }
 }
 
-fn drop_memory(s: &mut TrackerData, memory: u64) {
+fn drop_memory(s: &mut TrackerData, memory: u64) -> Result<()> {
     s.memory = s
         .memory
         .checked_sub(memory)
-        .expect("Underflowed dropped memory");
+        .ok_or_else(|| CostErrors::Expect("Underflowed dropped memory".into()))?;
+    Ok(())
 }
 
 impl CostTracker for LimitedCostTracker {
@@ -974,7 +1044,9 @@ impl CostTracker for LimitedCostTracker {
             }
             Self::Limited(ref mut data) => {
                 if cost_function == ClarityCostFunction::Unimplemented {
-                    panic!("Used unimplemented cost function");
+                    return Err(CostErrors::Expect(
+                        "Used unimplemented cost function".into(),
+                    ));
                 }
                 let cost_function_ref = data
                     .cost_function_references
@@ -1001,9 +1073,9 @@ impl CostTracker for LimitedCostTracker {
             Self::Limited(ref mut data) => add_memory(data, memory),
         }
     }
-    fn drop_memory(&mut self, memory: u64) {
+    fn drop_memory(&mut self, memory: u64) -> Result<()> {
         match self {
-            Self::Free => {}
+            Self::Free => Ok(()),
             Self::Limited(ref mut data) => drop_memory(data, memory),
         }
     }
@@ -1054,7 +1126,7 @@ impl CostTracker for &mut LimitedCostTracker {
     fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
         LimitedCostTracker::add_memory(self, memory)
     }
-    fn drop_memory(&mut self, memory: u64) {
+    fn drop_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
         LimitedCostTracker::drop_memory(self, memory)
     }
     fn reset_memory(&mut self) {
@@ -1088,7 +1160,8 @@ impl fmt::Display for ExecutionCost {
 
 impl ToSql for ExecutionCost {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
-        let val = serde_json::to_string(self).expect("FAIL: could not serialize ExecutionCost");
+        let val = serde_json::to_string(self)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         Ok(ToSqlOutput::from(val))
     }
 }
@@ -1097,7 +1170,7 @@ impl FromSql for ExecutionCost {
     fn column_result(value: ValueRef) -> FromSqlResult<ExecutionCost> {
         let str_val = String::column_result(value)?;
         let parsed = serde_json::from_str(&str_val)
-            .expect("CORRUPTION: failed to parse ExecutionCost from DB");
+            .map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))?;
         Ok(parsed)
     }
 }
@@ -1136,6 +1209,8 @@ impl ExecutionCost {
 
     /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.
     pub fn proportion_largest_dimension(&self, numerator: &ExecutionCost) -> u64 {
+        // max() should always return because there are > 0 elements
+        #[allow(clippy::expect_used)]
         [
             numerator.runtime / cmp::max(1, self.runtime / 100),
             numerator.write_length / cmp::max(1, self.write_length / 100),

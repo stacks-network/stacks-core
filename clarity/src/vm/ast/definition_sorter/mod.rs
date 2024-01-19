@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
+
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -26,9 +29,6 @@ use crate::vm::representations::PreSymbolicExpressionType::{
 };
 use crate::vm::representations::{ClarityName, PreSymbolicExpression};
 use crate::vm::types::Value;
-use std::collections::{HashMap, HashSet};
-use std::iter::FromIterator;
-
 use crate::vm::ClarityVersion;
 
 #[cfg(test)]
@@ -39,7 +39,7 @@ pub struct DefinitionSorter {
     top_level_expressions_map: HashMap<ClarityName, TopLevelExpressionIndex>,
 }
 
-impl<'a> DefinitionSorter {
+impl DefinitionSorter {
     fn new() -> Self {
         Self {
             top_level_expressions_map: HashMap::new(),
@@ -67,20 +67,17 @@ impl<'a> DefinitionSorter {
         for (expr_index, expr) in exprs.iter().enumerate() {
             self.graph.add_node(expr_index);
 
-            match self.find_expression_definition(expr) {
-                Some((definition_name, atom_index, _)) => {
-                    let tle = TopLevelExpressionIndex {
-                        expr_index,
-                        atom_index,
-                    };
-                    self.top_level_expressions_map.insert(definition_name, tle);
-                }
-                None => {}
+            if let Some((definition_name, atom_index, _)) = self.find_expression_definition(expr) {
+                let tle = TopLevelExpressionIndex {
+                    expr_index,
+                    atom_index,
+                };
+                self.top_level_expressions_map.insert(definition_name, tle);
             }
         }
 
         for (expr_index, expr) in exprs.iter().enumerate() {
-            self.probe_for_dependencies(&expr, expr_index, version)?;
+            self.probe_for_dependencies(expr, expr_index, version)?;
         }
 
         runtime_cost(
@@ -96,7 +93,7 @@ impl<'a> DefinitionSorter {
             let mut deps_props = vec![];
             for i in deps.iter() {
                 let exp = &contract_ast.pre_expressions[*i];
-                if let Some(def) = self.find_expression_definition(&exp) {
+                if let Some(def) = self.find_expression_definition(exp) {
                     deps_props.push(def);
                 }
             }
@@ -120,7 +117,7 @@ impl<'a> DefinitionSorter {
             Atom(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                     }
                 }
                 Ok(())
@@ -128,7 +125,7 @@ impl<'a> DefinitionSorter {
             TraitReference(ref name) => {
                 if let Some(dep) = self.top_level_expressions_map.get(name) {
                     if dep.atom_index != expr.id {
-                        self.graph.add_directed_edge(tle_index, dep.expr_index);
+                        self.graph.add_directed_edge(tle_index, dep.expr_index)?;
                     }
                 }
                 Ok(())
@@ -151,10 +148,8 @@ impl<'a> DefinitionSorter {
                             match define_function {
                                 DefineFunctions::PersistedVariable | DefineFunctions::Constant => {
                                     // Args: [(define-name-and-types), ...]: ignore 1st arg
-                                    if function_args.len() > 1 {
-                                        for expr in
-                                            function_args[1..function_args.len()].into_iter()
-                                        {
+                                    if !function_args.is_empty() {
+                                        for expr in function_args[1..function_args.len()].iter() {
                                             self.probe_for_dependencies(expr, tle_index, version)?;
                                         }
                                     }
@@ -166,12 +161,12 @@ impl<'a> DefinitionSorter {
                                     // Args: [(define-name-and-types), ...]
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies_in_define_args(
-                                            &function_args[0],
+                                            function_args[0],
                                             tle_index,
                                             version,
                                         )?;
                                         self.probe_for_dependencies(
-                                            &function_args[1],
+                                            function_args[1],
                                             tle_index,
                                             version,
                                         )?;
@@ -182,12 +177,12 @@ impl<'a> DefinitionSorter {
                                     // Args: [name, key, value]: with key value being potentialy tuples
                                     if function_args.len() == 3 {
                                         self.probe_for_dependencies(
-                                            &function_args[1],
+                                            function_args[1],
                                             tle_index,
                                             version,
                                         )?;
                                         self.probe_for_dependencies(
-                                            &function_args[2],
+                                            function_args[2],
                                             tle_index,
                                             version,
                                         )?;
@@ -226,7 +221,7 @@ impl<'a> DefinitionSorter {
                                     // probe_for_dependencies if the supply arg (optional) is being passed
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies(
-                                            &function_args[1],
+                                            function_args[1],
                                             tle_index,
                                             version,
                                         )?;
@@ -253,9 +248,7 @@ impl<'a> DefinitionSorter {
                                         if let Some(bindings) = function_args[0].match_list() {
                                             self.probe_for_dependencies_in_list_of_wrapped_key_value_pairs(bindings.iter().collect(), tle_index, version)?;
                                         }
-                                        for expr in
-                                            function_args[1..function_args.len()].into_iter()
-                                        {
+                                        for expr in function_args[1..function_args.len()].iter() {
                                             self.probe_for_dependencies(expr, tle_index, version)?;
                                         }
                                     }
@@ -265,7 +258,7 @@ impl<'a> DefinitionSorter {
                                     // Args: [key-name, expr]: ignore key-name
                                     if function_args.len() == 2 {
                                         self.probe_for_dependencies(
-                                            &function_args[1],
+                                            function_args[1],
                                             tle_index,
                                             version,
                                         )?;
@@ -420,9 +413,17 @@ impl Graph {
         self.adjacency_list.push(vec![]);
     }
 
-    fn add_directed_edge(&mut self, src_expr_index: usize, dst_expr_index: usize) {
-        let list = self.adjacency_list.get_mut(src_expr_index).unwrap();
+    fn add_directed_edge(
+        &mut self,
+        src_expr_index: usize,
+        dst_expr_index: usize,
+    ) -> ParseResult<()> {
+        let list = self
+            .adjacency_list
+            .get_mut(src_expr_index)
+            .ok_or_else(|| ParseErrors::InterpreterFailure)?;
         list.push(dst_expr_index);
+        Ok(())
     }
 
     fn get_node_descendants(&self, expr_index: usize) -> Vec<usize> {
@@ -430,7 +431,7 @@ impl Graph {
     }
 
     fn has_node_descendants(&self, expr_index: usize) -> bool {
-        self.adjacency_list[expr_index].len() > 0
+        !self.adjacency_list[expr_index].is_empty()
     }
 
     fn nodes_count(&self) -> usize {
@@ -442,7 +443,7 @@ impl Graph {
         for node in self.adjacency_list.iter() {
             total = total
                 .checked_add(node.len() as u64)
-                .ok_or_else(|| ParseErrors::CostOverflow)?;
+                .ok_or(ParseErrors::CostOverflow)?;
         }
         Ok(total)
     }
@@ -482,7 +483,7 @@ impl GraphWalker {
         self.seen.insert(tle_index);
         if let Some(list) = graph.adjacency_list.get(tle_index) {
             for neighbor in list.iter() {
-                self.sort_dependencies_recursion(neighbor.clone(), graph, branch);
+                self.sort_dependencies_recursion(*neighbor, graph, branch);
             }
         }
         branch.push(tle_index);
@@ -514,7 +515,7 @@ impl GraphWalker {
         }
 
         let nodes = HashSet::from_iter(sorted_indexes.iter().cloned());
-        let deps = nodes.difference(&tainted).map(|i| *i).collect();
+        let deps = nodes.difference(&tainted).copied().collect();
         Some(deps)
     }
 }

@@ -1,19 +1,16 @@
-use crate::vm::ast::ASTRules;
-use crate::vm::execute_with_parameters;
-use crate::vm::types::TypeSignature::PrincipalType;
-use crate::vm::types::{ASCIIData, BuffData, CharType, SequenceData, Value};
-use crate::vm::ClarityVersion;
-
-use crate::vm::errors::CheckErrors;
-use crate::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
-    TupleData, TypeSignature, BUFF_1, BUFF_20,
-};
 use stacks_common::types::StacksEpochId;
-
-use crate::vm::functions::principals::PrincipalConstructErrorCode;
-
 use stacks_common::util::hash::hex_bytes;
+
+use crate::vm::ast::ASTRules;
+use crate::vm::errors::CheckErrors;
+use crate::vm::functions::principals::PrincipalConstructErrorCode;
+use crate::vm::types::TypeSignature::PrincipalType;
+use crate::vm::types::{
+    ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
+    ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value, BUFF_1,
+    BUFF_20,
+};
+use crate::vm::{execute_with_parameters, ClarityVersion};
 
 #[test]
 fn test_simple_is_standard_check_inputs() {
@@ -1007,7 +1004,7 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            TypeSignature::contract_name_string_ascii_type(),
+            TypeSignature::contract_name_string_ascii_type().unwrap(),
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
                     .as_bytes()

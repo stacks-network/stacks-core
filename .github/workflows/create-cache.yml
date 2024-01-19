@@ -44,6 +44,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/cache/bitcoin@main
         with:
           action: save
+          btc-version: "25.0"
 
   ## Cache nextest archives for tests
   nextest-archive:

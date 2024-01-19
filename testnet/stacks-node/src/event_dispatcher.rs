@@ -5,36 +5,37 @@ use std::time::Duration;
 
 use async_h1::client;
 use async_std::net::TcpStream;
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
+use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
+pub use libsigner::StackerDBChunksEvent;
 use serde_json::json;
-
 use stacks::burnchains::{PoxConstants, Txid};
+use stacks::chainstate::burn::operations::BlockstackOperationType;
+use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::db::StacksHeaderInfo;
+use stacks::chainstate::stacks::db::accounts::MinerReward;
+use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
+use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
     StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
 };
+use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
-    db::accounts::MinerReward, db::MinerRewardInfo, StacksTransaction,
+    StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
-use stacks::chainstate::stacks::{StacksBlock, StacksMicroblock};
-use stacks::codec::StacksMessageCodec;
 use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
+use stacks::libstackerdb::StackerDBChunkData;
 use stacks::net::atlas::{Attachment, AttachmentInstance};
-use stacks::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
-use stacks::util::hash::bytes_to_hex;
-use stacks::vm::analysis::contract_interface_builder::build_contract_interface;
-use stacks::vm::costs::ExecutionCost;
-use stacks::vm::events::{FTEventType, NFTEventType, STXEventType};
-use stacks::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
+use stacks::net::stackerdb::StackerDBEventDispatcher;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use stacks_common::util::hash::bytes_to_hex;
 
 use super::config::{EventKeyType, EventObserverConfig};
-use stacks::chainstate::burn::operations::BlockstackOperationType;
-use stacks::chainstate::burn::ConsensusHash;
-use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
-use stacks::chainstate::stacks::miner::TransactionEvent;
-use stacks::chainstate::stacks::TransactionPayload;
 
 #[derive(Debug, Clone)]
 struct EventObserver {
@@ -60,6 +61,7 @@ pub const PATH_MEMPOOL_TX_SUBMIT: &str = "new_mempool_tx";
 pub const PATH_MEMPOOL_TX_DROP: &str = "drop_mempool_tx";
 pub const PATH_MINED_BLOCK: &str = "mined_block";
 pub const PATH_MINED_MICROBLOCK: &str = "mined_microblock";
+pub const PATH_STACKERDB_CHUNKS: &str = "stackerdb_chunks";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
@@ -230,12 +232,16 @@ impl EventObserver {
         };
 
         let raw_result = {
-            let bytes = receipt.result.serialize_to_vec();
+            let bytes = receipt
+                .result
+                .serialize_to_vec()
+                .expect("FATAL: failed to serialize transaction receipt");
             bytes_to_hex(&bytes)
         };
         let contract_interface_json = {
             match &receipt.contract_analysis {
-                Some(analysis) => json!(build_contract_interface(analysis)),
+                Some(analysis) => json!(build_contract_interface(analysis)
+                    .expect("FATAL: failed to serialize contract publish receipt")),
                 None => json!(null),
             }
         };
@@ -308,7 +314,9 @@ impl EventObserver {
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
             .map(|(event_index, (committed, txid, event))| {
-                event.json_serialize(*event_index, txid, *committed)
+                event
+                    .json_serialize(*event_index, txid, *committed)
+                    .unwrap()
             })
             .collect();
 
@@ -336,6 +344,10 @@ impl EventObserver {
         self.send_payload(payload, PATH_MINED_MICROBLOCK);
     }
 
+    fn send_stackerdb_chunks(&self, payload: &serde_json::Value) {
+        self.send_payload(payload, PATH_STACKERDB_CHUNKS);
+    }
+
     fn send_new_burn_block(&self, payload: &serde_json::Value) {
         self.send_payload(payload, PATH_BURN_BLOCK_SUBMIT);
     }
@@ -360,7 +372,9 @@ impl EventObserver {
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
             .map(|(event_index, (committed, txid, event))| {
-                event.json_serialize(*event_index, txid, *committed)
+                event
+                    .json_serialize(*event_index, txid, *committed)
+                    .unwrap()
             })
             .collect();
 
@@ -411,6 +425,7 @@ pub struct EventDispatcher {
     any_event_observers_lookup: HashSet<u16>,
     miner_observers_lookup: HashSet<u16>,
     mined_microblocks_observers_lookup: HashSet<u16>,
+    stackerdb_observers_lookup: HashSet<u16>,
 }
 
 impl MemPoolEventDispatcher for EventDispatcher {
@@ -452,6 +467,17 @@ impl MemPoolEventDispatcher for EventDispatcher {
             anchor_block_consensus_hash,
             anchor_block,
         );
+    }
+}
+
+impl StackerDBEventDispatcher for EventDispatcher {
+    /// Relay new StackerDB chunks
+    fn new_stackerdb_chunks(
+        &self,
+        contract_id: QualifiedContractIdentifier,
+        chunks: Vec<StackerDBChunkData>,
+    ) {
+        self.process_new_stackerdb_chunks(contract_id, chunks);
     }
 }
 
@@ -520,6 +546,7 @@ impl EventDispatcher {
             microblock_observers_lookup: HashSet::new(),
             miner_observers_lookup: HashSet::new(),
             mined_microblocks_observers_lookup: HashSet::new(),
+            stackerdb_observers_lookup: HashSet::new(),
         }
     }
 
@@ -880,6 +907,36 @@ impl EventDispatcher {
         }
     }
 
+    /// Forward newly-accepted StackerDB chunk metadata to downstream `stackerdb` observers.
+    /// Infallible.
+    pub fn process_new_stackerdb_chunks(
+        &self,
+        contract_id: QualifiedContractIdentifier,
+        new_chunks: Vec<StackerDBChunkData>,
+    ) {
+        let interested_observers: Vec<_> = self
+            .registered_observers
+            .iter()
+            .enumerate()
+            .filter(|(obs_id, _observer)| {
+                self.stackerdb_observers_lookup.contains(&(*obs_id as u16))
+            })
+            .collect();
+        if interested_observers.len() < 1 {
+            return;
+        }
+
+        let payload = serde_json::to_value(StackerDBChunksEvent {
+            contract_id,
+            modified_slots: new_chunks,
+        })
+        .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
+
+        for (_, observer) in interested_observers.iter() {
+            observer.send_stackerdb_chunks(&payload);
+        }
+    }
+
     pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, reason: MemPoolDropReason) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
@@ -999,6 +1056,9 @@ impl EventDispatcher {
                     self.mined_microblocks_observers_lookup
                         .insert(observer_index);
                 }
+                EventKeyType::StackerDBChunks => {
+                    self.stackerdb_observers_lookup.insert(observer_index);
+                }
             }
         }
 
@@ -1008,12 +1068,13 @@ impl EventDispatcher {
 
 #[cfg(test)]
 mod test {
-    use crate::event_dispatcher::EventObserver;
     use clarity::vm::costs::ExecutionCost;
     use stacks::burnchains::{PoxConstants, Txid};
     use stacks::chainstate::stacks::db::StacksHeaderInfo;
     use stacks::chainstate::stacks::StacksBlock;
     use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksBlockId};
+
+    use crate::event_dispatcher::EventObserver;
 
     #[test]
     fn build_block_processed_event() {

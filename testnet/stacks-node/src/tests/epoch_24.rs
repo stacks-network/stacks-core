@@ -13,12 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
-use crate::tests::neon_integrations::{
-    get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
-    submit_tx, test_observer, wait_for_runloop,
-};
-use crate::tests::{make_contract_call, to_addr};
+use std::collections::HashMap;
+use std::{env, thread};
+
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
@@ -28,24 +25,25 @@ use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::RawRewardSetEntry;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{Error, StacksTransaction, TransactionPayload};
-use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
-use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
-use stacks_common::util::secp256k1::Secp256k1PublicKey;
-use std::collections::HashMap;
-use std::{env, thread};
-
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
-use crate::{neon, BitcoinRegtestController, BurnchainController};
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::core;
-use stacks::core::{
-    StacksEpoch, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
-use stacks_common::types::{Address, StacksEpochId};
+use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
+use stacks_common::types::Address;
+use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
+
+use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
+use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::tests::neon_integrations::{
+    get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
+    submit_tx, test_observer, wait_for_runloop,
+};
+use crate::tests::{make_contract_call, to_addr};
+use crate::{neon, BitcoinRegtestController, BurnchainController};
 
 #[cfg(test)]
 pub fn get_reward_set_entries_at_block(
@@ -150,13 +148,12 @@ fn fix_to_pox_contract() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -505,10 +502,13 @@ fn fix_to_pox_contract() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {
@@ -786,13 +786,12 @@ fn verify_auto_unlock_behavior() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
     test_observer::spawn();
 
-    conf.events_observers.push(EventObserverConfig {
+    conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
         events_keys: vec![EventKeyType::AnyEvent],
     });
@@ -1085,7 +1084,7 @@ fn verify_auto_unlock_behavior() {
 
     // Check that the "raw" reward sets for all cycles just contains entries for both addrs
     //  for the next few cycles.
-    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+    for _cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
         let (mut chainstate, _) = StacksChainState::open(
             false,
             conf.burnchain.chain_id,
@@ -1171,7 +1170,7 @@ fn verify_auto_unlock_behavior() {
 
     // Check that the "raw" reward sets for all cycles just contains entries for the first
     //  address at the cycle start, since addr 2 was auto-unlocked.
-    for cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
+    for _cycle_number in first_v3_cycle..(first_v3_cycle + 6) {
         let tip_info = get_chain_info(&conf);
         let tip_block_id =
             StacksBlockId::new(&tip_info.stacks_tip_consensus_hash, &tip_info.stacks_tip);
@@ -1222,10 +1221,13 @@ fn verify_auto_unlock_behavior() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         if !burnchain_config.is_in_prepare_phase(height) {
             if pox_addrs.len() > 0 {

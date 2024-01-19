@@ -16,35 +16,30 @@
 
 use rstest::rstest;
 use rstest_reuse::{self, *};
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use crate::vm::ast::parse;
-
-use crate::vm::ast::ASTRules;
+use crate::vm::ast::{parse, ASTRules};
 use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
-use crate::vm::tests::execute;
-use crate::vm::tests::test_clarity_versions;
+use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
-use crate::vm::types::StacksAddressExtensions;
-use crate::vm::types::{ASCIIData, BuffData, CharType, QualifiedContractIdentifier, TypeSignature};
-use crate::vm::types::{PrincipalData, SequenceData};
-use crate::vm::ClarityVersion;
-use crate::vm::{
-    eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters,
+use crate::vm::types::{
+    ASCIIData, BuffData, CharType, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StacksAddressExtensions, TypeSignature,
 };
-use crate::vm::{CallStack, ContractContext, Environment, GlobalContext, LocalContext, Value};
-use stacks_common::address::AddressHashMode;
-use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
-use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
-use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::chainstate::StacksAddress;
-use stacks_common::types::chainstate::StacksPrivateKey;
-use stacks_common::types::chainstate::StacksPublicKey;
-use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::{hex_bytes, to_hex};
+use crate::vm::{
+    eval, execute as vm_execute, execute_v2 as vm_execute_v2, execute_with_parameters, CallStack,
+    ClarityVersion, ContractContext, Environment, GlobalContext, LocalContext, Value,
+};
 
 #[test]
 fn test_doubly_defined_persisted_vars() {
@@ -80,7 +75,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
     let contract_id = QualifiedContractIdentifier::transient();
     let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
-    if let Ok(parsed_program) = parse(&contract_id, &program, version, epoch) {
+    if let Ok(parsed_program) = parse(&contract_id, program, version, epoch) {
         let context = LocalContext::new();
         let mut marf = MemoryBackingStore::new();
         let mut env = OwnedEnvironment::new(marf.as_clarity_db(), epoch);
@@ -94,7 +89,7 @@ fn test_simple_let(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId
             )
         );
     } else {
-        assert!(false, "Failed to parse program.");
+        panic!("Failed to parse program.");
     }
 }
 
@@ -107,9 +102,9 @@ fn test_sha256() {
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Sequence(SequenceData::Buffer(BuffData {
+        Value::Sequence(SequenceData::Buffer(BuffData {
             data: hex_bytes(hex).unwrap(),
-        }));
+        }))
     }
 
     let expectations = [
@@ -187,9 +182,9 @@ fn test_keccak256() {
     ];
 
     fn to_buffer(hex: &str) -> Value {
-        return Value::Sequence(SequenceData::Buffer(BuffData {
+        Value::Sequence(SequenceData::Buffer(BuffData {
             data: hex_bytes(hex).unwrap(),
-        }));
+        }))
     }
 
     let expectations = [
@@ -274,7 +269,7 @@ fn test_to_consensus_buff_too_big() {
         .expect("Should execute")
         .expect("Should have return value");
 
-    assert!(result.expect_optional().is_none());
+    assert!(result.expect_optional().unwrap().is_none());
 
     // this program prints the length of the
     // constructed 1048567 buffer and then executes
@@ -295,7 +290,7 @@ fn test_to_consensus_buff_too_big() {
         .expect("Should execute")
         .expect("Should have return value");
 
-    assert!(result.expect_optional().is_none());
+    assert!(result.expect_optional().unwrap().is_none());
 }
 
 #[test]
@@ -350,7 +345,8 @@ fn test_from_consensus_buff_missed_expectations() {
         let result_val = vm_execute_v2(&program)
             .expect("from-consensus-buff? should succeed")
             .expect("from-consensus-buff? should return")
-            .expect_optional();
+            .expect_optional()
+            .unwrap();
         assert!(
             result_val.is_none(),
             "from-consensus-buff? should return none"
@@ -386,8 +382,9 @@ fn test_to_from_consensus_buff_vectors() {
             .expect("from-consensus-buff? should succeed")
             .expect("from-consensus-buff? should return")
             .expect_optional()
+            .unwrap()
             .expect("from-consensus-buff? should return (some value)");
-        let expected_val = execute(&value_repr);
+        let expected_val = execute(value_repr);
         assert_eq!(result_val, expected_val);
     }
 
@@ -398,8 +395,9 @@ fn test_to_from_consensus_buff_vectors() {
             .expect("to-consensus-buff? should succeed")
             .expect("to-consensus-buff? should return")
             .expect_optional()
+            .unwrap()
             .expect("to-consensus-buff? should return (some buff)");
-        let expected_buff = execute(&buff_repr);
+        let expected_buff = execute(buff_repr);
         assert_eq!(result_buffer, expected_buff);
     }
 }
@@ -433,7 +431,7 @@ fn test_secp256k1() {
     .unwrap();
     eprintln!("addr from privk {:?}", &addr);
     let principal = addr.to_account_principal();
-    if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
+    if let PrincipalData::Standard(data) = principal.clone() {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
 
@@ -449,7 +447,7 @@ fn test_secp256k1() {
     .unwrap();
     eprintln!("addr from hex {:?}", addr);
     let principal = addr.to_account_principal();
-    if let PrincipalData::Standard(data) = PrincipalData::from(principal.clone()) {
+    if let PrincipalData::Standard(data) = principal.clone() {
         eprintln!("test_secp256k1 principal {:?}", data.to_address());
     }
 
@@ -647,7 +645,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
 
     let evals = parse(
         &contract_id,
-        &"(with_else 5)
+        "(with_else 5)
          (without_else 3)
          (with_else 3)",
         version,
@@ -658,7 +656,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
 
     let function_bodies = parse(
         &contract_id,
-        &"(if (is-eq 5 x) 1 0)
+        "(if (is-eq 5 x) 1 0)
                                   (if (is-eq 5 x) 1 3)",
         version,
         epoch,
@@ -672,7 +670,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             parsed_bodies[0].clone(),
             Private,
             &"with_else".into(),
-            &"",
+            "",
         );
 
         let user_function2 = DefinedFunction::new(
@@ -680,7 +678,7 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             parsed_bodies[1].clone(),
             Private,
             &"without_else".into(),
-            &"",
+            "",
         );
 
         let context = LocalContext::new();
@@ -719,10 +717,10 @@ fn test_simple_if_functions(#[case] version: ClarityVersion, #[case] epoch: Stac
             assert_eq!(Ok(Value::Int(3)), eval(&tests[1], &mut env, &context));
             assert_eq!(Ok(Value::Int(0)), eval(&tests[2], &mut env, &context));
         } else {
-            assert!(false, "Failed to parse function bodies.");
+            panic!("Failed to parse function bodies.");
         }
     } else {
-        assert!(false, "Failed to parse function bodies.");
+        panic!("Failed to parse function bodies.");
     }
 }
 
@@ -841,7 +839,7 @@ fn test_simple_arithmetic_functions() {
         Value::UInt(u128::MAX),
         Value::UInt(137),
         Value::Int(i128::MAX),
-        Value::Int(-1 * (u32::MAX as i128 + 1)),
+        Value::Int(-(u32::MAX as i128 + 1)),
     ];
 
     tests
@@ -1008,9 +1006,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
-                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Int(0),
         )
@@ -1019,9 +1017,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
-                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Int(0),
         )
@@ -1042,9 +1040,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
-                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "baa".as_bytes().to_vec(),
@@ -1055,9 +1053,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
-                TypeSignature::max_buffer(),
+                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "baa".as_bytes().to_vec(),
@@ -1462,7 +1460,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )
@@ -1471,7 +1469,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )
@@ -1480,7 +1478,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )
@@ -1489,7 +1487,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )
@@ -1499,7 +1497,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer(),
+                TypeSignature::max_buffer().unwrap(),
             ],
             Value::Bool(true),
         )

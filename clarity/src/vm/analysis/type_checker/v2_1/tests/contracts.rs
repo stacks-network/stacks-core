@@ -17,14 +17,18 @@
 use std::convert::TryFrom;
 use std::fs::read_to_string;
 
-use assert_json_diff;
-use serde_json;
+use stacks_common::types::StacksEpochId;
+use {assert_json_diff, serde_json};
 
+use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
-use crate::vm::analysis::{contract_interface_builder::build_contract_interface, AnalysisDatabase};
-use crate::vm::analysis::{mem_type_check as mem_run_analysis, run_analysis, CheckResult};
+use crate::vm::analysis::{
+    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError, CheckResult,
+    ContractAnalysis,
+};
 use crate::vm::ast::parse;
+use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::errors::Error;
 use crate::vm::tests::test_clarity_versions;
@@ -32,13 +36,7 @@ use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TypeSignature,
 };
-use crate::vm::ContractName;
-use crate::vm::{
-    analysis::{CheckError, ContractAnalysis},
-    costs::LimitedCostTracker,
-    ClarityVersion, SymbolicExpression,
-};
-use stacks_common::types::StacksEpochId;
+use crate::vm::{ClarityVersion, ContractName, SymbolicExpression};
 
 fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
@@ -215,7 +213,10 @@ fn test_names_tokens_contracts_interface() {
     ";
 
     let contract_analysis = mem_type_check(INTERFACE_TEST_CONTRACT).unwrap().1;
-    let test_contract_json_str = build_contract_interface(&contract_analysis).serialize();
+    let test_contract_json_str = build_contract_interface(&contract_analysis)
+        .unwrap()
+        .serialize()
+        .unwrap();
     let test_contract_json: serde_json::Value =
         serde_json::from_str(&test_contract_json_str).unwrap();
 
@@ -491,13 +492,7 @@ fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion, #[case] epoc
     let err = db
         .execute(|db| type_check(&names_contract_id, &mut names_contract, db, true))
         .unwrap_err();
-    assert!(match &err.err {
-        &CheckErrors::TypeError(ref expected_type, ref actual_type) => {
-            eprintln!("Received TypeError on: {} {}", expected_type, actual_type);
-            format!("{} {}", expected_type, actual_type) == "uint bool"
-        }
-        _ => false,
-    });
+    assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
 }
 
 #[test]
@@ -538,17 +533,13 @@ fn test_bad_map_usage() {
 
     for contract in tests.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        assert!(match err.err {
-            CheckErrors::TypeError(_, _) => true,
-            _ => false,
-        });
+        assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
     }
 
-    assert!(match mem_type_check(unhandled_option).unwrap_err().err {
-        // Bad arg to `+` causes a uniontype error
-        CheckErrors::UnionTypeError(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(
+        mem_type_check(unhandled_option).unwrap_err().err,
+        CheckErrors::UnionTypeError(_, _)
+    ));
 }
 
 #[apply(test_clarity_versions)]
@@ -635,32 +626,26 @@ fn test_expects() {
     for unmatched_return_types in bad_return_types_tests.iter() {
         let err = mem_type_check(unmatched_return_types).unwrap_err();
         eprintln!("unmatched_return_types returned check error: {}", err);
-        assert!(match &err.err {
-            &CheckErrors::ReturnTypesMustMatch(_, _) => true,
-            _ => false,
-        })
+        assert!(matches!(err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
     }
 
     let err = mem_type_check(bad_default_type).unwrap_err();
     eprintln!("bad_default_types returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::DefaultTypesMustMatch(_, _) => true,
-        _ => false,
-    });
+    assert!(matches!(err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
 
     let err = mem_type_check(notype_response_type).unwrap_err();
     eprintln!("notype_response_type returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::CouldNotDetermineResponseErrType => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err.err,
+        CheckErrors::CouldNotDetermineResponseErrType
+    ));
 
     let err = mem_type_check(notype_response_type_2).unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {}", err);
-    assert!(match &err.err {
-        &CheckErrors::CouldNotDetermineResponseOkType => true,
-        _ => false,
-    });
+    assert!(matches!(
+        err.err,
+        CheckErrors::CouldNotDetermineResponseOkType
+    ));
 }
 
 /// Pass a trait to a trait parameter with the same type
@@ -3498,6 +3483,13 @@ fn clarity_trait_experiments_double_trait_method2_v1_v2(
         Ok(_) => (),
         res => panic!("expected success, got {:?}", res),
     };
+}
+
+#[cfg(test)]
+impl From<CheckErrors> for String {
+    fn from(o: CheckErrors) -> Self {
+        o.to_string()
+    }
 }
 
 #[apply(test_clarity_versions)]

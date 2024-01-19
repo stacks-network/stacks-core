@@ -35,7 +35,6 @@ use crate::deps_common::bitcoin::network::serialize::{
     self, serialize, BitcoinHash, SimpleDecoder, SimpleEncoder,
 };
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
-
 use crate::util::hash::to_hex;
 
 /// A reference to a transaction output
@@ -57,7 +56,7 @@ impl OutPoint {
     pub fn null() -> OutPoint {
         OutPoint {
             txid: Default::default(),
-            vout: u32::max_value(),
+            vout: u32::MAX,
         }
     }
 
@@ -575,8 +574,8 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Transaction {
             match segwit_flag {
                 // Empty tx
                 0 => Ok(Transaction {
-                    version: version,
-                    input: input,
+                    version,
+                    input,
                     output: vec![],
                     lock_time: ConsensusDecodable::consensus_decode(d)?,
                 }),
@@ -593,9 +592,9 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Transaction {
                         ))
                     } else {
                         Ok(Transaction {
-                            version: version,
-                            input: input,
-                            output: output,
+                            version,
+                            input,
+                            output,
                             lock_time: ConsensusDecodable::consensus_decode(d)?,
                         })
                     }
@@ -606,8 +605,8 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for Transaction {
         // non-segwit
         } else {
             Ok(Transaction {
-                version: version,
-                input: input,
+                version,
+                input,
                 output: ConsensusDecodable::consensus_decode(d)?,
                 lock_time: ConsensusDecodable::consensus_decode(d)?,
             })
@@ -674,11 +673,9 @@ impl SigHashType {
 #[cfg(test)]
 mod tests {
     use super::{SigHashType, Transaction, TxIn};
-
     use crate::deps_common;
     use crate::deps_common::bitcoin::blockdata::script::Script;
-    use crate::deps_common::bitcoin::network::serialize::deserialize;
-    use crate::deps_common::bitcoin::network::serialize::BitcoinHash;
+    use crate::deps_common::bitcoin::network::serialize::{deserialize, BitcoinHash};
     use crate::deps_common::bitcoin::util::hash::Sha256dHash;
     use crate::util::hash::hex_bytes;
 

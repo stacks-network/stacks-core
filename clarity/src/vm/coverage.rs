@@ -1,14 +1,13 @@
-use std::{
-    collections::{BTreeMap, HashMap, HashSet},
-    fs::File,
-    io::Write,
-};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs::File;
+use std::io::Write;
 
-use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::SymbolicExpression;
 use serde_json::Value as JsonValue;
 
-use super::{functions::define::DefineFunctionsParsed, EvalHook};
+use super::functions::define::DefineFunctionsParsed;
+use super::EvalHook;
+use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::SymbolicExpression;
 
 pub struct CoverageReporter {
     executed_lines: HashMap<QualifiedContractIdentifier, HashMap<u32, u64>>,
@@ -144,7 +143,7 @@ impl CoverageReporter {
                     // don't count list expressions as a whole, just their children
                     frontier.extend(children);
                 } else {
-                    let line = cur_expr.span.start_line;
+                    let line = cur_expr.span().start_line;
                     if !lines_seen.contains(&line) {
                         lines_seen.insert(line);
                         lines.push(line);

@@ -1,21 +1,20 @@
+use std::env;
+use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
-use crate::config::InitialBalance;
-use crate::helium::RunLoop;
-use crate::tests::to_addr;
-use crate::Config;
-
+use clarity::vm::costs::ExecutionCost;
 use stacks::chainstate::burn::operations::BlockstackOperationType::{
     LeaderBlockCommit, LeaderKeyRegister,
 };
 use stacks::chainstate::stacks::StacksPrivateKey;
 use stacks::core::StacksEpochId;
-use stacks::util::hash::hex_bytes;
+use stacks_common::util::hash::hex_bytes;
 
 use super::PUBLISH_CONTRACT;
-use stacks::vm::costs::ExecutionCost;
-use std::env;
-use std::io::{BufRead, BufReader};
+use crate::config::InitialBalance;
+use crate::helium::RunLoop;
+use crate::tests::to_addr;
+use crate::Config;
 
 pub enum BitcoinCoreError {
     SpawnFailed(String),
@@ -142,7 +141,6 @@ fn bitcoind_integration(segwit_flag: bool) {
     conf.burnchain.password = Some("secret".to_string());
     conf.burnchain.local_mining_public_key = Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string());
 
-    conf.miner.min_tx_fee = 0;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
     conf.miner.segwit = segwit_flag;

@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::codec::StacksMessageCodec;
-use crate::types::chainstate::StacksAddress;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksAddress;
+
+use super::types::serialization::SerializationError;
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::types::{
@@ -37,14 +39,14 @@ impl StacksTransactionEvent {
         event_index: usize,
         txid: &dyn std::fmt::Debug,
         committed: bool,
-    ) -> serde_json::Value {
-        match self {
+    ) -> Result<serde_json::Value, SerializationError> {
+        let out = match self {
             StacksTransactionEvent::SmartContractEvent(event_data) => json!({
                 "txid": format!("0x{:?}", txid),
                 "event_index": event_index,
                 "committed": committed,
                 "type": "contract_event",
-                "contract_event": event_data.json_serialize()
+                "contract_event": event_data.json_serialize()?
             }),
             StacksTransactionEvent::STXEvent(STXEventType::STXTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
@@ -79,21 +81,21 @@ impl StacksTransactionEvent {
                 "event_index": event_index,
                 "committed": committed,
                 "type": "nft_transfer_event",
-                "nft_transfer_event": event_data.json_serialize()
+                "nft_transfer_event": event_data.json_serialize()?
             }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTMintEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
                 "event_index": event_index,
                 "committed": committed,
                 "type": "nft_mint_event",
-                "nft_mint_event": event_data.json_serialize()
+                "nft_mint_event": event_data.json_serialize()?
             }),
             StacksTransactionEvent::NFTEvent(NFTEventType::NFTBurnEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
                 "event_index": event_index,
                 "committed": committed,
                 "type": "nft_burn_event",
-                "nft_burn_event": event_data.json_serialize()
+                "nft_burn_event": event_data.json_serialize()?
             }),
             StacksTransactionEvent::FTEvent(FTEventType::FTTransferEvent(event_data)) => json!({
                 "txid": format!("0x{:?}", txid),
@@ -116,7 +118,8 @@ impl StacksTransactionEvent {
                 "type": "ft_burn_event",
                 "ft_burn_event": event_data.json_serialize()
             }),
-        }
+        };
+        Ok(out)
     }
 }
 
@@ -219,20 +222,20 @@ pub struct NFTTransferEventData {
 }
 
 impl NFTTransferEventData {
-    pub fn json_serialize(&self) -> serde_json::Value {
+    pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
         let raw_value = {
             let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes).unwrap();
+            self.value.serialize_write(&mut bytes)?;
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };
-        json!({
+        Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
             "recipient": format!("{}",self.recipient),
             "value": self.value,
             "raw_value": format!("0x{}", raw_value.join("")),
-        })
+        }))
     }
 }
 
@@ -244,19 +247,19 @@ pub struct NFTMintEventData {
 }
 
 impl NFTMintEventData {
-    pub fn json_serialize(&self) -> serde_json::Value {
+    pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
         let raw_value = {
             let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes).unwrap();
+            self.value.serialize_write(&mut bytes)?;
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };
-        json!({
+        Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "recipient": format!("{}",self.recipient),
             "value": self.value,
             "raw_value": format!("0x{}", raw_value.join("")),
-        })
+        }))
     }
 }
 
@@ -268,19 +271,19 @@ pub struct NFTBurnEventData {
 }
 
 impl NFTBurnEventData {
-    pub fn json_serialize(&self) -> serde_json::Value {
+    pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
         let raw_value = {
             let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes).unwrap();
+            self.value.serialize_write(&mut bytes)?;
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };
-        json!({
+        Ok(json!({
             "asset_identifier": format!("{}", self.asset_identifier),
             "sender": format!("{}",self.sender),
             "value": self.value,
             "raw_value": format!("0x{}", raw_value.join("")),
-        })
+        }))
     }
 }
 
@@ -344,18 +347,18 @@ pub struct SmartContractEventData {
 }
 
 impl SmartContractEventData {
-    pub fn json_serialize(&self) -> serde_json::Value {
+    pub fn json_serialize(&self) -> Result<serde_json::Value, SerializationError> {
         let raw_value = {
             let mut bytes = vec![];
-            self.value.serialize_write(&mut bytes).unwrap();
+            self.value.serialize_write(&mut bytes)?;
             let formatted_bytes: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             formatted_bytes
         };
-        json!({
+        Ok(json!({
             "contract_identifier": self.key.0.to_string(),
             "topic": self.key.1,
             "value": self.value,
             "raw_value": format!("0x{}", raw_value.join("")),
-        })
+        }))
     }
 }

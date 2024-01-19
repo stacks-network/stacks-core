@@ -1,25 +1,20 @@
 pub mod helium;
 pub mod neon;
 
-use crate::{BurnchainController, BurnchainTip, ChainTip, Tenure};
-
+use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::BurnStateDB;
+use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::events::StacksTransactionReceipt;
 use stacks::chainstate::stacks::{
-    TransactionAuth, TransactionPayload, TransactionSpendingCondition,
+    StacksBlock, TransactionAuth, TransactionPayload, TransactionSpendingCondition,
 };
-use stacks::util::vrf::VRFPublicKey;
-
-use stacks::vm::database::BurnStateDB;
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::stacks::chainstate::coordinator::BlockEventDispatcher;
 use crate::stacks::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::EventDispatcher;
-use clarity::vm::costs::ExecutionCost;
-use stacks::burnchains::PoxConstants;
-use stacks::burnchains::Txid;
-use stacks::chainstate::stacks::events::StacksTransactionReceipt;
-use stacks::chainstate::stacks::StacksBlock;
-use stacks_common::types::chainstate::StacksBlockId;
+use crate::{BurnchainController, BurnchainTip, ChainTip, EventDispatcher, Tenure};
 
 macro_rules! info_blue {
     ($($arg:tt)*) => ({
@@ -151,7 +146,7 @@ impl RunLoopCallbacks {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegisteredKey {
     /// burn block height we intended this VRF key register to land in
     pub target_block_height: u64,
