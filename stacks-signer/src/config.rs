@@ -36,7 +36,7 @@ use wsts::state_machine::PublicKeys;
 /// List of key_ids for each signer_id
 pub type SignerKeyIds = HashMap<u32, Vec<u32>>;
 
-const EVENT_TIMEOUT_MS: u64 = 5000;
+const EVENT_TIMEOUT_MS: u64 = 50;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -119,6 +119,8 @@ pub struct Config {
     pub event_timeout: Duration,
     /// timeout to gather DkgPublicShares messages
     pub dkg_public_timeout: Option<Duration>,
+    /// timeout to gather DkgPrivateShares messages
+    pub dkg_private_timeout: Option<Duration>,
     /// timeout to gather DkgEnd messages
     pub dkg_end_timeout: Option<Duration>,
     /// timeout to gather nonces
@@ -159,7 +161,17 @@ struct RawConfigFile {
     /// The signer ID
     pub signer_id: u32,
     /// The time to wait (in millisecs) for a response from the stacker-db instance
-    pub event_timeout: Option<u64>,
+    pub event_timeout_ms: Option<u64>,
+    /// timeout in (millisecs) to gather DkgPublicShares messages
+    pub dkg_public_timeout_ms: Option<u64>,
+    /// timeout in (millisecs) to gather DkgPrivateShares messages
+    pub dkg_private_timeout_ms: Option<u64>,
+    /// timeout in (millisecs) to gather DkgEnd messages
+    pub dkg_end_timeout_ms: Option<u64>,
+    /// timeout in (millisecs) to gather nonces
+    pub nonce_timeout_ms: Option<u64>,
+    /// timeout in (millisecs) to gather signature shares
+    pub sign_timeout_ms: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -270,7 +282,12 @@ impl TryFrom<RawConfigFile> for Config {
             signer_key_ids.insert(signer_key, s.key_ids.clone());
         }
         let event_timeout =
-            Duration::from_millis(raw_data.event_timeout.unwrap_or(EVENT_TIMEOUT_MS));
+            Duration::from_millis(raw_data.event_timeout_ms.unwrap_or(EVENT_TIMEOUT_MS));
+        let dkg_end_timeout = raw_data.dkg_end_timeout_ms.map(Duration::from_millis);
+        let dkg_public_timeout = raw_data.dkg_public_timeout_ms.map(Duration::from_millis);
+        let dkg_private_timeout = raw_data.dkg_private_timeout_ms.map(Duration::from_millis);
+        let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
+        let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
         Ok(Self {
             node_host,
             endpoint,
@@ -283,10 +300,11 @@ impl TryFrom<RawConfigFile> for Config {
             signer_id: raw_data.signer_id,
             signer_key_ids,
             event_timeout,
-            dkg_end_timeout: None,
-            dkg_public_timeout: None,
-            nonce_timeout: None,
-            sign_timeout: None,
+            dkg_end_timeout,
+            dkg_public_timeout,
+            dkg_private_timeout,
+            nonce_timeout,
+            sign_timeout,
         })
     }
 }
