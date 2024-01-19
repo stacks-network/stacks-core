@@ -387,6 +387,8 @@ pub struct ConnectionOptions {
     pub socket_recv_buffer_size: u32,
     /// socket write buffer size
     pub socket_send_buffer_size: u32,
+    /// whether or not to announce or accept neighbors that are behind private networks
+    pub private_neighbors: bool,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -478,6 +480,7 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
             socket_recv_buffer_size: 131072, // Linux default
             socket_send_buffer_size: 16384, // Linux default
+            private_neighbors: true,
 
             // no faults on by default
             disable_neighbor_walk: false,
