@@ -1674,7 +1674,7 @@ fn delegate_stack_stx_signer_key() {
         &latest_block,
         &key_to_stacks_addr(stacker_key).to_account_principal(),
     )
-    .expect("No stacking state, stack-stx failed")
+    .expect("No stacking state, delegate-stack-stx failed")
     .expect_tuple();
 
     let state_signer_key = stacking_state.get("signer-key").unwrap();
@@ -1822,7 +1822,7 @@ fn stack_increase() {
     let state_signer_key = stacking_state.get("signer-key").unwrap();
     assert_eq!(
         state_signer_key.to_string(),
-        format!("0x,{}", signer_public_key.to_hex())
+        format!("0x{}", signer_public_key.to_hex())
     );
 
     stacker_nonce += 1;
@@ -1832,20 +1832,24 @@ fn stack_increase() {
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
     let stacker_transactions = get_last_block_sender_transactions(&observer, stacker_address);
 
-    let transaction_result = stacker_transactions
+    let actual_result = stacker_transactions
         .first()
         .map(|tx| tx.result.clone())
         .unwrap();
-    let total_locked = transaction_result
-        .expect_result_ok()
-        .expect_tuple()
-        .data_map
-        .get("total-locked")
-        .expect("total-locked key not found")
-        .clone()
-        .expect_u128();
 
-    assert_eq!(total_locked, min_ustx * 2);
+    let expected_result = Value::okay(Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                "stacker".into(),
+                Value::Principal(PrincipalData::from(stacker_address.clone())),
+            ),
+            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+        ])
+        .unwrap(),
+    ))
+    .unwrap();
+
+    assert_eq!(actual_result, expected_result);
 }
 
 #[test]
@@ -1898,7 +1902,7 @@ fn delegate_stack_increase() {
     stacker_nonce += 1;
     delegate_nonce += 1;
 
-    let delegate_increase = make_pox_4_delegate_increase(
+    let delegate_increase = make_pox_4_delegate_stack_increase(
         delegate_key,
         delegate_nonce,
         &stacker_address,
@@ -1913,21 +1917,24 @@ fn delegate_stack_increase() {
     let delegate_transactions =
         get_last_block_sender_transactions(&observer, delegate_address.into());
 
-    let transaction_result = delegate_transactions
+    let actual_result = delegate_transactions
         .first()
         .map(|tx| tx.result.clone())
         .unwrap();
 
-    let total_locked = transaction_result
-        .expect_result_ok()
-        .expect_tuple()
-        .data_map
-        .get("total-locked")
-        .expect("total-locked key not found")
-        .clone()
-        .expect_u128();
+    let expected_result = Value::okay(Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                "stacker".into(),
+                Value::Principal(PrincipalData::from(stacker_address.clone())),
+            ),
+            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+        ])
+        .unwrap(),
+    ))
+    .unwrap();
 
-    assert_eq!(total_locked, min_ustx * 2);
+    assert_eq!(actual_result, expected_result);
 }
 
 pub fn get_stacking_state_pox_4(
