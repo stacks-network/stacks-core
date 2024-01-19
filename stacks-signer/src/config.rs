@@ -144,7 +144,8 @@ struct RawConfigFile {
     // FIXME: this should go away once .signers contract exists at pox-4 instantiation
     /// Signers' Stacker db contract identifier
     pub stackerdb_contract_id: String,
-    /// the 32 byte ECDSA private key used to sign blocks, chunks, and transactions
+
+    /// the 32 byte ECDSA private key used to sign blocks, chunks, transactions, and WSTS messages
     pub message_private_key: String,
     /// The hex representation of the signer's Stacks private key used for communicating
     /// with the Stacks Node, including writing to the Stacker DB instance.
