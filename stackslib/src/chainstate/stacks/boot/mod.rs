@@ -1873,7 +1873,7 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    pub fn make_pox_4_delegate_increase(
+    pub fn make_pox_4_delegate_stack_increase(
         key: &StacksPrivateKey,
         nonce: u64,
         stacker: &PrincipalData,
