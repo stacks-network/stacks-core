@@ -1880,7 +1880,6 @@ pub mod test {
         pox_addr: PoxAddress,
         amount: u128,
     ) -> StacksTransaction {
-        //let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
