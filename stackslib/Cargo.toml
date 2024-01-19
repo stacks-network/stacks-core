@@ -57,6 +57,7 @@ libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 wsts = {workspace = true}
 rand_core = {workspace = true}
+hashbrown = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
