@@ -106,7 +106,7 @@ pub struct RunLoop<C> {
     /// Wether mainnet or not
     pub mainnet: bool,
     /// Observed blocks that we have seen so far
-    pub blocks: HashMap<Vec<u8>, BlockInfo>,
+    pub blocks: HashMap<Sha512Trunc256Sum, BlockInfo>,
     /// Transactions that we expect to see in the next block
     pub transactions: Vec<Txid>,
 }
@@ -220,9 +220,7 @@ impl<C: Coordinator> RunLoop<C> {
                             .block
                             .header
                             .signature_hash()
-                            .unwrap_or(Sha512Trunc256Sum::from_data(&[]))
-                            .0
-                            .to_vec(),
+                            .unwrap_or(Sha512Trunc256Sum::from_data(&[])),
                     )
                     .and_modify(|block_info| {
                         block_info.valid = true;
@@ -251,9 +249,7 @@ impl<C: Coordinator> RunLoop<C> {
                             .block
                             .header
                             .signature_hash()
-                            .unwrap_or(Sha512Trunc256Sum::from_data(&[]))
-                            .0
-                            .to_vec(),
+                            .unwrap_or(Sha512Trunc256Sum::from_data(&[])),
                     )
                     .and_modify(|block_info| {
                         block_info.valid = false;
@@ -310,9 +306,8 @@ impl<C: Coordinator> RunLoop<C> {
     // Handle the stackerdb chunk event as a miner message
     fn handle_stackerdb_chunk_event_miners(&mut self, stackerdb_chunk_event: StackerDBChunksEvent) {
         for chunk in &stackerdb_chunk_event.modified_slots {
-            let mut ptr = &chunk.data[..];
-            let Some(block) = read_next::<NakamotoBlock, _>(&mut ptr).ok() else {
-                warn!("Received an unrecognized message type from .miners stacker-db slot id {}: {:?}", chunk.slot_id, ptr);
+            let Some(block) = read_next::<NakamotoBlock, _>(&mut &chunk.data[..]).ok() else {
+                warn!("Received an unrecognized message type from .miners stacker-db slot id {}: {:?}", chunk.slot_id, chunk.data);
                 continue;
             };
             let Ok(hash) = block.header.signature_hash() else {
@@ -327,10 +322,9 @@ impl<C: Coordinator> RunLoop<C> {
                 }
                 continue;
             };
-            let hash_bytes = hash.0.to_vec();
             // Store the block in our cache
             self.blocks.insert(
-                hash_bytes,
+                hash,
                 BlockInfo {
                     vote: None,
                     valid: false,
@@ -350,11 +344,17 @@ impl<C: Coordinator> RunLoop<C> {
     /// Returns whether the request is valid or not.
     fn validate_signature_share_request(&self, request: &mut SignatureShareRequest) -> bool {
         // A coordinator could have sent a signature share request with a different message than we agreed to sign
-        match self
-            .blocks
-            .get(&request.message)
-            .map(|block_info| &block_info.vote)
-        {
+        // This jankiness is because a coordinator could have sent a hash + 'n' byte and we need to pop that off...
+        // For now, if we have seen a message that is over a non hash, we will just sign it anyway so this is fine..
+        // TODO: fix this jankiness
+        let message = if request.message.len() == 32 {
+            &request.message[..32]
+        } else {
+            &request.message
+        };
+        let message =
+            Sha512Trunc256Sum::from_bytes(message).unwrap_or(Sha512Trunc256Sum::from_data(&[]));
+        match self.blocks.get(&message).map(|block_info| &block_info.vote) {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
                 request.message = vote.clone();
@@ -379,8 +379,7 @@ impl<C: Coordinator> RunLoop<C> {
     /// as either a hash indicating a vote no or the signature hash indicating a vote yes
     /// Returns whether the request is valid or not
     fn validate_nonce_request(&mut self, request: &mut NonceRequest) -> bool {
-        let mut ptr = &request.message[..];
-        let Some(block) = read_next::<NakamotoBlock, _>(&mut ptr).ok() else {
+        let Some(block) = read_next::<NakamotoBlock, _>(&mut &request.message[..]).ok() else {
             // TODO: we should probably reject requests to sign things that are not blocks or transactions (leave for now to enable testing abitrary signing)
             warn!("Received a nonce request for an unknown message stream. Signing the nonce request as is.");
             return true;
@@ -389,13 +388,13 @@ impl<C: Coordinator> RunLoop<C> {
             debug!("Received a nonce request for a block with an invalid signature hash. Ignore it.");
             return false;
         };
-        let mut hash_bytes = hash.0.to_vec();
         let transactions = &self.transactions;
-        let block_info = self.blocks.entry(hash_bytes.clone()).or_insert(BlockInfo {
+        let block_info = self.blocks.entry(hash).or_insert(BlockInfo {
             vote: None,
             valid: false,
             block: block.clone(),
         });
+        let mut hash_bytes = hash.0.to_vec();
         // Validate the block contents
         block_info.valid = Self::validate_block(block_info, transactions);
         if !block_info.valid {
@@ -480,11 +479,20 @@ impl<C: Coordinator> RunLoop<C> {
             if let OperationResult::Sign(signature) = operation_result {
                 let message = self.coordinator.get_message();
                 if !signature.verify(aggregate_public_key, &message) {
-                    debug!("Received a signature result for a block that was not signed by the aggregate public key...Ignoring");
+                    warn!("Received an invalid signature result.");
                     continue;
                 }
-
-                let Some(block_info) = self.blocks.remove(&message) else {
+                // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
+                let block_hash_bytes = if message.len() > 32 {
+                    &message[..32]
+                } else {
+                    &message
+                };
+                let Some(block_hash) = Sha512Trunc256Sum::from_bytes(block_hash_bytes) else {
+                    debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
+                    continue;
+                };
+                let Some(block_info) = self.blocks.remove(&block_hash) else {
                     debug!("Received a signature result for a block we have not seen before. Ignoring...");
                     continue;
                 };
@@ -493,20 +501,14 @@ impl<C: Coordinator> RunLoop<C> {
                 let mut block = block_info.block;
                 block.header.signer_signature = ThresholdSignature(signature.clone());
 
-                let block_submission = if block
-                    .header
-                    .signature_hash()
-                    .unwrap_or(Sha512Trunc256Sum::from_data(&[]))
-                    .0
-                    .to_vec()
-                    == message
-                {
+                let block_submission = if message == block_hash.0.to_vec() {
                     // we agreed to sign the block hash. Return an approval message
                     BlockResponse::Accepted(block).into()
                 } else {
                     // We signed a rejection message. Return a rejection message
                     BlockRejection::new(block, RejectCode::SignedRejection).into()
                 };
+
                 // Submit signature result to miners to observe
                 if let Err(e) = self
                     .stackerdb
