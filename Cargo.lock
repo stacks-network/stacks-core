@@ -3546,6 +3546,7 @@ dependencies = [
  "async-std",
  "backtrace",
  "base64 0.12.3",
+ "bincode",
  "chrono",
  "clarity",
  "hashbrown 0.14.0",
