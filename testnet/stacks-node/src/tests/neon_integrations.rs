@@ -177,8 +177,10 @@ pub mod test_observer {
     use std::sync::Mutex;
     use std::thread;
 
+    use stacks::chainstate::stacks::boot::RewardSet;
     use stacks::chainstate::stacks::events::StackerDBChunksEvent;
     use stacks::net::api::postblock_proposal::BlockValidateResponse;
+    use stacks_common::types::chainstate::StacksBlockId;
     use warp::Filter;
     use {tokio, warp};
 
@@ -197,6 +199,7 @@ pub mod test_observer {
     pub static MEMTXS_DROPPED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
     pub static ATTACHMENTS: Mutex<Vec<serde_json::Value>> = Mutex::new(Vec::new());
     pub static PROPOSAL_RESPONSES: Mutex<Vec<BlockValidateResponse>> = Mutex::new(Vec::new());
+    pub static STACKER_SETS: Mutex<Vec<(StacksBlockId, u64, RewardSet)>> = Mutex::new(Vec::new());
 
     async fn handle_proposal_response(
         response: serde_json::Value,
@@ -277,6 +280,40 @@ pub mod test_observer {
             });
 
         mined_blocks.push(serde_json::from_value(block).unwrap());
+        Ok(warp::http::StatusCode::OK)
+    }
+
+    async fn handle_pox_stacker_set(
+        stacker_set: serde_json::Value,
+    ) -> Result<impl warp::Reply, Infallible> {
+        let mut stacker_sets = STACKER_SETS.lock().unwrap();
+        let block_id = stacker_set
+            .as_object()
+            .expect("Expected JSON object for stacker set event")
+            .get("block_id")
+            .expect("Expected block_id field")
+            .as_str()
+            .expect("Expected string for block id")
+            .to_string();
+        let block_id = StacksBlockId::from_hex(&block_id)
+            .expect("Failed to parse block id field as StacksBlockId hex");
+        let cycle_number = stacker_set
+            .as_object()
+            .expect("Expected JSON object for stacker set event")
+            .get("cycle_number")
+            .expect("Expected field")
+            .as_u64()
+            .expect("Expected u64 for cycle number");
+        let stacker_set = serde_json::from_value(
+            stacker_set
+                .as_object()
+                .expect("Expected JSON object for stacker set event")
+                .get("stacker_set")
+                .expect("Expected field")
+                .clone(),
+        )
+        .expect("Failed to parse stacker set object");
+        stacker_sets.push((block_id, cycle_number, stacker_set));
         Ok(warp::http::StatusCode::OK)
     }
 
@@ -370,6 +407,10 @@ pub mod test_observer {
         Ok(warp::http::StatusCode::OK)
     }
 
+    pub fn get_stacker_sets() -> Vec<(StacksBlockId, u64, RewardSet)> {
+        STACKER_SETS.lock().unwrap().clone()
+    }
+
     pub fn get_memtxs() -> Vec<String> {
         MEMTXS.lock().unwrap().clone()
     }
@@ -460,6 +501,10 @@ pub mod test_observer {
             .and(warp::post())
             .and(warp::body::json())
             .and_then(handle_proposal_response);
+        let stacker_sets = warp::path!("new_pox_set")
+            .and(warp::post())
+            .and(warp::body::json())
+            .and_then(handle_pox_stacker_set);
 
         info!("Spawning event-observer warp server");
         warp::serve(
@@ -473,7 +518,8 @@ pub mod test_observer {
                 .or(mined_microblocks)
                 .or(mined_nakamoto_blocks)
                 .or(new_stackerdb_chunks)
-                .or(block_proposals),
+                .or(block_proposals)
+                .or(stacker_sets),
         )
         .run(([127, 0, 0, 1], port))
         .await
