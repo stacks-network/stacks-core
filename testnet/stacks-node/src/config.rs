@@ -1225,6 +1225,7 @@ impl Config {
                     handshake_timeout: opts.handshake_timeout.unwrap_or(5),
                     max_sockets: opts.max_sockets.unwrap_or(800) as usize,
                     antientropy_public: opts.antientropy_public.unwrap_or(true),
+                    private_neighbors: opts.private_neighbors.unwrap_or(true),
                     ..ConnectionOptions::default()
                 }
             }
@@ -2097,7 +2098,6 @@ pub struct ConnectionOptionsFile {
     pub max_inflight_attachments: Option<u64>,
     pub read_only_call_limit_write_length: Option<u64>,
     pub read_only_call_limit_read_length: Option<u64>,
-
     pub read_only_call_limit_write_count: Option<u64>,
     pub read_only_call_limit_read_count: Option<u64>,
     pub read_only_call_limit_runtime: Option<u64>,
@@ -2112,6 +2112,7 @@ pub struct ConnectionOptionsFile {
     pub disable_block_download: Option<bool>,
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
+    pub private_neighbors: Option<bool>,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
