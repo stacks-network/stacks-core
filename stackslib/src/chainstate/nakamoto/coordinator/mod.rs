@@ -94,7 +94,10 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
                 cycle_start_burn_height
             ));
 
-        if cur_epoch.epoch_id >= StacksEpochId::Epoch30 && participation == 0 {
+        // This method should only ever called if the current reward cycle is a nakamoto reward cycle
+        //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
+        //  Non participation is fatal.
+        if participation == 0 {
             // no one is stacking
             error!("No PoX participation");
             return Err(Error::PoXAnchorBlockRequired);

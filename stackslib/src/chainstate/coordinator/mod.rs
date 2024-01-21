@@ -307,16 +307,25 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
     ) -> Result<RewardSet, Error> {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_burn_height)?
             .expect(&format!(
-                "FATAL: no epoch for burn height {}",
-                cycle_start_burn_height
+                "FATAL: no epoch for burn height {cycle_start_burn_height}",
             ));
-        // TODO: should Epoch-2.5 be included in `get_reward_set_nakamoto()`?
-        // The differences are:
-        //     (a) no minimum participation threshold (I think this *is* important)
-        //     (b) panicking assertion if there are no signing-keys set
-        // Apart from (a), this shouldn't matter: the signing-keys are always set whenever
-        //  the reward set is loaded from pox-4.
-        let reward_set = if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
+        let cycle = burnchain
+            .block_height_to_reward_cycle(cycle_start_burn_height)
+            .expect("FATAL: no reward cycle for burn height");
+        let is_nakamoto_reward_set = match SortitionDB::get_stacks_epoch_by_epoch_id(
+            sortdb.conn(),
+            &StacksEpochId::Epoch30,
+        )? {
+            Some(epoch_30) => {
+                let first_nakamoto_cycle = burnchain
+                    .block_height_to_reward_cycle(epoch_30.start_height)
+                    .expect("FATAL: no reward cycle for burn height");
+                first_nakamoto_cycle <= cycle
+            }
+            // if epoch-3.0 isn't defined, then never use a nakamoto reward set.
+            None => false,
+        };
+        let reward_set = if !is_nakamoto_reward_set {
             // Stacks 2.x epoch
             self.get_reward_set_epoch2(
                 cycle_start_burn_height,
@@ -338,9 +347,6 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
         };
 
         if let Some(dispatcher) = self.0 {
-            let cycle = burnchain
-                .block_height_to_reward_cycle(cycle_start_burn_height)
-                .expect("FATAL: no reward cycle for burn height");
             dispatcher.announce_reward_set(&reward_set, block_id, cycle);
         }
 
