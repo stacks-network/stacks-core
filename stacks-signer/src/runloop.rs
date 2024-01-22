@@ -27,6 +27,7 @@ use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerEvent, SignerRunLoop};
 use libstackerdb::StackerDBChunkData;
+use sha2::{Digest, Sha256};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -152,7 +153,8 @@ impl<C: Coordinator> RunLoop<C> {
         } else {
             debug!("Aggregate public key is not set. Coordinator must trigger DKG...");
             // Update the state to IDLE so we don't needlessy requeue the DKG command.
-            let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
+            let (coordinator_id, _) =
+                calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
             if coordinator_id == self.signing_round.signer_id
                 && self.commands.front() != Some(&RunLoopCommand::Dkg)
             {
@@ -333,7 +335,11 @@ impl<C: Coordinator> RunLoop<C> {
         res: Sender<Vec<OperationResult>>,
     ) {
         let (_coordinator_id, coordinator_public_key) =
-            calculate_coordinator(&self.signing_round.public_keys);
+            calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
+        debug!(
+            "Selected coordinator id and public key -> {:?} : {:?}",
+            &_coordinator_id, &coordinator_public_key
+        );
 
         let inbound_packets: Vec<Packet> = stackerdb_chunk_event
             .modified_slots
@@ -797,9 +803,34 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
 }
 
 /// Helper function for determining the coordinator public key given the the public keys
-fn calculate_coordinator(public_keys: &PublicKeys) -> (u32, ecdsa::PublicKey) {
-    // TODO: do some sort of VRF here to calculate the public key
-    // See: https://github.com/stacks-network/stacks-blockchain/issues/3915
-    // Mockamato just uses the first signer_id as the coordinator for now
-    (0, public_keys.signers.get(&0).cloned().unwrap())
+fn calculate_coordinator(
+    public_keys: &PublicKeys,
+    stacks_client: &StacksClient,
+) -> (u32, ecdsa::PublicKey) {
+    let stacks_tip_consensus_hash = match stacks_client.get_stacks_tip_consensus_hash() {
+        Ok(hash) => hash,
+        Err(_) => return (0, public_keys.signers.get(&0).cloned().unwrap()),
+    };
+
+    // Create combined hash of each signer's public key with stacks_tip_consensus_hash
+    let mut selection_ids = public_keys
+        .signers
+        .iter()
+        .map(|(&id, pk)| {
+            let mut hasher = Sha256::new();
+            hasher.update(pk.to_bytes());
+            hasher.update(stacks_tip_consensus_hash.as_bytes());
+            (hasher.finalize().to_vec(), id)
+        })
+        .collect::<Vec<_>>();
+
+    // Sort the selection IDs based on the hash
+    selection_ids.sort_by_key(|(hash, _)| hash.clone());
+
+    // Get the first ID from the sorted list and retrieve its public key,
+    // or default to the first signer if none are found
+    selection_ids
+        .first()
+        .and_then(|(_, id)| public_keys.signers.get(id).map(|pk| (*id, pk.clone())))
+        .unwrap_or((0, public_keys.signers.get(&0).cloned().unwrap()))
 }

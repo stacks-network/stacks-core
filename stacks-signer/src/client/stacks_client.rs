@@ -67,6 +67,34 @@ impl From<&Config> for StacksClient {
 }
 
 impl StacksClient {
+    /// Retrieve the stacks tip consensus hash from the stacks node
+    pub fn get_stacks_tip_consensus_hash(&self) -> Result<String, ClientError> {
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.core_info_path())
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+
+        let json_response = response
+            .json::<serde_json::Value>()
+            .map_err(ClientError::ReqwestError)?;
+
+        json_response["stacks_tip_consensus_hash"]
+            .as_str()
+            .ok_or_else(|| {
+                ClientError::UnexpectedResponseFormat(
+                    "Missing 'stacks_tip_consensus_hash' field".to_string(),
+                )
+            })
+            .map(|s| s.to_string())
+    }
+
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
     pub fn submit_block_for_validation(&self, block: NakamotoBlock) -> Result<(), ClientError> {
         let block_proposal = NakamotoBlockProposal {
@@ -308,6 +336,10 @@ impl StacksClient {
 
     fn block_proposal_path(&self) -> String {
         format!("{}/v2/block_proposal", self.http_origin)
+    }
+
+    fn core_info_path(&self) -> String {
+        format!("{}/v2/info", self.http_origin)
     }
 }
 
@@ -588,6 +620,17 @@ mod tests {
         write_response(
             config.mock_server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
+        );
+        assert!(h.join().unwrap().is_ok());
+    }
+
+    #[test]
+    fn core_info_call_for_consensus_hash_should_succeed() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\": \"4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958\"}",
         );
         assert!(h.join().unwrap().is_ok());
     }
