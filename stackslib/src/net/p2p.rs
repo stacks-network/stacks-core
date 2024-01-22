@@ -1511,7 +1511,7 @@ impl PeerNetwork {
 
         // unroutable?
         if !self.connection_opts.private_neighbors && neighbor_key.addrbytes.is_in_private_range() {
-            info!("{:?}: Peer {:?} is in private range and we are configured to drop private neighbors",
+            debug!("{:?}: Peer {:?} is in private range and we are configured to drop private neighbors",
                   &self.local_peer,
                   &neighbor_key
             );
