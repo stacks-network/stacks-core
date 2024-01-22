@@ -104,16 +104,14 @@ impl InvGenerator {
         chainstate: &StacksChainState,
         tenure_id_consensus_hash: &ConsensusHash,
     ) -> Result<Option<InvTenureInfo>, NetError> {
-        let cur_tenure_info_opt =
-            if let Some(info_opt) = self.processed_tenures.get(&tenure_id_consensus_hash) {
-                Ok((*info_opt).clone())
-            } else {
-                let loaded_info_opt = InvTenureInfo::load(chainstate, &tenure_id_consensus_hash)?;
-                self.processed_tenures
-                    .insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
-                Ok(loaded_info_opt)
-            };
-        cur_tenure_info_opt
+        if let Some(info_opt) = self.processed_tenures.get(&tenure_id_consensus_hash) {
+            return Ok((*info_opt).clone());
+        };
+        // not cached so go load it
+        let loaded_info_opt = InvTenureInfo::load(chainstate, &tenure_id_consensus_hash)?;
+        self.processed_tenures
+            .insert(tenure_id_consensus_hash.clone(), loaded_info_opt.clone());
+        Ok(loaded_info_opt)
     }
 
     /// Generate an block inventory bit vector for a reward cycle.
@@ -174,7 +172,7 @@ impl InvGenerator {
                     .insert(cur_consensus_hash.clone(), loaded_info);
                 self.sortitions
                     .get(&cur_consensus_hash)
-                    .expect("infallbile: just inserted this data".into())
+                    .expect("infallible: just inserted this data".into())
             };
             let parent_sortition_consensus_hash = cur_sortition_info.parent_consensus_hash.clone();
 

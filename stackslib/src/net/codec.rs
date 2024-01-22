@@ -48,6 +48,10 @@ use crate::core::PEER_VERSION_TESTNET;
 use crate::net::db::LocalPeer;
 use crate::net::{Error as net_error, *};
 
+pub fn bitvec_len(bitlen: u16) -> u16 {
+    (bitlen / 8) + (if bitlen % 8 != 0 { 1 } else { 0 })
+}
+
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.
     pub fn new(
@@ -251,8 +255,8 @@ impl StacksMessageCodec for BlocksInvData {
             ));
         }
 
-        let block_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
-        let microblocks_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let block_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
+        let microblocks_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
 
         Ok(BlocksInvData {
             bitlen,
@@ -323,7 +327,7 @@ impl StacksMessageCodec for NakamotoInvData {
             ));
         }
 
-        let tenures: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let tenures: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
         Ok(Self { bitlen, tenures })
     }
 }
@@ -336,8 +340,23 @@ impl NakamotoInvData {
         }
     }
 
+    pub fn new(bits: &[bool]) -> Self {
+        let bvl: u16 = bits
+            .len()
+            .try_into()
+            .expect("FATAL: tried to compress more than u16::MAX bools");
+        Self {
+            bitlen: bvl,
+            tenures: Self::bools_to_bitvec(bits),
+        }
+    }
+
     pub fn bools_to_bitvec(bits: &[bool]) -> Vec<u8> {
-        let mut bitvec = vec![0u8; (bits.len() / 8) + (if bits.len() % 8 != 0 { 1 } else { 0 })];
+        let bvl: u16 = bits
+            .len()
+            .try_into()
+            .expect("FATAL: tried to compress more than u16::MAX bools");
+        let mut bitvec = vec![0u8; bitvec_len(bvl) as usize];
         for (i, bit) in bits.iter().enumerate() {
             if *bit {
                 bitvec[i / 8] |= 1u8 << (i % 8);
@@ -405,7 +424,7 @@ impl StacksMessageCodec for PoxInvData {
             ));
         }
 
-        let pox_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let pox_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
         Ok(PoxInvData {
             bitlen: bitlen,
             pox_bitvec: pox_bitvec,

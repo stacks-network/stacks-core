@@ -869,7 +869,9 @@ pub struct GetNakamotoInvData {
 }
 
 /// A bit vector that describes Nakamoto tenure availability.  Sent in reply for GetBlocksInv for
-/// Nakamoto block data.
+/// Nakamoto block data.  The ith bit in `tenures` will be set if (1) there is a sortition in the
+/// ith burnchain block in the requested reward cycle (note that 0 <= i < 2100 in production), and
+/// (2) the remote node not only has the tenure blocks, but has processed them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NakamotoInvData {
     /// Number of bits this tenure bit vector has (not to exceed the reward cycle length).

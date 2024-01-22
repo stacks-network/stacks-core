@@ -1712,12 +1712,9 @@ impl ConversationP2P {
             chainstate,
             reward_cycle,
         )?;
-        let bitvec = NakamotoInvData::bools_to_bitvec(&bitvec_bools);
+        let nakamoto_inv = NakamotoInvData::new(&bitvec_bools);
 
-        Ok(StacksMessageType::NakamotoInv(NakamotoInvData {
-            tenures: bitvec,
-            bitlen: u16::try_from(bitvec_bools.len()).expect("reward cycle length exceeds u16"),
-        }))
+        Ok(StacksMessageType::NakamotoInv(nakamoto_inv))
     }
 
     /// Handle an inbound GetNakamotoInv request.

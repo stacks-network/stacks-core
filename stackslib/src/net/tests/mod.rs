@@ -15,4 +15,5 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub mod httpcore;
+pub mod inv;
 pub mod neighbors;

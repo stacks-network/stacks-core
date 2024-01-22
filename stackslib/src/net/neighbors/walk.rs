@@ -644,8 +644,6 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         }
     }
 
-    /// Determine if a peer is routable from us
-
     /// Handle a HandshakeAcceptData.
     /// Update the PeerDB information from the handshake data, as well as `self.cur_neighbor`, if
     /// this neighbor was routable.  If it's not routable (i.e. we walked to an inbound neighbor),

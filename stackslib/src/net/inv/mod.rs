@@ -17,9 +17,6 @@
 pub mod epoch2x;
 pub mod nakamoto;
 
-#[cfg(test)]
-pub mod tests;
-
 // Stacks 2.x inventory state machine
 pub use inv2x::{INV_REWARD_CYCLES, INV_SYNC_INTERVAL};
 

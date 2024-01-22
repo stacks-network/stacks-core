@@ -510,7 +510,8 @@ impl NakamotoChainState {
     }
 
     /// Get a nakamoto tenure-change by its tenure ID consensus hash.
-    /// Get the highest such record.
+    /// Get the highest such record.  It will be the last-processed BlockFound tenure
+    /// for the given sortition consensus hash.
     pub fn get_highest_nakamoto_tenure_change_by_tenure_id(
         headers_conn: &Connection,
         tenure_id_consensus_hash: &ConsensusHash,
