@@ -249,7 +249,11 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
             }
         };
         self.request_pipe_write = fd_opt;
-        Ok(ret)
+        if drop_on_success {
+            Ok(self.request_pipe_write.is_none())
+        } else {
+            Ok(ret)
+        }
     }
 
     /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe.

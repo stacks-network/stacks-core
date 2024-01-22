@@ -68,13 +68,14 @@ use blockstack_lib::cost_estimates::UnitEstimator;
 use blockstack_lib::net::db::LocalPeer;
 use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
+use blockstack_lib::net::StacksMessage;
 use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
 use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
@@ -229,6 +230,26 @@ fn main() {
             .unwrap();
 
         println!("{:#?}", &block);
+        process::exit(0);
+    }
+
+    if argv[1] == "decode-net-message" {
+        let data: String = argv[2].clone();
+        let buf = if data == "-" {
+            let mut buffer = vec![];
+            io::stdin().read_to_end(&mut buffer).unwrap();
+            buffer
+        } else {
+            let data: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
+            let data_array = data.as_array().unwrap();
+            let mut buf = vec![];
+            for elem in data_array {
+                buf.push(elem.as_u64().unwrap() as u8);
+            }
+            buf
+        };
+        let msg: StacksMessage = read_next(&mut &buf[..]).unwrap();
+        println!("{:#?}", &msg);
         process::exit(0);
     }
 
