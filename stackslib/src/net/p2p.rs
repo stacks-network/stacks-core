@@ -1509,6 +1509,15 @@ impl PeerNetwork {
             return Err(net_error::AlreadyConnected(event_id, neighbor_key.clone()));
         }
 
+        // unroutable?
+        if !self.connection_opts.private_neighbors && neighbor_key.addrbytes.is_in_private_range() {
+            info!("{:?}: Peer {:?} is in private range and we are configured to drop private neighbors",
+                  &self.local_peer,
+                  &neighbor_key
+            );
+            return Err(net_error::Denied);
+        }
+
         // consider rate-limits on in-bound peers
         let num_outbound = PeerNetwork::count_outbound_conversations(&self.peers);
         if !outbound && (self.peers.len() as u64) - num_outbound >= self.connection_opts.num_clients
