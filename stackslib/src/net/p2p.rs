@@ -354,7 +354,7 @@ pub struct PeerNetwork {
     /// Nakamoto-specific cache for sortition and tenure data, for the purposes of generating
     /// tenure inventories
     pub nakamoto_inv_generator: InvGenerator,
-    
+
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
 }
@@ -505,7 +505,7 @@ impl PeerNetwork {
             fault_last_disconnect: 0,
 
             nakamoto_inv_generator: InvGenerator::new(),
-            
+
             block_proposal_thread: None,
         };
 
