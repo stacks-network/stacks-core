@@ -5516,14 +5516,14 @@ mod test {
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
             test_debug!("send handshake-accept");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5598,14 +5598,14 @@ mod test {
             test_debug!("send getnakamotoinv");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 gets back a nakamotoinv message
             test_debug!("send nakamotoinv");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5648,14 +5648,14 @@ mod test {
             test_debug!("send getnakamotoinv (diverged)");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 gets back a nack message
             test_debug!("send nack (diverged)");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
