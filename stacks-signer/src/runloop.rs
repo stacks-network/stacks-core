@@ -805,6 +805,9 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
                 debug!("Received block proposals from the miners...");
                 self.handle_proposed_blocks(blocks);
             }
+            Some(SignerEvent::StatusCheck) => {
+                debug!("Received a status check event.")
+            }
             None => {
                 // No event. Do nothing.
                 debug!("No event received")
