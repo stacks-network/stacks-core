@@ -1679,8 +1679,8 @@ fn delegate_stack_stx_signer_key() {
     let state_signer_key = stacking_state.get("signer-key").unwrap();
 
     assert_eq!(
-        state_signer_key,
-        signer_public_key
+        state_signer_key.to_string(),
+        format!("0x{}", signer_public_key.to_hex())
     );
 }
 
