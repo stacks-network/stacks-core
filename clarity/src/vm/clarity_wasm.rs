@@ -2508,8 +2508,8 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
             |mut caller: Caller<'_, ClarityWasmContext>,
              name_offset: i32,
              name_length: i32,
-             value_offset: i32,
-             value_length: i32| {
+             mut value_offset: i32,
+             mut value_length: i32| {
                 // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
@@ -2542,6 +2542,10 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 // )?;
 
                 // Read in the value from the Wasm memory
+                if is_in_memory_type(&data_types.value_type) {
+                    (value_offset, value_length) =
+                        read_indirect_offset_and_length(memory, &mut caller, value_offset)?;
+                }
                 let value = read_from_wasm(
                     memory,
                     &mut caller,
