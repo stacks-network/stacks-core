@@ -1158,8 +1158,8 @@
 (define-public (delegate-stack-extend
                     (stacker principal)
                     (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-                    (extend-count uint)
-                    (signer-key (buff 33)))
+                    (signer-key (buff 33))
+                    (extend-count uint))
     (let ((stacker-info (stx-account stacker))
           ;; to extend, there must already be an entry in the stacking-state
           (stacker-state (unwrap! (get-stacker-info stacker) (err ERR_STACK_EXTEND_NOT_LOCKED)))
