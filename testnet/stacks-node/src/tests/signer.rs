@@ -4,13 +4,22 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, thread};
 
+use clarity::vm::ast::ASTRules;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerEventReceiver};
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
-use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
+use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
+use stacks::chainstate::stacks::{
+    StacksPrivateKey, StacksTransaction, ThresholdSignature, TransactionPayload,
+};
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::util_lib::boot::boot_code_id;
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_signer::client::{BlockResponse, SignerMessage, SIGNER_SLOTS_PER_USER};
 use stacks_signer::config::{Config as SignerConfig, Network};
@@ -33,7 +42,7 @@ use crate::tests::nakamoto_integrations::{
 use crate::tests::neon_integrations::{
     next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
 };
-use crate::tests::{make_contract_publish, to_addr};
+use crate::tests::{make_contract_publish, make_stacks_transfer, to_addr};
 use crate::{BitcoinRegtestController, BurnchainController};
 
 // Helper struct for holding the btc and stx neon nodes
@@ -63,6 +72,8 @@ struct SignerTest {
     pub running_coordinator: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
     // The running signer and its threads
     pub running_signers: Vec<RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
+    // The signer private keys
+    pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
 }
 
 impl SignerTest {
@@ -140,6 +151,7 @@ impl SignerTest {
             coordinator_cmd_sender,
             running_coordinator,
             running_signers,
+            signer_stacks_private_keys,
         }
     }
 
@@ -325,6 +337,8 @@ fn setup_stx_btc_node(
 
 #[test]
 #[ignore]
+/// Test the signer can respond to external commands to perform DKG
+/// and sign a block with both taproot and non-taproot signatures
 fn stackerdb_dkg_sign() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -336,18 +350,232 @@ fn stackerdb_dkg_sign() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let signer_test = SignerTest::new(10, 400);
-    info!("------------------------- Test DKG and Sign -------------------------");
-    let now = std::time::Instant::now();
-    info!("signer_runloop: spawn send commands to do dkg and then sign");
+    let mut signer_test = SignerTest::new(10, 400);
+
+    // First run DKG in order to sign the block that arrives from the miners following a nakamoto block production
+
+    info!("------------------------- Test DKG -------------------------");
+    info!("signer_runloop: spawn send commands to do dkg");
+    let dkg_now = std::time::Instant::now();
     signer_test
         .coordinator_cmd_sender
         .send(RunLoopCommand::Dkg)
         .expect("failed to send Dkg command");
+    let mut aggregate_public_key_res = None;
+    for recv in signer_test.result_receivers.iter() {
+        let mut aggregate_public_key = None;
+        loop {
+            let results = recv.recv().expect("failed to recv results");
+            for result in results {
+                match result {
+                    OperationResult::Sign(sig) => {
+                        panic!("Received Signature ({},{})", &sig.R, &sig.z);
+                    }
+                    OperationResult::SignTaproot(proof) => {
+                        panic!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                    }
+                    OperationResult::DkgError(dkg_error) => {
+                        panic!("Received DkgError {:?}", dkg_error);
+                    }
+                    OperationResult::SignError(sign_error) => {
+                        panic!("Received SignError {}", sign_error);
+                    }
+                    OperationResult::Dkg(point) => {
+                        info!("Received aggregate_group_key {point}");
+                        aggregate_public_key = Some(point);
+                    }
+                }
+            }
+            if aggregate_public_key.is_some() {
+                aggregate_public_key_res = aggregate_public_key;
+                break;
+            }
+        }
+    }
+    aggregate_public_key_res.expect("Failed to get aggregate public key");
+    let dkg_elapsed = dkg_now.elapsed();
+
+    let (vrfs_submitted, commits_submitted) = (
+        signer_test.running_nodes.vrfs_submitted.clone(),
+        signer_test.running_nodes.commits_submitted.clone(),
+    );
+
+    info!("------------------------- Mine a Nakamoto Tenure -------------------------");
+
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+            Ok(vrf_count >= 1)
+        },
+    )
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        },
+    )
+    .unwrap();
+
+    // Mine 1 nakamoto tenures
+    next_block_and_mine_commit(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        &signer_test.running_nodes.coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
+    // Ensure we signed the proposed block and flush the operation results receiver of it
+    for recv in signer_test.result_receivers.iter() {
+        let mut frost_signature = None;
+        loop {
+            let results = recv.recv().expect("failed to recv results");
+            for result in results {
+                match result {
+                    OperationResult::Sign(sig) => {
+                        info!("Received Signature ({},{})", &sig.R, &sig.z);
+                        frost_signature = Some(sig);
+                    }
+                    OperationResult::SignTaproot(proof) => {
+                        panic!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                    }
+                    OperationResult::DkgError(dkg_error) => {
+                        panic!("Received DkgError {:?}", dkg_error);
+                    }
+                    OperationResult::SignError(sign_error) => {
+                        panic!("Received SignError {}", sign_error);
+                    }
+                    OperationResult::Dkg(point) => {
+                        panic!("Received aggregate_group_key {point}");
+                    }
+                }
+            }
+            if frost_signature.is_some() {
+                break;
+            }
+        }
+    }
+
+    info!("Generating a valid block to sign...");
+
+    let burnchain = signer_test.running_nodes.conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        signer_test.running_nodes.conf.is_mainnet(),
+        signer_test.running_nodes.conf.burnchain.chain_id,
+        &signer_test.running_nodes.conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    // TODO (hack) instantiate the sortdb in the burnchain
+    _ = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .sortdb_mut();
+
+    // ----- Setup boilerplate finished, test block proposal API endpoint -----
+
+    let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        .unwrap()
+        .unwrap();
+
+    let privk = signer_test
+        .running_nodes
+        .conf
+        .miner
+        .mining_key
+        .unwrap()
+        .clone();
+    let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())
+        .expect("Failed to get sortition tip");
+    let db_handle = sortdb.index_handle(&sort_tip);
+    let snapshot = db_handle
+        .get_block_snapshot(&tip.burn_header_hash)
+        .expect("Failed to get block snapshot")
+        .expect("No snapshot");
+    // Double check we got the right sortition
+    assert_eq!(
+        snapshot.consensus_hash, tip.consensus_hash,
+        "Found incorrect block snapshot"
+    );
+    let total_burn = snapshot.total_burn;
+    let tenure_change = None;
+    let coinbase = None;
+
+    let tenure_cause = tenure_change.and_then(|tx: &StacksTransaction| match &tx.payload {
+        TransactionPayload::TenureChange(tc) => Some(tc.cause),
+        _ => None,
+    });
+
+    let mut block = {
+        let mut builder = NakamotoBlockBuilder::new(
+            &tip,
+            &tip.consensus_hash,
+            total_burn,
+            tenure_change,
+            coinbase,
+        )
+        .expect("Failed to build Nakamoto block");
+
+        let burn_dbconn = signer_test
+            .running_nodes
+            .btc_regtest_controller
+            .sortdb_ref()
+            .index_conn();
+        let mut miner_tenure_info = builder
+            .load_tenure_info(&mut chainstate, &burn_dbconn, tenure_cause)
+            .unwrap();
+        let mut tenure_tx = builder
+            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+            .unwrap();
+
+        let tx = make_stacks_transfer(
+            &signer_test.signer_stacks_private_keys[0],
+            0,
+            100,
+            &to_addr(&signer_test.signer_stacks_private_keys[1]).into(),
+            10000,
+        );
+        let tx = StacksTransaction::consensus_deserialize(&mut &tx[..])
+            .expect("Failed to deserialize transaction");
+        let tx_len = tx.tx_len();
+
+        let res = builder.try_mine_tx_with_len(
+            &mut tenure_tx,
+            &tx,
+            tx_len,
+            &BlockLimitFunction::NO_LIMIT_HIT,
+            ASTRules::PrecheckSize,
+        );
+        assert!(
+            matches!(res, TransactionResult::Success(..)),
+            "Transaction failed"
+        );
+        builder.mine_nakamoto_block(&mut tenure_tx)
+    };
+
+    // Sign the block
+    block
+        .header
+        .sign_miner(&privk)
+        .expect("Miner failed to sign");
+
+    info!("------------------------- Test Sign -------------------------");
+    let sign_now = std::time::Instant::now();
+    info!("signer_runloop: spawn send commands to do dkg and then sign");
     signer_test
         .coordinator_cmd_sender
         .send(RunLoopCommand::Sign {
-            message: vec![1, 2, 3, 4, 5],
+            block: block.clone(),
             is_taproot: false,
             merkle_root: None,
         })
@@ -355,23 +583,18 @@ fn stackerdb_dkg_sign() {
     signer_test
         .coordinator_cmd_sender
         .send(RunLoopCommand::Sign {
-            message: vec![1, 2, 3, 4, 5],
+            block,
             is_taproot: true,
             merkle_root: None,
         })
         .expect("failed to send taproot Sign command");
     for recv in signer_test.result_receivers.iter() {
-        let mut aggregate_group_key = None;
         let mut frost_signature = None;
         let mut schnorr_proof = None;
         loop {
             let results = recv.recv().expect("failed to recv results");
             for result in results {
                 match result {
-                    OperationResult::Dkg(point) => {
-                        info!("Received aggregate_group_key {point}");
-                        aggregate_group_key = Some(point);
-                    }
                     OperationResult::Sign(sig) => {
                         info!("Received Signature ({},{})", &sig.R, &sig.z);
                         frost_signature = Some(sig);
@@ -386,16 +609,20 @@ fn stackerdb_dkg_sign() {
                     OperationResult::SignError(sign_error) => {
                         panic!("Received SignError {}", sign_error);
                     }
+                    OperationResult::Dkg(point) => {
+                        info!("Received aggregate_group_key {point}");
+                    }
                 }
             }
-            if aggregate_group_key.is_some() && frost_signature.is_some() && schnorr_proof.is_some()
-            {
+            if frost_signature.is_some() && schnorr_proof.is_some() {
                 break;
             }
         }
     }
-    let elapsed = now.elapsed();
-    info!("DKG and Sign Time Elapsed: {:.2?}", elapsed);
+    let sign_elapsed = sign_now.elapsed();
+
+    info!("DKG Time Elapsed: {:.2?}", dkg_elapsed);
+    info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
     signer_test.shutdown();
 }
 
@@ -416,7 +643,8 @@ fn stackerdb_dkg_sign() {
 ///
 /// Test Assertion:
 /// Signers return an operation result containing a valid signature across the miner's Nakamoto block's signature hash.
-/// TODO: update this test to assert that the signers broadcast a Nakamoto block response back to the miners
+/// Signers broadcasted a signed NakamotoBlock back to the .signers contract.
+/// TODO: update test to check miner received the signed block and appended it to the chain
 fn stackerdb_block_proposal() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
