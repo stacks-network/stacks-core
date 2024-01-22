@@ -184,6 +184,7 @@ impl ThresholdSignature {
     }
 
     /// Create mock data for testing. Not valid data
+    // TODO: `mock()` should be updated to `empty()` and rustdocs updated
     pub fn mock() -> Self {
         Self(Secp256k1Signature {
             R: Secp256k1Point::G(),
@@ -200,9 +201,7 @@ impl StacksMessageCodec for TenureChangePayload {
         write_next(fd, &self.previous_tenure_end)?;
         write_next(fd, &self.previous_tenure_blocks)?;
         write_next(fd, &self.cause)?;
-        write_next(fd, &self.pubkey_hash)?;
-        write_next(fd, &self.signature)?;
-        write_next(fd, &self.signers)
+        write_next(fd, &self.pubkey_hash)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
@@ -214,8 +213,6 @@ impl StacksMessageCodec for TenureChangePayload {
             previous_tenure_blocks: read_next(fd)?,
             cause: read_next(fd)?,
             pubkey_hash: read_next(fd)?,
-            signature: read_next(fd)?,
-            signers: read_next(fd)?,
         })
     }
 }
@@ -710,7 +707,7 @@ impl StacksTransaction {
         &self,
     ) -> Option<(&CoinbasePayload, Option<&PrincipalData>, Option<&VRFProof>)> {
         match &self.payload {
-            TransactionPayload::Coinbase(ref payload, ref recipient_opt, ref vrf_proof_opt) => {
+            TransactionPayload::Coinbase(payload, recipient_opt, vrf_proof_opt) => {
                 Some((payload, recipient_opt.as_ref(), vrf_proof_opt.as_ref()))
             }
             _ => None,
@@ -720,7 +717,7 @@ impl StacksTransaction {
     /// Try to convert to a tenure change payload
     pub fn try_as_tenure_change(&self) -> Option<&TenureChangePayload> {
         match &self.payload {
-            TransactionPayload::TenureChange(ref tc_payload) => Some(tc_payload),
+            TransactionPayload::TenureChange(tc_payload) => Some(tc_payload),
             _ => None,
         }
     }
@@ -3781,8 +3778,6 @@ mod test {
                 previous_tenure_blocks: 0,
                 cause: TenureChangeCause::BlockFound,
                 pubkey_hash: Hash160([0x00; 20]),
-                signature: ThresholdSignature::mock(),
-                signers: vec![],
             }),
         );
 

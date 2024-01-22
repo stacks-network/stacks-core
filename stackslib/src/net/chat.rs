@@ -1196,6 +1196,7 @@ impl ConversationP2P {
         network: &mut PeerNetwork,
         message: &mut StacksMessage,
         authenticated: bool,
+        ibd: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
         if !authenticated && self.connection.options.disable_inbound_handshakes {
             debug!("{:?}: blocking inbound unauthenticated handshake", &self);
@@ -1278,11 +1279,17 @@ impl ConversationP2P {
             if ConversationP2P::supports_stackerdb(network.get_local_peer().services)
                 && ConversationP2P::supports_stackerdb(self.peer_services)
             {
+                // participate in stackerdb protocol, but only announce stackerdbs if we're no
+                // longer in the initial block download.
                 StacksMessageType::StackerDBHandshakeAccept(
                     accept_data,
                     StackerDBHandshakeData {
                         rc_consensus_hash: network.get_chain_view().rc_consensus_hash.clone(),
-                        smart_contracts: network.get_local_peer().stacker_dbs.clone(),
+                        smart_contracts: if ibd {
+                            vec![]
+                        } else {
+                            network.get_local_peer().stacker_dbs.clone()
+                        },
                     },
                 )
             } else {
@@ -2432,6 +2439,7 @@ impl ConversationP2P {
         &mut self,
         network: &mut PeerNetwork,
         msg: &mut StacksMessage,
+        ibd: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
         let mut consume = false;
 
@@ -2441,7 +2449,7 @@ impl ConversationP2P {
                 monitoring::increment_msg_counter("p2p_authenticated_handshake".to_string());
 
                 debug!("{:?}: Got Handshake", &self);
-                let (handshake_opt, handled) = self.handle_handshake(network, msg, true)?;
+                let (handshake_opt, handled) = self.handle_handshake(network, msg, true, ibd)?;
                 consume = handled;
                 Ok(handshake_opt)
             }
@@ -2507,6 +2515,7 @@ impl ConversationP2P {
         &mut self,
         network: &mut PeerNetwork,
         msg: &mut StacksMessage,
+        ibd: bool,
     ) -> Result<(Option<StacksMessage>, bool), net_error> {
         // only thing we'll take right now is a handshake, as well as handshake
         // accept/rejects, nacks, and NAT holepunches
@@ -2518,7 +2527,7 @@ impl ConversationP2P {
             StacksMessageType::Handshake(_) => {
                 monitoring::increment_msg_counter("p2p_unauthenticated_handshake".to_string());
                 test_debug!("{:?}: Got unauthenticated Handshake", &self);
-                let (reply_opt, handled) = self.handle_handshake(network, msg, false)?;
+                let (reply_opt, handled) = self.handle_handshake(network, msg, false, ibd)?;
                 consume = handled;
                 Ok(reply_opt)
             }
@@ -2684,6 +2693,7 @@ impl ConversationP2P {
         network: &mut PeerNetwork,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
+        ibd: bool,
     ) -> Result<Vec<StacksMessage>, net_error> {
         let num_inbound = self.connection.inbox_len();
         test_debug!("{:?}: {} messages pending", &self, num_inbound);
@@ -2706,14 +2716,14 @@ impl ConversationP2P {
                 // we already have this remote peer's public key, so the message signature will
                 // have been verified by the underlying ConnectionP2P.
                 update_stats = true;
-                self.handle_authenticated_control_message(network, &mut msg)?
+                self.handle_authenticated_control_message(network, &mut msg, ibd)?
             } else {
                 // the underlying ConnectionP2P does not yet have a public key installed (i.e.
                 // we don't know it yet), so treat this message with a little bit more
                 // suspicion.
                 // Update stats only if we were asking for this message.
                 update_stats = self.connection.is_solicited(&msg);
-                self.handle_unauthenticated_control_message(network, &mut msg)?
+                self.handle_unauthenticated_control_message(network, &mut msg, ibd)?
             };
 
             if let Some(mut reply) = reply_opt.take() {
@@ -3268,14 +3278,14 @@ mod test {
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
             test_debug!("send handshake-accept");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -3549,14 +3559,14 @@ mod test {
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
             test_debug!("send handshake-accept");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -3728,13 +3738,13 @@ mod test {
         // convo_2 receives it and automatically rejects it.
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
             .unwrap();
 
         // convo_1 has a handshakreject
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
@@ -3876,12 +3886,12 @@ mod test {
 
         // convo_2 receives it and processes it, and barfs
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
-        let unhandled_2_err = convo_2.chat(&mut net_2, &sortdb_2, &mut chainstate_2);
+        let unhandled_2_err = convo_2.chat(&mut net_2, &sortdb_2, &mut chainstate_2, false);
 
         // convo_1 gets a nack and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         // the waiting reply aborts on disconnect
@@ -4034,13 +4044,13 @@ mod test {
         // convo_2 receives it and processes it, and rejects it
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
             .unwrap();
 
         // convo_1 gets a handshake-reject and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         // the waiting reply aborts on disconnect
@@ -4169,13 +4179,13 @@ mod test {
         // convo_2 receives it
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
             .unwrap();
 
         // convo_1 has a handshakaccept
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
@@ -4223,13 +4233,13 @@ mod test {
         // convo_2 receives it
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
             .unwrap();
 
         // convo_1 has a handshakaccept
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         let reply_1 = rh_1.recv(0).unwrap();
@@ -4366,13 +4376,13 @@ mod test {
         // convo_2 receives it and processes it automatically (consuming it), and give back a handshake reject
         convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         // convo_1 gets a handshake reject and consumes it
         convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
             .unwrap();
 
         // get back handshake reject
@@ -4527,7 +4537,7 @@ mod test {
             &mut convo_2,
         );
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
             .unwrap();
 
         // convo_1 has a handshakeaccept
@@ -4539,7 +4549,7 @@ mod test {
             &mut convo_1,
         );
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
@@ -4700,7 +4710,7 @@ mod test {
                 &mut convo_2,
             );
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
@@ -4710,7 +4720,7 @@ mod test {
                 &mut convo_1,
             );
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_handshake_1 = rh_handshake_1.recv(0).unwrap();
@@ -4910,13 +4920,13 @@ mod test {
         // convo_2 will reply with a nack since peer_1 hasn't authenticated yet
         convo_send_recv(&mut convo_1, vec![&mut rh_ping_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
             .unwrap();
 
         // convo_1 has a nack
         convo_send_recv(&mut convo_2, vec![&mut rh_ping_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         let reply_1 = rh_ping_1.recv(0).unwrap();
@@ -5083,12 +5093,12 @@ mod test {
 
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             // connection should break off since nodes ignore unsolicited messages
@@ -5229,14 +5239,14 @@ mod test {
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
             test_debug!("send handshake-accept");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5312,14 +5322,14 @@ mod test {
             test_debug!("send getblocksinv");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 gets back a blocksinv message
             test_debug!("send blocksinv");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5365,14 +5375,14 @@ mod test {
             test_debug!("send getblocksinv (diverged)");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 gets back a nack message
             test_debug!("send nack (diverged)");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5778,14 +5788,14 @@ mod test {
         test_debug!("send natpunch {:?}", &natpunch_1);
         convo_send_recv(&mut convo_1, vec![&mut rh_natpunch_1], &mut convo_2);
         let unhandled_2 = convo_2
-            .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+            .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
             .unwrap();
 
         // convo_1 gets back a natpunch reply
         test_debug!("reply natpunch-reply");
         convo_send_recv(&mut convo_2, vec![&mut rh_natpunch_1], &mut convo_1);
         let unhandled_1 = convo_1
-            .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+            .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
             .unwrap();
 
         let natpunch_reply_1 = rh_natpunch_1.recv(0).unwrap();

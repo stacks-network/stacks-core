@@ -1984,8 +1984,10 @@ dependencies = [
  "slog-json",
  "slog-term",
  "stacks-common",
+ "stackslib",
  "thiserror",
  "tiny_http",
+ "wsts",
 ]
 
 [[package]]
@@ -3546,6 +3548,7 @@ dependencies = [
  "base64 0.12.3",
  "chrono",
  "clarity",
+ "hashbrown 0.14.0",
  "http-types",
  "lazy_static",
  "libc",
@@ -3613,6 +3616,7 @@ dependencies = [
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
+ "hashbrown 0.14.0",
  "integer-sqrt",
  "lazy_static",
  "libc",
@@ -4712,9 +4716,9 @@ dependencies = [
 
 [[package]]
 name = "wsts"
-version = "6.0.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b2cb1ef1b26d526daae40c1ee657c83bbedaeefd7196f827b40ca79d13f0f34"
+checksum = "c398736468f3322a43b6419be5315e68ae035e6565628603503c2a62ad726f36"
 dependencies = [
  "aes-gcm 0.10.2",
  "bs58 0.5.0",

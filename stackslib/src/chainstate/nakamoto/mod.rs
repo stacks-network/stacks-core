@@ -17,10 +17,6 @@
 use std::collections::HashSet;
 use std::ops::DerefMut;
 
-pub mod coordinator;
-pub mod miner;
-pub mod tenure;
-
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
@@ -33,6 +29,7 @@ use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
+    MAX_PAYLOAD_LEN,
 };
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
@@ -82,12 +79,17 @@ use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
 use crate::monitoring;
+use crate::net::stackerdb::StackerDBConfig;
 use crate::net::Error as net_error;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
 };
+
+pub mod coordinator;
+pub mod miner;
+pub mod tenure;
 
 #[cfg(test)]
 pub mod tests;
@@ -287,7 +289,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockHeader {
     pub version: u8,
     /// The total number of StacksBlock and NakamotoBlocks preceding
@@ -343,7 +345,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
     pub txs: Vec<StacksTransaction>,
@@ -461,6 +463,7 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
+            // TODO: `mock()` should be updated to `empty()` and rustdocs updated
             signer_signature: ThresholdSignature::mock(),
         }
     }
@@ -576,13 +579,9 @@ impl NakamotoBlock {
 
         // there is one coinbase.
         // go find it.
-        self.txs.iter().find(|tx| {
-            if let TransactionPayload::Coinbase(..) = &tx.payload {
-                true
-            } else {
-                false
-            }
-        })
+        self.txs
+            .iter()
+            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)))
     }
 
     /// Get the VRF proof from this block.
@@ -1050,7 +1049,7 @@ impl NakamotoBlock {
             .map_err(|e| {
                 warn!(
                     "Leader key did not contain a hash160 of the miner signing public key";
-                    "leader_key" => format!("{:?}", &leader_key),
+                    "leader_key" => ?leader_key,
                 );
                 e
             })?;
@@ -1567,7 +1566,7 @@ impl NakamotoChainState {
                 "Invalid Nakamoto block, could not validate on burnchain";
                 "consensus_hash" => %consensus_hash,
                 "block_hash" => %block_hash,
-                "error" => format!("{:?}", &e)
+                "error" => ?e
             );
 
             return Err(e);
@@ -1699,7 +1698,7 @@ impl NakamotoChainState {
         ) {
             warn!("Unacceptable Nakamoto block; will not store";
                   "block_id" => %block.block_id(),
-                  "error" => format!("{:?}", &e)
+                  "error" => ?e
             );
             return Ok(false);
         };
@@ -2164,7 +2163,7 @@ impl NakamotoChainState {
             total_tenure_cost,
             &tenure_tx_fees.to_string(),
             &header.parent_block_id,
-            if tenure_changed { &1i64 } else { &0 },
+            if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
         ];
 
@@ -3049,6 +3048,123 @@ impl NakamotoChainState {
         NakamotoChainState::set_block_processed(&chainstate_tx, &new_block_id)?;
 
         Ok((epoch_receipt, clarity_commit))
+    }
+
+    /// Create a StackerDB config for the .miners contract.
+    /// It has two slots -- one for the past two sortition winners.
+    pub fn make_miners_stackerdb_config(
+        sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
+    ) -> Result<StackerDBConfig, ChainstateError> {
+        let ih = sortdb.index_handle(&tip.sortition_id);
+        let last_winner_snapshot = ih.get_last_snapshot_with_sortition(tip.block_height)?;
+        let parent_winner_snapshot = ih.get_last_snapshot_with_sortition(
+            last_winner_snapshot.block_height.saturating_sub(1),
+        )?;
+
+        let mut miner_key_hash160s = vec![];
+
+        // go get their corresponding leader keys, but preserve the miner's relative position in
+        // the stackerdb signer list -- if a miner was in slot 0, then it should stay in slot 0
+        // after a sortition (and vice versa for 1)
+        let sns = if last_winner_snapshot.num_sortitions % 2 == 0 {
+            [last_winner_snapshot, parent_winner_snapshot]
+        } else {
+            [parent_winner_snapshot, last_winner_snapshot]
+        };
+
+        for sn in sns {
+            // find the commit
+            let Some(block_commit) =
+                ih.get_block_commit_by_txid(&sn.sortition_id, &sn.winning_block_txid)?
+            else {
+                warn!(
+                    "No block commit for {} in sortition for {}",
+                    &sn.winning_block_txid, &sn.consensus_hash
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "No block-commit in sortition for block's consensus hash".into(),
+                ));
+            };
+
+            // key register of the winning miner
+            let leader_key = ih
+                .get_leader_key_at(
+                    u64::from(block_commit.key_block_ptr),
+                    u32::from(block_commit.key_vtxindex),
+                )?
+                .expect("FATAL: have block commit but no leader key");
+
+            // the leader key should always be valid (i.e. the unwrap_or() should be unreachable),
+            // but be defensive and just use the "null" address
+            miner_key_hash160s.push(
+                leader_key
+                    .interpret_nakamoto_signing_key()
+                    .unwrap_or(Hash160([0x00; 20])),
+            );
+        }
+
+        let signers = miner_key_hash160s
+            .into_iter()
+            .map(|hash160|
+                // each miner gets one slot
+                (
+                    StacksAddress {
+                        version: 1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
+                        bytes: hash160
+                    },
+                    1
+                ))
+            .collect();
+
+        Ok(StackerDBConfig {
+            chunk_size: MAX_PAYLOAD_LEN.into(),
+            signers,
+            write_freq: 5,
+            max_writes: u32::MAX,  // no limit on number of writes
+            max_neighbors: 200, // TODO: const -- just has to be equal to or greater than the number of signers
+            hint_replicas: vec![], // TODO: is there a way to get the IP addresses of stackers' preferred nodes?
+        })
+    }
+
+    /// Get the slot number for the given miner's public key.
+    /// Returns Some(u32) if the miner is in the StackerDB config.
+    /// Returns None if the miner is not in the StackerDB config.
+    /// Returns an error if the miner is in the StackerDB config but the slot number is invalid.
+    pub fn get_miner_slot(
+        sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
+        miner_pubkey: &StacksPublicKey,
+    ) -> Result<Option<u32>, ChainstateError> {
+        let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
+        let stackerdb_config = Self::make_miners_stackerdb_config(sortdb, &tip)?;
+
+        // find out which slot we're in
+        let Some(slot_id_res) =
+            stackerdb_config
+                .signers
+                .iter()
+                .enumerate()
+                .find_map(|(i, (addr, _))| {
+                    if addr.bytes == miner_hash160 {
+                        Some(u32::try_from(i).map_err(|_| {
+                            CodecError::OverflowError(
+                                "stackerdb config slot ID cannot fit into u32".into(),
+                            )
+                        }))
+                    } else {
+                        None
+                    }
+                })
+        else {
+            // miner key does not match any slot
+            warn!("Miner is not in the miners StackerDB config";
+                  "miner" => %miner_hash160,
+                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+
+            return Ok(None);
+        };
+        Ok(Some(slot_id_res?))
     }
 
     /// Boot code instantiation for the aggregate public key.

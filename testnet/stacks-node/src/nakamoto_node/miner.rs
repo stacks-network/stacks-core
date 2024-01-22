@@ -18,19 +18,23 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
+use libsigner::{SignerSession, StackerDBSession};
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
-    TenureChangeCause, TenureChangePayload, ThresholdSignature, TransactionAnchorMode,
-    TransactionPayload, TransactionVersion,
+    TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
+    TransactionVersion,
 };
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
+use stacks::net::stackerdb::StackerDBs;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::Hash160;
@@ -133,7 +137,9 @@ impl BlockMinerThread {
         if let Some(prior_miner) = prior_miner {
             Self::stop_miner(&self.globals, prior_miner);
         }
-
+        let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+        let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
+            .expect("FATAL: failed to connect to stacker DB");
         // now, actually run this tenure
         loop {
             let new_block = loop {
@@ -159,7 +165,54 @@ impl BlockMinerThread {
                 }
             };
 
+            let sort_db = SortitionDB::open(
+                &self.config.get_burn_db_file_path(),
+                true,
+                self.burnchain.pox_constants.clone(),
+            )
+            .expect("FATAL: could not open sortition DB");
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
+                .expect("FATAL: could not retrieve chain tip");
             if let Some(new_block) = new_block {
+                let Some(miner_privkey) = self.config.miner.mining_key else {
+                    warn!("No mining key configured, cannot mine");
+                    return;
+                };
+                match NakamotoBlockBuilder::make_stackerdb_block_proposal(
+                    &sort_db,
+                    &tip,
+                    &stackerdbs,
+                    &new_block,
+                    &miner_privkey,
+                    &miners_contract_id,
+                ) {
+                    Ok(Some(chunk)) => {
+                        // Propose the block to the observing signers through the .miners stackerdb instance
+                        let rpc_sock = self.config.node.rpc_bind.parse().expect(&format!(
+                            "Failed to parse socket: {}",
+                            &self.config.node.rpc_bind
+                        ));
+
+                        let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
+                        let mut miners_stackerdb =
+                            StackerDBSession::new(rpc_sock, miner_contract_id);
+                        match miners_stackerdb.put_chunk(&chunk) {
+                            Ok(ack) => {
+                                info!("Proposed block to stackerdb: {ack:?}");
+                            }
+                            Err(e) => {
+                                warn!("Failed to propose block to stackerdb {e:?}");
+                                return;
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        warn!("Failed to propose block to stackerdb: no slot available");
+                    }
+                    Err(e) => {
+                        warn!("Failed to propose block to stackerdb: {e:?}");
+                    }
+                }
                 if let Some(self_signer) = self.config.self_signing() {
                     if let Err(e) = self.self_sign_and_broadcast(self_signer, new_block.clone()) {
                         warn!("Error self-signing block: {e:?}");
@@ -179,12 +232,6 @@ impl BlockMinerThread {
             }
 
             let wait_start = Instant::now();
-            let sort_db = SortitionDB::open(
-                &self.config.get_burn_db_file_path(),
-                true,
-                self.burnchain.pox_constants.clone(),
-            )
-            .expect("FATAL: could not open sortition DB");
             while wait_start.elapsed() < self.config.miner.wait_on_interim_blocks {
                 thread::sleep(Duration::from_millis(ABORT_TRY_AGAIN_MS));
                 if self.check_burn_tip_changed(&sort_db).is_err() {
@@ -252,11 +299,6 @@ impl BlockMinerThread {
         parent_tenure_blocks: u64,
         miner_pkh: Hash160,
     ) -> Result<StacksTransaction, NakamotoNodeError> {
-        if self.config.self_signing().is_none() {
-            // if we're not self-signing, then we can't generate a tenure change tx: it has to come from the signers.
-            warn!("Tried to generate a tenure change transaction, but we aren't self-signing");
-            return Err(NakamotoNodeError::CannotSelfSign);
-        }
         let is_mainnet = self.config.is_mainnet();
         let chain_id = self.config.burnchain.chain_id;
         let tenure_change_tx_payload = TransactionPayload::TenureChange(TenureChangePayload {
@@ -268,8 +310,6 @@ impl BlockMinerThread {
                 .expect("FATAL: more than u32 blocks in a tenure"),
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: miner_pkh,
-            signers: vec![],
-            signature: ThresholdSignature::mock(),
         });
 
         let mut tx_auth = self.keychain.get_transaction_auth().unwrap();
