@@ -249,7 +249,7 @@ impl<C: Coordinator> RunLoop<C> {
             State::Dkg | State::Sign => {
                 // We cannot execute the next command until the current one is finished...
                 // Do nothing...
-                debug!("Waiting for operation to finish");
+                debug!("Waiting for {:?} operation to finish", self.state);
             }
         }
     }
@@ -299,11 +299,9 @@ impl<C: Coordinator> RunLoop<C> {
                     // Cache our vote
                     block.vote = Some(hash_bytes.clone());
                     block_request.message = hash_bytes;
+                    // Send the nonce request through with our vote
                     let packet = Packet {
-                        msg: Message::NonceRequest(NonceRequest {
-                            message: hash.0.to_vec(),
-                            ..block_request
-                        }),
+                        msg: Message::NonceRequest(block_request),
                         sig: vec![],
                     };
                     self.handle_packets(res, &[packet]);
@@ -326,9 +324,8 @@ impl<C: Coordinator> RunLoop<C> {
             BlockValidateResponse::Reject(block_validate_reject) => {
                 // There is no point in triggering a sign round for this block if validation failed from the stacks node
                 debug!(
-                            "Received a block proposal that was rejected by the stacks node: {:?}\n. Broadcasting a rejection...",
-                            block_validate_reject
-                        );
+                    "Received a block proposal that was rejected by the stacks node. Broadcasting a rejection...",
+                );
                 let Ok(hash) = block_validate_reject.block.header.signature_hash() else {
                     warn!("Received a block proposal with an invalid signature hash. Broadcasting a block rejection...");
                     let block_rejection = BlockRejection::new(
@@ -360,11 +357,9 @@ impl<C: Coordinator> RunLoop<C> {
                     // Cache our vote
                     block.vote = Some(hash_bytes.clone());
                     block_request.message = hash_bytes;
+                    // Send the nonce request through with our vote
                     let packet = Packet {
-                        msg: Message::NonceRequest(NonceRequest {
-                            message: hash.0.to_vec(),
-                            ..block_request
-                        }),
+                        msg: Message::NonceRequest(block_request),
                         sig: vec![],
                     };
                     self.handle_packets(res, &[packet]);
