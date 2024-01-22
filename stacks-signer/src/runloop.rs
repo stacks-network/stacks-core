@@ -84,7 +84,18 @@ pub struct BlockInfo {
     /// Our vote on the block if we have one yet
     vote: Option<Vec<u8>>,
     /// Whether the block contents are valid
-    valid: bool,
+    valid: Option<bool>,
+}
+
+impl BlockInfo {
+    /// Create a new BlockInfo
+    pub fn new(block: NakamotoBlock) -> Self {
+        Self {
+            block,
+            vote: None,
+            valid: None,
+        }
+    }
 }
 
 /// The runloop for the stacks signer
@@ -214,17 +225,23 @@ impl<C: Coordinator> RunLoop<C> {
     fn handle_block_validate_response(&mut self, block_validate_response: BlockValidateResponse) {
         match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                self.blocks
-                    .entry(
-                        block_validate_ok
-                            .block
-                            .header
-                            .signature_hash()
-                            .unwrap_or(Sha512Trunc256Sum::from_data(&[])),
-                    )
-                    .and_modify(|block_info| {
-                        block_info.valid = true;
-                    });
+                let Ok(hash) = block_validate_ok.block.header.signature_hash() else {
+                    warn!("Received a block proposal with an invalid signature hash. Broadcasting a block rejection...");
+                    let block_rejection = BlockRejection::new(block_validate_ok.block, RejectCode::InvalidSignatureHash);
+                    // Submit signature result to miners to observe
+                    if let Err(e) = self
+                        .stackerdb
+                        .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
+                    {
+                        warn!("Failed to send block submission to stacker-db: {:?}", e);
+                    }
+                    return;
+                };
+                let block = self
+                    .blocks
+                    .entry(hash)
+                    .or_insert(BlockInfo::new(block_validate_ok.block.clone()));
+                block.valid = Some(true);
                 // This is a valid block proposal from the miner. Trigger a signing round for it if we are the coordinator
                 let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
                 if coordinator_id == self.signing_round.signer_id {
@@ -243,17 +260,23 @@ impl<C: Coordinator> RunLoop<C> {
                     "Received a block proposal that was rejected by the stacks node: {:?}\n. Broadcasting a rejection...",
                     block_validate_reject
                 );
-                self.blocks
-                    .entry(
-                        block_validate_reject
-                            .block
-                            .header
-                            .signature_hash()
-                            .unwrap_or(Sha512Trunc256Sum::from_data(&[])),
-                    )
-                    .and_modify(|block_info| {
-                        block_info.valid = false;
-                    });
+                let Ok(hash) = block_validate_reject.block.header.signature_hash() else {
+                    warn!("Received a block proposal with an invalid signature hash. Broadcasting a block rejection...");
+                    let block_rejection = BlockRejection::new(block_validate_reject.block, RejectCode::InvalidSignatureHash);
+                    // Submit signature result to miners to observe
+                    if let Err(e) = self
+                        .stackerdb
+                        .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
+                    {
+                        warn!("Failed to send block submission to stacker-db: {:?}", e);
+                    }
+                    return;
+                };
+                let block = self
+                    .blocks
+                    .entry(hash)
+                    .or_insert(BlockInfo::new(block_validate_reject.block.clone()));
+                block.valid = Some(false);
                 // Submit a rejection response to the .signers contract for miners
                 // to observe so they know to send another block and to prove signers are doing work);
                 if let Err(e) = self.stackerdb.send_message_with_retry(
@@ -323,14 +346,8 @@ impl<C: Coordinator> RunLoop<C> {
                 continue;
             };
             // Store the block in our cache
-            self.blocks.insert(
-                hash,
-                BlockInfo {
-                    vote: None,
-                    valid: false,
-                    block: block.clone(),
-                },
-            );
+            self.blocks.insert(hash, BlockInfo::new(block.clone()));
+            // Submit the block for validation
             self.stacks_client
                 .submit_block_for_validation(block)
                 .unwrap_or_else(|e| {
@@ -343,33 +360,42 @@ impl<C: Coordinator> RunLoop<C> {
     /// If the request is for a block it has already agreed to sign, it will overwrite the message with the agreed upon value
     /// Returns whether the request is valid or not.
     fn validate_signature_share_request(&self, request: &mut SignatureShareRequest) -> bool {
-        // A coordinator could have sent a signature share request with a different message than we agreed to sign
-        // This jankiness is because a coordinator could have sent a hash + 'n' byte and we need to pop that off...
-        // For now, if we have seen a message that is over a non hash, we will just sign it anyway so this is fine..
-        // TODO: fix this jankiness
-        let message = if request.message.len() == 32 {
+        let message_len = request.message.len();
+        // Note that the message must always be either 32 bytes (the block hash) or 33 bytes (block hash + b'n')
+        let hash_bytes = if message_len == 33 && request.message[32] == b'n' {
+            // Pop off the 'n' byte from the block hash
             &request.message[..32]
-        } else {
+        } else if message_len == 32 {
+            // This is the block hash
             &request.message
+        } else {
+            // We will only sign across block hashes or block hashes + b'n' byte
+            debug!("Received a signature share request for an unknown message stream. Reject it.");
+            return false;
         };
-        let message =
-            Sha512Trunc256Sum::from_bytes(message).unwrap_or(Sha512Trunc256Sum::from_data(&[]));
-        match self.blocks.get(&message).map(|block_info| &block_info.vote) {
+
+        let Some(hash) =
+            Sha512Trunc256Sum::from_bytes(hash_bytes) else {
+                // We will only sign across valid block hashes
+                debug!("Received a signature share request for an invalid block hash. Reject it.");
+                return false;
+            };
+        match self.blocks.get(&hash).map(|block_info| &block_info.vote) {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
                 request.message = vote.clone();
                 true
             }
             Some(None) => {
-                // We have seen this block before, but we have not agreed to sign it. TODO: ignore it
-                debug!("Received a signature share request for a block we have not validated yet.");
+                // We never agreed to sign this block. Reject it. This can happen if the coordinator received enough votes to sign yes or no on a block before we received validation from the stacks node.
+                debug!("Received a signature share request for a block we never agreed to sign. Ignore it.");
                 false
             }
             None => {
-                // We have not seen this block before.
-                // TODO: should probably ignore any messages that are not either sBTC transactons or Nakamoto blocks. Leave now for abitrary message signing
-                debug!("Received a signature share request for an unknown message stream. Signing it as is...");
-                true
+                // We will only sign across block hashes or block hashes + b'n' byte for blocks we have seen a Nonce Request for (and subsequent validation)
+                // We are missing the context here necessary to make a decision therefore we outright reject the block
+                debug!("Received a signature share request from an unknown block. Reject it.");
+                false
             }
         }
     }
@@ -380,24 +406,40 @@ impl<C: Coordinator> RunLoop<C> {
     /// Returns whether the request is valid or not
     fn validate_nonce_request(&mut self, request: &mut NonceRequest) -> bool {
         let Some(block) = read_next::<NakamotoBlock, _>(&mut &request.message[..]).ok() else {
-            // TODO: we should probably reject requests to sign things that are not blocks or transactions (leave for now to enable testing abitrary signing)
-            warn!("Received a nonce request for an unknown message stream. Signing the nonce request as is.");
-            return true;
+            // We currently reject anything that is not a block
+            debug!("Received a nonce request for an unknown message stream. Reject it.");
+            return false;
         };
         let Ok(hash) = block.header.signature_hash() else {
-            debug!("Received a nonce request for a block with an invalid signature hash. Ignore it.");
+            debug!("Received a nonce request for a block with an invalid signature hash. Reject it");
             return false;
         };
         let transactions = &self.transactions;
-        let block_info = self.blocks.entry(hash).or_insert(BlockInfo {
-            vote: None,
-            valid: false,
-            block: block.clone(),
-        });
+        let Some(block_info) = self.blocks.get_mut(&hash) else {
+            // We have not seen this block before. Cache it. Send a RPC to the stacks node to validate it.
+            debug!("We have yet to handle out of order nonce request to block miner proposal. Rejecting it.");
+            // Store the block in our cache
+            self.blocks.insert(
+                hash, BlockInfo::new(block.clone()));
+            self.stacks_client
+                .submit_block_for_validation(block)
+                .unwrap_or_else(|e| {
+                    warn!("Failed to submit block for validation: {:?}", e);
+            });
+            // TODO: cache the NonceRequest to the side to reprocess after we receive back our validation response
+            return false;
+        };
+        if block_info.valid.is_none() {
+            // We have not yet received validation from the stacks node. Cache the request and wait for validation
+            // TODO: cache the Nonce Request and reprocess it later on validation
+            debug!("We have yet to receive validation from the stacks node for a nonce request. Reject it.");
+            return false;
+        }
         let mut hash_bytes = hash.0.to_vec();
         // Validate the block contents
-        block_info.valid = Self::validate_block(block_info, transactions);
-        if !block_info.valid {
+        if !block_info.valid.unwrap_or(false)
+            || !Self::verify_block_transactions(block_info, transactions)
+        {
             // We don't like this block. Update the request to be across its hash with a byte indicating a vote no.
             debug!("Updating the request with a block hash with a vote no.");
             hash_bytes.push(b'n');
@@ -410,11 +452,8 @@ impl<C: Coordinator> RunLoop<C> {
         true
     }
 
-    /// Helper function to validate a block's contents
-    fn validate_block(block_info: &BlockInfo, transactions: &[Txid]) -> bool {
-        if !block_info.valid {
-            return false;
-        }
+    /// Helper function to verify a block's transactions are as expected
+    fn verify_block_transactions(block_info: &BlockInfo, transactions: &[Txid]) -> bool {
         // Ensure the block contains the transactions we care about
         // TODO: add cast_aggregate_public_key to the list of transactions we care about.
         // This will also need to be flushed from the cache once these transactions are in a signed block
