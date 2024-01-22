@@ -356,6 +356,11 @@ mod tests {
             signers: vec![],
             signer_id: 0,
             event_timeout_ms: None,
+            dkg_end_timeout_ms: None,
+            dkg_public_timeout_ms: None,
+            dkg_private_timeout_ms: None,
+            nonce_timeout_ms: None,
+            sign_timeout_ms: None,
         };
         overrides(&mut config);
         config
