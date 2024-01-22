@@ -93,6 +93,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 network.peerdb_conn(),
                 network.get_local_peer().network_id,
                 &self.smart_contract_id,
+                get_epoch_time_secs()
+                    .saturating_sub(network.get_connection_opts().max_neighbor_age),
                 self.max_neighbors,
             )?
             .into_iter()
@@ -554,6 +556,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 network.peerdb_conn(),
                 network.get_local_peer().network_id,
                 &self.smart_contract_id,
+                get_epoch_time_secs()
+                    .saturating_sub(network.get_connection_opts().max_neighbor_age),
                 self.max_neighbors,
             )?
             .into_iter()
