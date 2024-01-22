@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{ HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::clarity::ClarityConnection;
@@ -1679,8 +1679,8 @@ fn delegate_stack_stx_signer_key() {
     let state_signer_key = stacking_state.get("signer-key").unwrap();
 
     assert_eq!(
-        state_signer_key.to_string(),
-        format!("0x{}", signer_public_key.to_hex())
+        state_signer_key,
+        signer_public_key
     );
 }
 
@@ -1724,6 +1724,8 @@ fn delegate_stack_stx_extend_signer_key() {
         signer_public_key.clone(),
     );
 
+    // Initial txs arr includes initial delegate_stx & delegate_stack_stx
+    // Both are pox_4 helpers found in mod.rs
     let txs = vec![delegate_stx, delegate_stack_stx];
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -1744,6 +1746,7 @@ fn delegate_stack_stx_extend_signer_key() {
     .expect("No stacking state, stack-stx failed")
     .expect_tuple();
 
+    // Testing initial signer-key correctly set
     let state_signer_key = stacking_state.get("signer-key").unwrap();
     assert_eq!(
         state_signer_key.to_string(),
@@ -1757,10 +1760,11 @@ fn delegate_stack_stx_extend_signer_key() {
         stacker_nonce,
         PrincipalData::from(key_to_stacks_addr(stacker_key)).into(),
         pox_addr.clone(),
-        1,
         new_signer_public_key.clone(),
+        1,
     );
 
+    // Next tx arr calls a delegate_stack_extend pox_4 helper found in mod.rs
     let txs = vec![delegate_stack_extend];
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -1772,6 +1776,7 @@ fn delegate_stack_stx_extend_signer_key() {
     .unwrap()
     .expect_tuple();
 
+    // Testing new signer-key correctly set
     let state_signer_key_new = new_stacking_state.get("signer-key").unwrap();
     assert_eq!(
         state_signer_key_new.to_string(),
@@ -1807,6 +1812,7 @@ fn stack_increase() {
         block_height as u64,
     );
 
+    // Initial tx arr includes a stack_stx pox_4 helper found in mod.rs
     let txs = vec![stack_stx];
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -1818,6 +1824,7 @@ fn stack_increase() {
     .expect("No stacking state, stack-stx failed")
     .expect_tuple();
 
+    // Testing initial signer-key correctly set
     let state_signer_key = stacking_state.get("signer-key").unwrap();
     assert_eq!(
         state_signer_key.to_string(),
@@ -1827,6 +1834,7 @@ fn stack_increase() {
     stacker_nonce += 1;
 
     let stack_increase = make_pox_4_stack_increase(stacker_key, stacker_nonce, min_ustx);
+    // Next tx arr includes a stack_increase pox_4 helper found in mod.rs
     let txs = vec![stack_increase];
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
     let stacker_transactions = get_last_block_sender_transactions(&observer, stacker_address);
@@ -1848,6 +1856,8 @@ fn stack_increase() {
     ))
     .unwrap();
 
+    // Testing stack_increase response is equal to expected response
+    // Test is straightforward because 'stack-increase' in PoX-4 is the same as PoX-3
     assert_eq!(actual_result, expected_result);
 }
 
@@ -1894,6 +1904,7 @@ fn delegate_stack_increase() {
         signer_public_key.clone(),
     );
 
+    // Initial tx arr includes a delegate_stx & delegate_stack_stx pox_4 helper found in mod.rs
     let txs = vec![delegate_stx, delegate_stack_stx];
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -1909,6 +1920,7 @@ fn delegate_stack_increase() {
         min_ustx,
     );
 
+    // Next tx arr includes a delegate_increase pox_4 helper found in mod.rs
     let txs = vec![delegate_increase];
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -1933,6 +1945,8 @@ fn delegate_stack_increase() {
     ))
     .unwrap();
 
+    // Testing stack_increase response is equal to expected response
+    // Test is straightforward because 'stack-increase' in PoX-4 is the same as PoX-3
     assert_eq!(actual_result, expected_result);
 }
 

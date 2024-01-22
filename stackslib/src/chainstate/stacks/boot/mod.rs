@@ -1854,8 +1854,8 @@ pub mod test {
         nonce: u64,
         stacker: PrincipalData,
         pox_addr: PoxAddress,
-        extend_count: u128,
         signer_key: StacksPublicKey,
+        extend_count: u128,
     ) -> StacksTransaction {
         let payload: TransactionPayload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
@@ -1864,30 +1864,8 @@ pub mod test {
             vec![
                 Value::Principal(stacker.clone()),
                 Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
-                Value::UInt(extend_count),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
-            ],
-        )
-        .unwrap();
-
-        make_tx(key, nonce, 0, payload)
-    }
-
-    pub fn make_pox_4_delegate_stack_increase(
-        key: &StacksPrivateKey,
-        nonce: u64,
-        stacker: &PrincipalData,
-        pox_addr: PoxAddress,
-        amount: u128,
-    ) -> StacksTransaction {
-        let payload = TransactionPayload::new_contract_call(
-            boot_code_test_addr(),
-            POX_4_NAME,
-            "delegate-stack-increase",
-            vec![
-                Value::Principal(stacker.clone()),
-                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
-                Value::UInt(amount),
+                Value::UInt(extend_count),
             ],
         )
         .unwrap();
@@ -1925,6 +1903,28 @@ pub mod test {
             POX_4_NAME,
             "stack-increase",
             vec![Value::UInt(amount)],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stack_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: &PrincipalData,
+        pox_addr: PoxAddress,
+        amount: u128,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-increase",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(amount),
+            ],
         )
         .unwrap();
 
