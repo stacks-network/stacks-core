@@ -4801,12 +4801,12 @@ impl StacksNode {
             tx.commit().unwrap();
         }
 
-        // update services to indicate we can support mempool sync
+        // update services to indicate we can support mempool sync and stackerdb
         {
             let mut tx = peerdb.tx_begin().unwrap();
             PeerDB::set_local_services(
                 &mut tx,
-                (ServiceFlags::RPC as u16) | (ServiceFlags::RELAY as u16),
+                (ServiceFlags::RPC as u16) | (ServiceFlags::RELAY as u16) | (ServiceFlags::STACKERDB as u16),
             )
             .unwrap();
             tx.commit().unwrap();
