@@ -236,6 +236,14 @@ Since mutation testing is directly correlated to the written tests, there are sl
 
 Once all the jobs have finished testing mutants, the last job collects all the tested mutations from the previous jobs, combines them and outputs them to the `Summary` section of the workflow, at the bottom of the page. There, you can find all mutants on categories, with links to the function they tested, and a short description on how to fix the issue. The PR should only be approved/merged after all the mutants tested are in the `Caught` category.
 
+### Time required to run the workflow based on mutants outcome and packages' size
+
+- Small packages typically completed in under 30 minutes, aided by the use of shards.
+- Large packages like stackslib and stacks-node initially required about 20-25 minutes for build and test processes.
+    - Each "missed" and "caught" mutant took approximately 15 minutes. Using shards, this meant about 50-55 minutes for processing around 32 mutants (10-16 functions modified). Every additional 8 mutants added another 15 minutes to the runtime.
+    - "Unviable" mutants, which are functions lacking a Default implementation for their returned struct type, took less than a minute each.
+    - "Timeout" mutants typically required more time. However, these should be marked to be skipped (by adding a skip flag to their header) since they indicate functions unable to proceed in their test workflow with mutated values, as opposed to the original implementations.
+
 File:
 
 - [PR Differences Mutants](../.github/workflows/pr-differences-mutants.yml)
