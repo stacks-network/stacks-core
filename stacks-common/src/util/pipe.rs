@@ -168,12 +168,12 @@ impl PipeRead {
             }
         }
 
-        if disconnected && copied == 0 && self.buf.is_empty() {
+        if disconnected && copied == 0 {
             // out of data, and will never get more
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
         }
 
-        if blocked && copied == 0 && self.buf.is_empty() {
+        if blocked && copied == 0 {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
 
