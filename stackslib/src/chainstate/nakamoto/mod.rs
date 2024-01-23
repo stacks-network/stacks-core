@@ -317,7 +317,8 @@ pub struct NakamotoBlockHeader {
     /// Schnorr signature over the block header from the signer set active during the tenure.
     pub signer_signature: ThresholdSignature,
     /// A bitvec which represents the signers that participated in this block signature.
-    pub signer_bitvec: BitVec,
+    /// The maximum number of entries in the bitvec is 4000.
+    pub signer_bitvec: BitVec<4000>,
 }
 
 impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
@@ -474,7 +475,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -490,7 +491,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -506,7 +507,7 @@ impl NakamotoBlockHeader {
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
             signer_signature: ThresholdSignature::empty(),
-            signer_bitvec: BitVec::zeros(1),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 }

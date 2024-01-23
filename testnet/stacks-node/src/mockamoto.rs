@@ -971,7 +971,8 @@ impl MockamotoNode {
                 miner_signature: MessageSignature::empty(),
                 consensus_hash: sortition_tip.consensus_hash.clone(),
                 parent_block_id: StacksBlockId::new(&chain_tip_ch, &chain_tip_bh),
-                signer_bitvec: BitVec::zeros(1),
+                signer_bitvec: BitVec::zeros(1)
+                    .expect("BUG: bitvec of length-1 failed to construct"),
             },
             txs: builder.txs,
         };
