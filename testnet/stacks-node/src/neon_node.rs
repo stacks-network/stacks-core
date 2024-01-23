@@ -4895,21 +4895,12 @@ impl StacksNode {
                     }
                 }
             }
-            let stacker_db_sync = match StackerDBSync::new(
+            let stacker_db_sync = StackerDBSync::new(
                 stackerdb_contract_id.clone(),
                 &stacker_db_config,
                 PeerNetworkComms::new(),
                 stackerdbs,
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!(
-                        "Failed to instantiate StackerDB sync machine for {}: {:?}",
-                        stackerdb_contract_id, &e
-                    );
-                    continue;
-                }
-            };
+            );
 
             stackerdb_machines.insert(
                 stackerdb_contract_id.clone(),

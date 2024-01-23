@@ -2159,8 +2159,7 @@ pub mod test {
                     &db_config,
                     PeerNetworkComms::new(),
                     stacker_dbs,
-                )
-                .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
+                );
 
                 stacker_db_syncs.insert(contract_id.clone(), (db_config.clone(), stacker_db_sync));
             }

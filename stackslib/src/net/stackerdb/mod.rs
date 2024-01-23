@@ -320,12 +320,7 @@ impl PeerNetwork {
                             "Failed to run StackerDB state machine for {}: {:?}",
                             &sc, &e
                         );
-                        if let Err(e) = stacker_db_sync.reset(Some(self), config) {
-                            info!(
-                                "Failed to reset StackerDB state machine for {}: {:?}",
-                                &sc, &e
-                            );
-                        }
+                        stacker_db_sync.reset(Some(self), config);
                     }
                 }
             } else {
