@@ -4,6 +4,11 @@ ARG STACKS_NODE_VERSION="No Version Info"
 ARG GIT_BRANCH='No Branch Info'
 ARG GIT_COMMIT='No Commit Info'
 
+RUN apt update && apt-get install -y libclang-dev
+
+RUN rustup toolchain install stable
+RUN rustup component add rustfmt --toolchain stable
+
 WORKDIR /src
 
 COPY . .
@@ -16,7 +21,6 @@ RUN cp target/release/stacks-node /out
 
 FROM debian:bullseye-slim
 
-RUN apt update && apt install -y netcat
 COPY --from=build /out/ /bin/
 
 CMD ["stacks-node", "mainnet"]
