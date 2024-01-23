@@ -1864,8 +1864,8 @@ pub mod test {
             vec![
                 Value::Principal(stacker.clone()),
                 Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
-                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
                 Value::UInt(extend_count),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
         .unwrap();
