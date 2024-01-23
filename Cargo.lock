@@ -3588,6 +3588,7 @@ dependencies = [
  "hashbrown 0.14.0",
  "libsigner",
  "libstackerdb",
+ "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
  "secp256k1",

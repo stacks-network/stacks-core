@@ -85,14 +85,17 @@ impl StacksClient {
             .json::<serde_json::Value>()
             .map_err(ClientError::ReqwestError)?;
 
-        json_response["stacks_tip_consensus_hash"]
-            .as_str()
+        let stacks_tip_consensus_hash = json_response
+            .get("stacks_tip_consensus_hash")
+            .and_then(|v| v.as_str())
+            .map(String::from)
             .ok_or_else(|| {
                 ClientError::UnexpectedResponseFormat(
-                    "Missing 'stacks_tip_consensus_hash' field".to_string(),
+                    "Missing or invalid 'stacks_tip_consensus_hash' field".to_string(),
                 )
-            })
-            .map(|s| s.to_string())
+            })?;
+
+        Ok(stacks_tip_consensus_hash)
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
@@ -344,7 +347,7 @@ impl StacksClient {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::io::{BufWriter, Read, Write};
     use std::net::{SocketAddr, TcpListener};
     use std::thread::spawn;
@@ -352,13 +355,13 @@ mod tests {
     use super::*;
     use crate::client::ClientError;
 
-    struct TestConfig {
-        mock_server: TcpListener,
-        client: StacksClient,
+    pub(crate) struct TestConfig {
+        pub(crate) mock_server: TcpListener,
+        pub(crate) client: StacksClient,
     }
 
     impl TestConfig {
-        pub fn new() -> Self {
+        pub(crate) fn new() -> Self {
             let mut config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
 
             let mut mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
@@ -377,7 +380,7 @@ mod tests {
         }
     }
 
-    fn write_response(mock_server: TcpListener, bytes: &[u8]) -> [u8; 1024] {
+    pub(crate) fn write_response(mock_server: TcpListener, bytes: &[u8]) -> [u8; 1024] {
         debug!("Writing a response...");
         let mut request_bytes = [0u8; 1024];
         {
@@ -633,5 +636,16 @@ mod tests {
             b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\": \"4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958\"}",
         );
         assert!(h.join().unwrap().is_ok());
+    }
+
+    #[test]
+    fn core_info_call_with_invalid_response_should_fail() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
+        );
+        assert!(h.join().unwrap().is_err());
     }
 }

@@ -42,7 +42,8 @@ toml = "0.5.6"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = { workspace = true }
-sha2 = "0.10.6"
+sha2 = { workspace = true }
+rand = { workspace = true }
 
 [dependencies.serde_json]
 version = "1.0"

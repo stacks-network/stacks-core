@@ -17,7 +17,7 @@
 /// The stacker db module for communicating with the stackerdb contract
 mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
-mod stacks_client;
+pub(crate) mod stacks_client;
 
 use std::time::Duration;
 
