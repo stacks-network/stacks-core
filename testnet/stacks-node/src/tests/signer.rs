@@ -1,9 +1,9 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
-use std::collections::HashMap;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerEventReceiver};
@@ -112,7 +112,10 @@ impl SignerTest {
             let (cmd_send, cmd_recv) = channel();
             let (res_send, res_recv) = channel();
             info!("spawn signer");
-            running_signers.insert(i, spawn_signer(&signer_configs[i as usize], cmd_recv, res_send));
+            running_signers.insert(
+                i,
+                spawn_signer(&signer_configs[i as usize], cmd_recv, res_send),
+            );
             _signer_cmd_senders.insert(i, cmd_send);
             result_receivers.push(res_recv);
         }
@@ -131,12 +134,20 @@ impl SignerTest {
         // Calculate which signer will be selected as the coordinator
         let config = stacks_signer::config::Config::load_from_str(&signer_configs[0]).unwrap();
         let stacks_client = StacksClient::from(&config);
-        let (coordinator_id, coordinator_pk) = calculate_coordinator(&config.signer_ids_public_keys, &stacks_client);
-        debug!("selected coordinator id and pub key: {:?} : {:?}", &coordinator_id, &coordinator_pk);
+        let (coordinator_id, coordinator_pk) =
+            calculate_coordinator(&config.signer_ids_public_keys, &stacks_client);
+        debug!(
+            "selected coordinator id and pub key: {:?} : {:?}",
+            &coordinator_id, &coordinator_pk
+        );
 
         // Fetch the selected coordinator and its cmd_sender
-        let running_coordinator = running_signers.remove(&coordinator_id).expect("Coordinator not found");
-        let coordinator_cmd_sender = _signer_cmd_senders.remove(&coordinator_id).expect("Command sender not found");
+        let running_coordinator = running_signers
+            .remove(&coordinator_id)
+            .expect("Coordinator not found");
+        let coordinator_cmd_sender = _signer_cmd_senders
+            .remove(&coordinator_id)
+            .expect("Command sender not found");
 
         Self {
             running_nodes: node,
