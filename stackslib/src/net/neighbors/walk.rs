@@ -1871,7 +1871,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                     &self.state,
                     self.walk_state_timeout
                 );
-                return Ok(None);
+                return Err(net_error::StepTimeout);
             }
 
             can_continue = match self.state {
