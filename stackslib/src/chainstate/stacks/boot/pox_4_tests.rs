@@ -1854,10 +1854,7 @@ fn stack_increase() {
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
     let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address);
 
-    let actual_result = stacker_transactions
-        .first()
-        .map(|tx| tx.result.clone())
-        .unwrap();
+    let actual_result = stacker_transactions.first().cloned().unwrap().result;
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
@@ -1947,10 +1944,7 @@ fn delegate_stack_increase() {
     let delegate_transactions =
         get_last_block_sender_transactions(&observer, bob_delegate_address.into());
 
-    let actual_result = delegate_transactions
-        .first()
-        .map(|tx| tx.result.clone())
-        .unwrap();
+    let actual_result = delegate_transactions.first().cloned().unwrap().result;
 
     let expected_result = Value::okay(Value::Tuple(
         TupleData::from_data(vec![
