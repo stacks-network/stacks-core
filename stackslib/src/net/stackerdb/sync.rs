@@ -164,6 +164,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         self.need_resync = false;
         self.last_run_ts = get_epoch_time_secs();
 
+        self.state = StackerDBSyncState::ConnectBegin;
         result
     }
 
