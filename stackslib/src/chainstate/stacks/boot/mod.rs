@@ -1380,7 +1380,9 @@ pub mod test {
     use clarity::vm::contracts::Contract;
     use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
-    use stacks_common::util::hash::to_hex;
+    use stacks_common::types::PrivateKey;
+    use stacks_common::util::hash::Sha256Sum;
+    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
     use stacks_common::util::*;
 
     use super::*;
@@ -1399,6 +1401,7 @@ pub mod test {
     use crate::core::{StacksEpochId, *};
     use crate::net::test::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
+    use crate::util_lib::signed_structured_data::sign_structured_data;
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
@@ -2204,6 +2207,70 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
+    pub fn make_signer_key_signature(
+        stacker: &PrincipalData,
+        signer_key: &StacksPrivateKey,
+        reward_cycle: u128,
+    ) -> Vec<u8> {
+        let domain_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "name".into(),
+                    Value::string_ascii_from_bytes("pox-4-signer".into()).unwrap(),
+                ),
+                (
+                    "version".into(),
+                    Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
+                ),
+                ("chain-id".into(), Value::UInt(CHAIN_ID_TESTNET.into())),
+            ])
+            .unwrap(),
+        );
+
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                ("stacker".into(), Value::Principal(stacker.clone())),
+                ("reward-cycle".into(), Value::UInt(reward_cycle)),
+            ])
+            .unwrap(),
+        );
+
+        let signature = sign_structured_data(data_tuple, domain_tuple, signer_key).unwrap();
+
+        signature.to_rsv()
+    }
+
+    pub fn make_delegate_stx_signature(
+        stacker: &PrincipalData,
+        delegator_key: &Secp256k1PrivateKey,
+        reward_cycle: u128,
+    ) -> Vec<u8> {
+        let msg_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                ("stacker".into(), Value::Principal(stacker.clone())),
+                ("reward-cycle".into(), Value::UInt(reward_cycle)),
+            ])
+            .unwrap(),
+        );
+
+        let mut tuple_bytes = vec![];
+        msg_tuple
+            .serialize_write(&mut tuple_bytes)
+            .expect("Failed to serialize delegate sig data");
+        let msg_hash = Sha256Sum::from_data(&tuple_bytes).as_bytes().to_vec();
+
+        let signature = &delegator_key
+            .sign(&msg_hash)
+            .expect("Unable to sign delegate sig data");
+
+        // Convert signature into rsv as needed for `secp256k1-recover?`
+        let mut ret_bytes = Vec::new();
+        ret_bytes.extend(&signature[1..]);
+        ret_bytes.push(signature[0]);
+
+        ret_bytes
+    }
+
     fn make_tx(
         key: &StacksPrivateKey,
         nonce: u64,
@@ -2524,6 +2591,14 @@ pub mod test {
             }
         };
         parent_tip
+    }
+
+    pub fn get_current_reward_cycle(peer: &TestPeer, burnchain: &Burnchain) -> u128 {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap() as u128
     }
 
     #[test]

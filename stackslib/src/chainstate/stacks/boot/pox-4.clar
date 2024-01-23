@@ -30,6 +30,7 @@
 (define-constant ERR_INVALID_SIGNER_KEY 32)
 (define-constant ERR_REUSED_SIGNER_KEY 33)
 (define-constant ERR_DELEGATION_ALREADY_REVOKED 34)
+(define-constant ERR_DELEGATION_INVALID_SIGNATURE (err 35))
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -636,6 +637,7 @@
                              (delegate-to principal)
                              (until-burn-ht (optional uint))
                              (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
+                             
     (begin
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -669,6 +671,43 @@
           pox-addr: pox-addr })
 
       (ok true)))
+
+(define-read-only (get-signer-key-message-hash (signer-key (buff 33)) (stacker principal))
+  (let
+    (
+      (domain { name: "pox-4-signer", version: "1.0.0", chain-id: chain-id })
+      (data-hash (sha256 (unwrap-panic 
+        (to-consensus-buff? { stacker: stacker, reward-cycle: (current-pox-reward-cycle) }))))
+      (domain-hash (sha256 (unwrap-panic (to-consensus-buff? domain))))
+    )
+    (sha256 (concat
+      0x534950303138
+      (concat domain-hash
+      data-hash)))
+  )
+)
+
+;; Verify a signature from the signing key for this specific stacker.
+;; The message hash is the sha256 of the consensus hash of the tuple 
+;; `{ stacker, reward-cycle }`. Note that `reward-cycle` corresponds to the
+;; _current_ reward cycle, not the reward cycle at which the delegation will start.
+;; The public key is recovered from the signature and compared to the pubkey hash
+;; of the delegator.
+(define-read-only (verify-signing-key-signature (stacker principal)
+                                                (signing-key (buff 33))
+                                                (signer-sig (buff 65)))
+  (let
+    (
+      ;; (msg { stacker: stacker, reward-cycle: (current-pox-reward-cycle) })
+      ;; (msg-bytes (unwrap! (to-consensus-buff? msg) ERR_DELEGATION_INVALID_SIGNATURE)) ;;TODO
+      ;; ;; (msg-hash (sha256 msg-bytes))
+      (msg-hash (get-signer-key-message-hash signing-key stacker))
+      (pubkey (unwrap! (secp256k1-recover? msg-hash signer-sig) ERR_DELEGATION_INVALID_SIGNATURE)) ;; TODO
+    )
+    (asserts! (is-eq pubkey signing-key) ERR_DELEGATION_INVALID_SIGNATURE)
+    (ok true)
+  )                                            
+)
 
 ;; Commit partially stacked STX and allocate a new PoX reward address slot.
 ;;   This allows a stacker/delegate to lock fewer STX than the minimal threshold in multiple transactions,

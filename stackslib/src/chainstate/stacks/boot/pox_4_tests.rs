@@ -39,7 +39,7 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
-use stacks_common::types::Address;
+use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use wsts::curve::point::{Compressed, Point};
@@ -50,6 +50,7 @@ use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::coordinator::tests::pox_addr_from;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
     check_pox_print_event, generate_pox_clarity_value, get_reward_set_entries_at,
@@ -1292,6 +1293,9 @@ fn pox_4_revoke_delegate_stx_events() {
 
     // alice delegates 100 STX to Bob
     let alice_delegation_amount = 100_000_000;
+    let cur_reward_cycle = get_current_reward_cycle(&peer, &burnchain);
+    let signature = make_delegate_stx_signature(&alice_principal, &bob, cur_reward_cycle);
+    let alice_delegate_nonce = alice_nonce;
     let alice_delegate = make_pox_4_delegate_stx(
         &alice,
         alice_nonce,
@@ -1299,6 +1303,7 @@ fn pox_4_revoke_delegate_stx_events() {
         bob_principal,
         None,
         None,
+        // &signature,
     );
     let alice_delegate_nonce = alice_nonce;
     alice_nonce += 1;
@@ -1326,6 +1331,7 @@ fn pox_4_revoke_delegate_stx_events() {
         PrincipalData::from(bob_address.clone()),
         Some(target_height as u128),
         None,
+        // &signature,
     );
     let alice_delegate_2_nonce = alice_nonce;
     alice_nonce += 1;
@@ -1357,6 +1363,12 @@ fn pox_4_revoke_delegate_stx_events() {
         }
     }
     assert_eq!(alice_txs.len() as u64, 5);
+
+    let first_delegate_tx = &alice_txs.get(&alice_delegate_nonce);
+    assert_eq!(
+        first_delegate_tx.unwrap().clone().result,
+        Value::okay_true()
+    );
 
     // check event for first revoke delegation tx
     let revoke_delegation_tx_events = &alice_txs.get(&alice_revoke_nonce).unwrap().clone().events;
@@ -1643,6 +1655,7 @@ fn delegate_stack_stx_signer_key() {
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
+    let stacker_principal = PrincipalData::from(key_to_stacks_addr(stacker_key));
     let delegate_nonce = 0;
     let delegate_key = &keys[1];
     let delegate_principal = PrincipalData::from(key_to_stacks_addr(delegate_key));
@@ -1702,12 +1715,6 @@ fn delegate_stack_stx_signer_key() {
             ],
         ),
     ];
-    // (define-public (delegate-stack-stx (stacker principal)
-    //                                (amount-ustx uint)
-    //                                (pox-addr { version: (buff 1), hashbytes: (buff 32) })
-    //                                (start-burn-ht uint)
-    //                                (lock-period uint)
-    //                                (signer-key (buff 33)))
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
@@ -1783,6 +1790,8 @@ fn delegate_stack_stx_extend_signer_key() {
         None,
         Some(pox_addr.clone()),
     );
+
+    let alice_principal = PrincipalData::from(key_to_stacks_addr(alice_stacker_key));
 
     let delegate_stack_stx = make_pox_4_delegate_stack_stx(
         bob_delegate_private_key,
@@ -2033,10 +2042,12 @@ fn delegate_stack_increase() {
         Some(pox_addr.clone()),
     );
 
+    let alice_principal = PrincipalData::from(key_to_stacks_addr(alice_key));
+
     let delegate_stack_stx = make_pox_4_delegate_stack_stx(
         bob_delegate_key,
         bob_nonce,
-        PrincipalData::from(key_to_stacks_addr(alice_key)).into(),
+        alice_principal,
         min_ustx,
         pox_addr.clone(),
         block_height as u128,
