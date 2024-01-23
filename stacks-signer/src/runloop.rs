@@ -19,14 +19,12 @@ use std::time::Duration;
 
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::MINERS_NAME;
-use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::ThresholdSignature;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
-use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::{HashMap, HashSet};
-use libsigner::{SignerEvent, SignerRunLoop};
-use libstackerdb::StackerDBChunkData;
+use libsigner::{
+    BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage, SignerRunLoop,
+};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
@@ -41,10 +39,7 @@ use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys};
 use wsts::v2;
 
-use crate::client::{
-    retry_with_exponential_backoff, BlockRejection, BlockResponse, ClientError, RejectCode,
-    SignerMessage, StackerDB, StacksClient,
-};
+use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
 use crate::config::{Config, Network};
 
 /// Which operation to perform
@@ -328,40 +323,31 @@ impl<C: Coordinator> RunLoop<C> {
         }
     }
 
-    /// Handle the stackerdb chunk event as a signer message
-    fn handle_stackerdb_chunk_event_signers(
+    /// Handle signer messages submitted to signers stackerdb
+    fn handle_signer_messages(
         &mut self,
-        stackerdb_chunk_event: StackerDBChunksEvent,
         res: Sender<Vec<OperationResult>>,
+        messages: Vec<SignerMessage>,
     ) {
         let (_coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
-
-        let inbound_packets: Vec<Packet> = stackerdb_chunk_event
-            .modified_slots
-            .iter()
-            .filter_map(|chunk| self.verify_chunk(chunk, &coordinator_public_key))
+        let packets: Vec<Packet> = messages
+            .into_iter()
+            .filter_map(|msg| match msg {
+                SignerMessage::BlockResponse(_) => None,
+                SignerMessage::Packet(packet) => {
+                    self.verify_packet(packet, &coordinator_public_key)
+                }
+            })
             .collect();
-        self.handle_packets(res, &inbound_packets);
+        self.handle_packets(res, &packets);
     }
 
-    /// Handle the stackerdb chunk event as a miner message
-    fn handle_stackerdb_chunk_event_miners(&mut self, stackerdb_chunk_event: StackerDBChunksEvent) {
-        for chunk in &stackerdb_chunk_event.modified_slots {
-            let Some(block) = read_next::<NakamotoBlock, _>(&mut &chunk.data[..]).ok() else {
-                warn!("Received an unrecognized message type from .miners stacker-db slot id {}: {:?}", chunk.slot_id, chunk.data);
-                continue;
-            };
+    /// Handle proposed blocks submitted by the miners to stackerdb
+    fn handle_proposed_blocks(&mut self, blocks: Vec<NakamotoBlock>) {
+        for block in blocks {
             let Ok(hash) = block.header.signature_hash() else {
-                warn!("Received a block proposal with an invalid signature hash. Broadcasting a block rejection...");
-                let block_rejection = BlockRejection::new(block, RejectCode::InvalidSignatureHash);
-                // Submit signature result to miners to observe
-                if let Err(e) = self
-                    .stackerdb
-                    .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
-                {
-                    warn!("Failed to send block submission to stacker-db: {:?}", e);
-                }
+                self.broadcast_signature_hash_rejection(block);
                 continue;
             };
             // Store the block in our cache
@@ -517,17 +503,12 @@ impl<C: Coordinator> RunLoop<C> {
     /// and SignatureShareRequests with a different message than what the coordinator originally sent.
     /// This is done to prevent a malicious coordinator from sending a different message than what was
     /// agreed upon and to support the case where the signer wishes to reject a block by voting no
-    fn verify_chunk(
+    fn verify_packet(
         &mut self,
-        chunk: &StackerDBChunkData,
+        mut packet: Packet,
         coordinator_public_key: &PublicKey,
     ) -> Option<Packet> {
-        // We only care about verified wsts packets. Ignore anything else
-        let signer_message = bincode::deserialize::<SignerMessage>(&chunk.data).ok()?;
-        let mut packet = match signer_message {
-            SignerMessage::Packet(packet) => packet,
-            _ => return None, // This is a message for miners to observe. Ignore it.
-        };
+        // We only care about verified wsts packets. Ignore anything else.
         if packet.verify(&self.signing_round.public_keys, coordinator_public_key) {
             match &mut packet.msg {
                 Message::SignatureShareRequest(request) => {
@@ -764,26 +745,17 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
         // Process any arrived events
         debug!("Processing event: {:?}", event);
         match event {
-            Some(SignerEvent::BlockProposal(block_validate_response)) => {
+            Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
                 debug!("Received a block proposal result from the stacks node...");
                 self.handle_block_validate_response(block_validate_response, res)
             }
-            Some(SignerEvent::StackerDB(stackerdb_chunk_event)) => {
-                if stackerdb_chunk_event.contract_id == *self.stackerdb.signers_contract_id() {
-                    debug!("Received a StackerDB event for the .signers contract...");
-                    self.handle_stackerdb_chunk_event_signers(stackerdb_chunk_event, res);
-                } else if stackerdb_chunk_event.contract_id
-                    == boot_code_id(MINERS_NAME, self.mainnet)
-                {
-                    debug!("Received a StackerDB event for the .miners contract...");
-                    self.handle_stackerdb_chunk_event_miners(stackerdb_chunk_event);
-                } else {
-                    // Ignore non miner or signer messages
-                    debug!(
-                                "Received a StackerDB event for an unrecognized contract id: {:?}. Ignoring...",
-                                stackerdb_chunk_event.contract_id
-                            );
-                }
+            Some(SignerEvent::SignerMessages(messages)) => {
+                debug!("Received messages from the other signers...");
+                self.handle_signer_messages(res, messages);
+            }
+            Some(SignerEvent::ProposedBlocks(blocks)) => {
+                debug!("Received block proposals from the miners...");
+                self.handle_proposed_blocks(blocks);
             }
             None => {
                 // No event. Do nothing.
