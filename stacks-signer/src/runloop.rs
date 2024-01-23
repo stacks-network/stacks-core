@@ -310,7 +310,8 @@ impl<C: Coordinator> RunLoop<C> {
             };
             self.handle_packets(res, &[packet]);
         } else {
-            let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
+            let (coordinator_id, _) =
+                calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
             if block_info.valid.unwrap_or(false)
                 && !block_info.signing_round
                 && coordinator_id == self.signing_round.signer_id
@@ -840,11 +841,14 @@ pub fn calculate_coordinator(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::client::stacks_client::tests::{write_response, TestConfig};
-    use rand::{distributions::Alphanumeric, Rng};
     use std::net::TcpListener;
     use std::thread::{sleep, spawn};
+
+    use rand::distributions::Alphanumeric;
+    use rand::Rng;
+
+    use super::*;
+    use crate::client::stacks_client::tests::{write_response, TestConfig};
 
     fn generate_random_consensus_hash(length: usize) -> String {
         let random_consensus_hash = rand::thread_rng()
