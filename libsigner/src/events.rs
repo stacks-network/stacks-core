@@ -384,17 +384,11 @@ impl EventReceiver for SignerEventReceiver {
             }
             let request = http_server.recv()?;
 
-            if request.method() == &HttpMethod::Get {
-                if request.url() == "/status" {
-                    request
-                    .respond(HttpResponse::from_string("OK"))
-                    .expect("response failed");
-                    return Ok(SignerEvent::StatusCheck);
-                }
-                return Err(EventError::MalformedRequest(format!(
-                    "Unrecognized GET request '{}'",
-                    &request.url(),
-                )));
+            if request.url() == "/status" {
+                request
+                .respond(HttpResponse::from_string("OK"))
+                .expect("response failed");
+                return Ok(SignerEvent::StatusCheck);
             }
 
             if request.method() != &HttpMethod::Post {

@@ -16,7 +16,7 @@
 
 mod http;
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
@@ -137,6 +137,24 @@ fn test_simple_signer() {
             sock.flush().unwrap();
 
             num_sent += 1;
+        }
+        // Test the /status endpoint
+        {
+            let mut sock = match TcpStream::connect(endpoint) {
+                Ok(sock) => sock,
+                Err(..) => {
+                    sleep_ms(100);
+                    return;
+                }
+            };
+            let req = "GET /status HTTP/1.0\r\nConnection: close\r\n\r\n";
+            sock.write_all(req.as_bytes()).unwrap();
+            let mut buf = [0; 128];
+            sock.read(&mut buf).unwrap();
+            let res_str = std::str::from_utf8(&buf).unwrap();
+            let expected_status_res = "HTTP/1.0 200 OK\r\n";
+            assert_eq!(expected_status_res, &res_str[..expected_status_res.len()]);
+            sock.flush().unwrap();
         }
     });
 
