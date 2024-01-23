@@ -468,7 +468,7 @@ fn stackerdb_dkg_sign() {
                     }
                 }
             }
-            if frost_signature.is_some() && schnorr_proof.is_some()
+            if (frost_signature.is_some() && schnorr_proof.is_some())
                 || sign_now.elapsed() > Duration::from_secs(100)
             {
                 break;
@@ -482,8 +482,9 @@ fn stackerdb_dkg_sign() {
         );
         let schnorr_proof =
             schnorr_proof.expect("Failed to get schnorr proof signature within 100 seconds");
+        let tweaked_key = wsts::compute::tweaked_public_key(&key, None);
         assert!(
-            schnorr_proof.verify(&key.x(), &msg.as_slice()),
+            schnorr_proof.verify(&tweaked_key.x(), &msg.as_slice()),
             "Schnorr proof verification failed"
         );
     }
