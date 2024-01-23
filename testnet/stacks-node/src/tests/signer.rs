@@ -3,6 +3,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
+use std::collections::HashMap;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{RunningSigner, Signer, SignerEventReceiver};
@@ -17,9 +18,9 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_signer::client::{BlockResponse, SignerMessage, SIGNER_SLOTS_PER_USER};
+use stacks_signer::client::{BlockResponse, SignerMessage, StacksClient, SIGNER_SLOTS_PER_USER};
 use stacks_signer::config::{Config as SignerConfig, Network};
-use stacks_signer::runloop::RunLoopCommand;
+use stacks_signer::runloop::{calculate_coordinator, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -62,13 +63,13 @@ struct SignerTest {
     // The channel for sending commands to the coordinator
     pub coordinator_cmd_sender: Sender<RunLoopCommand>,
     // The channels for sending commands to the signers
-    pub _signer_cmd_senders: Vec<Sender<RunLoopCommand>>,
+    pub _signer_cmd_senders: HashMap<u32, Sender<RunLoopCommand>>,
     // The channels for receiving results from both the coordinator and the signers
     pub result_receivers: Vec<Receiver<Vec<OperationResult>>>,
     // The running coordinator and its threads
     pub running_coordinator: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
     // The running signer and its threads
-    pub running_signers: Vec<RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
+    pub running_signers: HashMap<u32, RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
 }
 
 impl SignerTest {
@@ -103,30 +104,18 @@ impl SignerTest {
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
         );
 
-        let mut running_signers = vec![];
-        let mut _signer_cmd_senders = vec![];
+        let mut running_signers = HashMap::new();
+        let mut _signer_cmd_senders = HashMap::new();
         // Spawn all the signers first to listen to the coordinator request for dkg
         let mut result_receivers = Vec::new();
-        for i in (1..num_signers).rev() {
+        for i in (0..num_signers).rev() {
             let (cmd_send, cmd_recv) = channel();
             let (res_send, res_recv) = channel();
             info!("spawn signer");
-            let running_signer = spawn_signer(&signer_configs[i as usize], cmd_recv, res_send);
-            running_signers.push(running_signer);
-            _signer_cmd_senders.push(cmd_send);
+            running_signers.insert(i, spawn_signer(&signer_configs[i as usize], cmd_recv, res_send));
+            _signer_cmd_senders.insert(i, cmd_send);
             result_receivers.push(res_recv);
         }
-        // Spawn coordinator second
-        let (coordinator_cmd_sender, coordinator_cmd_recv) = channel();
-        let (coordinator_res_send, coordinator_res_receiver) = channel();
-        info!("spawn coordinator");
-        let running_coordinator = spawn_signer(
-            &signer_configs[0],
-            coordinator_cmd_recv,
-            coordinator_res_send,
-        );
-
-        result_receivers.push(coordinator_res_receiver);
 
         // Setup the nodes and deploy the contract to it
         let node = setup_stx_btc_node(
@@ -138,6 +127,16 @@ impl SignerTest {
             &signers_stacker_db_contract_id,
             &signer_configs,
         );
+
+        // Calculate which signer will be selected as the coordinator
+        let config = stacks_signer::config::Config::load_from_str(&signer_configs[0]).unwrap();
+        let stacks_client = StacksClient::from(&config);
+        let (coordinator_id, coordinator_pk) = calculate_coordinator(&config.signer_ids_public_keys, &stacks_client);
+        debug!("selected coordinator id and pub key: {:?} : {:?}", &coordinator_id, &coordinator_pk);
+
+        // Fetch the selected coordinator and its cmd_sender
+        let running_coordinator = running_signers.remove(&coordinator_id).expect("Coordinator not found");
+        let coordinator_cmd_sender = _signer_cmd_senders.remove(&coordinator_id).expect("Command sender not found");
 
         Self {
             running_nodes: node,
@@ -162,7 +161,7 @@ impl SignerTest {
 
         self.running_nodes.run_loop_thread.join().unwrap();
         // Stop the signers
-        for signer in self.running_signers {
+        for (_id, signer) in self.running_signers {
             assert!(signer.stop().is_none());
         }
         // Stop the coordinator

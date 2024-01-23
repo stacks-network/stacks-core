@@ -799,14 +799,14 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
 }
 
 /// Helper function for determining the coordinator public key given the the public keys
-fn calculate_coordinator(
+pub fn calculate_coordinator(
     public_keys: &PublicKeys,
     stacks_client: &StacksClient,
 ) -> (u32, ecdsa::PublicKey) {
     let stacks_tip_consensus_hash = match stacks_client.get_stacks_tip_consensus_hash() {
         Ok(hash) => hash,
         Err(e) => {
-            eprintln!("Error fetching consensus hash: {:?}", e); // Log the error
+            error!("Error in fetching consensus hash: {:?}", e);
             return (0, public_keys.signers.get(&0).cloned().unwrap());
         }
     };
