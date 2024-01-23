@@ -1095,7 +1095,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         config: &StackerDBConfig,
     ) -> Result<Option<StackerDBSyncResult>, net_error> {
         // throttle to write_freq
-        if self.last_run_ts + config.write_freq > get_epoch_time_secs() {
+        if self.last_run_ts + config.write_freq.max(1) > get_epoch_time_secs() {
             debug!(
                 "{:?}: stacker DB sync for {} is throttled until {}",
                 network.get_local_peer(),
