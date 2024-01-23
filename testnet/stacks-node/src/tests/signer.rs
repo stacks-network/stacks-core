@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -372,7 +372,7 @@ fn stackerdb_dkg_sign() {
     };
     block.header.tx_merkle_root = tx_merkle_root;
 
-    // The block is valid so the signers should return a signature across its hash + b'n'
+    // The block is invalid so the signers should return a signature across its hash + b'n'
     let mut msg = block
         .header
         .signature_hash()
@@ -385,7 +385,7 @@ fn stackerdb_dkg_sign() {
 
     info!("------------------------- Test DKG -------------------------");
     info!("signer_runloop: spawn send commands to do dkg");
-    let dkg_now = std::time::Instant::now();
+    let dkg_now = Instant::now();
     signer_test
         .coordinator_cmd_sender
         .send(RunLoopCommand::Dkg)
@@ -394,7 +394,9 @@ fn stackerdb_dkg_sign() {
     for recv in signer_test.result_receivers.iter() {
         let mut aggregate_public_key = None;
         loop {
-            let results = recv.recv().expect("failed to recv results");
+            let results = recv
+                .recv_timeout(Duration::from_secs(30))
+                .expect("failed to recv dkg results");
             for result in results {
                 match result {
                     OperationResult::Sign(sig) => {
@@ -424,7 +426,7 @@ fn stackerdb_dkg_sign() {
     let dkg_elapsed = dkg_now.elapsed();
 
     info!("------------------------- Test Sign -------------------------");
-    let sign_now = std::time::Instant::now();
+    let sign_now = Instant::now();
     info!("signer_runloop: spawn send commands to do dkg and then sign");
     signer_test
         .coordinator_cmd_sender
@@ -446,7 +448,9 @@ fn stackerdb_dkg_sign() {
         let mut frost_signature = None;
         let mut schnorr_proof = None;
         loop {
-            let results = recv.recv().expect("failed to recv results");
+            let results = recv
+                .recv_timeout(Duration::from_secs(30))
+                .expect("failed to recv signature results");
             for result in results {
                 match result {
                     OperationResult::Sign(sig) => {
@@ -539,7 +543,9 @@ fn stackerdb_block_proposal() {
         .result_receivers
         .last()
         .expect("Failed to get coordinator recv");
-    let results = recv.recv().expect("failed to recv results");
+    let results = recv
+        .recv_timeout(Duration::from_secs(30))
+        .expect("failed to recv dkg results");
     for result in results {
         match result {
             OperationResult::Dkg(point) => {
@@ -597,7 +603,9 @@ fn stackerdb_block_proposal() {
         .result_receivers
         .last()
         .expect("Failed to retreive coordinator recv");
-    let results = recv.recv().expect("failed to recv results");
+    let results = recv
+        .recv_timeout(Duration::from_secs(30))
+        .expect("failed to recv signature results");
     let mut signature = None;
     for result in results {
         match result {
@@ -614,7 +622,7 @@ fn stackerdb_block_proposal() {
     let signature = signature.expect("Failed to get signature");
     // Wait for the block to show up in the test observer (Don't have to wait long as if we have received a signature,
     // we know that the signers have already received their block proposal events via their event observers)
-    let t_start = std::time::Instant::now();
+    let t_start = Instant::now();
     while test_observer::get_proposal_responses().is_empty() {
         assert!(
             t_start.elapsed() < Duration::from_secs(30),
@@ -636,14 +644,13 @@ fn stackerdb_block_proposal() {
         "Signature verification failed"
     );
     // Verify that the signers broadcasted a signed NakamotoBlock back to the .signers contract
-    let t_start = std::time::Instant::now();
+    let t_start = Instant::now();
     let mut chunk = None;
     while chunk.is_none() {
         assert!(
             t_start.elapsed() < Duration::from_secs(30),
             "Timed out while waiting for signers block response stacker db event"
         );
-        thread::sleep(Duration::from_secs(1));
 
         let nakamoto_blocks = test_observer::get_stackerdb_chunks();
         for event in nakamoto_blocks {
@@ -658,6 +665,7 @@ fn stackerdb_block_proposal() {
                 break;
             }
         }
+        thread::sleep(Duration::from_secs(1));
     }
     let chunk = chunk.unwrap();
     let signer_message = bincode::deserialize::<SignerMessage>(&chunk).unwrap();
