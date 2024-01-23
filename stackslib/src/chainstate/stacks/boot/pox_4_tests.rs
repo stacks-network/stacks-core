@@ -1684,44 +1684,51 @@ fn delegate_stack_stx_signer_key() {
     );
 }
 
+// In this test case, Alice delegates to Bob.
+//  Bob then stacks the delegated stx for one cycle with an
+//  'old' signer key. The next cycle, Bob extends the delegation
+//  & rotates to a 'new' signer key.
+//
+// This test asserts that the signing key in Alice's stacking state
+//  is equal to Bob's 'new' signer key.
 #[test]
 fn delegate_stack_stx_extend_signer_key() {
-    let lock_period: u128 = 2;
+    let lock_period: u128 = 1;
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
         prepare_pox4_test(function_name!(), None);
 
-    let mut stacker_nonce = 0;
-    let stacker_key = &keys[0];
-    let delegate_nonce = 0;
-    let delegate_key = &keys[1];
-    let delegate_principal = PrincipalData::from(key_to_stacks_addr(delegate_key));
-    let signer_private_key = &keys[2];
-    let signer_public_key = StacksPublicKey::from_private(signer_private_key);
-    let new_signer_private_key = &keys[3];
-    let new_signer_public_key = StacksPublicKey::from_private(new_signer_private_key);
+    let mut alice_nonce = 0;
+    let alice_stacker_key = &keys[0];
+    let bob_nonce = 0;
+    let bob_delegate_private_key = &keys[1];
+    let bob_delegate_principal = PrincipalData::from(key_to_stacks_addr(bob_delegate_private_key));
+    let bob_old_signer_private_key = &keys[2];
+    let bob_old_signer_public_key = StacksPublicKey::from_private(bob_old_signer_private_key);
+    let bob_new_signer_private_key = &keys[3];
+    let bob_new_signer_public_key = StacksPublicKey::from_private(bob_new_signer_private_key);
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(delegate_key).bytes,
+        key_to_stacks_addr(bob_delegate_private_key).bytes,
     );
 
     let delegate_stx: StacksTransaction = make_pox_4_delegate_stx(
-        stacker_key,
-        stacker_nonce,
+        alice_stacker_key,
+        alice_nonce,
         100,
-        delegate_principal.clone().into(),
+        bob_delegate_principal.clone().into(),
         None,
         Some(pox_addr.clone()),
     );
 
     let delegate_stack_stx = make_pox_4_delegate_stack_stx(
-        delegate_key,
-        delegate_nonce,
-        PrincipalData::from(key_to_stacks_addr(stacker_key)).into(),
+        bob_delegate_private_key,
+        bob_nonce,
+        PrincipalData::from(key_to_stacks_addr(alice_stacker_key)).into(),
         100,
         pox_addr.clone(),
         block_height as u128,
         lock_period,
-        signer_public_key.clone(),
+        bob_old_signer_public_key.clone(),
     );
 
     // Initial txs arr includes initial delegate_stx & delegate_stack_stx
@@ -1733,7 +1740,7 @@ fn delegate_stack_stx_extend_signer_key() {
     let delegation_state = get_delegation_state_pox_4(
         &mut peer,
         &latest_block,
-        &key_to_stacks_addr(stacker_key).to_account_principal(),
+        &key_to_stacks_addr(alice_stacker_key).to_account_principal(),
     )
     .expect("No delegation state, delegate-stx failed")
     .expect_tuple();
@@ -1741,7 +1748,7 @@ fn delegate_stack_stx_extend_signer_key() {
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
-        &key_to_stacks_addr(stacker_key).to_account_principal(),
+        &key_to_stacks_addr(alice_stacker_key).to_account_principal(),
     )
     .expect("No stacking state, stack-stx failed")
     .expect_tuple();
@@ -1750,17 +1757,17 @@ fn delegate_stack_stx_extend_signer_key() {
     let state_signer_key = stacking_state.get("signer-key").unwrap();
     assert_eq!(
         state_signer_key,
-        &Value::buff_from(signer_public_key.to_bytes_compressed()).unwrap()
+        &Value::buff_from(bob_old_signer_public_key.to_bytes_compressed()).unwrap()
     );
 
-    stacker_nonce += 1;
+    alice_nonce += 1;
 
     let delegate_stack_extend = make_pox_4_delegate_stack_extend(
-        delegate_key,
-        stacker_nonce,
-        PrincipalData::from(key_to_stacks_addr(stacker_key)).into(),
+        bob_delegate_private_key,
+        alice_nonce,
+        PrincipalData::from(key_to_stacks_addr(alice_stacker_key)).into(),
         pox_addr.clone(),
-        new_signer_public_key.clone(),
+        bob_new_signer_public_key.clone(),
         1,
     );
 
@@ -1771,7 +1778,7 @@ fn delegate_stack_stx_extend_signer_key() {
     let new_stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
-        &key_to_stacks_addr(stacker_key).to_account_principal(),
+        &key_to_stacks_addr(alice_stacker_key).to_account_principal(),
     )
     .unwrap()
     .expect_tuple();
@@ -1780,10 +1787,17 @@ fn delegate_stack_stx_extend_signer_key() {
     let state_signer_key_new = new_stacking_state.get("signer-key").unwrap();
     assert_eq!(
         state_signer_key_new,
-        &Value::buff_from(new_signer_public_key.to_bytes_compressed()).unwrap()
+        &Value::buff_from(bob_new_signer_public_key.to_bytes_compressed()).unwrap()
     );
 }
 
+// In this test case, Alice is a solo stacker-signer.
+//  Alice stacks the stacking minimum for two cycles.
+//  In the next cycle, Alice calls stack-increase to increase
+//  her total-locked by a second stacking minimum.
+//
+// This test asserts that Alice's total-locked is equal to
+//  twice the stacking minimum after calling stack-increase.
 #[test]
 fn stack_increase() {
     let lock_period = 2;
@@ -1791,24 +1805,24 @@ fn stack_increase() {
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
         prepare_pox4_test(function_name!(), Some(&observer));
 
-    let mut stacker_nonce = 0;
-    let stacker_key = &keys[0];
-    let stacker_address = key_to_stacks_addr(stacker_key);
-    let signer_private_key = &keys[1];
-    let signer_public_key = StacksPublicKey::from_private(signer_private_key);
+    let mut alice_nonce = 0;
+    let alice_stacking_private_key = &keys[0];
+    let alice_address = key_to_stacks_addr(alice_stacking_private_key);
+    let alice_signing_private_key = &keys[1];
+    let alice_signing_public_key = StacksPublicKey::from_private(alice_signing_private_key);
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(stacker_key).bytes,
+        key_to_stacks_addr(alice_stacking_private_key).bytes,
     );
 
     let stack_stx = make_pox_4_lockup(
-        stacker_key,
-        stacker_nonce,
+        alice_stacking_private_key,
+        alice_nonce,
         min_ustx,
         pox_addr.clone(),
         lock_period,
-        signer_public_key.clone(),
+        alice_signing_public_key.clone(),
         block_height as u64,
     );
 
@@ -1819,7 +1833,7 @@ fn stack_increase() {
     let stacking_state = get_stacking_state_pox_4(
         &mut peer,
         &latest_block,
-        &key_to_stacks_addr(stacker_key).to_account_principal(),
+        &key_to_stacks_addr(alice_stacking_private_key).to_account_principal(),
     )
     .expect("No stacking state, stack-stx failed")
     .expect_tuple();
@@ -1828,16 +1842,17 @@ fn stack_increase() {
     let state_signer_key = stacking_state.get("signer-key").unwrap();
     assert_eq!(
         state_signer_key,
-        &Value::buff_from(signer_public_key.to_bytes_compressed()).unwrap()
+        &Value::buff_from(alice_signing_public_key.to_bytes_compressed()).unwrap()
     );
 
-    stacker_nonce += 1;
+    alice_nonce += 1;
 
-    let stack_increase = make_pox_4_stack_increase(stacker_key, stacker_nonce, min_ustx);
+    let stack_increase =
+        make_pox_4_stack_increase(alice_stacking_private_key, alice_nonce, min_ustx);
     // Next tx arr includes a stack_increase pox_4 helper found in mod.rs
     let txs = vec![stack_increase];
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
-    let stacker_transactions = get_last_block_sender_transactions(&observer, stacker_address);
+    let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address);
 
     let actual_result = stacker_transactions
         .first()
@@ -1848,7 +1863,7 @@ fn stack_increase() {
         TupleData::from_data(vec![
             (
                 "stacker".into(),
-                Value::Principal(PrincipalData::from(stacker_address.clone())),
+                Value::Principal(PrincipalData::from(alice_address.clone())),
             ),
             ("total-locked".into(), Value::UInt(min_ustx * 2)),
         ])
@@ -1861,6 +1876,12 @@ fn stack_increase() {
     assert_eq!(actual_result, expected_result);
 }
 
+// In this test case, Alice delegates twice the stacking minimum to Bob.
+//  Bob stacks half of Alice's funds. In the next cycle,
+//  Bob stacks Alice's remaining funds.
+//
+// This test asserts that Alice's total-locked is equal to
+//  twice the stacking minimum after calling delegate-stack-increase.
 #[test]
 fn delegate_stack_increase() {
     let lock_period: u128 = 2;
@@ -1868,40 +1889,39 @@ fn delegate_stack_increase() {
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
         prepare_pox4_test(function_name!(), Some(&observer));
 
-    let mut stacker_nonce = 0;
-    let stacker_key = &keys[0];
-    let stacker_address =
-        PrincipalData::from(key_to_stacks_addr(stacker_key).to_account_principal());
-    let mut delegate_nonce = 0;
-    let delegate_key = &keys[1];
-    let delegate_address =
-        PrincipalData::from(key_to_stacks_addr(delegate_key).to_account_principal());
+    let alice_nonce = 0;
+    let alice_key = &keys[0];
+    let alice_address = PrincipalData::from(key_to_stacks_addr(alice_key).to_account_principal());
+    let mut bob_nonce = 0;
+    let bob_delegate_key = &keys[1];
+    let bob_delegate_address =
+        PrincipalData::from(key_to_stacks_addr(bob_delegate_key).to_account_principal());
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
-    let signer_private_key = &keys[2];
-    let signer_public_key = StacksPublicKey::from_private(signer_private_key);
+    let bob_signer_private_key = &keys[2];
+    let bob_signer_public_key = StacksPublicKey::from_private(bob_signer_private_key);
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(delegate_key).bytes,
+        key_to_stacks_addr(bob_delegate_key).bytes,
     );
 
     let delegate_stx = make_pox_4_delegate_stx(
-        stacker_key,
-        stacker_nonce,
+        alice_key,
+        alice_nonce,
         2 * min_ustx,
-        delegate_address.clone(),
+        bob_delegate_address.clone(),
         None,
         Some(pox_addr.clone()),
     );
 
     let delegate_stack_stx = make_pox_4_delegate_stack_stx(
-        delegate_key,
-        delegate_nonce,
-        PrincipalData::from(key_to_stacks_addr(stacker_key)).into(),
+        bob_delegate_key,
+        bob_nonce,
+        PrincipalData::from(key_to_stacks_addr(alice_key)).into(),
         min_ustx,
         pox_addr.clone(),
         block_height as u128,
         lock_period,
-        signer_public_key.clone(),
+        bob_signer_public_key.clone(),
     );
 
     // Initial tx arr includes a delegate_stx & delegate_stack_stx pox_4 helper found in mod.rs
@@ -1909,13 +1929,12 @@ fn delegate_stack_increase() {
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
-    stacker_nonce += 1;
-    delegate_nonce += 1;
+    bob_nonce += 1;
 
     let delegate_increase = make_pox_4_delegate_stack_increase(
-        delegate_key,
-        delegate_nonce,
-        &stacker_address,
+        bob_delegate_key,
+        bob_nonce,
+        &alice_address,
         pox_addr.clone(),
         min_ustx,
     );
@@ -1926,7 +1945,7 @@ fn delegate_stack_increase() {
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
     let delegate_transactions =
-        get_last_block_sender_transactions(&observer, delegate_address.into());
+        get_last_block_sender_transactions(&observer, bob_delegate_address.into());
 
     let actual_result = delegate_transactions
         .first()
@@ -1937,7 +1956,7 @@ fn delegate_stack_increase() {
         TupleData::from_data(vec![
             (
                 "stacker".into(),
-                Value::Principal(PrincipalData::from(stacker_address.clone())),
+                Value::Principal(PrincipalData::from(alice_address.clone())),
             ),
             ("total-locked".into(), Value::UInt(min_ustx * 2)),
         ])
