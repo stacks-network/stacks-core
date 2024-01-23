@@ -1062,9 +1062,8 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         let mut total_sent = 0;
         let mut blocked = false;
         let mut disconnected = false;
-        while !blocked && !disconnected {
-            let mut message_eof = false;
-
+        let mut message_eof = false;
+        while !blocked && !disconnected && !message_eof {
             if self.pending_message_fd.is_none() {
                 self.pending_message_fd = self.begin_next_message();
             }
@@ -1181,9 +1180,10 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         }
 
         test_debug!(
-            "Connection send_bytes finished: blocked = {}, disconnected = {}",
+            "Connection send_bytes finished: blocked = {}, disconnected = {}, eof = {}",
             blocked,
-            disconnected
+            disconnected,
+            message_eof,
         );
 
         if total_sent == 0 {

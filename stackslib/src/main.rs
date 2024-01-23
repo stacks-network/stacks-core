@@ -248,9 +248,18 @@ fn main() {
             }
             buf
         };
-        let msg: StacksMessage = read_next(&mut &buf[..]).unwrap();
-        println!("{:#?}", &msg);
-        process::exit(0);
+        match read_next::<StacksMessage, _>(&mut &buf[..]) {
+            Ok(msg) => {
+                println!("{:#?}", &msg);
+                process::exit(0);
+            }
+            Err(_) => {
+                let ptr = &mut &buf[..];
+                let mut debug_cursor = LogReader::from_reader(ptr);
+                let _ = read_next::<StacksMessage, _>(&mut debug_cursor);
+                process::exit(1);
+            }
+        }
     }
 
     if argv[1] == "get-tenure" {
