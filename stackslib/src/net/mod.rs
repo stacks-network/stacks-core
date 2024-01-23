@@ -2145,6 +2145,7 @@ pub mod test {
                     peerdb.conn(),
                     local_peer.network_id,
                     &contract_id,
+                    0,
                     10000000,
                 )
                 .unwrap()
