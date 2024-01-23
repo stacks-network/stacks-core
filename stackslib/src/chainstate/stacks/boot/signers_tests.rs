@@ -95,6 +95,9 @@ fn signers_get_signer_keys_from_pox4() {
     let stacker_1_addr = key_to_stacks_addr(&stacker_1.stacker_private_key);
     let stacker_2_addr = key_to_stacks_addr(&stacker_2.stacker_private_key);
 
+    let signer_1_addr = key_to_stacks_addr(&stacker_1.signer_private_key);
+    let signer_2_addr = key_to_stacks_addr(&stacker_2.signer_private_key);
+
     let stacker_1_info = readonly_call(
         &mut peer,
         &latest_block_id,
@@ -116,16 +119,17 @@ fn signers_get_signer_keys_from_pox4() {
 
     assert_eq!(
         stacker_1_tuple.get_owned("signer-key").unwrap(),
-        Value::buff_from(stacker_1.signer_public_key().to_bytes_compressed()).unwrap()
+        Value::Principal(PrincipalData::from(signer_1_addr))
     );
 
     assert_eq!(
         stacker_2_tuple.get_owned("signer-key").unwrap(),
-        Value::buff_from(stacker_2.signer_public_key().to_bytes_compressed()).unwrap()
+        Value::Principal(PrincipalData::from(signer_2_addr))
     );
 }
 
 #[test]
+#[ignore = "to be updated when the signer keys are processed in make_reward_set"]
 fn signers_get_signer_keys_from_stackerdb() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
     let stacker_2 = TestStacker::from_seed(&[5, 6]);

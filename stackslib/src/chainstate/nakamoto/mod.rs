@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::DerefMut;
 
 use clarity::vm::ast::ASTRules;
@@ -1813,25 +1813,22 @@ impl NakamotoChainState {
         }
     }
 
-    pub fn calculate_signer_slots(
+    fn calculate_signer_slots(
         clarity: &mut ClarityTransactionConnection,
         pox_constants: &PoxConstants,
-    ) -> Result<HashMap<Value, u128>, clarity::vm::errors::Error> {
+        reward_cycle: u64,
+    ) -> Result<BTreeMap<Vec<u8>, u128>, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
         let pox4_contract = &boot_code_id(POX_4_NAME, is_mainnet);
-        let reward_cycle = clarity
-            .eval_read_only(pox4_contract, &"(current-pox-reward-cycle)")
-            .unwrap()
-            .expect_u128();
+
         let list_length = clarity
             .eval_read_only(
                 pox4_contract,
                 &format!("(get-signer-key-list-length u{})", reward_cycle),
-            )
-            .unwrap()
+            )?
             .expect_u128();
 
-        let mut signers: HashMap<Value, u128> = HashMap::new();
+        let mut signers: BTreeMap<Vec<u8>, u128> = BTreeMap::new();
         let mut total_ustx: u128 = 0;
         for index in 0..list_length {
             if let Ok(Value::Optional(entry)) = clarity.eval_read_only(
@@ -1840,10 +1837,9 @@ impl NakamotoChainState {
             ) {
                 if let Some(data) = entry.data {
                     let data = data.expect_tuple();
-                    let key = data.get("signer-key")?.to_owned();
+                    let key = data.get("signer-key")?.to_owned().expect_buff(33);
                     let amount = data.get("ustx")?.to_owned().expect_u128();
                     let sum = signers.get(&key).cloned().unwrap_or_default();
-                    //TODO HashMap insert order is not guaranteed
                     signers.insert(key, sum + amount);
                     total_ustx = total_ustx
                         .checked_add(amount)
@@ -1868,19 +1864,19 @@ impl NakamotoChainState {
         clarity: &mut ClarityTransactionConnection,
         chain_id: u32,
         pox_constants: &PoxConstants,
-    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+        reward_cycle: u64,
+    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
 
-        let signers = Self::calculate_signer_slots(clarity, pox_constants).unwrap_or_default();
+        let signers =
+            Self::calculate_signer_slots(clarity, pox_constants, reward_cycle).unwrap_or_default();
 
         let signers_list_data: Vec<Value> = signers
             .iter()
             .map(|(signer_key, slots)| {
-                let key =
-                    StacksPublicKey::from_slice(signer_key.to_owned().expect_buff(33).as_slice())
-                        .expect("TODO: invalid key");
+                let key = StacksPublicKey::from_slice(signer_key.as_slice()).unwrap();
                 let addr = StacksAddress::from_public_keys(
                     if is_mainnet {
                         C32_ADDRESS_VERSION_MAINNET_SINGLESIG
@@ -1938,7 +1934,7 @@ impl NakamotoChainState {
         first_block_height: u64,
         pox_constants: &PoxConstants,
         burn_tip_height: u64,
-    ) -> Result<Vec<StacksTransactionEvent>, Error> {
+    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
         if clarity_tx.get_epoch() < StacksEpochId::Epoch25
             || !pox_constants.is_prepare_phase_start(first_block_height, burn_tip_height)
         {
@@ -1955,6 +1951,9 @@ impl NakamotoChainState {
                 clarity,
                 clarity_tx.config.chain_id,
                 &pox_constants,
+                pox_constants
+                    .block_height_to_reward_cycle(first_block_height, burn_tip_height)
+                    .expect("FATAL: no reward cycle for block height"),
             )
         })
     }
