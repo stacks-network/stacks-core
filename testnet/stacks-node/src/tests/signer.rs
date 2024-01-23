@@ -381,7 +381,7 @@ fn stackerdb_dkg_sign() {
         .to_vec();
     msg.push(b'n');
 
-    let signer_test = SignerTest::new(5, 5);
+    let signer_test = SignerTest::new(10, 400);
 
     info!("------------------------- Test DKG -------------------------");
     info!("signer_runloop: spawn send commands to do dkg");
