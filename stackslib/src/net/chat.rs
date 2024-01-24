@@ -2487,7 +2487,7 @@ impl ConversationP2P {
                 Ok(None)
             }
             _ => {
-                test_debug!(
+                debug!(
                     "{:?}: Got unauthenticated message (type {}), will NACK",
                     &self,
                     msg.payload.get_message_name()

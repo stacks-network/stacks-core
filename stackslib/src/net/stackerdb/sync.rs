@@ -644,7 +644,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
                 StacksMessageType::Nack(data) => {
                     debug!(
-                        "{:?}: remote peer {:?} NACK'ed us with code {}",
+                        "{:?}: remote peer {:?} NACK'ed our StackerDBHandshake with code {}",
                         &network.get_local_peer(),
                         &naddr,
                         data.error_code
@@ -756,7 +756,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 }
                 StacksMessageType::Nack(data) => {
                     debug!(
-                        "{:?}: remote peer {:?} NACK'ed us with code {}",
+                        "{:?}: remote peer {:?} NACK'ed our StackerDBGetChunksInv us with code {}",
                         &network.get_local_peer(),
                         &naddr,
                         data.error_code
