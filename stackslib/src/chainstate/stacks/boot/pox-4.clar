@@ -30,7 +30,8 @@
 (define-constant ERR_INVALID_SIGNER_KEY 32)
 (define-constant ERR_REUSED_SIGNER_KEY 33)
 (define-constant ERR_DELEGATION_ALREADY_REVOKED 34)
-(define-constant ERR_DELEGATION_INVALID_SIGNATURE (err 35))
+(define-constant ERR_INVALID_SIGNATURE_PUBKEY 35)
+(define-constant ERR_INVALID_SIGNATURE_RECOVER 36)
 
 ;; Valid values for burnchain address versions.
 ;; These first four correspond to address hash modes in Stacks 2.1,
@@ -66,6 +67,9 @@
 
 ;; Stacking thresholds
 (define-constant STACKING_THRESHOLD_25 (if is-in-mainnet u20000 u8000))
+
+;; SIP18 message prefix
+(define-constant SIP018_MSG_PREFIX 0x534950303138)
 
 ;; Data vars that store a copy of the burnchain configuration.
 ;; Implemented as data-vars, so that different configurations can be
@@ -195,7 +199,7 @@
 ;; partial-stacked-by-cycle right after it was deleted (so, subsequent calls
 ;; to the `stack-aggregation-*` functions will overwrite this).
 (define-map logged-partial-stacked-by-cycle
-    { 
+    {
         pox-addr: { version: (buff 1), hashbytes: (buff 32) },
         reward-cycle: uint,
         sender: principal
@@ -599,7 +603,7 @@
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
       ;; Validate ownership of the given signer key
-      (try! (verify-signing-key-signature tx-sender signer-key signer-sig))
+      (try! (verify-signer-key-sig tx-sender signer-sig signer-key))
 
       ;; ensure that stacking can be performed
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
@@ -641,7 +645,7 @@
                              (delegate-to principal)
                              (until-burn-ht (optional uint))
                              (pox-addr (optional { version: (buff 1), hashbytes: (buff 32) })))
-                             
+
     (begin
       ;; must be called directly by the tx-sender or by an allowed contract-caller
       (asserts! (check-caller-allowed)
@@ -676,39 +680,42 @@
 
       (ok true)))
 
-;; Generate a message hash following the SIP018 standard.
-(define-read-only (get-signer-key-message-hash (signer-key (buff 33)) (stacker principal))
+;; Generate a message hash for validating a signer key.
+;; The message hash follows SIP018 for signing structured data. The structured data
+;; is the tuple `{ stacker, reward-cycle }`. The domain is
+;; `{ name: "pox-4-signer", version: "1.0.0", chain-id: chain-id }`.
+(define-read-only (get-signer-key-message-hash (stacker principal))
   (let
     (
       (domain { name: "pox-4-signer", version: "1.0.0", chain-id: chain-id })
-      (data-hash (sha256 (unwrap-panic 
+      (data-hash (sha256 (unwrap-panic
         (to-consensus-buff? { stacker: stacker, reward-cycle: (current-pox-reward-cycle) }))))
       (domain-hash (sha256 (unwrap-panic (to-consensus-buff? domain))))
     )
     (sha256 (concat
-      0x534950303138
+      SIP018_MSG_PREFIX
       (concat domain-hash
       data-hash)))
   )
 )
 
 ;; Verify a signature from the signing key for this specific stacker.
-;; The message hash is the sha256 of the consensus hash of the tuple 
-;; `{ stacker, reward-cycle }`. Note that `reward-cycle` corresponds to the
-;; _current_ reward cycle, not the reward cycle at which the delegation will start.
-;; The public key is recovered from the signature and compared to the pubkey hash
-;; of the delegator.
-(define-read-only (verify-signing-key-signature (stacker principal)
-                                                (signing-key (buff 33))
-                                                (signer-sig (buff 65)))
+;; See `get-signer-key-message-hash` for details on the message hash.
+;;
+;; Note that `reward-cycle` corresponds to the _current_ reward cycle,
+;; not the reward cycle at which the delegation will start.
+;; The public key is recovered from the signature and compared to `signer-key`.
+(define-read-only (verify-signer-key-sig (stacker principal)
+                                         (signer-sig (buff 65))
+                                         (signer-key (buff 33)))
   (let
     (
-      (msg-hash (get-signer-key-message-hash signing-key stacker))
-      (pubkey (unwrap! (secp256k1-recover? msg-hash signer-sig) ERR_DELEGATION_INVALID_SIGNATURE)) ;; TODO
+      (msg-hash (get-signer-key-message-hash stacker))
+      (pubkey (unwrap! (secp256k1-recover? msg-hash signer-sig) (err ERR_INVALID_SIGNATURE_RECOVER)))
     )
-    (asserts! (is-eq pubkey signing-key) ERR_DELEGATION_INVALID_SIGNATURE)
+    (asserts! (is-eq pubkey signer-key) (err ERR_INVALID_SIGNATURE_PUBKEY))
     (ok true)
-  )                                            
+  )
 )
 
 ;; Commit partially stacked STX and allocate a new PoX reward address slot.
@@ -1023,6 +1030,7 @@
 ;;    used for signing. The `tx-sender` can thus decide to change the key when extending.
 (define-public (stack-extend (extend-count uint)
                              (pox-addr { version: (buff 1), hashbytes: (buff 32) })
+                             (signer-sig (buff 65))
                              (signer-key (buff 33)))
    (let ((stacker-info (stx-account tx-sender))
          ;; to extend, there must already be an etry in the stacking-state
@@ -1047,6 +1055,9 @@
     ;; stacker must not be delegating
     (asserts! (is-none (get delegated-to stacker-state))
               (err ERR_STACKING_IS_DELEGATED))
+
+    ;; Verify signature from delegate that allows this sender for this cycle
+    (try! (verify-signer-key-sig tx-sender signer-sig signer-key))
 
     ;; TODO: add more assertions to sanity check the `stacker-info` values with
     ;;       the `stacker-state` values

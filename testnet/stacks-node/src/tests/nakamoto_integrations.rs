@@ -42,9 +42,10 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks::util_lib::boot::boot_code_id;
-use stacks_common::address::AddressHashMode;
+use stacks::util_lib::signed_structured_data::sign_structured_data;
+use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::STACKS_EPOCH_MAX;
+use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::{to_hex, Sha512Sum};
@@ -337,7 +338,7 @@ pub fn boot_to_epoch_3(
     naka_conf: &Config,
     blocks_processed: &RunLoopCounter,
     stacker_sk: Secp256k1PrivateKey,
-    signer_pk: StacksPublicKey,
+    signer_sk: Secp256k1PrivateKey,
     btc_regtest_controller: &mut BitcoinRegtestController,
 ) {
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
@@ -360,6 +361,21 @@ pub fn boot_to_epoch_3(
         AddressHashMode::SerializeP2PKH as u8,
     ));
 
+    let stacker = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&stacker_sk)],
+    )
+    .unwrap();
+    let reward_cycle = 7 as u128;
+    let signer_pubkey = StacksPublicKey::from_private(&signer_sk);
+    let signature = make_signer_key_signature(
+        &PrincipalData::from(stacker.clone()),
+        &signer_sk,
+        reward_cycle,
+    );
+
     let stacking_tx = tests::make_contract_call(
         &stacker_sk,
         0,
@@ -372,7 +388,8 @@ pub fn boot_to_epoch_3(
             pox_addr_tuple,
             clarity::vm::Value::UInt(205),
             clarity::vm::Value::UInt(12),
-            clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            clarity::vm::Value::buff_from(signature).unwrap(),
+            clarity::vm::Value::buff_from(signer_pubkey.to_bytes_compressed()).unwrap(),
         ],
     );
 
@@ -386,6 +403,48 @@ pub fn boot_to_epoch_3(
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
+}
+
+fn make_signer_key_signature(
+    stacker: &PrincipalData,
+    signer_key: &StacksPrivateKey,
+    reward_cycle: u128,
+) -> Vec<u8> {
+    let domain_tuple = clarity::vm::Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                "name".into(),
+                clarity::vm::Value::string_ascii_from_bytes("pox-4-signer".into()).unwrap(),
+            ),
+            (
+                "version".into(),
+                clarity::vm::Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
+            ),
+            (
+                "chain-id".into(),
+                clarity::vm::Value::UInt(CHAIN_ID_TESTNET.into()),
+            ),
+        ])
+        .unwrap(),
+    );
+
+    let data_tuple = clarity::vm::Value::Tuple(
+        clarity::vm::types::TupleData::from_data(vec![
+            (
+                "stacker".into(),
+                clarity::vm::Value::Principal(stacker.clone()),
+            ),
+            (
+                "reward-cycle".into(),
+                clarity::vm::Value::UInt(reward_cycle),
+            ),
+        ])
+        .unwrap(),
+    );
+
+    let signature = sign_structured_data(data_tuple, domain_tuple, signer_key).unwrap();
+
+    signature.to_rsv()
 }
 
 #[test]
@@ -410,7 +469,7 @@ fn simple_neon_integration() {
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
-    let sender_signer_key = StacksPublicKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
@@ -451,7 +510,7 @@ fn simple_neon_integration() {
         &naka_conf,
         &blocks_processed,
         stacker_sk,
-        sender_signer_key,
+        sender_signer_sk,
         &mut btc_regtest_controller,
     );
 
@@ -622,7 +681,7 @@ fn mine_multiple_per_tenure_integration() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
-    let sender_signer_key = StacksPublicKey::new();
+    let sender_signer_key = Secp256k1PrivateKey::new();
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -908,6 +967,9 @@ fn correct_burn_outs() {
             let new_sk = StacksPrivateKey::from_seed(Sha512Sum::from_data(&seed_inputs).as_bytes());
             let pk_bytes = StacksPublicKey::from_private(&new_sk).to_bytes_compressed();
 
+            let reward_cycle = pox_info.current_cycle.id;
+            let signature = make_signer_key_signature(&account.1, &new_sk, reward_cycle.into());
+
             let stacking_tx = tests::make_contract_call(
                 &account.0,
                 account.2.nonce,
@@ -920,6 +982,7 @@ fn correct_burn_outs() {
                     pox_addr_tuple,
                     clarity::vm::Value::UInt(pox_info.current_burnchain_block_height.into()),
                     clarity::vm::Value::UInt(1),
+                    clarity::vm::Value::buff_from(signature).unwrap(),
                     clarity::vm::Value::buff_from(pk_bytes).unwrap(),
                 ],
             );
@@ -1069,7 +1132,7 @@ fn block_proposal_api_endpoint() {
         &conf,
         &blocks_processed,
         stacker_sk,
-        StacksPublicKey::new(),
+        Secp256k1PrivateKey::default(),
         &mut btc_regtest_controller,
     );
 
@@ -1412,7 +1475,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         &naka_conf,
         &blocks_processed,
         stacker_sk,
-        StacksPublicKey::new(),
+        Secp256k1PrivateKey::default(),
         &mut btc_regtest_controller,
     );
 
