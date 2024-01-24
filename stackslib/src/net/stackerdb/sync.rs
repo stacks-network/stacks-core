@@ -511,6 +511,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             }
 
             let naddr = convo.to_neighbor_address();
+            if sent_naddr_set.contains(&naddr) {
+                continue;
+            }
+
             let has_reciprocal_outbound = network
                 .get_pubkey_events(&naddr.public_key_hash)
                 .iter()
