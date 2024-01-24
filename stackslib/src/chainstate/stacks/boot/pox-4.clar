@@ -572,6 +572,7 @@
                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                           (start-burn-ht uint)
                           (lock-period uint)
+                          (signer-sig (buff 65))
                           (signer-key (buff 33)))
     ;; this stacker's first reward cycle is the _next_ reward cycle
     (let ((first-reward-cycle (+ u1 (current-pox-reward-cycle)))
@@ -596,6 +597,9 @@
       ;; the Stacker must have sufficient unlocked funds
       (asserts! (>= (stx-get-balance tx-sender) amount-ustx)
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
+
+      ;; Validate ownership of the given signer key
+      (try! (verify-signing-key-signature tx-sender signer-key signer-sig))
 
       ;; ensure that stacking can be performed
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
