@@ -89,6 +89,24 @@ impl StacksClient {
         Ok(())
     }
 
+    /// cast for for aggregate public key
+    pub fn cast_vote_for_aggregate_public_key(
+        &self,
+        aggreagte_public_key_point: Point,
+    ) -> Result<Txid, ClientError> {
+        let aggregate_public_key = Value::Sequence(aggreagte_public_key_point.to_bytes().to_vec());
+        let reward_cycle_value = Value::UInt(reward_cycle);
+        let round_value = Value::UInt(0);
+        let tapleaves_value = Value::Sequence(vec![]);
+
+        transaction_contract_call(
+            boot_code_addr(self.chain_id == CHAIN_ID_MAINNET),
+            POX_4_VOTE_NAME,
+            ClarityName::try_from("vote-for-aggregate-public-key").unwrap(),
+            &[aggregate_public_key, reward_cycle_value, round, tapleaves],
+        )
+    }
+
     /// Retrieve the current DKG aggregate public key
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;

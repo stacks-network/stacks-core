@@ -395,7 +395,7 @@ impl<C: Coordinator> RunLoop<C> {
 
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
-        self.send_block_response_messages(&operation_results);
+        self.process_operation_results(&operation_results);
         self.send_operation_results(res, operation_results);
     }
 
@@ -550,7 +550,7 @@ impl<C: Coordinator> RunLoop<C> {
     }
 
     /// Extract block proposals from signature results and broadcast them to the stackerdb slot
-    fn send_block_response_messages(&mut self, operation_results: &[OperationResult]) {
+    fn process_operation_results(&mut self, operation_results: &[OperationResult]) {
         let Some(aggregate_public_key) = &self.coordinator.get_aggregate_public_key() else {
             debug!("No aggregate public key set. Cannot validate results. Ignoring signature results...");
             return;
@@ -558,46 +558,54 @@ impl<C: Coordinator> RunLoop<C> {
         //Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
         for operation_result in operation_results {
             // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
-            if let OperationResult::Sign(signature) = operation_result {
-                let message = self.coordinator.get_message();
-                if !signature.verify(aggregate_public_key, &message) {
-                    warn!("Received an invalid signature result.");
-                    continue;
+            match operation_result {
+                OperationResult::Dkg(point) => {
+                    self.stacks_client.vote_for_aggregate_public_key(point.clone());
+                },
+                OperationResult::Sign(signature) => {
+                    let message = self.coordinator.get_message();
+                    if !signature.verify(aggregate_public_key, &message) {
+                        warn!("Received an invalid signature result.");
+                        continue;
+                    }
+                    // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
+                    let block_hash_bytes = if message.len() > 32 {
+                        &message[..32]
+                    } else {
+                        &message
+                    };
+                    let Some(block_hash) = Sha512Trunc256Sum::from_bytes(block_hash_bytes) else {
+                        debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
+                        continue;
+                    };
+                    let Some(block_info) = self.blocks.remove(&block_hash) else {
+                        debug!("Received a signature result for a block we have not seen before. Ignoring...");
+                        continue;
+                    };
+
+                    // Update the block signature hash with what the signers produced.
+                    let mut block = block_info.block;
+                    block.header.signer_signature = ThresholdSignature(signature.clone());
+
+                    let block_submission = if message == block_hash.0.to_vec() {
+                        // we agreed to sign the block hash. Return an approval message
+                        BlockResponse::Accepted(block).into()
+                    } else {
+                        // We signed a rejection message. Return a rejection message
+                        BlockRejection::new(block, RejectCode::SignedRejection).into()
+                    };
+
+                    // Submit signature result to miners to observe
+                    if let Err(e) = self
+                        .stackerdb
+                        .send_message_with_retry(self.signing_round.signer_id, block_submission)
+                    {
+                        warn!("Failed to send block submission to stacker-db: {:?}", e);
+                    }
                 }
-                // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
-                let block_hash_bytes = if message.len() > 32 {
-                    &message[..32]
-                } else {
-                    &message
-                };
-                let Some(block_hash) = Sha512Trunc256Sum::from_bytes(block_hash_bytes) else {
-                    debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
-                    continue;
-                };
-                let Some(block_info) = self.blocks.remove(&block_hash) else {
-                    debug!("Received a signature result for a block we have not seen before. Ignoring...");
-                    continue;
-                };
-
-                // Update the block signature hash with what the signers produced.
-                let mut block = block_info.block;
-                block.header.signer_signature = ThresholdSignature(signature.clone());
-
-                let block_submission = if message == block_hash.0.to_vec() {
-                    // we agreed to sign the block hash. Return an approval message
-                    BlockResponse::Accepted(block).into()
-                } else {
-                    // We signed a rejection message. Return a rejection message
-                    BlockRejection::new(block, RejectCode::SignedRejection).into()
-                };
-
-                // Submit signature result to miners to observe
-                if let Err(e) = self
-                    .stackerdb
-                    .send_message_with_retry(self.signing_round.signer_id, block_submission)
-                {
-                    warn!("Failed to send block submission to stacker-db: {:?}", e);
-                }
+                OperationResult::SignTaproot(_) => todo!(),
+                OperationResult::DkgError(_) => todo!(),
+                OperationResult::SignError(_) => todo!(),
             }
         }
     }
