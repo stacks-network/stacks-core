@@ -3596,7 +3596,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_stacker",
- "sha2 0.10.6",
  "slog",
  "slog-json",
  "slog-term",

@@ -633,7 +633,7 @@ pub(crate) mod tests {
         let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
         write_response(
             config.mock_server,
-            b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\": \"4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958\"}",
+            b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\": \"3b593b712f8310768bf16e58f378aea999b8aa3b\"}",
         );
         assert!(h.join().unwrap().is_ok());
     }

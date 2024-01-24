@@ -63,7 +63,7 @@ struct SignerTest {
     // The channel for sending commands to the coordinator
     pub coordinator_cmd_sender: Sender<RunLoopCommand>,
     // The channels for sending commands to the signers
-    pub _signer_cmd_senders: HashMap<u32, Sender<RunLoopCommand>>,
+    pub signer_cmd_senders: HashMap<u32, Sender<RunLoopCommand>>,
     // The channels for receiving results from both the coordinator and the signers
     pub result_receivers: Vec<Receiver<Vec<OperationResult>>>,
     // The running coordinator and its threads
@@ -105,9 +105,9 @@ impl SignerTest {
         );
 
         let mut running_signers = HashMap::new();
-        let mut _signer_cmd_senders = HashMap::new();
-        // Spawn all the signers first to listen to the coordinator request for dkg
+        let mut signer_cmd_senders = HashMap::new();
         let mut result_receivers = Vec::new();
+        // Spawn all signers before the node to ensure their listening ports are open for the node event observer to bind to
         for i in (0..num_signers).rev() {
             let (cmd_send, cmd_recv) = channel();
             let (res_send, res_recv) = channel();
@@ -116,7 +116,7 @@ impl SignerTest {
                 i,
                 spawn_signer(&signer_configs[i as usize], cmd_recv, res_send),
             );
-            _signer_cmd_senders.insert(i, cmd_send);
+            signer_cmd_senders.insert(i, cmd_send);
             result_receivers.push(res_recv);
         }
 
@@ -136,8 +136,8 @@ impl SignerTest {
         let stacks_client = StacksClient::from(&config);
         let (coordinator_id, coordinator_pk) =
             calculate_coordinator(&config.signer_ids_public_keys, &stacks_client);
-        debug!(
-            "selected coordinator id and pub key: {:?} : {:?}",
+        info!(
+            "Selected coordinator id: {:?} with pk: {:?}",
             &coordinator_id, &coordinator_pk
         );
 
@@ -145,14 +145,14 @@ impl SignerTest {
         let running_coordinator = running_signers
             .remove(&coordinator_id)
             .expect("Coordinator not found");
-        let coordinator_cmd_sender = _signer_cmd_senders
+        let coordinator_cmd_sender = signer_cmd_senders
             .remove(&coordinator_id)
             .expect("Command sender not found");
 
         Self {
             running_nodes: node,
             result_receivers,
-            _signer_cmd_senders,
+            signer_cmd_senders,
             coordinator_cmd_sender,
             running_coordinator,
             running_signers,

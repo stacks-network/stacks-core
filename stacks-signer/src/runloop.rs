@@ -27,10 +27,9 @@ use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{SignerEvent, SignerRunLoop};
 use libstackerdb::StackerDBChunkData;
-use sha2::{Digest, Sha256};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
@@ -821,10 +820,13 @@ pub fn calculate_coordinator(
         .signers
         .iter()
         .map(|(&id, pk)| {
-            let mut hasher = Sha256::new();
-            hasher.update(pk.to_bytes());
-            hasher.update(stacks_tip_consensus_hash.as_bytes());
-            (hasher.finalize().to_vec(), id)
+            let pk_bytes = pk.to_bytes();
+            let mut buffer =
+                Vec::with_capacity(pk_bytes.len() + stacks_tip_consensus_hash.as_bytes().len());
+            buffer.extend_from_slice(&pk_bytes[..]);
+            buffer.extend_from_slice(stacks_tip_consensus_hash.as_bytes());
+            let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
+            (digest, id)
         })
         .collect::<Vec<_>>();
 
@@ -844,24 +846,20 @@ mod tests {
     use std::net::TcpListener;
     use std::thread::{sleep, spawn};
 
-    use rand::distributions::Alphanumeric;
+    use rand::distributions::Standard;
     use rand::Rng;
 
     use super::*;
     use crate::client::stacks_client::tests::{write_response, TestConfig};
 
-    fn generate_random_consensus_hash(length: usize) -> String {
-        let random_consensus_hash = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(length)
-            .map(char::from)
-            .collect();
-
-        random_consensus_hash
+    fn generate_random_consensus_hash() -> String {
+        let rng = rand::thread_rng();
+        let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
     fn mock_stacks_client_response(mock_server: TcpListener, random_consensus: bool) {
         let consensus_hash = match random_consensus {
-            true => generate_random_consensus_hash(40),
+            true => generate_random_consensus_hash(),
             false => "static_hash_value".to_string(),
         };
 

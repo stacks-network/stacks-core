@@ -17,7 +17,6 @@ members = [
 wsts = "7.0"
 rand_core = "0.6"
 rand = "0.8"
-sha2 = "0.10"
 
 # Use a bit more than default optimization for
 #  dev builds to speed up test execution
