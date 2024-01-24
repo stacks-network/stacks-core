@@ -68,18 +68,6 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         let mut registered_addrs =
             chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
 
-        // TODO (pox-4-workstream): the pox-4 contract must be able to return signing keys
-        //   associated with reward set entries (i.e., via `get-reward-set-pox-addresses`)
-        //   *not* stacking-state entries (as it is currently implemented). Until that's done,
-        //   this method just mocks that data.
-        for (index, entry) in registered_addrs.iter_mut().enumerate() {
-            let index = u64::try_from(index).expect("FATAL: more than u64 reward set entries");
-            let sk = StacksPrivateKey::from_seed(&index.to_be_bytes());
-            let addr =
-                StacksAddress::p2pkh(chainstate.mainnet, &StacksPublicKey::from_private(&sk));
-            entry.signing_key = Some(addr.into());
-        }
-
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);
 
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
