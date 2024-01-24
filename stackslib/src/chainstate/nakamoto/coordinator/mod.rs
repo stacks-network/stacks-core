@@ -65,7 +65,7 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
 
-        let mut registered_addrs =
+        let registered_addrs =
             chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
 
         let liquid_ustx = chainstate.get_liquid_ustx(block_id);

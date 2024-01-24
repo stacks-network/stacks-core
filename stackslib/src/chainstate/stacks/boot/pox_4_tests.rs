@@ -1891,14 +1891,15 @@ fn delegate_stack_increase() {
     let alice_address = PrincipalData::from(key_to_stacks_addr(alice_key).to_account_principal());
     let mut bob_nonce = 0;
     let bob_delegate_key = &keys[1];
+    let bob_delegate_stacks_address = key_to_stacks_addr(bob_delegate_key);
     let bob_delegate_address =
-        PrincipalData::from(key_to_stacks_addr(bob_delegate_key).to_account_principal());
+        PrincipalData::from(bob_delegate_stacks_address.to_account_principal());
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
     let bob_signer_private_key = &keys[2];
     let bob_signer_public_key = StacksPublicKey::from_private(bob_signer_private_key);
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(bob_delegate_key).bytes,
+        bob_delegate_stacks_address.bytes,
     );
 
     let delegate_stx = make_pox_4_delegate_stx(
@@ -1942,7 +1943,7 @@ fn delegate_stack_increase() {
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
 
     let delegate_transactions =
-        get_last_block_sender_transactions(&observer, bob_delegate_address.into());
+        get_last_block_sender_transactions(&observer, bob_delegate_stacks_address);
 
     let actual_result = delegate_transactions.first().cloned().unwrap().result;
 

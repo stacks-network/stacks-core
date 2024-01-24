@@ -1277,6 +1277,8 @@ pub mod pox_2_tests;
 pub mod pox_3_tests;
 #[cfg(test)]
 pub mod pox_4_tests;
+
+pub mod pox_4_vote_tests;
 #[cfg(test)]
 mod signers_tests;
 
