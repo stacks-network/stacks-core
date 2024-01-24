@@ -1286,7 +1286,9 @@ pub mod test {
     use std::convert::From;
     use std::fs;
 
+    use clarity::boot_util::boot_code_addr;
     use clarity::vm::contracts::Contract;
+    use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
     use stacks_common::util::hash::to_hex;
     use stacks_common::util::*;
@@ -1849,7 +1851,7 @@ pub mod test {
     pub fn make_pox_4_vote_for_aggregate_public_key(
         key: &StacksPrivateKey,
         nonce: u64,
-        reward_cycle: u64,
+        reward_cycle: u128,
         aggregate_public_key: &Point,
     ) -> StacksTransaction {
         let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
@@ -1995,6 +1997,38 @@ pub mod test {
         .unwrap();
 
         make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn readonly_call(
+        peer: &mut TestPeer,
+        tip: &StacksBlockId,
+        boot_contract: ContractName,
+        function_name: ClarityName,
+        args: Vec<Value>,
+    ) -> Value {
+        with_sortdb(peer, |chainstate, sortdb| {
+            chainstate.with_read_only_clarity_tx(&sortdb.index_conn(), tip, |connection| {
+                connection
+                    .with_readonly_clarity_env(
+                        false,
+                        0x80000000,
+                        ClarityVersion::Clarity2,
+                        PrincipalData::from(boot_code_addr(false)),
+                        None,
+                        LimitedCostTracker::new_free(),
+                        |env| {
+                            env.execute_contract_allow_private(
+                                &boot_code_id(&boot_contract, false),
+                                &function_name,
+                                &symbols_from_values(args),
+                                true,
+                            )
+                        },
+                    )
+                    .unwrap()
+            })
+        })
+        .unwrap()
     }
 
     fn make_tx(
