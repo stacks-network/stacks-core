@@ -21,7 +21,6 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{BurnStateDB, ClarityDatabase};
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::test_util::symbols_from_values;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
@@ -54,8 +53,8 @@ use super::burn::db::sortdb::{
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::boot::{
-    RawRewardSetEntry, BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
-    SIGNERS_NAME,
+    PoxVersions, RawRewardSetEntry, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
+    BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME,
 };
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
@@ -75,8 +74,7 @@ use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::test::get_reward_addresses_with_par_tip;
-use crate::chainstate::stacks::boot::POX_4_NAME;
+use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
@@ -1818,25 +1816,39 @@ impl NakamotoChainState {
 
     fn get_reward_slots(
         clarity: &mut ClarityTransactionConnection,
-        pox_constants: &PoxConstants,
         reward_cycle: u64,
+        pox_contract: &str,
     ) -> Result<Vec<RawRewardSetEntry>, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
-        let pox4_contract = &boot_code_id(POX_4_NAME, is_mainnet);
+        if !matches!(
+            PoxVersions::lookup_by_name(pox_contract),
+            Some(PoxVersions::Pox4)
+        ) {
+            error!("Invoked Nakamoto reward-set fetch on non-pox-4 contract");
+            return Err(ChainstateError::DefunctPoxContract);
+        }
+        let pox_contract = &boot_code_id(pox_contract, is_mainnet);
 
         let list_length = clarity
-            .eval_read_only(
-                pox4_contract,
-                &format!("(get-reward-set-size u{})", reward_cycle),
+            .eval_method_read_only(
+                pox_contract,
+                "get-reward-set-size",
+                &[SymbolicExpression::atom_value(Value::UInt(
+                    reward_cycle.into(),
+                ))],
             )?
             .expect_u128();
 
         let mut slots = vec![];
         for index in 0..list_length {
             let entry = clarity
-                .eval_read_only(
-                    pox4_contract,
-                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, index),
+                .eval_method_read_only(
+                    pox_contract,
+                    "get-reward-set-pox-address",
+                    &[
+                        SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
+                        SymbolicExpression::atom_value(Value::UInt(index)),
+                    ],
                 )?
                 .expect_optional()
                 .expect(&format!(
@@ -1891,20 +1903,20 @@ impl NakamotoChainState {
 
         Ok(slots)
     }
+
     pub fn handle_signer_stackerdb_update(
         clarity: &mut ClarityTransactionConnection,
-        chain_id: u32,
         pox_constants: &PoxConstants,
         reward_cycle: u64,
+        pox_contract: &str,
     ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
 
         let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx());
-
-        let reward_slots = Self::get_reward_slots(clarity, &pox_constants, reward_cycle)?;
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+        let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
+        let (threshold, _participation) = StacksChainState::get_reward_threshold_and_participation(
             &pox_constants,
             &reward_slots[..],
             liquid_ustx,
@@ -1912,10 +1924,9 @@ impl NakamotoChainState {
         let reward_set =
             StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
-        //TODO remove unwraps
-        let signers_list = reward_set
+        let signers_list: Vec<_> = reward_set
             .signers
-            .unwrap()
+            .ok_or(ChainstateError::PoxNoRewardCycle)?
             .iter()
             .map(|signer| {
                 Value::Tuple(
@@ -1926,10 +1937,27 @@ impl NakamotoChainState {
                         ),
                         ("num-slots".into(), Value::UInt(signer.slots.into())),
                     ])
-                    .unwrap(),
+                    .expect(
+                        "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
+                    ),
                 )
             })
             .collect();
+
+        if signers_list.len() > SIGNERS_MAX_LIST_SIZE {
+            panic!(
+                "FATAL: signers list returned by reward set calculations longer than maximum ({} > {})",
+                signers_list.len(),
+                SIGNERS_MAX_LIST_SIZE,
+            );
+        }
+
+        let args = [
+            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).expect(
+                "BUG: Failed to construct `(list 4000 { signer: principal, num-slots: u64 })` list",
+            )),
+            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
+        ];
 
         let (value, _, events, _) = clarity
             .with_abort_callback(
@@ -1938,9 +1966,7 @@ impl NakamotoChainState {
                         env.execute_contract_allow_private(
                             &signers_contract,
                             "stackerdb-set-signer-slots",
-                            &symbols_from_values(vec![
-                                Value::cons_list_unsanitized(signers_list).unwrap()
-                            ]),
+                            &args,
                             false,
                         )
                     })
@@ -1949,9 +1975,14 @@ impl NakamotoChainState {
             )
             .expect("FATAL: failed to update signer stackerdb");
 
-        if let Value::Response(data) = value {
+        if let Value::Response(ref data) = value {
             if !data.committed {
-                info!("stackerdb update error, data: {}", data);
+                error!(
+                    "Error while updating .signers contract";
+                    "reward_cycle" => reward_cycle,
+                    "cc_response" => %value,
+                );
+                panic!();
             }
         }
 
@@ -1964,25 +1995,76 @@ impl NakamotoChainState {
         pox_constants: &PoxConstants,
         burn_tip_height: u64,
     ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
-        if clarity_tx.get_epoch() < StacksEpochId::Epoch25
-            || !pox_constants.is_prepare_phase_start(first_block_height, burn_tip_height)
-        {
+        let current_epoch = clarity_tx.get_epoch();
+        if current_epoch < StacksEpochId::Epoch25 {
+            // before Epoch-2.5, no need for special handling
+            return Ok(vec![]);
+        }
+        // now, determine if we are in a prepare phase, and we are the first
+        //  block in this prepare phase in our fork
+        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height) {
+            // if we're not in a prepare phase, don't need to do anything
+            return Ok(vec![]);
+        }
+
+        let Some(cycle_of_prepare_phase) =
+            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height)
+        else {
+            // if we're not in a prepare phase, don't need to do anything
+            return Ok(vec![]);
+        };
+
+        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height);
+        if !matches!(
+            PoxVersions::lookup_by_name(active_pox_contract),
+            Some(PoxVersions::Pox4)
+        ) {
+            debug!(
+                "Active PoX contract is not PoX-4, skipping .signers updates until PoX-4 is active"
+            );
+            return Ok(vec![]);
+        }
+
+        let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
+
+        // are we the first block in the prepare phase in our fork?
+        let needs_update = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
+            if !clarity_db.has_contract(signers_contract) {
+                // if there's no signers contract, no need to update anything.
+                return false
+            }
+            let Ok(value) = clarity_db.lookup_variable_unknown_descriptor(
+                signers_contract,
+                SIGNERS_UPDATE_STATE,
+                &current_epoch,
+            ) else {
+                error!("FATAL: Failed to read `{SIGNERS_UPDATE_STATE}` variable from .signers contract");
+                panic!();
+            };
+            let cycle_number = value.expect_u128();
+            // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
+            //  the .signers state.
+            cycle_number < cycle_of_prepare_phase.into()
+        });
+
+        if !needs_update {
+            debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
             return Ok(vec![]);
         }
 
         info!(
-            "handling stackerdb update at burn height {}",
-            burn_tip_height
+            "Performing .signers state update";
+            "burn_height" => burn_tip_height,
+            "for_cycle" => cycle_of_prepare_phase,
+            "signers_contract" => %signers_contract,
         );
 
-        clarity_tx.block.as_free_transaction(|clarity| {
+        clarity_tx.connection().as_free_transaction(|clarity| {
             Self::handle_signer_stackerdb_update(
                 clarity,
-                clarity_tx.config.chain_id,
                 &pox_constants,
-                pox_constants
-                    .block_height_to_reward_cycle(first_block_height, burn_tip_height)
-                    .expect("FATAL: no reward cycle for block height"),
+                cycle_of_prepare_phase,
+                active_pox_contract,
             )
         })
     }
@@ -2731,14 +2813,12 @@ impl NakamotoChainState {
 
         // Handle signer stackerdb updates
         if evaluated_epoch >= StacksEpochId::Epoch25 {
-            let receipts = Self::check_and_handle_prepare_phase_start(
+            let _events = Self::check_and_handle_prepare_phase_start(
                 &mut clarity_tx,
                 first_block_height,
                 &pox_constants,
                 burn_header_height.into(),
-            );
-            //TODO
-            // tx_receipts.extend(receipts);
+            )?;
         }
 
         debug!(

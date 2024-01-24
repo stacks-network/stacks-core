@@ -622,6 +622,7 @@ impl TestStacksNode {
 
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let mut sort_handle = sortdb.index_handle(&sort_tip);
+            info!("Processing the new nakamoto block");
             let accepted = match Relayer::process_new_nakamoto_block(
                 sortdb,
                 &mut sort_handle,

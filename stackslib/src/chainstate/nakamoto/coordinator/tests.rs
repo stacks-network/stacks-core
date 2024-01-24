@@ -56,7 +56,7 @@ use crate::util_lib::boot::boot_code_id;
 fn advance_to_nakamoto(
     peer: &mut TestPeer,
     test_signers: &TestSigners,
-    test_stackers: Vec<&TestStacker>,
+    test_stackers: Vec<TestStacker>,
 ) {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
@@ -162,9 +162,10 @@ pub fn boot_nakamoto<'a>(
     peer_config.burnchain.pox_constants.pox_3_activation_height = 26;
     peer_config.burnchain.pox_constants.v3_unlock_height = 27;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
+    peer_config.test_stackers = Some(test_stackers.clone());
     let mut peer = TestPeer::new(peer_config);
 
-    advance_to_nakamoto(&mut peer, &test_signers, test_stackers.iter().collect());
+    advance_to_nakamoto(&mut peer, &test_signers, test_stackers);
 
     peer
 }
@@ -175,21 +176,12 @@ fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>) -> TestPeer<'a> {
     replay_config.test_name = format!("{}.replay", &peer.config.test_name);
     replay_config.server_port = 0;
     replay_config.http_port = 0;
+    replay_config.test_stackers = peer.config.test_stackers.clone();
 
-    let private_key = peer.config.private_key.clone();
-    let signer_private_key = StacksPrivateKey::from_seed(&[3]);
-
+    let test_stackers = replay_config.test_stackers.clone().unwrap_or(vec![]);
     let mut replay_peer = TestPeer::new(replay_config);
     let observer = TestEventObserver::new();
-    advance_to_nakamoto(
-        &mut replay_peer,
-        &TestSigners::default(),
-        vec![&TestStacker {
-            stacker_private_key: private_key,
-            signer_private_key,
-            amount: 1_000_000_000_000_000_000,
-        }],
-    );
+    advance_to_nakamoto(&mut replay_peer, &TestSigners::default(), test_stackers);
 
     // sanity check
     let replay_tip = {

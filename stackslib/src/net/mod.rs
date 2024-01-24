@@ -1594,7 +1594,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
-    use crate::chainstate::nakamoto::tests::node::TestSigners;
+    use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
@@ -1928,6 +1928,7 @@ pub mod test {
         pub services: u16,
         /// aggregate public key to use
         pub aggregate_public_key: Option<Point>,
+        pub test_stackers: Option<Vec<TestStacker>>,
     }
 
     impl TestPeerConfig {
@@ -1992,6 +1993,7 @@ pub mod test {
                     | (ServiceFlags::RPC as u16)
                     | (ServiceFlags::STACKERDB as u16),
                 aggregate_public_key: None,
+                test_stackers: None,
             }
         }
 

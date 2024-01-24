@@ -29,6 +29,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::{to_hex, Sha256Sum, Sha512Trunc256Sum};
 
+use super::SIGNERS_MAX_LIST_SIZE;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::PoxAddress;
@@ -1683,6 +1684,34 @@ fn test_deploy_smart_contract(
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
     })
+}
+
+#[test]
+// test that the maximum stackerdb list size will fit in a value
+fn max_stackerdb_list() {
+    let signers_list: Vec<_> = (0..SIGNERS_MAX_LIST_SIZE)
+        .into_iter()
+        .map(|signer_ix| {
+            let signer_address = StacksAddress {
+                version: 0,
+                bytes: Hash160::from_data(&signer_ix.to_be_bytes()),
+            };
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "signer".into(),
+                        Value::Principal(PrincipalData::from(signer_address)),
+                    ),
+                    ("num-slots".into(), Value::UInt(1)),
+                ])
+                .expect("BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple"),
+            )
+        })
+        .collect();
+
+    assert_eq!(signers_list.len(), SIGNERS_MAX_LIST_SIZE);
+    Value::cons_list_unsanitized(signers_list)
+        .expect("Failed to construct `(list 4000 { signer: principal, num-slots: u64 })` list");
 }
 
 #[test]

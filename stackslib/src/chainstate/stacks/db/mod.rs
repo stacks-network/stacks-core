@@ -463,7 +463,7 @@ pub type StacksDBTx<'a> = IndexDBTx<'a, (), StacksBlockId>;
 pub type StacksDBConn<'a> = IndexDBConn<'a, (), StacksBlockId>;
 
 pub struct ClarityTx<'a, 'b> {
-    pub block: ClarityBlockConnection<'a, 'b>,
+    block: ClarityBlockConnection<'a, 'b>,
     pub config: DBConfig,
 }
 

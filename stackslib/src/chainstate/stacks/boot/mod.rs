@@ -31,7 +31,6 @@ use clarity::vm::database::{
 use clarity::vm::errors::{Error as VmError, InterpreterError, InterpreterResult};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::tests::symbols_from_values;
 use clarity::vm::types::TypeSignature::UIntType;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
@@ -80,6 +79,10 @@ pub const POX_2_NAME: &'static str = "pox-2";
 pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
 pub const SIGNERS_NAME: &'static str = "signers";
+/// This is the name of a variable in the `.signers` contract which tracks the most recently updated
+/// reward cycle number.
+pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
+pub const SIGNERS_MAX_LIST_SIZE: usize = 4000;
 
 const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
@@ -163,6 +166,20 @@ pub struct RawRewardSetEntry {
     pub stacker: Option<PrincipalData>,
     pub signer: Option<PrincipalData>,
 }
+
+/// This enum captures the names of the PoX contracts by version.
+// This should deprecate the const values `POX_version_NAME`, but
+// that is the kind of refactor that should be in its own PR.
+// Having an enum here is useful for a bunch of reasons, but chiefly:
+//   * we'll be able to add an Ord implementation, so that we can
+//     do much easier version checks
+//   * static enforcement of matches
+define_named_enum!(PoxVersions {
+    Pox1("pox"),
+    Pox2("pox-2"),
+    Pox3("pox-3"),
+    Pox4("pox-4"),
+});
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PoxStartCycleInfo {

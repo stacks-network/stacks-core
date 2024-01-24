@@ -224,11 +224,17 @@ impl NakamotoBlockBuilder {
     ) -> Result<MinerTenureInfo<'a>, Error> {
         debug!("Nakamoto miner tenure begin");
 
-        let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
-        let burn_tip_height = u32::try_from(
-            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height,
-        )
-        .expect("block height overflow");
+        // must build off of the header's consensus hash as the burnchain view, not the canonical_tip_bhh:
+        let burn_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn.conn(), &self.header.consensus_hash)?
+            .ok_or_else(|| {
+                warn!(
+                    "Could not mine. The expected burnchain consensus hash has not been processed by our SortitionDB";
+                    "consensus_hash" => %self.header.consensus_hash
+                );
+                Error::NoSuchBlockError
+            })?;
+        let burn_tip = burn_sn.burn_header_hash;
+        let burn_tip_height = u32::try_from(burn_sn.block_height).expect("block height overflow");
 
         let mainnet = chainstate.config().mainnet;
 

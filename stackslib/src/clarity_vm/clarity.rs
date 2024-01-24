@@ -1771,6 +1771,39 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
             .reset_memory();
     }
 
+    /// Evaluate a method of a clarity contract in a read-only environment.
+    /// This does not check if the method itself attempted to write,
+    ///  but will always rollback any changes.
+    ///
+    /// The method is invoked as if the contract itself is the tx-sender.
+    ///
+    /// This method *is not* free: it will update the cost-tracker of
+    /// the transaction connection. If the transaction connection is a
+    /// free transaction, then these costs will be free, but
+    /// otherwise, the cost tracker will be invoked like normal.
+    pub fn eval_method_read_only(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        method: &str,
+        args: &[SymbolicExpression],
+    ) -> Result<Value, Error> {
+        let (result, _, _, _) = self.with_abort_callback(
+            |vm_env| {
+                vm_env
+                    .execute_transaction(
+                        PrincipalData::Contract(contract.clone()),
+                        None,
+                        contract.clone(),
+                        method,
+                        args,
+                    )
+                    .map_err(Error::from)
+            },
+            |_, _| true,
+        )?;
+        Ok(result)
+    }
+
     /// Evaluate a raw Clarity snippit
     #[cfg(test)]
     pub fn clarity_eval_raw(&mut self, code: &str) -> Result<Value, Error> {

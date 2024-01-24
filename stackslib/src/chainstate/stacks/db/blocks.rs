@@ -5140,6 +5140,17 @@ impl StacksChainState {
             );
         }
 
+        // Handle signer stackerdb updates
+        let first_block_height = burn_dbconn.get_burn_start_height();
+        if evaluated_epoch >= StacksEpochId::Epoch25 {
+            let _events = NakamotoChainState::check_and_handle_prepare_phase_start(
+                &mut clarity_tx,
+                first_block_height.into(),
+                &pox_constants,
+                burn_tip_height.into(),
+            )?;
+        }
+
         debug!(
             "Setup block: ready to go for {}/{}",
             &chain_tip.consensus_hash,
