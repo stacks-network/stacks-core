@@ -986,7 +986,8 @@ impl ConversationP2P {
         let _seq = msg.request_id();
 
         let mut handle = self.connection.make_relay_handle(self.conn_id)?;
-        msg.consensus_serialize(&mut handle)?;
+        let buf = msg.serialize_to_vec();
+        handle.write_all(&buf)?;
 
         self.stats.msgs_tx += 1;
 
@@ -1011,7 +1012,8 @@ impl ConversationP2P {
         let mut handle =
             self.connection
                 .make_request_handle(msg.request_id(), ttl, self.conn_id)?;
-        msg.consensus_serialize(&mut handle)?;
+        let buf = msg.serialize_to_vec();
+        handle.write_all(&buf)?;
 
         self.stats.msgs_tx += 1;
 
