@@ -2240,37 +2240,6 @@ pub mod test {
         signature.to_rsv()
     }
 
-    pub fn make_delegate_stx_signature(
-        stacker: &PrincipalData,
-        delegator_key: &Secp256k1PrivateKey,
-        reward_cycle: u128,
-    ) -> Vec<u8> {
-        let msg_tuple = Value::Tuple(
-            TupleData::from_data(vec![
-                ("stacker".into(), Value::Principal(stacker.clone())),
-                ("reward-cycle".into(), Value::UInt(reward_cycle)),
-            ])
-            .unwrap(),
-        );
-
-        let mut tuple_bytes = vec![];
-        msg_tuple
-            .serialize_write(&mut tuple_bytes)
-            .expect("Failed to serialize delegate sig data");
-        let msg_hash = Sha256Sum::from_data(&tuple_bytes).as_bytes().to_vec();
-
-        let signature = &delegator_key
-            .sign(&msg_hash)
-            .expect("Unable to sign delegate sig data");
-
-        // Convert signature into rsv as needed for `secp256k1-recover?`
-        let mut ret_bytes = Vec::new();
-        ret_bytes.extend(&signature[1..]);
-        ret_bytes.push(signature[0]);
-
-        ret_bytes
-    }
-
     fn make_tx(
         key: &StacksPrivateKey,
         nonce: u64,
