@@ -39,16 +39,10 @@
 (define-read-only (current-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height))
 
-(define-read-only (get-signer-public-key (signer principal) (reward-cycle uint))
-    ;; TODO replace with contract-call to signer::get-signer-public-key
-    ;; defined in PR https://github.com/stacks-network/stacks-core/pull/4092
-    ;; (contract-call? .signer get-signer-public-key reward-cycle signer)
-    (some 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20))
-
 (define-read-only (get-signer-slots (signer principal) (reward-cycle uint))
-    (some u1000000000000))
+    (contract-call? .signers get-signer-slots signer reward-cycle))
 
-;; aggreagate public key must be unique and can be used only once per cylce and round
+;; aggregate public key must be unique and can be used only once per cylce and round
 (define-read-only (is-unique-aggregated-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
     (match (map-get? used-aggregate-public-keys key)
         when (is-eq when dkg-id)

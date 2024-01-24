@@ -7,6 +7,10 @@
 	)
 )
 
+(define-read-only (get-signer-slots (signer principal) (reward-cycle uint))
+	(ok u1)
+)
+
 (define-read-only (stackerdb-get-signer-slots)
 	(ok (var-get stackerdb-signer-slots))
 )

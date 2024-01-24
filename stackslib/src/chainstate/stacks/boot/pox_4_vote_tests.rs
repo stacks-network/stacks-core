@@ -151,14 +151,14 @@ fn vote_for_aggregate_public_key() {
     let signer_address = key_to_stacks_addr(signer_key);
     let signer_principal = PrincipalData::from(signer_address);
     let cycle_id = current_reward_cycle;
-    let aggreated_public_key: Point = Point::new();
+    let aggregated_public_key: Point = Point::new();
 
     // cast a vote for the aggregate public key
     let txs = vec![make_pox_4_vote_for_aggregate_public_key(
         signer_key,
         signer_nonce,
         cycle_id,
-        &aggreated_public_key,
+        &aggregated_public_key,
     )];
 
     let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -179,7 +179,7 @@ fn vote_for_aggregate_public_key() {
         signer_key,
         signer_nonce,
         cycle_id,
-        &aggreated_public_key,
+        &aggregated_public_key,
     )];
 
     let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
@@ -200,7 +200,7 @@ fn vote_for_aggregate_public_key() {
         signer_key,
         signer_nonce,
         cycle_id - 1,
-        &aggreated_public_key,
+        &aggregated_public_key,
     )];
 
     let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
