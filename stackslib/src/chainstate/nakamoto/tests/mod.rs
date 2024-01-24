@@ -1644,11 +1644,7 @@ pub fn test_get_highest_nakamoto_tenure() {
 #[test]
 fn test_make_miners_stackerdb_config() {
     let test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(
-        function_name!(),
-        vec![],
-        test_signers.aggregate_public_key.clone(),
-    );
+    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None);
 
     let naka_miner_hash160 = peer.miner.nakamoto_miner_hash160();
     let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();

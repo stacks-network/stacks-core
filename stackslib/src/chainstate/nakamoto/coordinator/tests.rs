@@ -38,7 +38,6 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup,
 };
-use crate::chainstate::stacks::boot::test::{make_pox_4_aggregate_key, make_pox_4_lockup};
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{
@@ -49,9 +48,8 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
 use crate::net::relay::Relayer;
-use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::stackerdb::StackerDBConfig;
-use crate::net::test::{TestPeer, TestPeerConfig};
+use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
 
 /// Bring a TestPeer into the Nakamoto Epoch

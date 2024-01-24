@@ -54,7 +54,8 @@ use super::burn::db::sortdb::{
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::boot::{
-    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_NAME,
+    RawRewardSetEntry, BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
+    SIGNERS_NAME,
 };
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
@@ -73,6 +74,8 @@ use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegister
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::test::get_reward_addresses_with_par_tip;
 use crate::chainstate::stacks::boot::POX_4_NAME;
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{
@@ -84,7 +87,6 @@ use crate::clarity_vm::clarity::{
 };
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
-use crate::monitoring;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::Error as net_error;
 use crate::util_lib::boot;
@@ -1814,52 +1816,80 @@ impl NakamotoChainState {
         }
     }
 
-    fn calculate_signer_slots(
+    fn get_reward_slots(
         clarity: &mut ClarityTransactionConnection,
         pox_constants: &PoxConstants,
         reward_cycle: u64,
-    ) -> Result<BTreeMap<Vec<u8>, u128>, ChainstateError> {
+    ) -> Result<Vec<RawRewardSetEntry>, ChainstateError> {
         let is_mainnet = clarity.is_mainnet();
         let pox4_contract = &boot_code_id(POX_4_NAME, is_mainnet);
 
         let list_length = clarity
             .eval_read_only(
                 pox4_contract,
-                &format!("(get-signer-key-list-length u{})", reward_cycle),
+                &format!("(get-reward-set-size u{})", reward_cycle),
             )?
             .expect_u128();
 
-        let mut signers: BTreeMap<Vec<u8>, u128> = BTreeMap::new();
-        let mut total_ustx: u128 = 0;
+        let mut slots = vec![];
         for index in 0..list_length {
-            if let Ok(Value::Optional(entry)) = clarity.eval_read_only(
-                pox4_contract,
-                &format!("(get-signer-key u{} u{})", reward_cycle, index),
-            ) {
-                if let Some(data) = entry.data {
-                    let data = data.expect_tuple();
-                    let key = data.get("signer-key")?.to_owned().expect_buff(33);
-                    let amount = data.get("ustx")?.to_owned().expect_u128();
-                    let sum = signers.get(&key).cloned().unwrap_or_default();
-                    signers.insert(key, sum + amount);
-                    total_ustx = total_ustx
-                        .checked_add(amount)
-                        .expect("CORRUPTION: Stacker stacked > u128 max amount");
-                }
-            }
+            let entry = clarity
+                .eval_read_only(
+                    pox4_contract,
+                    &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, index),
+                )?
+                .expect_optional()
+                .expect(&format!(
+                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                    index, list_length, reward_cycle
+                ))
+                .expect_tuple();
+
+            let pox_addr_tuple = entry
+                .get("pox-addr")
+                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
+                .to_owned();
+
+            let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
+                .expect(&format!(
+                    "FATAL: not a valid PoX address: {:?}",
+                    &pox_addr_tuple
+                ));
+
+            let total_ustx = entry
+                .get("total-ustx")
+                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
+                .to_owned()
+                .expect_u128();
+
+            let stacker = entry
+                .get("stacker")
+                .expect(&format!(
+                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, index
+                ))
+                .to_owned()
+                .expect_optional()
+                .map(|value| value.expect_principal());
+
+            let signer = entry
+                .get("signer")
+                .expect(&format!(
+                    "FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, index
+                ))
+                .to_owned()
+                .expect_principal();
+
+            slots.push(RawRewardSetEntry {
+                reward_address,
+                amount_stacked: total_ustx,
+                stacker,
+                signer: Some(signer),
+            })
         }
 
-        // TODO: calculation
-        let threshold = total_ustx / 4000;
-        signers.retain(|_, value: &mut u128| {
-            if *value >= threshold {
-                *value = *value / threshold;
-                true
-            } else {
-                false
-            }
-        });
-        Ok(signers)
+        Ok(slots)
     }
     pub fn handle_signer_stackerdb_update(
         clarity: &mut ClarityTransactionConnection,
@@ -1871,40 +1901,35 @@ impl NakamotoChainState {
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
 
-        let signers =
-            Self::calculate_signer_slots(clarity, pox_constants, reward_cycle).unwrap_or_default();
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx());
 
-        let signers_list_data: Vec<Value> = signers
+        let reward_slots = Self::get_reward_slots(clarity, &pox_constants, reward_cycle)?;
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            &pox_constants,
+            &reward_slots[..],
+            liquid_ustx,
+        );
+        let reward_set =
+            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
+
+        //TODO remove unwraps
+        let signers_list = reward_set
+            .signers
+            .unwrap()
             .iter()
-            .map(|(signer_key, slots)| {
-                let key = StacksPublicKey::from_slice(signer_key.as_slice()).unwrap();
-                let addr = StacksAddress::from_public_keys(
-                    if is_mainnet {
-                        C32_ADDRESS_VERSION_MAINNET_SINGLESIG
-                    } else {
-                        C32_ADDRESS_VERSION_TESTNET_SINGLESIG
-                    },
-                    &AddressHashMode::SerializeP2PKH,
-                    1,
-                    &vec![key],
-                )
-                .unwrap();
+            .map(|signer| {
                 Value::Tuple(
                     TupleData::from_data(vec![
-                        ("signer".into(), Value::Principal(PrincipalData::from(addr))),
-                        ("num-slots".into(), Value::UInt(slots.to_owned())),
+                        (
+                            "signer".into(),
+                            Value::Principal(PrincipalData::from(signer.signing_address)),
+                        ),
+                        ("num-slots".into(), Value::UInt(signer.slots.into())),
                     ])
                     .unwrap(),
                 )
             })
             .collect();
-
-        info!(
-            "Handling stackerdb update, {} signers in list",
-            signers_list_data.len()
-        );
-
-        let signers_list = Value::cons_list_unsanitized(signers_list_data).unwrap();
 
         let (value, _, events, _) = clarity
             .with_abort_callback(
@@ -1913,7 +1938,9 @@ impl NakamotoChainState {
                         env.execute_contract_allow_private(
                             &signers_contract,
                             "stackerdb-set-signer-slots",
-                            &symbols_from_values(vec![signers_list]),
+                            &symbols_from_values(vec![
+                                Value::cons_list_unsanitized(signers_list).unwrap()
+                            ]),
                             false,
                         )
                     })
@@ -1927,6 +1954,7 @@ impl NakamotoChainState {
                 info!("stackerdb update error, data: {}", data);
             }
         }
+
         Ok(events)
     }
 

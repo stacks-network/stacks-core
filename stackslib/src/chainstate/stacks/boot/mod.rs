@@ -161,7 +161,7 @@ pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,
     pub amount_stacked: u128,
     pub stacker: Option<PrincipalData>,
-    pub signing_key: Option<PrincipalData>,
+    pub signer: Option<PrincipalData>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -618,9 +618,9 @@ impl StacksChainState {
             return None;
         };
         // signing keys must be all-or-nothing in the reward set
-        let expects_signing_keys = first_entry.signing_key.is_some();
+        let expects_signing_keys = first_entry.signer.is_some();
         for entry in entries.iter() {
-            if entry.signing_key.is_some() != expects_signing_keys {
+            if entry.signer.is_some() != expects_signing_keys {
                 panic!("FATAL: stacking-set contains mismatched entries with and without signing keys.");
             }
         }
@@ -630,7 +630,7 @@ impl StacksChainState {
 
         let mut signer_set = BTreeMap::new();
         for entry in entries.iter() {
-            let signing_key = if let Some(PrincipalData::Standard(s)) = entry.signing_key.clone() {
+            let signing_key = if let Some(PrincipalData::Standard(s)) = entry.signer.clone() {
                 StacksAddress::from(s)
             } else {
                 // TODO: should figure out if in mainnet?
@@ -896,7 +896,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker: None,
-                signing_key: None,
+                signer: None,
             })
         }
 
@@ -986,7 +986,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
-                signing_key: None,
+                signer: None,
             })
         }
 
@@ -1076,7 +1076,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
-                signing_key: None,
+                signer: None,
             })
         }
 
@@ -1108,7 +1108,13 @@ impl StacksChainState {
 
         let mut ret = vec![];
         for i in 0..num_addrs {
-            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            // value should be:
+            // (optional {
+            //     pox-addr: { version: (buff 1), hashbytes: (buff 32) },
+            //     total-ustx: uint,
+            //     stacker: (optional principal),
+            //     signer: principal
+            // })
             let tuple = self
                 .eval_boot_code_read_only(
                     sortdb,
@@ -1150,17 +1156,27 @@ impl StacksChainState {
                 .expect_optional()
                 .map(|value| value.expect_principal());
 
+            let signer = tuple
+                .get("signer")
+                .expect(&format!(
+                    "FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i
+                ))
+                .to_owned()
+                .expect_principal();
+
             debug!(
                 "Parsed PoX reward address";
                 "stacked_ustx" => total_ustx,
                 "reward_address" => %reward_address,
                 "stacker" => ?stacker,
+                "signer" => ?signer
             );
             ret.push(RawRewardSetEntry {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
-                signing_key: None,
+                signer: Some(signer),
             })
         }
 
@@ -1311,7 +1327,7 @@ pub mod test {
                 ),
                 amount_stacked: 1500,
                 stacker: None,
-                signing_key: None,
+                signer: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1321,7 +1337,7 @@ pub mod test {
 
                 amount_stacked: 500,
                 stacker: None,
-                signing_key: None,
+                signer: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1330,7 +1346,7 @@ pub mod test {
                 ),
                 amount_stacked: 1500,
                 stacker: None,
-                signing_key: None,
+                signer: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1339,7 +1355,7 @@ pub mod test {
                 ),
                 amount_stacked: 400,
                 stacker: None,
-                signing_key: None,
+                signer: None,
             },
         ];
         assert_eq!(
@@ -1389,7 +1405,7 @@ pub mod test {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
                     stacker: None,
-                    signing_key: None,
+                    signer: None,
                 }],
                 liquid,
             )
@@ -1416,7 +1432,7 @@ pub mod test {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid / 4,
                     stacker: None,
-                    signing_key: None,
+                    signer: None,
                 }],
                 liquid,
             )
@@ -1432,13 +1448,13 @@ pub mod test {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
                         stacker: None,
-                        signing_key: None,
+                        signer: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: 10_000_000 * (MICROSTACKS_PER_STACKS as u128),
                         stacker: None,
-                        signing_key: None,
+                        signer: None,
                     },
                 ],
                 liquid,
@@ -1456,13 +1472,13 @@ pub mod test {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
                         stacker: None,
-                        signing_key: None,
+                        signer: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: MICROSTACKS_PER_STACKS as u128,
                         stacker: None,
-                        signing_key: None,
+                        signer: None,
                     },
                 ],
                 liquid,
@@ -1479,7 +1495,7 @@ pub mod test {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
                     stacker: None,
-                    signing_key: None,
+                    signer: None,
                 }],
                 liquid,
             )

@@ -129,7 +129,6 @@ fn signers_get_signer_keys_from_pox4() {
 }
 
 #[test]
-#[ignore = "to be updated when the signer keys are processed in make_reward_set"]
 fn signers_get_signer_keys_from_stackerdb() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
     let stacker_2 = TestStacker::from_seed(&[5, 6]);
@@ -149,46 +148,34 @@ fn signers_get_signer_keys_from_stackerdb() {
         "stackerdb-get-signer-slots".into(),
         vec![],
     )
-    .expect_result_ok()
-    .expect_list();
+    .expect_result_ok();
 
-    let expected_tuple_1 = TupleData::from_data(vec![
-        (
-            "signer".into(),
-            Principal(PrincipalData::from(signer_1_addr)),
-        ),
-        ("num-slots".into(), Value::UInt(2000)),
-    ])
-    .unwrap();
-
-    let expected_tuple_2 = TupleData::from_data(vec![
-        (
-            "signer".into(),
-            Principal(PrincipalData::from(signer_2_addr)),
-        ),
-        ("num-slots".into(), Value::UInt(2000)),
-    ])
-    .unwrap();
-
-    assert_eq!(signers.len(), 2);
-
-    let first_tuple = signers.first().unwrap().clone().expect_tuple();
-    let second_tuple = signers.last().unwrap().clone().expect_tuple();
-
-    // Tuples can be in either order
-    if first_tuple
-        .get("signer")
+    assert_eq!(
+        signers,
+        Value::cons_list_unsanitized(vec![
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "signer".into(),
+                        Principal(PrincipalData::from(signer_2_addr)),
+                    ),
+                    ("num-slots".into(), Value::UInt(2)),
+                ])
+                .unwrap()
+            ),
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "signer".into(),
+                        Principal(PrincipalData::from(signer_1_addr)),
+                    ),
+                    ("num-slots".into(), Value::UInt(2)),
+                ])
+                .unwrap()
+            )
+        ])
         .unwrap()
-        .clone()
-        .expect_principal()
-        == PrincipalData::from(signer_1_addr)
-    {
-        assert_eq!(first_tuple, expected_tuple_1);
-        assert_eq!(second_tuple, expected_tuple_2);
-    } else {
-        assert_eq!(first_tuple, expected_tuple_2);
-        assert_eq!(second_tuple, expected_tuple_1);
-    }
+    );
 }
 
 fn prepare_signers_test<'a>(
