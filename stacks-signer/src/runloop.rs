@@ -954,7 +954,7 @@ mod tests {
         );
 
         spawn(move || {
-            write_response(mock_server, response.as_bytes());
+            write_response(&mock_server, response.as_bytes());
         });
         sleep(Duration::from_millis(100));
     }

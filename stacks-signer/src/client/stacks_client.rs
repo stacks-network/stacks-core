@@ -382,7 +382,7 @@ impl StacksClient {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use std::io::{BufWriter, Read, Write};
     use std::net::{SocketAddr, TcpListener};
     use std::thread::spawn;
@@ -390,9 +390,9 @@ pub(crate) mod tests {
     use super::*;
     use crate::client::ClientError;
 
-    pub(crate) struct TestConfig {
-        pub(crate) mock_server: TcpListener,
-        pub(crate) client: StacksClient,
+    pub struct TestConfig {
+        pub mock_server: TcpListener,
+        pub client: StacksClient,
     }
 
     impl TestConfig {
@@ -413,9 +413,13 @@ pub(crate) mod tests {
                 client,
             }
         }
+
+        pub fn host(&self) -> String {
+            self.client.http_origin.clone()
+        }
     }
 
-    pub(crate) fn write_response(mock_server: TcpListener, bytes: &[u8]) -> [u8; 1024] {
+    pub fn write_response(mock_server: &TcpListener, bytes: &[u8]) -> [u8; 1024] {
         debug!("Writing a response...");
         let mut request_bytes = [0u8; 1024];
         {
@@ -438,7 +442,7 @@ pub(crate) mod tests {
             )
         });
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 OK\n\n{\"okay\":true,\"result\":\"0x070d0000000473425443\"}",
         );
         let result = h.join().unwrap().unwrap();
@@ -457,7 +461,7 @@ pub(crate) mod tests {
             )
         });
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 OK\n\n{\"okay\":true,\"result\":\"0x070d0000000473425443\"}",
         );
         let result = h.join().unwrap().unwrap();
@@ -476,7 +480,7 @@ pub(crate) mod tests {
             )
         });
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 OK\n\n{\"okay\":false,\"cause\":\"Some reason\"}",
         );
         let result = h.join().unwrap();
@@ -495,7 +499,7 @@ pub(crate) mod tests {
                 &[],
             )
         });
-        write_response(config.mock_server, b"HTTP/1.1 400 Bad Request\n\n");
+        write_response(&config.mock_server, b"HTTP/1.1 400 Bad Request\n\n");
         let result = h.join().unwrap();
         assert!(matches!(
             result,
@@ -517,7 +521,7 @@ pub(crate) mod tests {
                 &[],
             )
         });
-        write_response(config.mock_server, b"HTTP/1.1 404 Not Found\n\n");
+        write_response(&config.mock_server, b"HTTP/1.1 404 Not Found\n\n");
         let result = h.join().unwrap();
         assert!(matches!(
             result,
@@ -530,7 +534,7 @@ pub(crate) mod tests {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_current_reward_cycle());
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}",
         );
         let current_cycle_id = h.join().unwrap().unwrap();
@@ -542,7 +546,7 @@ pub(crate) mod tests {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_current_reward_cycle());
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"id\":\"fake id\", \"is_pox_active\":false}}",
         );
         let res = h.join().unwrap();
@@ -554,7 +558,7 @@ pub(crate) mod tests {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_current_reward_cycle());
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"is_pox_active\":false}}",
         );
         let res = h.join().unwrap();
@@ -635,7 +639,7 @@ pub(crate) mod tests {
         });
 
         let request_bytes = write_response(
-            config.mock_server,
+            &config.mock_server,
             format!("HTTP/1.1 200 OK\n\n{}", tx.txid()).as_bytes(),
         );
         let returned_txid = h.join().unwrap().unwrap();
@@ -662,7 +666,7 @@ pub(crate) mod tests {
             )
         });
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
         );
         assert!(h.join().unwrap().is_ok());
@@ -673,7 +677,7 @@ pub(crate) mod tests {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\": \"3b593b712f8310768bf16e58f378aea999b8aa3b\"}",
         );
         assert!(h.join().unwrap().is_ok());
@@ -684,7 +688,7 @@ pub(crate) mod tests {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
         );
         assert!(h.join().unwrap().is_err());
@@ -702,7 +706,7 @@ pub(crate) mod tests {
             )
         });
         write_response(
-            config.mock_server,
+            &config.mock_server,
             b"HTTP/1.1 200 OK\n\n{\"proof\":\"0x00\",\"publish_height\":3,\"source\":\";;stackerdb\"}
             ",
         );

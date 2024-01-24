@@ -329,7 +329,9 @@ impl ExtendNodeConfigArgs {
 #[cfg(test)]
 mod test {
     use stacks_common::types::Address;
-    use std::{env::temp_dir, str::FromStr};
+    use std::{env::temp_dir, str::FromStr, thread::spawn};
+
+    use crate::client::tests::{write_response, TestConfig};
 
     use super::*;
 
@@ -373,5 +375,104 @@ mod test {
         cfg_args.handle();
 
         let _ = ConfigFile::from_path(output_file.to_str().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn sane_publish_contract() {
+        let config = TestConfig::new();
+        let args = PublishContractArgs {
+            source_file: "src/tests/conf/signer-0.toml".parse().unwrap(),
+            contract_name: "signers-stackerdb".to_string(),
+            network: Network::Mocknet,
+            stacks_private_key:
+                "69be0e68947fa7128702761151dc8d9b39ee1401e547781bb2ec3e5b4eb1b36f01".to_string(),
+            nonce: 0,
+            fee: 10000,
+            host: config.host(),
+        };
+
+        let handle = spawn(move || {
+            write_response(&config.mock_server, b"HTTP/1.1 200 OK\n\n\"cc77cebf299472f407b78f54701f5ebed35e572f7ab8d0043f58f3762892c557\"");
+
+            //trigger the 404 loop
+            write_response(&config.mock_server, b"HTTP/1.1 404 Not Found\n\n");
+
+            write_response(
+            &config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"proof\":\"0x00\",\"publish_height\":3,\"source\":\";;stackerdb\"}
+            ",
+        );
+        });
+
+        args.handle();
+
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn sane_generate_signer_config() {
+        let args = GenerateSignerConfigArgs {
+            save_to_file: temp_dir().join("sane_signer_config"),
+            seed: "secret".to_string(),
+            signer_id: 0,
+            network: Network::Mocknet,
+            stacker_db_args: StackerDBArgs {
+                host: "127.0.0.1:20443".parse().unwrap(),
+                contract: parse_contract(
+                    "ST11Z60137Y96MF89K1KKRTA3CR6B25WY1Y931668.signers-stackerdb",
+                )
+                .unwrap(),
+            },
+            observer_socket_address: "127.0.0.1:3000".parse().unwrap(),
+            num_keys: 2,
+            num_signers: 2,
+            timeout: None,
+        };
+        args.handle()
+    }
+
+    #[test]
+    fn sane_generate_contract_signers() {
+        let save_to_file = temp_dir().join("sane_generate_contract_signers");
+        let addr_1 = "SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
+        let addr_2 = "ST1EMWQSAEZ3VSD5TR9VY5M26E7FA52FWPS6EW59Q";
+        let parser = PrincipalData::parse_standard_principal;
+        let args = GenerateContractArgs {
+            save_to_file: save_to_file.clone(),
+            signers: vec![parser(addr_1).unwrap(), parser(addr_2).unwrap()],
+            chunk_size: 4096,
+            seed: None,
+            num_signers: None,
+            network: None,
+        };
+
+        args.handle();
+        let mut file = File::open(&save_to_file).unwrap();
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).unwrap();
+        assert!(buf.contains(addr_1));
+        assert!(buf.contains(addr_2));
+    }
+
+    #[test]
+    fn sane_generate_contract_from_seed() {
+        let save_to_file = temp_dir().join("sane_generate_contract_from_seed");
+        let addr_1 = "ST1N98YDTMHG8PRDA1KA23PMHWJ4PFMWGZ9CJ1KGM";
+        let addr_2 = "STX63DWEC6JN1CVM24CERBHTMWADAC715RZJRT9G";
+        let args = GenerateContractArgs {
+            save_to_file: save_to_file.clone(),
+            signers: vec![],
+            chunk_size: 4096,
+            seed: Some("secret".to_string()),
+            num_signers: Some(2),
+            network: Some(Network::Mocknet),
+        };
+
+        args.handle();
+        let mut file = File::open(&save_to_file).unwrap();
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).unwrap();
+        assert!(buf.contains(addr_1));
+        assert!(buf.contains(addr_2));
     }
 }
