@@ -47,8 +47,8 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
-    MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME,
-    POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME,  POX_4_VOTE_CODE, POX_4_VOTE_NAME,
+    MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
+    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, POX_4_VOTE_CODE, POX_4_VOTE_NAME,
     SIGNERS_BODY, SIGNERS_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
@@ -1451,7 +1451,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 );
             }
 
-	    let pox_4_vote_code = &*POX_4_VOTE_CODE;
+            let pox_4_vote_code = &*POX_4_VOTE_CODE;
             let pox_4_vote_contract_id = boot_code_id(POX_4_VOTE_NAME, mainnet);
             let payload = TransactionPayload::SmartContract(
                 TransactionSmartContract {
