@@ -987,7 +987,7 @@ impl ConversationP2P {
 
         let mut handle = self.connection.make_relay_handle(self.conn_id)?;
         let buf = msg.serialize_to_vec();
-        handle.write_all(&buf)?;
+        handle.write_all(&buf).map_err(net_error::WriteError)?;
 
         self.stats.msgs_tx += 1;
 
@@ -1013,7 +1013,7 @@ impl ConversationP2P {
             self.connection
                 .make_request_handle(msg.request_id(), ttl, self.conn_id)?;
         let buf = msg.serialize_to_vec();
-        handle.write_all(&buf)?;
+        handle.write_all(&buf).map_err(net_error::WriteError)?;
 
         self.stats.msgs_tx += 1;
 
