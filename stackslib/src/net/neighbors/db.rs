@@ -242,7 +242,7 @@ pub trait NeighborWalkDB {
         let mut next_neighbors: Vec<_> = db_neighbors
             .into_iter()
             .filter_map(|neighbor| {
-                if network.get_connection_opts().private_neighbors
+                if !network.get_connection_opts().private_neighbors
                     && neighbor.addr.addrbytes.is_in_private_range()
                 {
                     None
