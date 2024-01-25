@@ -223,7 +223,7 @@ pub trait NeighborWalkDB {
                 e
             });
 
-        let mut next_neighbors = if let Ok(neighbors) = next_neighbors_res {
+        let db_neighbors = if let Ok(neighbors) = next_neighbors_res {
             neighbors
         } else {
             let any_neighbors = Self::pick_walk_neighbors(network, (NUM_NEIGHBORS as u64) * 2, 0)
@@ -238,6 +238,20 @@ pub trait NeighborWalkDB {
 
             any_neighbors
         };
+
+        let mut next_neighbors: Vec<_> = db_neighbors
+            .into_iter()
+            .filter_map(|neighbor| {
+                if network.get_connection_opts().private_neighbors
+                    && neighbor.addr.addrbytes.is_in_private_range()
+                {
+                    None
+                } else {
+                    Some(neighbor)
+                }
+            })
+            .collect();
+
         if next_neighbors.len() == 0 {
             return Err(net_error::NoSuchNeighbor);
         }
