@@ -30,7 +30,7 @@ use blockstack_lib::net::api::getaccount::AccountEntryResponse;
 use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
-use blockstack_lib::util_lib::boot::boot_code_id;
+use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue, Value};
 use serde_json::json;
@@ -60,6 +60,8 @@ pub struct StacksClient {
     chain_id: u32,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
+    /// The stx transaction fee to use in microstacks
+    tx_fee: u64,
 }
 
 /// The supported epoch IDs
@@ -82,6 +84,7 @@ impl From<&Config> for StacksClient {
             tx_version: config.network.to_transaction_version(),
             chain_id: config.network.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
+            tx_fee: config.tx_fee,
         }
     }
 }
@@ -226,13 +229,6 @@ impl StacksClient {
         Ok(pox_data.reward_cycle_id)
     }
 
-    /// Helper function to retrieve the next possible nonce for the signer from the stacks node
-    #[allow(dead_code)]
-    fn get_next_possible_nonce(&self) -> Result<u64, ClientError> {
-        //FIXME: use updated RPC call to get mempool nonces. Depends on https://github.com/stacks-network/stacks-blockchain/issues/4000
-        todo!("Get the next possible nonce from the stacks node");
-    }
-
     /// Helper function to retrieve the account info from the stacks node for a specific address
     fn get_account_entry(
         &self,
@@ -303,29 +299,68 @@ impl StacksClient {
     }
 
     /// Sends a transaction to the stacks node for a modifying contract call
-    #[allow(dead_code)]
-    fn transaction_contract_call(
+    pub fn cast_vote_for_aggregate_public_key(
         &self,
-        contract_addr: &StacksAddress,
-        contract_name: ContractName,
-        function_name: ClarityName,
-        function_args: &[ClarityValue],
+        point: Point,
+        round: u64,
     ) -> Result<Txid, ClientError> {
-        debug!("Making a contract call to {contract_addr}.{contract_name}...");
+        debug!("Casting vote for aggregate public key to the mempool...");
+        let signed_tx = self.build_vote_for_aggregate_public_key(point, round)?;
+        self.submit_tx(&signed_tx)
+    }
+
+    /// Helper function to create a stacks transaction for a modifying contract call
+    pub fn build_vote_for_aggregate_public_key(
+        &self,
+        point: Point,
+        round: u64,
+    ) -> Result<StacksTransaction, ClientError> {
+        debug!("Building vote-for-aggregate-public-key transaction...");
+        let signer_index = 0; // TODO retreieve the index from the stacks node
         let nonce = self.get_account_nonce(&self.stacks_address)?;
-        // TODO: make tx_fee configurable
-        let signed_tx = Self::build_signed_contract_call_transaction(
-            contract_addr,
+        let contract_address = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
+        let contract_name = ContractName::from(POX_4_NAME); //TODO update this to POX_4_VOTE_NAME when the contract is deployed
+        let function_name = ClarityName::from("vote-for-aggregate-public-key");
+        let function_args = &[
+            ClarityValue::UInt(signer_index as u128),
+            ClarityValue::UInt(round as u128),
+            ClarityValue::buff_from(point.compress().as_bytes().to_vec())?,
+        ];
+
+        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
+            address: contract_address,
             contract_name,
             function_name,
-            function_args,
-            &self.stacks_private_key,
-            self.tx_version,
-            self.chain_id,
-            nonce,
-            10_000,
-        )?;
-        self.submit_tx(&signed_tx)
+            function_args: function_args.to_vec(),
+        });
+        let public_key = StacksPublicKey::from_private(&self.stacks_private_key);
+        let tx_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(public_key).ok_or(
+                ClientError::TransactionGenerationFailure(format!(
+                    "Failed to create spending condition from public key: {}",
+                    public_key.to_hex()
+                )),
+            )?,
+        );
+
+        let mut unsigned_tx = StacksTransaction::new(self.tx_version, tx_auth, tx_payload);
+        unsigned_tx.set_tx_fee(self.tx_fee);
+        unsigned_tx.set_origin_nonce(nonce);
+
+        unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        unsigned_tx.chain_id = self.chain_id;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer
+            .sign_origin(&self.stacks_private_key)
+            .map_err(|e| ClientError::TransactionGenerationFailure(e.to_string()))?;
+
+        tx_signer
+            .get_tx()
+            .ok_or(ClientError::TransactionGenerationFailure(
+                "Failed to generate transaction from a transaction signer".to_string(),
+            ))
     }
 
     /// Helper function to submit a transaction to the Stacks node
@@ -759,13 +794,12 @@ mod tests {
     #[test]
     fn transaction_contract_call_should_succeed() {
         let config = TestConfig::new();
+        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        let round = 10;
         let h = spawn(move || {
-            config.client.transaction_contract_call(
-                &config.client.stacks_address,
-                ContractName::from("contract-name"),
-                ClarityName::from("function-name"),
-                &[],
-            )
+            config
+                .client
+                .cast_vote_for_aggregate_public_key(point, round)
         });
         write_response(
             config.mock_server,
