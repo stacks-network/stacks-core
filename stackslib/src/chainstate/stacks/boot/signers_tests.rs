@@ -28,6 +28,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::PublicKey;
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
+use super::{RawRewardSetEntry, SIGNERS_PK_LEN};
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
@@ -43,7 +44,8 @@ use crate::chainstate::stacks::boot::pox_4_tests::{
 use crate::chainstate::stacks::boot::test::{
     instantiate_pox_peer_with_epoch, key_to_stacks_addr, make_pox_4_lockup, with_sortdb,
 };
-use crate::chainstate::stacks::boot::SIGNERS_NAME;
+use crate::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
+use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TenureChangeCause, TransactionAuth,
@@ -53,6 +55,113 @@ use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_test_addr};
+
+#[test]
+fn make_signer_units() {
+    assert_eq!(StacksChainState::make_signer_set(100, &[]), None);
+
+    fn stub_entry(signer: u64, amount: u128) -> RawRewardSetEntry {
+        let mut signer_bytes = [0; SIGNERS_PK_LEN];
+        signer_bytes[0..8].copy_from_slice(&signer.to_be_bytes());
+        RawRewardSetEntry {
+            signer: Some(signer_bytes),
+            stacker: None,
+            reward_address: PoxAddress::standard_burn_address(false),
+            amount_stacked: amount,
+        }
+    }
+    fn stub_out(signer: u64, amount: u128, slots: u32) -> NakamotoSignerEntry {
+        let mut signer_bytes = [0; SIGNERS_PK_LEN];
+        signer_bytes[0..8].copy_from_slice(&signer.to_be_bytes());
+        NakamotoSignerEntry {
+            signing_key: signer_bytes,
+            stacked_amt: amount,
+            slots,
+        }
+    }
+
+    fn perform_test(threshold: u128, input: &[(u64, u128)], expected: &[(u64, u128, u32)]) {
+        let in_entries: Vec<_> = input
+            .iter()
+            .map(|(signer, amount)| stub_entry(*signer, *amount))
+            .collect();
+        let expected: Vec<_> = expected
+            .iter()
+            .map(|(signer, amount, slots)| stub_out(*signer, *amount, *slots))
+            .collect();
+        assert_eq!(
+            StacksChainState::make_signer_set(threshold, &in_entries),
+            Some(expected)
+        );
+    }
+
+    let threshold = 10_000;
+    let input_set = [
+        (2, 10_001),
+        (0, 10_000),
+        (1, 10_000),
+        (0, 30_000),
+        (2, 9_999),
+        (1, 1),
+    ];
+    let expected = [(0, 40_000, 4), (1, 10_001, 1), (2, 20_000, 2)];
+
+    perform_test(threshold, &input_set, &expected);
+
+    let threshold = 10_000;
+    let input_set = [
+        (2, 10_001),
+        (0, 10_000),
+        (1, 10_000),
+        (0, 30_000),
+        (2, 9_999),
+        (1, 1),
+        (3, 9_999),
+    ];
+    let expected = [(0, 40_000, 4), (1, 10_001, 1), (2, 20_000, 2)];
+
+    perform_test(threshold, &input_set, &expected);
+}
+
+#[test]
+#[should_panic]
+fn make_signer_sanity_panic_0() {
+    let bad_set = [
+        RawRewardSetEntry {
+            reward_address: PoxAddress::standard_burn_address(false),
+            amount_stacked: 10,
+            stacker: None,
+            signer: Some([0; SIGNERS_PK_LEN]),
+        },
+        RawRewardSetEntry {
+            reward_address: PoxAddress::standard_burn_address(false),
+            amount_stacked: 10,
+            stacker: None,
+            signer: None,
+        },
+    ];
+    StacksChainState::make_signer_set(5, &bad_set);
+}
+
+#[test]
+#[should_panic]
+fn make_signer_sanity_panic_1() {
+    let bad_set = [
+        RawRewardSetEntry {
+            reward_address: PoxAddress::standard_burn_address(false),
+            amount_stacked: 10,
+            stacker: None,
+            signer: None,
+        },
+        RawRewardSetEntry {
+            reward_address: PoxAddress::standard_burn_address(false),
+            amount_stacked: 10,
+            stacker: None,
+            signer: Some([0; SIGNERS_PK_LEN]),
+        },
+    ];
+    StacksChainState::make_signer_set(5, &bad_set);
+}
 
 #[test]
 fn signers_get_config() {
