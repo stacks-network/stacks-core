@@ -39,6 +39,8 @@ use wsts::state_machine::PublicKeys;
 pub type SignerKeyIds = HashMap<u32, Vec<u32>>;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
+//TODO: make this zero once special cased transactions are allowed in the stacks node
+const TX_FEE_MS: u64 = 10_000;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -151,6 +153,8 @@ pub struct Config {
     pub nonce_timeout: Option<Duration>,
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
+    /// the STX tx fee to use in uSTX
+    pub tx_fee: u64,
 }
 
 /// Internal struct for loading up the config file signer data
@@ -192,6 +196,8 @@ struct RawConfigFile {
     pub nonce_timeout_ms: Option<u64>,
     /// timeout in (millisecs) to gather signature shares
     pub sign_timeout_ms: Option<u64>,
+    /// the STX tx fee to use in uSTX
+    pub tx_fee_ms: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -326,6 +332,7 @@ impl TryFrom<RawConfigFile> for Config {
             dkg_private_timeout,
             nonce_timeout,
             sign_timeout,
+            tx_fee: raw_data.tx_fee_ms.unwrap_or(TX_FEE_MS),
         })
     }
 }
@@ -374,6 +381,7 @@ mod tests {
             dkg_private_timeout_ms: None,
             nonce_timeout_ms: None,
             sign_timeout_ms: None,
+            tx_fee_ms: None,
         };
         overrides(&mut config);
         config
