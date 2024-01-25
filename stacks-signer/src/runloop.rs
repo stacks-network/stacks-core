@@ -29,14 +29,14 @@ use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::{debug, error, info, warn};
-use wsts::common::MerkleRoot;
+use wsts::common::{MerkleRoot, Signature};
 use wsts::curve::ecdsa;
 use wsts::curve::keys::PublicKey;
 use wsts::net::{Message, NonceRequest, Packet, SignatureShareRequest};
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
 use wsts::state_machine::signer::Signer;
-use wsts::state_machine::{OperationResult, PublicKeys};
+use wsts::state_machine::{OperationResult, PublicKeys, SignError};
 use wsts::v2;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
@@ -381,10 +381,14 @@ impl<C: Coordinator> RunLoop<C> {
                 (vec![], vec![])
             });
 
+        if !operation_results.is_empty() {
+            // We have finished a signing or DKG round. Update state accordingly
+            self.state = State::Idle;
+            self.process_operation_results(&operation_results);
+            self.send_operation_results(res, operation_results);
+        }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
-        self.send_block_response_messages(&operation_results);
-        self.send_operation_results(res, operation_results);
     }
 
     /// Validate a signature share request, updating its message where appropriate.
@@ -532,76 +536,144 @@ impl<C: Coordinator> RunLoop<C> {
         }
     }
 
-    /// Extract block proposals from signature results and broadcast them to the stackerdb slot
-    fn send_block_response_messages(&mut self, operation_results: &[OperationResult]) {
-        let Some(aggregate_public_key) = &self.coordinator.get_aggregate_public_key() else {
-            debug!("No aggregate public key set. Cannot validate results. Ignoring signature results...");
-            return;
-        };
-        //Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
+    /// Processes the operation results, broadcasting block acceptance or rejection messages
+    /// and DKG vote results accordingly
+    fn process_operation_results(&mut self, operation_results: &[OperationResult]) {
         for operation_result in operation_results {
             // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
-            if let OperationResult::Sign(signature) = operation_result {
-                let message = self.coordinator.get_message();
-                if !signature.verify(aggregate_public_key, &message) {
-                    warn!("Received an invalid signature result.");
-                    continue;
+            match operation_result {
+                OperationResult::Sign(signature) => {
+                    self.process_signature(signature);
                 }
-                // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
-                let block_hash_bytes = if message.len() > 32 {
-                    &message[..32]
-                } else {
-                    &message
-                };
-                let Some(block_hash) = Sha512Trunc256Sum::from_bytes(block_hash_bytes) else {
-                    debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
-                    continue;
-                };
-                let Some(block_info) = self.blocks.remove(&block_hash) else {
-                    debug!("Received a signature result for a block we have not seen before. Ignoring...");
-                    continue;
-                };
-
-                // Update the block signature hash with what the signers produced.
-                let mut block = block_info.block;
-                block.header.signer_signature = ThresholdSignature(signature.clone());
-
-                let block_submission = if message == block_hash.0.to_vec() {
-                    // we agreed to sign the block hash. Return an approval message
-                    BlockResponse::Accepted(block).into()
-                } else {
-                    // We signed a rejection message. Return a rejection message
-                    BlockRejection::new(block, RejectCode::SignedRejection).into()
-                };
-
-                // Submit signature result to miners to observe
-                if let Err(e) = self
-                    .stackerdb
-                    .send_message_with_retry(self.signing_round.signer_id, block_submission)
-                {
-                    warn!("Failed to send block submission to stacker-db: {:?}", e);
+                OperationResult::SignTaproot(_) => {
+                    debug!("Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.");
+                }
+                OperationResult::Dkg(_point) => {
+                    // TODO: cast the aggregate public key for the latest round here
+                }
+                OperationResult::SignError(e) => {
+                    self.process_sign_error(e);
+                }
+                OperationResult::DkgError(e) => {
+                    warn!("Received a DKG error: {:?}", e);
                 }
             }
         }
     }
 
-    /// Send any operation results across the provided channel, updating the state accordingly
+    /// Process a signature from a signing round by deserializing the signature and
+    /// broadcasting an appropriate Reject or Approval message to stackerdb
+    fn process_signature(&mut self, signature: &Signature) {
+        //Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
+        //TODO: should this retreive the aggregate public key from the stacks node instead as it might have changed since this round commenced?
+        // Or should we broadcast it anyway and rely on the miners to repropose a block if the key changed?
+        let Some(aggregate_public_key) = &self.coordinator.get_aggregate_public_key() else {
+            debug!("No aggregate public key set. Cannot validate signature...");
+            return;
+        };
+        let message = self.coordinator.get_message();
+        // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
+        let block_hash_bytes = if message.len() > 32 {
+            &message[..32]
+        } else {
+            &message
+        };
+        let Some(block_hash) = Sha512Trunc256Sum::from_bytes(block_hash_bytes) else {
+            debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
+            return;
+        };
+        let Some(block_info) = self.blocks.remove(&block_hash) else {
+            debug!("Received a signature result for a block we have not seen before. Ignoring...");
+            return;
+        };
+        // This signature is no longer valid. Do not broadcast it.
+        if !signature.verify(aggregate_public_key, &message) {
+            warn!("Received an invalid signature result across the block. Do not broadcast it.");
+            // TODO: should we reinsert it and trigger a sign round across the block again?
+            return;
+        }
+        // Update the block signature hash with what the signers produced.
+        let mut block = block_info.block;
+        block.header.signer_signature = ThresholdSignature(signature.clone());
+
+        let block_submission = if message == block_hash.0.to_vec() {
+            // we agreed to sign the block hash. Return an approval message
+            BlockResponse::Accepted(block).into()
+        } else {
+            // We signed a rejection message. Return a rejection message
+            BlockRejection::new(block, RejectCode::SignedRejection).into()
+        };
+
+        // Submit signature result to miners to observe
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry(self.signing_round.signer_id, block_submission)
+        {
+            warn!("Failed to send block submission to stacker-db: {:?}", e);
+        }
+    }
+
+    /// Process a sign error from a signing round, broadcasting a rejection message to stackerdb accordingly
+    fn process_sign_error(&mut self, e: &SignError) {
+        warn!("Received a signature error: {:?}", e);
+        match e {
+            SignError::NonceTimeout(_valid_signers, _malicious_signers) => {
+                //TODO: report these malicious signers
+                debug!("Received a nonce timeout.");
+            }
+            SignError::InsufficientSigners(malicious_signers) => {
+                let message = self.coordinator.get_message();
+                let block = read_next::<NakamotoBlock, _>(&mut &message[..]).ok().unwrap_or({
+                    // This is not a block so maybe its across its hash
+                    // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
+                    let block_hash_bytes = if message.len() > 32 {
+                        &message[..32]
+                    } else {
+                        &message
+                    };
+                    let Some(block_hash) = Sha512Trunc256Sum::from_bytes(block_hash_bytes) else {
+                        debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
+                        return;
+                    };
+                    let Some(block_info) = self.blocks.remove(&block_hash) else {
+                        debug!("Received a signature result for a block we have not seen before. Ignoring...");
+                        return;
+                    };
+                    block_info.block
+                });
+                // We don't have enough signers to sign the block. Broadcast a rejection
+                let block_rejection = BlockRejection::new(
+                    block,
+                    RejectCode::InsufficientSigners(malicious_signers.clone()),
+                );
+                // Submit signature result to miners to observe
+                if let Err(e) = self
+                    .stackerdb
+                    .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
+                {
+                    warn!("Failed to send block submission to stacker-db: {:?}", e);
+                }
+            }
+            SignError::Aggregator(e) => {
+                warn!("Received an aggregator error: {:?}", e);
+            }
+        }
+        // TODO: should reattempt to sign the block here or should we just broadcast a rejection or do nothing and wait for the signers to propose a new block?
+    }
+
+    /// Send any operation results across the provided channel
     fn send_operation_results(
         &mut self,
         res: Sender<Vec<OperationResult>>,
         operation_results: Vec<OperationResult>,
     ) {
         let nmb_results = operation_results.len();
-        if nmb_results > 0 {
-            // We finished our command. Update the state
-            self.state = State::Idle;
-            match res.send(operation_results) {
-                Ok(_) => {
-                    debug!("Successfully sent {} operation result(s)", nmb_results)
-                }
-                Err(e) => {
-                    warn!("Failed to send operation results: {:?}", e);
-                }
+        match res.send(operation_results) {
+            Ok(_) => {
+                debug!("Successfully sent {} operation result(s)", nmb_results)
+            }
+            Err(e) => {
+                warn!("Failed to send operation results: {:?}", e);
             }
         }
     }

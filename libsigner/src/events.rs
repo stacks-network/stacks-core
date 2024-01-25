@@ -120,6 +120,8 @@ pub enum RejectCode {
     SignedRejection,
     /// Invalid signature hash
     InvalidSignatureHash,
+    /// Insufficient signers agreed to sign the block
+    InsufficientSigners(Vec<u32>),
 }
 
 impl std::fmt::Display for RejectCode {
@@ -130,6 +132,11 @@ impl std::fmt::Display for RejectCode {
                 write!(f, "A threshold number of signers rejected the block.")
             }
             RejectCode::InvalidSignatureHash => write!(f, "The signature hash was invalid."),
+            RejectCode::InsufficientSigners(malicious_signers) => write!(
+                f,
+                "Insufficient signers agreed to sign the block. The following signers are malicious: {:?}",
+                malicious_signers
+            ),
         }
     }
 }
