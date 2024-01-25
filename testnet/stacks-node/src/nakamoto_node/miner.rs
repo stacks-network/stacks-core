@@ -20,13 +20,16 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::{
+    BlockResponse, SignerMessage, SignerSession, StackerDBSession, BLOCK_SLOT_ID,
+    SIGNER_SLOTS_PER_USER,
+};
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use stacks::chainstate::stacks::boot::MINERS_NAME;
+use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
@@ -37,8 +40,9 @@ use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::net::stackerdb::StackerDBs;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::vrf::VRFProof;
+use wsts::curve::point::Point;
 
 use super::relayer::RelayerThread;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
@@ -51,6 +55,9 @@ use crate::{neon_node, ChainTip};
 /// If the miner was interrupted while mining a block, how long should the
 ///  miner thread sleep before trying again?
 const ABORT_TRY_AGAIN_MS: u64 = 200;
+/// If the signers have not responded to a block proposal, how long should
+///  the miner thread sleep before trying again?
+const WAIT_FOR_SIGNERS_MS: u64 = 200;
 
 pub enum MinerDirective {
     /// The miner won sortition so they should begin a new tenure
@@ -140,6 +147,14 @@ impl BlockMinerThread {
         let miners_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
         let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");
+        let rpc_sock = self.config.node.rpc_bind.parse().expect(&format!(
+            "Failed to parse socket: {}",
+            &self.config.node.rpc_bind
+        ));
+        let Some(miner_privkey) = self.config.miner.mining_key else {
+            warn!("No mining key configured, cannot mine");
+            return;
+        };
         // now, actually run this tenure
         loop {
             let new_block = loop {
@@ -174,10 +189,11 @@ impl BlockMinerThread {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
                 .expect("FATAL: could not retrieve chain tip");
             if let Some(new_block) = new_block {
-                let Some(miner_privkey) = self.config.miner.mining_key else {
-                    warn!("No mining key configured, cannot mine");
-                    return;
-                };
+                let signer_signature_hash = new_block
+                    .header
+                    .signer_signature_hash()
+                    .expect("FATAL: failed to mine a block with a valid signer signature hash");
+
                 match NakamotoBlockBuilder::make_stackerdb_block_proposal(
                     &sort_db,
                     &tip,
@@ -188,11 +204,6 @@ impl BlockMinerThread {
                 ) {
                     Ok(Some(chunk)) => {
                         // Propose the block to the observing signers through the .miners stackerdb instance
-                        let rpc_sock = self.config.node.rpc_bind.parse().expect(&format!(
-                            "Failed to parse socket: {}",
-                            &self.config.node.rpc_bind
-                        ));
-
                         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
                         let mut miners_stackerdb =
                             StackerDBSession::new(rpc_sock, miner_contract_id);
@@ -213,6 +224,24 @@ impl BlockMinerThread {
                         warn!("Failed to propose block to stackerdb: {e:?}");
                     }
                 }
+                let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
+                    .expect("FATAL: could not open chainstate DB");
+                if let Ok(aggregate_public_key) = NakamotoChainState::get_aggregate_public_key(
+                    &mut chain_state,
+                    &sort_db,
+                    &sort_db.index_handle_at_tip(),
+                    &new_block,
+                ) {
+                    if let Some(_signed_block) = self.wait_for_signed_block(
+                        &stackerdbs,
+                        &aggregate_public_key,
+                        &signer_signature_hash,
+                    ) {
+                        // TODO: append the signed block instead of the self signed block
+                    } else {
+                        debug!("Failed to get a signed block from signers");
+                    }
+                };
                 if let Some(self_signer) = self.config.self_signing() {
                     if let Err(e) = self.self_sign_and_broadcast(self_signer, new_block.clone()) {
                         warn!("Error self-signing block: {e:?}");
@@ -239,6 +268,90 @@ impl BlockMinerThread {
                 }
             }
         }
+    }
+
+    fn wait_for_signed_block(
+        &self,
+        stackerdbs: &StackerDBs,
+        aggregate_public_key: &Point,
+        signer_signature_hash: &Sha512Trunc256Sum,
+    ) -> Option<NakamotoBlock> {
+        let stackerdb_contracts = stackerdbs
+            .get_stackerdb_contract_ids()
+            .expect("FATAL: could not get the stacker DB contract ids");
+        // TODO: get this directly instead of this jankiness when .signers is a boot contract
+        let signers_contract_id = boot_code_id(SIGNERS_NAME, self.config.is_mainnet());
+        if !stackerdb_contracts.contains(&signers_contract_id) {
+            debug!("No signers contract found, cannot wait for signers");
+            return None;
+        };
+        // Get the block slot for every signer
+        let slot_ids = stackerdbs
+            .get_signers(&signers_contract_id)
+            .expect("FATAL: could not get signers from stacker DB")
+            .iter()
+            .enumerate()
+            .map(|(id, _)| id as u32 * SIGNER_SLOTS_PER_USER + BLOCK_SLOT_ID)
+            .collect::<Vec<u32>>();
+        // If more than a threshold percentage of the signers reject the block, we should not wait any further
+        let rejection_threshold =
+            slot_ids.len() / 100 * self.config.miner.signer_rejection_threshold;
+        let mut num_rejections = 0;
+        let now = Instant::now();
+        while now.elapsed() < self.config.miner.wait_on_signers {
+            // Get the block responses from the signers for the block we just proposed
+            let signer_messages: Vec<SignerMessage> = stackerdbs
+                .get_latest_chunks(&signers_contract_id, &slot_ids)
+                .expect("FATAL: could not get latest chunks from stacker DB")
+                .into_iter()
+                .filter_map(|chunk| {
+                    chunk.and_then(|chunk| bincode::deserialize::<SignerMessage>(&chunk).ok())
+                })
+                .collect();
+            for signer_message in signer_messages {
+                match signer_message {
+                    SignerMessage::BlockResponse(BlockResponse::Accepted(block)) => {
+                        if block.header.signer_signature_hash().ok()? == *signer_signature_hash
+                            && block
+                                .header
+                                .signer_signature
+                                .verify(aggregate_public_key, &signer_signature_hash.0)
+                        {
+                            // We verified that the returned block contains a valid signature across the signer signature hash of our original block request
+                            // Let's just immediately attempt to append the block without waiting for more signer messages
+                            return Some(block);
+                        }
+                    }
+                    SignerMessage::BlockResponse(BlockResponse::Rejected(block_rejection)) => {
+                        // First check that this block rejection is for the block we proposed
+                        if block_rejection.block.header.signer_signature_hash().ok()?
+                            == *signer_signature_hash
+                        {
+                            let signature = block_rejection.block.header.signer_signature;
+                            let mut message = signer_signature_hash.0.to_vec();
+                            message.push(b'n');
+                            if signature.verify(aggregate_public_key, &message) {
+                                // We received a verified rejection. We will NEVER get a signed block from the signers for this particular block
+                                return None;
+                            } else if signature
+                                .verify(aggregate_public_key, &signer_signature_hash.0)
+                            {
+                                // We received an unverified rejection. We will keep waiting for a threshold number of rejections
+                                num_rejections += 1;
+                                if num_rejections > rejection_threshold {
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                    _ => {} // Any other message is ignored
+                }
+            }
+            // We have not received a signed block or enough information to reject the proposed block. Wait a bit and try again.
+            thread::sleep(Duration::from_millis(WAIT_FOR_SIGNERS_MS));
+        }
+        // We have waited for the signers for too long: stop waiting so we can propose a new block
+        None
     }
 
     fn self_sign_and_broadcast(
