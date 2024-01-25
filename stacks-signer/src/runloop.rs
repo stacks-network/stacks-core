@@ -139,7 +139,6 @@ pub struct RunLoop<C> {
 impl<C: Coordinator> RunLoop<C> {
     /// Initialize the signer, reading the stacker-db state and setting the aggregate public key
     fn initialize(&mut self) -> Result<(), ClientError> {
-        // TODO: update to read stacker db to get state.
         // Check if the aggregate key is set in the pox contract
         if let Some(key) = self.stacks_client.get_aggregate_public_key()? {
             debug!("Aggregate public key is set: {:?}", key);
@@ -187,7 +186,7 @@ impl<C: Coordinator> RunLoop<C> {
                 is_taproot,
                 merkle_root,
             } => {
-                let Ok(hash) = block.header.signature_hash() else {
+                let Ok(hash) = block.header.signer_signature_hash() else {
                     error!("Failed to sign block. Invalid signature hash.");
                     return false;
                 };
@@ -259,7 +258,7 @@ impl<C: Coordinator> RunLoop<C> {
         let transactions = &self.transactions;
         let (block_info, hash) = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                let Ok(hash) = block_validate_ok.block.header.signature_hash() else {
+                let Ok(hash) = block_validate_ok.block.header.signer_signature_hash() else {
                     self.broadcast_signature_hash_rejection(block_validate_ok.block);
                     return;
                 };
@@ -272,7 +271,7 @@ impl<C: Coordinator> RunLoop<C> {
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
                 // There is no point in triggering a sign round for this block if validation failed from the stacks node
-                let Ok(hash) = block_validate_reject.block.header.signature_hash() else {
+                let Ok(hash) = block_validate_reject.block.header.signer_signature_hash() else {
                     self.broadcast_signature_hash_rejection(block_validate_reject.block);
                     return;
                 };
@@ -346,7 +345,7 @@ impl<C: Coordinator> RunLoop<C> {
     /// Handle proposed blocks submitted by the miners to stackerdb
     fn handle_proposed_blocks(&mut self, blocks: Vec<NakamotoBlock>) {
         for block in blocks {
-            let Ok(hash) = block.header.signature_hash() else {
+            let Ok(hash) = block.header.signer_signature_hash() else {
                 self.broadcast_signature_hash_rejection(block);
                 continue;
             };
@@ -382,7 +381,8 @@ impl<C: Coordinator> RunLoop<C> {
             });
 
         if !operation_results.is_empty() {
-            // We have finished a signing or DKG round. Update state accordingly
+            // We have finished a signing or DKG round, either successfully or due to error.
+            // Regardless of the why, update our state to Idle as we should not expect the operation to continue.
             self.state = State::Idle;
             self.process_operation_results(&operation_results);
             self.send_operation_results(res, operation_results);
@@ -421,13 +421,16 @@ impl<C: Coordinator> RunLoop<C> {
                 true
             }
             Some(None) => {
-                // We never agreed to sign this block. Reject it. This can happen if the coordinator received enough votes to sign yes or no on a block before we received validation from the stacks node.
+                // We never agreed to sign this block. Reject it.
+                // This can happen if the coordinator received enough votes to sign yes
+                // or no on a block before we received validation from the stacks node.
                 debug!("Received a signature share request for a block we never agreed to sign. Ignore it.");
                 false
             }
             None => {
-                // We will only sign across block hashes or block hashes + b'n' byte for blocks we have seen a Nonce Request for (and subsequent validation)
-                // We are missing the context here necessary to make a decision therefore we outright reject the block
+                // We will only sign across block hashes or block hashes + b'n' byte for
+                // blocks we have seen a Nonce Request for (and subsequent validation)
+                // We are missing the context here necessary to make a decision. Reject the block
                 debug!("Received a signature share request from an unknown block. Reject it.");
                 false
             }
@@ -444,7 +447,7 @@ impl<C: Coordinator> RunLoop<C> {
             debug!("Received a nonce request for an unknown message stream. Reject it.");
             return false;
         };
-        let Ok(hash) = block.header.signature_hash() else {
+        let Ok(hash) = block.header.signer_signature_hash() else {
             debug!(
                 "Received a nonce request for a block with an invalid signature hash. Reject it"
             );
@@ -453,7 +456,7 @@ impl<C: Coordinator> RunLoop<C> {
         let transactions = &self.transactions;
         let Some(block_info) = self.blocks.get_mut(&hash) else {
             // We have not seen this block before. Cache it. Send a RPC to the stacks node to validate it.
-            debug!("We have received a block sign request for a block we have not seen before. Cache request and submit the block for validation...");
+            debug!("We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...");
             // Store the block in our cache
             self.blocks.insert(
                 hash,
@@ -564,9 +567,7 @@ impl<C: Coordinator> RunLoop<C> {
     /// Process a signature from a signing round by deserializing the signature and
     /// broadcasting an appropriate Reject or Approval message to stackerdb
     fn process_signature(&mut self, signature: &Signature) {
-        //Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
-        //TODO: should this retreive the aggregate public key from the stacks node instead as it might have changed since this round commenced?
-        // Or should we broadcast it anyway and rely on the miners to repropose a block if the key changed?
+        // Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
         let Some(aggregate_public_key) = &self.coordinator.get_aggregate_public_key() else {
             debug!("No aggregate public key set. Cannot validate signature...");
             return;

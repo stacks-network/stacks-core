@@ -565,7 +565,7 @@ impl BlockMinerThread {
             .sign(
                 block
                     .header
-                    .signature_hash()
+                    .miner_signature_hash()
                     .map_err(|_| NakamotoNodeError::SigningError("Could not create sighash"))?
                     .as_bytes(),
             )

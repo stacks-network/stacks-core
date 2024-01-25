@@ -384,7 +384,7 @@ fn stackerdb_dkg_sign() {
     // The block is invalid so the signers should return a signature across its hash + b'n'
     let mut msg = block
         .header
-        .signature_hash()
+        .signer_signature_hash()
         .expect("Failed to get signature hash")
         .0
         .to_vec();
@@ -646,7 +646,7 @@ fn stackerdb_block_proposal() {
     };
     let signature_hash = proposed_block
         .header
-        .signature_hash()
+        .signer_signature_hash()
         .expect("Unable to retrieve signature hash from proposed block");
     assert!(
         signature.verify(&aggregate_public_key, signature_hash.0.as_slice()),

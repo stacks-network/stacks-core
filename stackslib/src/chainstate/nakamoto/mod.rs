@@ -386,7 +386,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
 impl NakamotoBlockHeader {
     /// Calculate the message digest for miners to sign.
     /// This includes all fields _except_ the signatures.
-    pub fn signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+    pub fn miner_signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
         let fd = &mut hasher;
         write_next(fd, &self.version)?;
@@ -416,7 +416,7 @@ impl NakamotoBlockHeader {
     }
 
     pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
-        let signed_hash = self.signature_hash().ok()?;
+        let signed_hash = self.miner_signature_hash().ok()?;
         let recovered_pk =
             StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature).ok()?;
 
@@ -438,7 +438,7 @@ impl NakamotoBlockHeader {
 
     /// Sign the block header by the miner
     pub fn sign_miner(&mut self, privk: &StacksPrivateKey) -> Result<(), ChainstateError> {
-        let sighash = self.signature_hash()?.0;
+        let sighash = self.miner_signature_hash()?.0;
         let sig = privk
             .sign(&sighash)
             .map_err(|se| net_error::SigningError(se.to_string()))?;
