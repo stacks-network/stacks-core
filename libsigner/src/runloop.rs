@@ -79,14 +79,8 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
                     return None;
                 }
             };
-            let next_command_opt = match command_recv.recv_timeout(poll_timeout) {
-                Ok(cmd) => Some(cmd),
-                Err(RecvTimeoutError::Timeout) => None,
-                Err(RecvTimeoutError::Disconnected) => {
-                    info!("Command receiver disconnected");
-                    return None;
-                }
-            };
+            // Do not block for commands
+            let next_command_opt = command_recv.try_recv().ok();
             if let Some(final_state) =
                 self.run_one_pass(next_event_opt, next_command_opt, result_send.clone())
             {

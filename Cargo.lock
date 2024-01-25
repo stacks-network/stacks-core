@@ -3546,8 +3546,10 @@ dependencies = [
  "async-std",
  "backtrace",
  "base64 0.12.3",
+ "bincode",
  "chrono",
  "clarity",
+ "hashbrown 0.14.0",
  "http-types",
  "lazy_static",
  "libc",
@@ -3586,6 +3588,7 @@ dependencies = [
  "hashbrown 0.14.0",
  "libsigner",
  "libstackerdb",
+ "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
  "secp256k1",
@@ -3615,6 +3618,7 @@ dependencies = [
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
+ "hashbrown 0.14.0",
  "integer-sqrt",
  "lazy_static",
  "libc",
@@ -4714,9 +4718,9 @@ dependencies = [
 
 [[package]]
 name = "wsts"
-version = "6.1.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c7db3d3fe28c359e0cdb7f7ad83e3316bda0ba982b8cd1bf0fbe73ae4127e4b"
+checksum = "c398736468f3322a43b6419be5315e68ae035e6565628603503c2a62ad726f36"
 dependencies = [
  "aes-gcm 0.10.2",
  "bs58 0.5.0",

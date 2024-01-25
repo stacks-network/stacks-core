@@ -1653,7 +1653,6 @@ fn delegate_stack_stx_signer_key() {
         hex_bytes("03a0f9818ea8c14a827bb144aec9cfbaeba225af22be18ed78a2f298106f4e281b").unwrap();
     let signer_key = Secp256k1PublicKey::from_slice(&signer_bytes).unwrap();
     let signer_key_val = Value::buff_from(signer_bytes.clone()).unwrap();
-
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
 
     let txs = vec![
@@ -1701,6 +1700,7 @@ fn delegate_stack_stx_signer_key() {
     //                                (signer-key (buff 33)))
 
     let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
     let delegation_state = get_delegation_state_pox_4(
         &mut peer,
         &latest_block,
@@ -1714,7 +1714,7 @@ fn delegate_stack_stx_signer_key() {
         &latest_block,
         &key_to_stacks_addr(stacker_key).to_account_principal(),
     )
-    .expect("No stacking state, stack-stx failed")
+    .expect("No stacking state, delegate-stack-stx failed")
     .expect_tuple();
 
     let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
@@ -1726,6 +1726,373 @@ fn delegate_stack_stx_signer_key() {
         reward_entry.reward_address
     );
     assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
+}
+
+// In this test case, Alice delegates to Bob.
+//  Bob then stacks the delegated stx for one cycle with an
+//  'old' signer key. The next cycle, Bob extends the delegation
+//  & rotates to a 'new' signer key.
+//
+// This test asserts that the signing key in Alice's stacking state
+//  is equal to Bob's 'new' signer key.
+#[test]
+fn delegate_stack_stx_extend_signer_key() {
+    let lock_period: u128 = 2;
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
+        prepare_pox4_test(function_name!(), None);
+
+    let alice_nonce = 0;
+    let alice_stacker_key = &keys[0];
+    let mut bob_nonce = 0;
+    let bob_delegate_private_key = &keys[1];
+    let bob_delegate_principal = PrincipalData::from(key_to_stacks_addr(bob_delegate_private_key));
+
+    let signer_sk = Secp256k1PrivateKey::from_seed(&[0]);
+    let signer_extend_sk = Secp256k1PrivateKey::from_seed(&[1]);
+
+    let signer_key = Secp256k1PublicKey::from_private(&signer_sk);
+    let signer_bytes = signer_key.to_bytes_compressed();
+    let signer_key_val = Value::buff_from(signer_bytes.clone()).unwrap();
+
+    let signer_extend_key = Secp256k1PublicKey::from_private(&signer_extend_sk);
+    let signer_extend_bytes = signer_extend_key.to_bytes_compressed();
+    let signer_extend_key_val = Value::buff_from(signer_extend_bytes.clone()).unwrap();
+
+    let min_ustx = 2 * get_stacking_minimum(&mut peer, &latest_block);
+
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(bob_delegate_private_key).bytes,
+    );
+
+    let delegate_stx = make_pox_4_delegate_stx(
+        alice_stacker_key,
+        alice_nonce,
+        min_ustx + 1,
+        bob_delegate_principal.clone().into(),
+        None,
+        Some(pox_addr.clone()),
+    );
+
+    let delegate_stack_stx = make_pox_4_delegate_stack_stx(
+        bob_delegate_private_key,
+        bob_nonce,
+        key_to_stacks_addr(alice_stacker_key).into(),
+        min_ustx + 1,
+        pox_addr.clone(),
+        block_height as u128,
+        lock_period,
+    );
+
+    // Initial txs arr includes initial delegate_stx & delegate_stack_stx
+    // Both are pox_4 helpers found in mod.rs
+    let txs = vec![delegate_stx, delegate_stack_stx];
+
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    let delegation_state = get_delegation_state_pox_4(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(alice_stacker_key).into(),
+    )
+    .expect("No delegation state, delegate-stx failed")
+    .expect_tuple();
+
+    let stacking_state = get_stacking_state_pox_4(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(alice_stacker_key).into(),
+    )
+    .expect("No stacking state, stack-stx failed")
+    .expect_tuple();
+
+    let next_reward_cycle = 1 + burnchain
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+
+    let extend_cycle = 1 + next_reward_cycle;
+
+    let partially_stacked_0 = get_partially_stacked_state_pox_4(
+        &mut peer,
+        &latest_block,
+        &pox_addr,
+        next_reward_cycle,
+        &key_to_stacks_addr(bob_delegate_private_key),
+    );
+
+    let partially_stacked_1 = get_partially_stacked_state_pox_4(
+        &mut peer,
+        &latest_block,
+        &pox_addr,
+        next_reward_cycle,
+        &key_to_stacks_addr(bob_delegate_private_key),
+    );
+
+    info!("Currently partially stacked = {partially_stacked_0:?} + {partially_stacked_1:?}");
+
+    bob_nonce += 1;
+
+    let delegate_stack_extend = make_pox_4_delegate_stack_extend(
+        bob_delegate_private_key,
+        bob_nonce,
+        key_to_stacks_addr(alice_stacker_key).into(),
+        pox_addr.clone(),
+        1,
+    );
+
+    let agg_tx_0 = make_pox_4_contract_call(
+        bob_delegate_private_key,
+        bob_nonce + 1,
+        "stack-aggregation-commit",
+        vec![
+            pox_addr.as_clarity_tuple().unwrap().into(),
+            Value::UInt(next_reward_cycle.into()),
+            signer_key_val.clone(),
+        ],
+    );
+
+    let agg_tx_1 = make_pox_4_contract_call(
+        bob_delegate_private_key,
+        bob_nonce + 2,
+        "stack-aggregation-commit",
+        vec![
+            pox_addr.as_clarity_tuple().unwrap().into(),
+            Value::UInt(extend_cycle.into()),
+            signer_extend_key_val.clone(),
+        ],
+    );
+
+    // Next tx arr calls a delegate_stack_extend pox_4 helper found in mod.rs
+    let txs = vec![delegate_stack_extend, agg_tx_0, agg_tx_1];
+
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let new_stacking_state = get_stacking_state_pox_4(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(alice_stacker_key).to_account_principal(),
+    )
+    .unwrap()
+    .expect_tuple();
+
+    let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
+    let extend_cycle_ht = burnchain.reward_cycle_to_block_height(extend_cycle);
+
+    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), 1);
+    let reward_entry = reward_set.pop().unwrap();
+    assert_eq!(pox_addr, reward_entry.reward_address);
+    assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
+
+    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
+    assert_eq!(reward_set.len(), 1);
+    let reward_entry = reward_set.pop().unwrap();
+    assert_eq!(pox_addr, reward_entry.reward_address);
+    assert_eq!(
+        &reward_entry.signer.unwrap(),
+        signer_extend_bytes.as_slice(),
+    );
+}
+
+// In this test case, Alice is a solo stacker-signer.
+//  Alice stacks the stacking minimum for two cycles.
+//  In the next cycle, Alice calls stack-increase to increase
+//  her total-locked by a second stacking minimum.
+//
+// This test asserts that Alice's total-locked is equal to
+//  twice the stacking minimum after calling stack-increase.
+#[test]
+fn stack_increase() {
+    let lock_period = 2;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+
+    let mut alice_nonce = 0;
+    let alice_stacking_private_key = &keys[0];
+    let alice_address = key_to_stacks_addr(alice_stacking_private_key);
+    let signing_sk = StacksPrivateKey::from_seed(&[1]);
+    let signing_pk = StacksPublicKey::from_private(&signing_sk);
+    let signing_bytes = signing_pk.to_bytes_compressed();
+
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(alice_stacking_private_key).bytes,
+    );
+
+    let stack_stx = make_pox_4_lockup(
+        alice_stacking_private_key,
+        alice_nonce,
+        min_ustx,
+        pox_addr.clone(),
+        lock_period,
+        signing_pk,
+        block_height as u64,
+    );
+
+    // Initial tx arr includes a stack_stx pox_4 helper found in mod.rs
+    let txs = vec![stack_stx];
+
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let stacking_state = get_stacking_state_pox_4(
+        &mut peer,
+        &latest_block,
+        &key_to_stacks_addr(alice_stacking_private_key).to_account_principal(),
+    )
+    .expect("No stacking state, stack-stx failed")
+    .expect_tuple();
+
+    alice_nonce += 1;
+
+    let stack_increase =
+        make_pox_4_stack_increase(alice_stacking_private_key, alice_nonce, min_ustx);
+    // Next tx arr includes a stack_increase pox_4 helper found in mod.rs
+    let txs = vec![stack_increase];
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let stacker_transactions = get_last_block_sender_transactions(&observer, alice_address);
+
+    let actual_result = stacker_transactions.first().cloned().unwrap().result;
+
+    let expected_result = Value::okay(Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                "stacker".into(),
+                Value::Principal(PrincipalData::from(alice_address.clone())),
+            ),
+            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+        ])
+        .unwrap(),
+    ))
+    .unwrap();
+
+    // Testing stack_increase response is equal to expected response
+    // Test is straightforward because 'stack-increase' in PoX-4 is the same as PoX-3
+    assert_eq!(actual_result, expected_result);
+
+    let next_reward_cycle = 1 + burnchain
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
+    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), 1);
+    let reward_entry = reward_set.pop().unwrap();
+    assert_eq!(pox_addr, reward_entry.reward_address);
+    assert_eq!(&reward_entry.signer.unwrap(), &signing_bytes.as_slice());
+}
+
+// In this test case, Alice delegates twice the stacking minimum to Bob.
+//  Bob stacks half of Alice's funds. In the next cycle,
+//  Bob stacks Alice's remaining funds.
+//
+// This test asserts that Alice's total-locked is equal to
+//  twice the stacking minimum after calling delegate-stack-increase.
+#[test]
+fn delegate_stack_increase() {
+    let lock_period: u128 = 2;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+
+    let alice_nonce = 0;
+    let alice_key = &keys[0];
+    let alice_address = PrincipalData::from(key_to_stacks_addr(alice_key));
+    let mut bob_nonce = 0;
+    let bob_delegate_key = &keys[1];
+    let bob_delegate_address = PrincipalData::from(key_to_stacks_addr(bob_delegate_key));
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+    let signer_sk = StacksPrivateKey::from_seed(&[1, 3, 3, 7]);
+    let signer_pk = StacksPublicKey::from_private(&signer_sk);
+    let signer_pk_bytes = signer_pk.to_bytes_compressed();
+    let signer_key_val = Value::buff_from(signer_pk_bytes.clone()).unwrap();
+
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        key_to_stacks_addr(bob_delegate_key).bytes,
+    );
+
+    let next_reward_cycle = 1 + burnchain
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+
+    let delegate_stx = make_pox_4_delegate_stx(
+        alice_key,
+        alice_nonce,
+        2 * min_ustx,
+        bob_delegate_address.clone(),
+        None,
+        Some(pox_addr.clone()),
+    );
+
+    let delegate_stack_stx = make_pox_4_delegate_stack_stx(
+        bob_delegate_key,
+        bob_nonce,
+        PrincipalData::from(key_to_stacks_addr(alice_key)).into(),
+        min_ustx,
+        pox_addr.clone(),
+        block_height as u128,
+        lock_period,
+    );
+
+    // Initial tx arr includes a delegate_stx & delegate_stack_stx pox_4 helper found in mod.rs
+    let txs = vec![delegate_stx, delegate_stack_stx];
+
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    bob_nonce += 1;
+
+    let delegate_increase = make_pox_4_delegate_stack_increase(
+        bob_delegate_key,
+        bob_nonce,
+        &alice_address,
+        pox_addr.clone(),
+        min_ustx,
+    );
+
+    let agg_tx = make_pox_4_contract_call(
+        bob_delegate_key,
+        bob_nonce + 1,
+        "stack-aggregation-commit",
+        vec![
+            pox_addr.as_clarity_tuple().unwrap().into(),
+            Value::UInt(next_reward_cycle.into()),
+            signer_key_val.clone(),
+        ],
+    );
+
+    // Next tx arr includes a delegate_increase pox_4 helper found in mod.rs
+    let txs = vec![delegate_increase, agg_tx];
+
+    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+
+    let delegate_transactions =
+        get_last_block_sender_transactions(&observer, key_to_stacks_addr(bob_delegate_key));
+
+    let actual_result = delegate_transactions.first().cloned().unwrap().result;
+
+    let expected_result = Value::okay(Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                "stacker".into(),
+                Value::Principal(PrincipalData::from(alice_address.clone())),
+            ),
+            ("total-locked".into(), Value::UInt(min_ustx * 2)),
+        ])
+        .unwrap(),
+    ))
+    .unwrap();
+
+    // Testing stack_increase response is equal to expected response
+    // Test is straightforward because 'stack-increase' in PoX-4 is the same as PoX-3
+    assert_eq!(actual_result, expected_result);
+
+    // test that the reward set contains the increased amount and the expected key
+    let reward_cycle_ht = burnchain.reward_cycle_to_block_height(next_reward_cycle);
+    let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, reward_cycle_ht);
+    assert_eq!(reward_set.len(), 1);
+    let reward_entry = reward_set.pop().unwrap();
+    assert_eq!(pox_addr, reward_entry.reward_address);
+    assert_eq!(min_ustx * 2, reward_entry.amount_stacked);
+    assert_eq!(&reward_entry.signer.unwrap(), signer_pk_bytes.as_slice());
 }
 
 pub fn get_stacking_state_pox_4(
@@ -1746,6 +2113,42 @@ pub fn get_stacking_state_pox_4(
         )
         .unwrap()
         .expect_optional()
+    })
+}
+
+pub fn get_partially_stacked_state_pox_4(
+    peer: &mut TestPeer,
+    tip: &StacksBlockId,
+    pox_addr: &PoxAddress,
+    reward_cycle: u64,
+    sender: &StacksAddress,
+) -> Option<u128> {
+    with_clarity_db_ro(peer, tip, |db| {
+        let lookup_tuple = TupleData::from_data(vec![
+            (
+                "pox-addr".into(),
+                pox_addr.as_clarity_tuple().unwrap().into(),
+            ),
+            ("reward-cycle".into(), Value::UInt(reward_cycle.into())),
+            ("sender".into(), PrincipalData::from(sender.clone()).into()),
+        ])
+        .unwrap()
+        .into();
+        let epoch = db.get_clarity_epoch_version();
+        db.fetch_entry_unknown_descriptor(
+            &boot_code_id(boot::POX_4_NAME, false),
+            "partial-stacked-by-cycle",
+            &lookup_tuple,
+            &epoch,
+        )
+        .unwrap()
+        .expect_optional()
+        .map(|v| {
+            v.expect_tuple()
+                .get_owned("stacked-amount")
+                .unwrap()
+                .expect_u128()
+        })
     })
 }
 
