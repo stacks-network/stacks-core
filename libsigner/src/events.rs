@@ -378,9 +378,9 @@ impl EventReceiver for SignerEventReceiver {
                     request.url()
                 );
 
-                request
-                    .respond(HttpResponse::empty(200u16))
-                    .expect("response failed");
+                if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+                    error!("Failed to respond to request: {:?}", &e);
+                }
                 Err(EventError::UnrecognizedEvent(url))
             }
         })?
@@ -447,9 +447,9 @@ fn process_stackerdb_event(
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
         error!("Failed to read body: {:?}", &e);
 
-        request
-            .respond(HttpResponse::empty(200u16))
-            .expect("response failed");
+        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+            error!("Failed to respond to request: {:?}", &e);
+        };
         return Err(EventError::MalformedRequest(format!(
             "Failed to read body: {:?}",
             &e
@@ -480,15 +480,15 @@ fn process_stackerdb_event(
             local_addr,
             event.contract_id
         );
-        request
-            .respond(HttpResponse::empty(200u16))
-            .expect("response failed");
+        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+            error!("Failed to respond to request: {:?}", &e);
+        }
         return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
     };
 
-    request
-        .respond(HttpResponse::empty(200u16))
-        .expect("response failed");
+    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+        error!("Failed to respond to request: {:?}", &e);
+    }
 
     Ok(signer_event)
 }
@@ -500,9 +500,9 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
     if let Err(e) = request.as_reader().read_to_string(&mut body) {
         error!("Failed to read body: {:?}", &e);
 
-        request
-            .respond(HttpResponse::empty(200u16))
-            .expect("response failed");
+        if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+            error!("Failed to respond to request: {:?}", &e);
+        }
         return Err(EventError::MalformedRequest(format!(
             "Failed to read body: {:?}",
             &e
@@ -512,9 +512,9 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
     let event: BlockValidateResponse = serde_json::from_slice(body.as_bytes())
         .map_err(|e| EventError::Deserialize(format!("Could not decode body to JSON: {:?}", &e)))?;
 
-    request
-        .respond(HttpResponse::empty(200u16))
-        .expect("response failed");
+    if let Err(e) = request.respond(HttpResponse::empty(200u16)) {
+        error!("Failed to respond to request: {:?}", &e);
+    }
 
     Ok(SignerEvent::BlockValidationResponse(event))
 }
