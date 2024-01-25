@@ -989,9 +989,9 @@ impl PeerNetwork {
         let num_allowed_peers = allowed_peers.len();
         let mut count = 0;
         for allowed in allowed_peers {
-            if self.events.contains_key(&allowed.addr) {
-                count += 1;
-            }
+            let pubkh = Hash160::from_node_public_key(&allowed.public_key);
+            let events = self.get_pubkey_events(&pubkh);
+            count += events.len() as u64;
         }
         Ok((count, num_allowed_peers as u64))
     }
