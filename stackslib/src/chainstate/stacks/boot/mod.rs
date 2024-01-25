@@ -83,6 +83,7 @@ pub const SIGNERS_NAME: &'static str = "signers";
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
 pub const SIGNERS_MAX_LIST_SIZE: usize = 4000;
+pub const SIGNERS_PK_LEN: usize = 33;
 
 const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
@@ -164,7 +165,7 @@ pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,
     pub amount_stacked: u128,
     pub stacker: Option<PrincipalData>,
-    pub signer: Option<PrincipalData>,
+    pub signer: Option<[u8; SIGNERS_PK_LEN]>,
 }
 
 /// This enum captures the names of the PoX contracts by version.
@@ -192,23 +193,30 @@ pub struct PoxStartCycleInfo {
     pub missed_reward_slots: Vec<(PrincipalData, u128)>,
 }
 
-fn addr_serialize<S: serde::Serializer>(addr: &StacksAddress, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&addr.to_string())
+fn hex_serialize<S: serde::Serializer>(addr: &[u8; 33], s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&to_hex(addr))
 }
 
-fn addr_deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<StacksAddress, D::Error> {
-    let addr_str = String::deserialize(d)?;
-    StacksAddress::from_string(&addr_str)
-        .ok_or_else(|| serde::de::Error::custom("Address must be a C32 encoded StacksAddress"))
+fn hex_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<[u8; SIGNERS_PK_LEN], D::Error> {
+    let hex_str = String::deserialize(d)?;
+    let bytes_vec = hex_bytes(&hex_str).map_err(serde::de::Error::custom)?;
+    if bytes_vec.len() != SIGNERS_PK_LEN {
+        return Err(serde::de::Error::invalid_length(
+            bytes_vec.len(),
+            &"array of len == SIGNERS_PK_LEN",
+        ));
+    }
+    let mut bytes = [0; SIGNERS_PK_LEN];
+    bytes.copy_from_slice(bytes_vec.as_slice());
+    Ok(bytes)
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct NakamotoSignerEntry {
-    #[serde(
-        serialize_with = "addr_serialize",
-        deserialize_with = "addr_deserialize"
-    )]
-    pub signing_address: StacksAddress,
+    #[serde(serialize_with = "hex_serialize", deserialize_with = "hex_deserialize")]
+    pub signing_key: [u8; 33],
     pub stacked_amt: u128,
     pub slots: u32,
 }
@@ -647,12 +655,10 @@ impl StacksChainState {
 
         let mut signer_set = BTreeMap::new();
         for entry in entries.iter() {
-            let signing_key = if let Some(PrincipalData::Standard(s)) = entry.signer.clone() {
-                StacksAddress::from(s)
-            } else {
-                // TODO: should figure out if in mainnet?
-                StacksAddress::burn_address(true)
-            };
+            let signing_key = entry
+                .signer
+                .clone()
+                .expect("BUG: signing keys should all be set in reward-sets with any signing keys");
             if let Some(existing_entry) = signer_set.get_mut(&signing_key) {
                 *existing_entry += entry.amount_stacked;
             } else {
@@ -662,14 +668,14 @@ impl StacksChainState {
 
         let mut signer_set: Vec<_> = signer_set
             .into_iter()
-            .filter_map(|(signing_address, stacked_amt)| {
+            .filter_map(|(signing_key, stacked_amt)| {
                 let slots = u32::try_from(stacked_amt / threshold)
                     .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
                 if slots == 0 {
                     return None;
                 }
                 Some(NakamotoSignerEntry {
-                    signing_address,
+                    signing_key,
                     stacked_amt,
                     slots,
                 })
@@ -678,7 +684,7 @@ impl StacksChainState {
 
         // finally, we must sort the signer set: the signer participation bit vector depends
         //  on a consensus-critical ordering of the signer set.
-        signer_set.sort_by_key(|entry| entry.signing_address);
+        signer_set.sort_by_key(|entry| entry.signing_key);
 
         Some(signer_set)
     }
@@ -1180,7 +1186,15 @@ impl StacksChainState {
                     reward_cycle, i
                 ))
                 .to_owned()
-                .expect_principal();
+                .expect_buff(SIGNERS_PK_LEN);
+            // (buff 33) only enforces max size, not min size, so we need to do a len check
+            let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
+                let mut bytes = [0; SIGNERS_PK_LEN];
+                bytes.copy_from_slice(signer.as_slice());
+                bytes
+            } else {
+                [0; SIGNERS_PK_LEN]
+            };
 
             debug!(
                 "Parsed PoX reward address";
@@ -1193,7 +1207,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
-                signer: Some(signer),
+                signer: Some(pk_bytes),
             })
         }
 

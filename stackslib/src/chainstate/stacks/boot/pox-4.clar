@@ -152,7 +152,7 @@
         pox-addr: { version: (buff 1), hashbytes: (buff 32) },
         total-ustx: uint,
         stacker: (optional principal),
-        signer: principal
+        signer: (buff 33)
     }
 )
 
@@ -265,7 +265,7 @@
                                               (reward-cycle uint)
                                               (amount-ustx uint)
                                               (stacker (optional principal))
-                                              (signer principal))
+                                              (signer (buff 33)))
     (let ((sz (get-reward-set-size reward-cycle)))
         (map-set reward-cycle-pox-address-list
             { reward-cycle: reward-cycle, index: sz }
@@ -358,7 +358,7 @@
                                                             (first-reward-cycle uint)
                                                             (num-cycles uint)
                                                             (stacker (optional principal))
-                                                            (signer principal)
+                                                            (signer (buff 33))
                                                             (amount-ustx uint)
                                                             (i uint))))
     (let ((reward-cycle (+ (get first-reward-cycle params) (get i params)))
@@ -403,7 +403,7 @@
                                                (num-cycles uint)
                                                (amount-ustx uint)
                                                (stacker principal)
-                                               (signer principal))
+                                               (signer (buff 33)))
   (let ((cycle-indexes (list u0 u1 u2 u3 u4 u5 u6 u7 u8 u9 u10 u11))
         (results (fold add-pox-addr-to-ith-reward-cycle cycle-indexes
                          { pox-addr: pox-addr, first-reward-cycle: first-reward-cycle, num-cycles: num-cycles,
@@ -586,7 +586,7 @@
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
 
       ;; register the PoX address with the amount stacked
-      (let ((reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx tx-sender (try! (signer-key-buff-to-principal signer-key))))))
+      (let ((reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-reward-cycle lock-period amount-ustx tx-sender signer-key))))
           ;; add stacker record
          (map-set stacking-state
            { stacker: tx-sender }
@@ -674,8 +674,7 @@
   (let ((partial-stacked
          ;; fetch the partial commitments
          (unwrap! (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, sender: tx-sender, reward-cycle: reward-cycle })
-                  (err ERR_STACKING_NO_SUCH_PRINCIPAL)))
-         (signer (try! (signer-key-buff-to-principal signer-key))))
+                  (err ERR_STACKING_NO_SUCH_PRINCIPAL))))
     ;; must be called directly by the tx-sender or by an allowed contract-caller
     (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
@@ -691,7 +690,7 @@
                      num-cycles: u1,
                      reward-set-indexes: (list),
                      stacker: none,
-                     signer: signer,
+                     signer: signer-key,
                      amount-ustx: amount-ustx,
                      i: u0 }))
            (pox-addr-index (unwrap-panic
@@ -1023,7 +1022,7 @@
 
       ;; register the PoX address with the amount stacked
       ;;   for the new cycles
-      (let ((extended-reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx tx-sender (try! (signer-key-buff-to-principal signer-key)))))
+      (let ((extended-reward-set-indexes (try! (add-pox-addr-to-reward-cycles pox-addr first-extend-cycle extend-count amount-ustx tx-sender signer-key)))
             (reward-set-indexes
                 ;; use the active stacker state and extend the existing reward-set-indexes
                 (let ((cur-cycle-index (- first-reward-cycle (get first-reward-cycle stacker-state)))
@@ -1273,10 +1272,4 @@
     (begin
         (ok (map-set aggregate-public-keys reward-cycle aggregate-public-key))
     )
-)
-
-;; Converts a buff 33 to a standard principal, returning an error if it fails.
-;; *New in Stacks 3.0*
-(define-private (signer-key-buff-to-principal (signer-key (buff 33)))
-  (ok (unwrap! (principal-of? signer-key) (err ERR_INVALID_SIGNER_KEY)))
 )

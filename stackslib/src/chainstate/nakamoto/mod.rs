@@ -54,7 +54,7 @@ use super::burn::db::sortdb::{
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::boot::{
     PoxVersions, RawRewardSetEntry, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
-    BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME,
+    BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
 };
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
@@ -1891,13 +1891,21 @@ impl NakamotoChainState {
                     reward_cycle, index
                 ))
                 .to_owned()
-                .expect_principal();
+                .expect_buff(SIGNERS_PK_LEN);
+            // (buff 33) only enforces max size, not min size, so we need to do a len check
+            let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
+                let mut bytes = [0; SIGNERS_PK_LEN];
+                bytes.copy_from_slice(signer.as_slice());
+                bytes
+            } else {
+                [0; SIGNERS_PK_LEN]
+            };
 
             slots.push(RawRewardSetEntry {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
-                signer: Some(signer),
+                signer: Some(pk_bytes),
             })
         }
 
@@ -1932,11 +1940,13 @@ impl NakamotoChainState {
                 .ok_or(ChainstateError::PoxNoRewardCycle)?
                 .iter()
                 .map(|signer| {
+                    let signer_hash = Hash160::from_data(&signer.signing_key);
+                    let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
                     Value::Tuple(
                         TupleData::from_data(vec![
                             (
                                 "signer".into(),
-                                Value::Principal(PrincipalData::from(signer.signing_address)),
+                                Value::Principal(PrincipalData::from(signing_address)),
                             ),
                             ("num-slots".into(), Value::UInt(signer.slots.into())),
                         ])

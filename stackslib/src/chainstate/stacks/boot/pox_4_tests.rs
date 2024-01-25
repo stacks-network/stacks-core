@@ -1482,7 +1482,7 @@ fn stack_stx_signer_key() {
     let signer_bytes =
         hex_bytes("03a0f9818ea8c14a827bb144aec9cfbaeba225af22be18ed78a2f298106f4e281b").unwrap();
     let signer_key = Secp256k1PublicKey::from_slice(&signer_bytes).unwrap();
-    let signer_key_val = Value::buff_from(signer_bytes).unwrap();
+    let signer_key_val = Value::buff_from(signer_bytes.clone()).unwrap();
 
     let txs = vec![make_pox_4_contract_call(
         stacker_key,
@@ -1517,10 +1517,7 @@ fn stack_stx_signer_key() {
         PoxAddress::try_from_pox_tuple(false, &pox_addr).unwrap(),
         reward_entry.reward_address
     );
-    assert_eq!(
-        reward_entry.signer.unwrap(),
-        StacksAddress::p2pkh(false, &signer_key).into(),
-    );
+    assert_eq!(&reward_entry.signer.unwrap(), &signer_bytes.as_slice());
 }
 
 #[test]
@@ -1543,11 +1540,11 @@ fn stack_extend_signer_key() {
 
     let signer_key = Secp256k1PublicKey::from_private(&signer_sk);
     let signer_bytes = signer_key.to_bytes_compressed();
-    let signer_key_val = Value::buff_from(signer_bytes).unwrap();
+    let signer_key_val = Value::buff_from(signer_bytes.clone()).unwrap();
 
     let signer_extend_key = Secp256k1PublicKey::from_private(&signer_extend_sk);
     let signer_extend_bytes = signer_extend_key.to_bytes_compressed();
-    let signer_extend_key_val = Value::buff_from(signer_extend_bytes).unwrap();
+    let signer_extend_key_val = Value::buff_from(signer_extend_bytes.clone()).unwrap();
 
     let next_reward_cycle = 1 + burnchain
         .block_height_to_reward_cycle(block_height)
@@ -1613,10 +1610,7 @@ fn stack_extend_signer_key() {
         PoxAddress::try_from_pox_tuple(false, &pox_addr).unwrap(),
         reward_entry.reward_address
     );
-    assert_eq!(
-        reward_entry.signer.unwrap(),
-        StacksAddress::p2pkh(false, &signer_key).into(),
-    );
+    assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
 
     let mut reward_set = get_reward_set_entries_at(&mut peer, &latest_block, extend_cycle_ht);
     assert_eq!(reward_set.len(), 1);
@@ -1626,8 +1620,8 @@ fn stack_extend_signer_key() {
         reward_entry.reward_address
     );
     assert_eq!(
-        reward_entry.signer.unwrap(),
-        StacksAddress::p2pkh(false, &signer_extend_key).into(),
+        &reward_entry.signer.unwrap(),
+        signer_extend_bytes.as_slice(),
     );
 }
 
@@ -1658,7 +1652,7 @@ fn delegate_stack_stx_signer_key() {
     let signer_bytes =
         hex_bytes("03a0f9818ea8c14a827bb144aec9cfbaeba225af22be18ed78a2f298106f4e281b").unwrap();
     let signer_key = Secp256k1PublicKey::from_slice(&signer_bytes).unwrap();
-    let signer_key_val = Value::buff_from(signer_bytes).unwrap();
+    let signer_key_val = Value::buff_from(signer_bytes.clone()).unwrap();
 
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
 
@@ -1731,10 +1725,7 @@ fn delegate_stack_stx_signer_key() {
         PoxAddress::try_from_pox_tuple(false, &pox_addr).unwrap(),
         reward_entry.reward_address
     );
-    assert_eq!(
-        reward_entry.signer.unwrap(),
-        StacksAddress::p2pkh(false, &signer_key).into(),
-    );
+    assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
 }
 
 pub fn get_stacking_state_pox_4(

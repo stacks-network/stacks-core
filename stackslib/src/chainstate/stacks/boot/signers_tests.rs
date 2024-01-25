@@ -23,9 +23,10 @@ use clarity::vm::Value::Principal;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
-    BurnchainHeaderHash, StacksBlockId, StacksPrivateKey, StacksPublicKey,
+    BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::PublicKey;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -92,8 +93,30 @@ fn signers_get_signer_keys_from_stackerdb() {
 
     let private_key = peer.config.private_key.clone();
 
-    let signer_1_addr = key_to_stacks_addr(&stacker_1.signer_private_key);
-    let signer_2_addr = key_to_stacks_addr(&stacker_2.signer_private_key);
+    let mut expected_signers: Vec<_> =
+        [&stacker_1.signer_private_key, &stacker_2.signer_private_key]
+            .iter()
+            .map(|sk| {
+                let pk = Secp256k1PublicKey::from_private(sk);
+                let pk_bytes = pk.to_bytes_compressed();
+                let signer_addr = StacksAddress::p2pkh(false, &pk);
+                let stackerdb_entry = TupleData::from_data(vec![
+                    ("signer".into(), PrincipalData::from(signer_addr).into()),
+                    ("num-slots".into(), Value::UInt(2)),
+                ])
+                .unwrap();
+                (pk_bytes, stackerdb_entry)
+            })
+            .collect();
+    // should be sorted by the pk bytes
+    expected_signers.sort_by_key(|x| x.0.clone());
+    let expected_stackerdb_slots = Value::cons_list_unsanitized(
+        expected_signers
+            .into_iter()
+            .map(|(_pk, entry)| Value::from(entry))
+            .collect(),
+    )
+    .unwrap();
 
     let signers = readonly_call(
         &mut peer,
@@ -104,32 +127,7 @@ fn signers_get_signer_keys_from_stackerdb() {
     )
     .expect_result_ok();
 
-    assert_eq!(
-        signers,
-        Value::cons_list_unsanitized(vec![
-            Value::Tuple(
-                TupleData::from_data(vec![
-                    (
-                        "signer".into(),
-                        Principal(PrincipalData::from(signer_2_addr)),
-                    ),
-                    ("num-slots".into(), Value::UInt(2)),
-                ])
-                .unwrap()
-            ),
-            Value::Tuple(
-                TupleData::from_data(vec![
-                    (
-                        "signer".into(),
-                        Principal(PrincipalData::from(signer_1_addr)),
-                    ),
-                    ("num-slots".into(), Value::UInt(2)),
-                ])
-                .unwrap()
-            )
-        ])
-        .unwrap()
-    );
+    assert_eq!(signers, expected_stackerdb_slots);
 }
 
 fn prepare_signers_test<'a>(

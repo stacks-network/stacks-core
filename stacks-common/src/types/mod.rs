@@ -215,13 +215,21 @@ impl StacksAddress {
 
     /// Make a P2PKH StacksAddress
     pub fn p2pkh(mainnet: bool, pubkey: &StacksPublicKey) -> StacksAddress {
+        let bytes = to_bits_p2pkh(pubkey);
+        Self::p2pkh_from_hash(mainnet, bytes)
+    }
+
+    /// Make a P2PKH StacksAddress
+    pub fn p2pkh_from_hash(mainnet: bool, hash: Hash160) -> StacksAddress {
         let version = if mainnet {
             C32_ADDRESS_VERSION_MAINNET_SINGLESIG
         } else {
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG
         };
-        let bytes = to_bits_p2pkh(pubkey);
-        Self { version, bytes }
+        Self {
+            version,
+            bytes: hash,
+        }
     }
 }
 
