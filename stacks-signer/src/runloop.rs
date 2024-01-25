@@ -1031,3 +1031,84 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{BufReader, Read, Write},
+        sync::{atomic::AtomicBool, Arc},
+        thread,
+    };
+
+    use assert_matches::assert_matches;
+    use libsigner::SignerStopSignaler;
+
+    use crate::client::tests::{write_response, TestConfig};
+
+    use super::*;
+
+    #[test]
+    fn ping_command_sent() {
+        let ctx = TestConfig::new();
+        let mut cfg = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        cfg.node_host = ctx.host().trim_start_matches("http://").parse().unwrap();
+
+        let mut run_loop = RunLoop::from(&cfg);
+        let (e_tx, e_rx) = channel();
+        let (c_tx, c_rx) = channel();
+        let (r_tx, _) = channel();
+
+        let handle = thread::spawn(move || {
+            run_loop.main_loop(
+                e_rx,
+                c_rx,
+                r_tx,
+                SignerStopSignaler::new(Arc::new(AtomicBool::new(false)), cfg.endpoint),
+            );
+            run_loop
+        });
+
+        // initialize requests
+        write_response(
+            &ctx.mock_server,
+            b"HTTP/1.1 200 Ok\r\n\r\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}",
+        );
+        write_response(
+        &ctx.mock_server,
+        b"HTTP/1.1 200 Ok\r\n\r\n{\"okay\":true,\"result\":\"0x0a020000002103beca18a0e51ea31d8e66f58a245d54791b277ad08e1e9826bf5f814334ac77e0\"}",
+        );
+
+        //test that run_loop sends a ping
+        c_tx.send(RunLoopCommand::Ping { payload_size: 0 }).unwrap();
+        let mut stream = ctx.mock_server.accept().unwrap().0;
+        //mock response
+        let body = "{\"accepted\":true,\"metadata\":{\"slot_id\":10,\"slot_version\":1,\"data_hash\":\"1452a9c5dd13034a788bd9ae3a0c6e139c02f5a277d6729166af489e5cc6cffe\",\"signature\":\"01d13198d6646c6f7190d31a9f3825af93d5ac9525531a055e6d1007d7d1ea72c011daa979823c8f67c2b40fd751e0bdbc97ef130f9eb498727437a060ddc82bc1\"}}";
+        let response = format!(
+            "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.flush().unwrap();
+        let mut buf = vec![0; 1024];
+        let mut reader = BufReader::new(&stream);
+        let len = reader.read(&mut buf).unwrap();
+        stream.shutdown(std::net::Shutdown::Both).unwrap();
+        let response_body = std::str::from_utf8(&buf[..len])
+            .unwrap()
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .1;
+
+        let chunk: StackerDBChunkData = serde_json::from_str(response_body).unwrap();
+        let msg: SignerMessage = bincode::deserialize(&chunk.data).unwrap();
+        // make the main_loop exit
+        drop(e_tx);
+        drop(c_tx);
+        let run_loop = handle.join().unwrap();
+
+        assert_matches!(msg, SignerMessage::Ping(LatencyPacket::Ping(ping)) => {
+        //assert on ping entry stored in map.
+            run_loop.ping_entries.get(&ping.id()).unwrap()
+        });
+    }
+}
