@@ -17,6 +17,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
+use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
@@ -136,7 +137,7 @@ pub struct RunLoop<C> {
     pub blocks: HashMap<Sha512Trunc256Sum, BlockInfo>,
     /// Transactions that we expect to see in the next block
     // TODO: fill this in and do proper garbage collection
-    pub transactions: Vec<StacksTransaction>,
+    pub transactions: Vec<Txid>,
     /// This signer's ID
     pub signer_id: u32,
     /// The signer set for this runloop
@@ -773,7 +774,7 @@ impl<C: Coordinator> RunLoop<C> {
                 OperationResult::SignTaproot(_) => {
                     debug!("Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.signer_id);
                 }
-                OperationResult::Dkg(_point) => {
+                OperationResult::Dkg(point) => {
                     // TODO: cast the aggregate public key for the latest round here
                     // Broadcast via traditional methods to the stacks node if we are pre nakamoto or we cannot determine our Epoch
                     let epoch = self
@@ -786,17 +787,46 @@ impl<C: Coordinator> RunLoop<C> {
                         }
                         EpochId::Epoch25 => {
                             debug!("Signer #{}: Received a DKG result, but are in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
-                            //TODO: Cast the aggregate public key vote here
+                            match self
+                                .stacks_client
+                                .cast_vote_for_aggregate_public_key(point.clone(), 0)
+                            {
+                                Ok(txid) => {
+                                    self.transactions.push(txid);
+                                    println!(
+                                        "Successfully cast aggregate public key vote: {:?}",
+                                        txid
+                                    )
+                                }
+                                Err(e) => {
+                                    warn!("Failed to cast aggregate public key vote: {:?}", e);
+                                }
+                            }
                         }
                         EpochId::Epoch30 => {
-                            debug!("Signer #{}: Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.", self.signer_id);
-                            let signer_message =
-                                SignerMessage::Transactions(self.transactions.clone());
-                            if let Err(e) = self.stackerdb.send_message_with_retry(signer_message) {
-                                warn!(
-                                    "Signer #{}: Failed to update transactions in stacker-db: {:?}",
-                                    self.signer_id, e
-                                );
+                            // TODO: get the latest round
+                            match self
+                                .stacks_client
+                                .build_vote_for_aggregate_public_key(point.clone(), 0)
+                            {
+                                Ok(transaction) => {
+                                    // TODO retreive transactions from stackerdb, append to it, and send back
+                                    debug!("Signer #{}: Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.", self.signer_id);
+                                    let signer_message =
+                                        SignerMessage::Transactions(vec![transaction]);
+                                    if let Err(e) =
+                                        self.stackerdb.send_message_with_retry(signer_message)
+                                    {
+                                        warn!(
+                                            "Signer #{}: Failed to update transactions in stacker-db: {:?}",
+                                            self.signer_id, e
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Signer #{}: Failed to build a vote transaction for the aggregate public key: {:?}", self.signer_id, e);
+                                    continue;
+                                }
                             }
                         }
                     }

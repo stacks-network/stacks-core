@@ -71,7 +71,7 @@ pub enum ClientError {
     #[error("Failed to serialize Clarity value: {0}")]
     ClaritySerializationError(#[from] SerializationError),
     /// Failed to parse a Clarity value
-    #[error("Recieved a malformed clarity value: {0}")]
+    #[error("Received a malformed clarity value: {0}")]
     MalformedClarityValue(ClarityValue),
     /// Invalid Clarity Name
     #[error("Invalid Clarity Name: {0}")]
@@ -87,13 +87,7 @@ pub enum ClientError {
     InvalidSigningKey,
     /// Clarity interpreter error
     #[error("Clarity interpreter error: {0}")]
-    ClarityError(ClarityError),
-}
-
-impl From<ClarityError> for ClientError {
-    fn from(e: ClarityError) -> ClientError {
-        ClientError::ClarityError(e)
-    }
+    ClarityError(#[from] ClarityError),
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure
