@@ -1916,7 +1916,7 @@ impl NakamotoChainState {
 
         let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx());
         let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
-        let (threshold, _participation) = StacksChainState::get_reward_threshold_and_participation(
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
             &pox_constants,
             &reward_slots[..],
             liquid_ustx,
@@ -1924,26 +1924,29 @@ impl NakamotoChainState {
         let reward_set =
             StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
-        let signers_list: Vec<_> = reward_set
-            .signers
-            .ok_or(ChainstateError::PoxNoRewardCycle)?
-            .iter()
-            .map(|signer| {
-                Value::Tuple(
-                    TupleData::from_data(vec![
-                        (
-                            "signer".into(),
-                            Value::Principal(PrincipalData::from(signer.signing_address)),
-                        ),
-                        ("num-slots".into(), Value::UInt(signer.slots.into())),
-                    ])
-                    .expect(
-                        "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
-                    ),
-                )
-            })
-            .collect();
-
+        let signers_list = if participation == 0 {
+            vec![]
+        } else {
+            reward_set
+                .signers
+                .ok_or(ChainstateError::PoxNoRewardCycle)?
+                .iter()
+                .map(|signer| {
+                    Value::Tuple(
+                        TupleData::from_data(vec![
+                            (
+                                "signer".into(),
+                                Value::Principal(PrincipalData::from(signer.signing_address)),
+                            ),
+                            ("num-slots".into(), Value::UInt(signer.slots.into())),
+                        ])
+                            .expect(
+                                "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
+                            ),
+                    )
+                })
+                .collect()
+        };
         if signers_list.len() > SIGNERS_MAX_LIST_SIZE {
             panic!(
                 "FATAL: signers list returned by reward set calculations longer than maximum ({} > {})",

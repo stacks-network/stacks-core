@@ -83,52 +83,6 @@ fn signers_get_config() {
 }
 
 #[test]
-fn signers_get_signer_keys_from_pox4() {
-    let stacker_1 = TestStacker::from_seed(&[3, 4]);
-    let stacker_2 = TestStacker::from_seed(&[5, 6]);
-
-    let (mut peer, test_signers, latest_block_id) =
-        prepare_signers_test(function_name!(), Some(vec![&stacker_1, &stacker_2]));
-
-    let private_key = peer.config.private_key.clone();
-
-    let stacker_1_addr = key_to_stacks_addr(&stacker_1.stacker_private_key);
-    let stacker_2_addr = key_to_stacks_addr(&stacker_2.stacker_private_key);
-
-    let signer_1_addr = key_to_stacks_addr(&stacker_1.signer_private_key);
-    let signer_2_addr = key_to_stacks_addr(&stacker_2.signer_private_key);
-
-    let stacker_1_info = readonly_call(
-        &mut peer,
-        &latest_block_id,
-        "pox-4".into(),
-        "get-stacker-info".into(),
-        vec![Value::Principal(PrincipalData::from(stacker_1_addr))],
-    );
-
-    let stacker_2_info = readonly_call(
-        &mut peer,
-        &latest_block_id,
-        "pox-4".into(),
-        "get-stacker-info".into(),
-        vec![Value::Principal(PrincipalData::from(stacker_2_addr))],
-    );
-
-    let stacker_1_tuple = stacker_1_info.expect_optional().unwrap().expect_tuple();
-    let stacker_2_tuple = stacker_2_info.expect_optional().unwrap().expect_tuple();
-
-    assert_eq!(
-        stacker_1_tuple.get_owned("signer-key").unwrap(),
-        Value::Principal(PrincipalData::from(signer_1_addr))
-    );
-
-    assert_eq!(
-        stacker_2_tuple.get_owned("signer-key").unwrap(),
-        Value::Principal(PrincipalData::from(signer_2_addr))
-    );
-}
-
-#[test]
 fn signers_get_signer_keys_from_stackerdb() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
     let stacker_2 = TestStacker::from_seed(&[5, 6]);
