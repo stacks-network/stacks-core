@@ -31,6 +31,7 @@ wsts = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 hashbrown = "0.14"
+bincode = "1.3.3"
 
 [dev-dependencies]
 ring = "0.16.19"
@@ -44,7 +45,6 @@ stacks-signer = { path = "../../stacks-signer" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
-bincode = "1.3.3"
 
 [dependencies.rusqlite]
 version = "=0.24.2"
