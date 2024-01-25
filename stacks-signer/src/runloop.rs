@@ -29,7 +29,7 @@ use libsigner::{SignerEvent, SignerRunLoop};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::MerkleRoot;
 use wsts::curve::ecdsa;
@@ -152,7 +152,8 @@ impl<C: Coordinator> RunLoop<C> {
         } else {
             debug!("Aggregate public key is not set. Coordinator must trigger DKG...");
             // Update the state to IDLE so we don't needlessy requeue the DKG command.
-            let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
+            let (coordinator_id, _) =
+                calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
             if coordinator_id == self.signing_round.signer_id
                 && self.commands.front() != Some(&RunLoopCommand::Dkg)
             {
@@ -308,7 +309,8 @@ impl<C: Coordinator> RunLoop<C> {
             };
             self.handle_packets(res, &[packet]);
         } else {
-            let (coordinator_id, _) = calculate_coordinator(&self.signing_round.public_keys);
+            let (coordinator_id, _) =
+                calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
             if block_info.valid.unwrap_or(false)
                 && !block_info.signing_round
                 && coordinator_id == self.signing_round.signer_id
@@ -333,7 +335,7 @@ impl<C: Coordinator> RunLoop<C> {
         res: Sender<Vec<OperationResult>>,
     ) {
         let (_coordinator_id, coordinator_public_key) =
-            calculate_coordinator(&self.signing_round.public_keys);
+            calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
 
         let inbound_packets: Vec<Packet> = stackerdb_chunk_event
             .modified_slots
@@ -797,9 +799,150 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
 }
 
 /// Helper function for determining the coordinator public key given the the public keys
-fn calculate_coordinator(public_keys: &PublicKeys) -> (u32, ecdsa::PublicKey) {
-    // TODO: do some sort of VRF here to calculate the public key
-    // See: https://github.com/stacks-network/stacks-blockchain/issues/3915
-    // Mockamato just uses the first signer_id as the coordinator for now
-    (0, public_keys.signers.get(&0).cloned().unwrap())
+pub fn calculate_coordinator(
+    public_keys: &PublicKeys,
+    stacks_client: &StacksClient,
+) -> (u32, ecdsa::PublicKey) {
+    let stacks_tip_consensus_hash = match stacks_client.get_stacks_tip_consensus_hash() {
+        Ok(hash) => hash,
+        Err(e) => {
+            error!("Error in fetching consensus hash: {:?}", e);
+            return (0, public_keys.signers.get(&0).cloned().unwrap());
+        }
+    };
+    debug!(
+        "Using stacks_tip_consensus_hash {:?} for selecting coordinator",
+        &stacks_tip_consensus_hash
+    );
+
+    // Create combined hash of each signer's public key with stacks_tip_consensus_hash
+    let mut selection_ids = public_keys
+        .signers
+        .iter()
+        .map(|(&id, pk)| {
+            let pk_bytes = pk.to_bytes();
+            let mut buffer =
+                Vec::with_capacity(pk_bytes.len() + stacks_tip_consensus_hash.as_bytes().len());
+            buffer.extend_from_slice(&pk_bytes[..]);
+            buffer.extend_from_slice(stacks_tip_consensus_hash.as_bytes());
+            let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
+            (digest, id)
+        })
+        .collect::<Vec<_>>();
+
+    // Sort the selection IDs based on the hash
+    selection_ids.sort_by_key(|(hash, _)| hash.clone());
+
+    // Get the first ID from the sorted list and retrieve its public key,
+    // or default to the first signer if none are found
+    selection_ids
+        .first()
+        .and_then(|(_, id)| public_keys.signers.get(id).map(|pk| (*id, pk.clone())))
+        .unwrap_or((0, public_keys.signers.get(&0).cloned().unwrap()))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpListener;
+    use std::thread::{sleep, spawn};
+
+    use rand::distributions::Standard;
+    use rand::Rng;
+
+    use super::*;
+    use crate::client::stacks_client::tests::{write_response, TestConfig};
+
+    fn generate_random_consensus_hash() -> String {
+        let rng = rand::thread_rng();
+        let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+    fn mock_stacks_client_response(mock_server: TcpListener, random_consensus: bool) {
+        let consensus_hash = match random_consensus {
+            true => generate_random_consensus_hash(),
+            false => "static_hash_value".to_string(),
+        };
+
+        let response = format!(
+            "HTTP/1.1 200 OK\n\n{{\"stacks_tip_consensus_hash\": \"{}\"}}",
+            consensus_hash
+        );
+
+        spawn(move || {
+            write_response(mock_server, response.as_bytes());
+        });
+        sleep(Duration::from_millis(100));
+    }
+
+    #[test]
+    fn calculate_coordinator_should_produce_unique_results() {
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let number_of_tests = 5;
+
+        let mut results = Vec::new();
+
+        for _ in 0..number_of_tests {
+            let test_config = TestConfig::new();
+            mock_stacks_client_response(test_config.mock_server, true);
+
+            let (coordinator_id, coordinator_public_key) =
+                calculate_coordinator(&config.signer_ids_public_keys, &test_config.client);
+
+            results.push((coordinator_id, coordinator_public_key));
+        }
+
+        // Check that not all coordinator IDs are the same
+        let all_ids_same = results.iter().all(|&(id, _)| id == results[0].0);
+        assert!(!all_ids_same, "Not all coordinator IDs should be the same");
+
+        // Check that not all coordinator public keys are the same
+        let all_keys_same = results
+            .iter()
+            .all(|&(_, ref key)| key.key.data == results[0].1.key.data);
+        assert!(
+            !all_keys_same,
+            "Not all coordinator public keys should be the same"
+        );
+    }
+    fn generate_test_results(random_consensus: bool, count: usize) -> Vec<(u32, ecdsa::PublicKey)> {
+        let mut results = Vec::new();
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+
+        for _ in 0..count {
+            let test_config = TestConfig::new();
+            mock_stacks_client_response(test_config.mock_server, random_consensus);
+            let result = calculate_coordinator(&config.signer_ids_public_keys, &test_config.client);
+            results.push(result);
+        }
+        results
+    }
+
+    #[test]
+    fn calculate_coordinator_results_should_vary_or_match_based_on_hash() {
+        let results_with_random_hash = generate_test_results(true, 5);
+        let all_ids_same = results_with_random_hash
+            .iter()
+            .all(|&(id, _)| id == results_with_random_hash[0].0);
+        let all_keys_same = results_with_random_hash
+            .iter()
+            .all(|&(_, ref key)| key.key.data == results_with_random_hash[0].1.key.data);
+        assert!(!all_ids_same, "Not all coordinator IDs should be the same");
+        assert!(
+            !all_keys_same,
+            "Not all coordinator public keys should be the same"
+        );
+
+        let results_with_static_hash = generate_test_results(false, 5);
+        let all_ids_same = results_with_static_hash
+            .iter()
+            .all(|&(id, _)| id == results_with_static_hash[0].0);
+        let all_keys_same = results_with_static_hash
+            .iter()
+            .all(|&(_, ref key)| key.key.data == results_with_static_hash[0].1.key.data);
+        assert!(all_ids_same, "All coordinator IDs should be the same");
+        assert!(
+            all_keys_same,
+            "All coordinator public keys should be the same"
+        );
+    }
 }
