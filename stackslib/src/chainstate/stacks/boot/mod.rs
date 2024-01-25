@@ -104,10 +104,7 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
-    pub static ref POX_4_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_4_BODY);
-    pub static ref POX_4_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_4_BODY);
+    pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -1817,6 +1814,116 @@ pub mod test {
                     }
                     None => Value::none(),
                 },
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stack_stx(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: PrincipalData,
+        amount: u128,
+        pox_addr: PoxAddress,
+        start_burn_height: u128,
+        lock_period: u128,
+        signer_key: StacksPublicKey,
+    ) -> StacksTransaction {
+        let payload: TransactionPayload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-stx",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::UInt(amount),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(start_burn_height),
+                Value::UInt(lock_period),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stack_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: PrincipalData,
+        pox_addr: PoxAddress,
+        signer_key: StacksPublicKey,
+        extend_count: u128,
+    ) -> StacksTransaction {
+        let payload: TransactionPayload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-extend",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(extend_count),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_aggregation_commit_indexed(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        delegate_to: PrincipalData,
+        until_burn_ht: Option<u128>,
+        pox_addr: PoxAddress,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "stack-aggregation-commit-indexed",
+            vec![addr_tuple, Value::UInt(amount)],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_stack_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "stack-increase",
+            vec![Value::UInt(amount)],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stack_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: &PrincipalData,
+        pox_addr: PoxAddress,
+        amount: u128,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-increase",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(amount),
             ],
         )
         .unwrap();

@@ -13,7 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::net::api::postblock_proposal::{BlockValidateReject, ValidateRejectCode};
 use clarity::vm::types::QualifiedContractIdentifier;
@@ -78,6 +77,17 @@ pub struct BlockRejection {
     pub block: NakamotoBlock,
 }
 
+impl BlockRejection {
+    /// Create a new BlockRejection for the provided block and reason code
+    pub fn new(block: NakamotoBlock, reason_code: RejectCode) -> Self {
+        Self {
+            reason: reason_code.to_string(),
+            reason_code,
+            block,
+        }
+    }
+}
+
 impl From<BlockValidateReject> for BlockRejection {
     fn from(reject: BlockValidateReject) -> Self {
         Self {
@@ -94,8 +104,22 @@ impl From<BlockValidateReject> for BlockRejection {
 pub enum RejectCode {
     /// RPC endpoint Validation failed
     ValidationFailed(ValidateRejectCode),
-    /// Missing expected transactions
-    MissingTransactions(Vec<Txid>),
+    /// Signers signed a block rejection
+    SignedRejection,
+    /// Invalid signature hash
+    InvalidSignatureHash,
+}
+
+impl std::fmt::Display for RejectCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            RejectCode::ValidationFailed(code) => write!(f, "Validation failed: {:?}", code),
+            RejectCode::SignedRejection => {
+                write!(f, "A threshold number of signers rejected the block.")
+            }
+            RejectCode::InvalidSignatureHash => write!(f, "The signature hash was invalid."),
+        }
+    }
 }
 
 impl From<Packet> for SignerMessage {
@@ -113,6 +137,12 @@ impl From<BlockResponse> for SignerMessage {
 impl From<BlockRejection> for SignerMessage {
     fn from(block_rejection: BlockRejection) -> Self {
         Self::BlockResponse(BlockResponse::Rejected(block_rejection))
+    }
+}
+
+impl From<BlockValidateReject> for SignerMessage {
+    fn from(rejection: BlockValidateReject) -> Self {
+        Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
     }
 }
 

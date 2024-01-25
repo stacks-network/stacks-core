@@ -17,7 +17,7 @@
 /// The stacker db module for communicating with the stackerdb contract
 mod stackerdb;
 /// The stacks node client module for communicating with the stacks node
-mod stacks_client;
+pub(crate) mod stacks_client;
 
 use std::time::Duration;
 
@@ -39,6 +39,9 @@ const BACKOFF_MAX_INTERVAL: u64 = 16384;
 #[derive(thiserror::Error, Debug)]
 /// Client error type
 pub enum ClientError {
+    /// Error for when a response's format does not match the expected structure
+    #[error("Unexpected response format: {0}")]
+    UnexpectedResponseFormat(String),
     /// An error occurred serializing the message
     #[error("Unable to serialize stacker-db message: {0}")]
     StackerDBSerializationError(#[from] CodecError),
