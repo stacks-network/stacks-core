@@ -213,9 +213,14 @@ impl PeerNetwork {
             &self.local_peer, self.walk_attempts
         );
 
+        let (num_always_connected, total_always_connected) = self
+            .count_connected_always_allowed_peers()
+            .unwrap_or((0, 0));
+
         // always ensure we're connected to always-allowed outbound peers
-        let walk_res = if ibd {
-            // always connect to bootstrap peers if in IBD
+        let walk_res = if ibd || (num_always_connected == 0 && total_always_connected > 0) {
+            // always connect to bootstrap peers if in IBD, or if we're not connected to an
+            // always-allowed peer already
             NeighborWalk::instantiate_walk_to_always_allowed(
                 self.get_neighbor_walk_db(),
                 self.get_neighbor_comms(),
@@ -309,6 +314,8 @@ impl PeerNetwork {
             debug!("{:?}: not connected to any always-allowed peers; forcing a walk reset to try and fix this", &self.local_peer);
             self.reset_walk();
 
+            // TODO: force choosing an always-allowed peer!
+            //
             need_new_peers = true;
         }
 
