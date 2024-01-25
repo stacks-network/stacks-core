@@ -77,6 +77,25 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         dbsync
     }
 
+    /// Coalesce a list of peers such that each one has a unique IP:port
+    fn coalesce_peers_by_ipaddr(peers: Vec<NeighborAddress>) -> Vec<NeighborAddress> {
+        // coalesce peers on the same host:port
+        let mut same_host_port = HashSet::new();
+        let unique_ip_peers: Vec<_> = peers
+            .into_iter()
+            .filter_map(|naddr| {
+                if same_host_port.contains(&naddr.addrbytes.to_socketaddr(naddr.port)) {
+                    None
+                } else {
+                    same_host_port.insert(naddr.addrbytes.to_socketaddr(naddr.port));
+                    Some(naddr)
+                }
+            })
+            .collect();
+
+        unique_ip_peers
+    }
+
     /// Calculate the new set of replicas to contact.
     /// This is the same as the set that was connected on the last sync, plus any
     /// config hints and discovered nodes from the DB.
@@ -103,7 +122,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             peers.extend(extra_peers);
         }
 
-        for peer in peers {
+        peers.shuffle(&mut thread_rng());
+
+        let unique_ip_peers = Self::coalesce_peers_by_ipaddr(peers);
+        for peer in unique_ip_peers {
             if connected_replicas.len() >= config.max_neighbors {
                 break;
             }
@@ -575,7 +597,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .into_iter()
             .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
             .collect();
-            self.replicas = replicas;
+
+            let unique_ip_peers = Self::coalesce_peers_by_ipaddr(replicas);
+            self.replicas = unique_ip_peers.into_iter().collect();
         }
         debug!(
             "{:?}: connect_begin: establish StackerDB sessions to {} neighbors",
