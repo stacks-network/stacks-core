@@ -230,11 +230,23 @@ ex: Branch is named `develop` and the PR is numbered `113`
 
 ## Mutation Testing
 
-When a new Pull Request (PR) is submitted, this feature evaluates the quality of the tests added or modified in the PR. It checks the new and altered functions through mutation testing. Mutation testing involves making small changes (mutations) to the code to check if the tests can detect these changes. The mutations are run with or without a [Github Actions matrix](https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs). The matrix is used when there is a large number of mutations to run.
+When a new Pull Request (PR) is submitted, this feature evaluates the quality of the tests added or modified in the PR.
+It checks the new and altered functions through mutation testing. 
+Mutation testing involves making small changes (mutations) to the code to check if the tests can detect these changes.
 
-Since mutation testing is directly correlated to the written tests, there are slower packages (due to the quantity or time it takes to run the tests) like `stackslib` or `stacks-node`. These mutations are run separately from the others, with one or more parallel jobs, depending on the amount of mutations found.
+The mutations are run with or without a [Github Actions matrix](https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs). 
+The matrix is used when there is a large number of mutations to run ([check doc specific cases](https://github.com/stacks-network/actions/blob/main/stacks-core/mutation-testing/check-packages-and-shards/README.md#outputs)).
+We utilize a matrix strategy with shards to enable parallel execution in GitHub Actions.
+This approach allows for the concurrent execution of multiple jobs across various runners.
+The total workload is divided across all shards, effectively reducing the overall duration of a workflow because the time taken is approximately the total time divided by the number of shards (+ initial build & test time).
+This is particularly advantageous for large packages that have significant build and test times, as it enhances efficiency and speeds up the process.
 
-Once all the jobs have finished testing mutants, the last job collects all the tested mutations from the previous jobs, combines them and outputs them to the `Summary` section of the workflow, at the bottom of the page. There, you can find all mutants on categories, with links to the function they tested, and a short description on how to fix the issue. The PR should only be approved/merged after all the mutants tested are in the `Caught` category.
+Since mutation testing is directly correlated to the written tests, there are slower packages (due to the quantity or time it takes to run the tests) like `stackslib` or `stacks-node`. 
+These mutations are run separately from the others, with one or more parallel jobs, depending on the amount of mutations found.
+
+Once all the jobs have finished testing mutants, the last job collects all the tested mutations from the previous jobs, combines them and outputs them to the `Summary` section of the workflow, at the bottom of the page. 
+There, you can find all mutants on categories, with links to the function they tested, and a short description on how to fix the issue. 
+The PR should only be approved/merged after all the mutants tested are in the `Caught` category.
 
 ### Time required to run the workflow based on mutants outcome and packages' size
 
@@ -250,13 +262,19 @@ File:
 
 ### Mutant Outcomes
 
-- caught — A test failed with this mutant applied. This is a good sign about test coverage.
+- caught — A test failed with this mutant applied. 
+This is a good sign about test coverage.
 
-- missed — No test failed with this mutation applied, which seems to indicate a gap in test coverage. Or, it may be that the mutant is undistinguishable from the correct code. In any case, you may wish to add a better test.
+- missed — No test failed with this mutation applied, which seems to indicate a gap in test coverage. 
+Or, it may be that the mutant is undistinguishable from the correct code. 
+In any case, you may wish to add a better test.
 
-- unviable — The attempted mutation doesn't compile. This is inconclusive about test coverage, since the function's return structure may not implement `Default::default()` (one of the mutations applied), hence causing the compile to fail. It is recommended to add `Default` implementation for the return structures of these functions, only mark that the function should be skipped as a last resort.
+- unviable — The attempted mutation doesn't compile. 
+This is inconclusive about test coverage, since the function's return structure may not implement `Default::default()` (one of the mutations applied), hence causing the compile to fail. 
+It is recommended to add `Default` implementation for the return structures of these functions, only mark that the function should be skipped as a last resort.
 
-- timeout — The mutation caused the test suite to run for a long time, until it was eventually killed. You might want to investigate the cause and only mark the function to be skipped if necessary.
+- timeout — The mutation caused the test suite to run for a long time, until it was eventually killed.
+You might want to investigate the cause and only mark the function to be skipped if necessary.
 
 ### Skipping Mutations
 
@@ -273,7 +291,7 @@ To mark functions as skipped, so they are not mutated:
 
 - You can avoid adding the dependency by using the slightly longer `#[cfg_attr(test, mutants::skip)]`.
 
-**Example:**
+### Example
 
 ```rust
 use std::time::{Duration, Instant};

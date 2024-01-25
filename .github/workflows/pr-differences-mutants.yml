@@ -120,7 +120,6 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    if: always()
     needs:
       [
         check-big-packages-and-shards,
