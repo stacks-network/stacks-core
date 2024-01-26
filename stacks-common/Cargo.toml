@@ -34,7 +34,7 @@ slog-json = { version = "2.3.0", optional = true }
 libsecp256k1 = { version = "0.5.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
-wsts = { workspace = true }
+wsts = { workspace = true, optional = true}
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -86,7 +86,7 @@ rand_core = "0.6"
 
 [features]
 default = ["canonical", "log", "developer-mode"]
-canonical = ["vrf", "sqlite", "secp256k1"]
+canonical = ["vrf", "sqlite", "secp256k1", "wsts"]
 log = ["slog", "slog-term", "slog-json"]
 sqlite = ["rusqlite"]
 vrf = ["ed25519-dalek", "curve25519-dalek"]
