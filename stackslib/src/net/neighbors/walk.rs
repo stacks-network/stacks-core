@@ -565,7 +565,6 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     }
 
     /// Select neighbors that are routable, and ignore ones that are not.
-    /// TODO: expand if we ever want to filter by unroutable network class or something
     fn filter_sensible_neighbors(
         mut neighbors: Vec<NeighborAddress>,
         private_neighbors: bool,
