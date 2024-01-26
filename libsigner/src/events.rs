@@ -23,6 +23,7 @@ use std::sync::Arc;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
+use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
 use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
@@ -32,9 +33,11 @@ use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
 };
+use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
+use wsts::common::Signature;
 use wsts::net::{Message, Packet};
 
 use crate::http::{decode_http_body, decode_http_request};
@@ -73,9 +76,24 @@ pub enum SignerMessage {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BlockResponse {
     /// The Nakamoto block was accepted and therefore signed
-    Accepted(NakamotoBlock),
+    Accepted((Sha512Trunc256Sum, ThresholdSignature)),
     /// The Nakamoto block was rejected and therefore not signed
     Rejected(BlockRejection),
+}
+
+impl BlockResponse {
+    /// Create a new accepted BlockResponse for the provided block signer signature hash and signature
+    pub fn accepted(hash: Sha512Trunc256Sum, sig: Signature) -> Self {
+        Self::Accepted((hash, ThresholdSignature(sig)))
+    }
+
+    /// Create a new rejected BlockResponse for the provided block signer signature hash and signature
+    pub fn rejected(hash: Sha512Trunc256Sum, sig: Signature) -> Self {
+        Self::Rejected(BlockRejection::new(
+            hash,
+            RejectCode::SignedRejection(ThresholdSignature(sig)),
+        ))
+    }
 }
 
 /// A rejection response from a signer for a proposed block
@@ -85,17 +103,17 @@ pub struct BlockRejection {
     pub reason: String,
     /// The reason code for the rejection
     pub reason_code: RejectCode,
-    /// The block that was rejected
-    pub block: NakamotoBlock,
+    /// The signer signature hash of the block that was rejected
+    pub signer_signature_hash: Sha512Trunc256Sum,
 }
 
 impl BlockRejection {
     /// Create a new BlockRejection for the provided block and reason code
-    pub fn new(block: NakamotoBlock, reason_code: RejectCode) -> Self {
+    pub fn new(signer_signature_hash: Sha512Trunc256Sum, reason_code: RejectCode) -> Self {
         Self {
             reason: reason_code.to_string(),
             reason_code,
-            block,
+            signer_signature_hash,
         }
     }
 }
@@ -105,7 +123,7 @@ impl From<BlockValidateReject> for BlockRejection {
         Self {
             reason: reject.reason,
             reason_code: RejectCode::ValidationFailed(reject.reason_code),
-            block: reject.block,
+            signer_signature_hash: reject.signer_signature_hash,
         }
     }
 }
@@ -117,9 +135,7 @@ pub enum RejectCode {
     /// RPC endpoint Validation failed
     ValidationFailed(ValidateRejectCode),
     /// Signers signed a block rejection
-    SignedRejection,
-    /// Invalid signature hash
-    InvalidSignatureHash,
+    SignedRejection(ThresholdSignature),
     /// Insufficient signers agreed to sign the block
     InsufficientSigners(Vec<u32>),
 }
@@ -128,10 +144,9 @@ impl std::fmt::Display for RejectCode {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             RejectCode::ValidationFailed(code) => write!(f, "Validation failed: {:?}", code),
-            RejectCode::SignedRejection => {
-                write!(f, "A threshold number of signers rejected the block.")
+            RejectCode::SignedRejection(sig) => {
+                write!(f, "A threshold number of signers rejected the block with the following signature: {:?}.", sig)
             }
-            RejectCode::InvalidSignatureHash => write!(f, "The signature hash was invalid."),
             RejectCode::InsufficientSigners(malicious_signers) => write!(
                 f,
                 "Insufficient signers agreed to sign the block. The following signers are malicious: {:?}",

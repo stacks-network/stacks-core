@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 
 use crate::burnchains::affirmation::AffirmationMap;
@@ -90,8 +90,7 @@ fn hex_deser_block<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NakamotoBlo
 ///  that the stacks-node thinks should be rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateReject {
-    #[serde(serialize_with = "hex_ser_block", deserialize_with = "hex_deser_block")]
-    pub block: NakamotoBlock,
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub reason: String,
     pub reason_code: ValidateRejectCode,
 }
@@ -119,8 +118,7 @@ where
 ///  that the stacks-node thinks is acceptable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateOk {
-    #[serde(serialize_with = "hex_ser_block", deserialize_with = "hex_deser_block")]
-    pub block: NakamotoBlock,
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub cost: ExecutionCost,
     pub size: u64,
 }
@@ -166,7 +164,7 @@ impl NakamotoBlockProposal {
                 let result =
                     self.validate(&sortdb, &mut chainstate)
                         .map_err(|reason| BlockValidateReject {
-                            block: self.block.clone(),
+                            signer_signature_hash: self.block.header.signer_signature_hash(),
                             reason_code: reason.reason_code,
                             reason: reason.reason,
                         });
@@ -326,7 +324,11 @@ impl NakamotoBlockProposal {
             })
         );
 
-        Ok(BlockValidateOk { block, cost, size })
+        Ok(BlockValidateOk {
+            signer_signature_hash: block.header.signer_signature_hash(),
+            cost,
+            size,
+        })
     }
 }
 

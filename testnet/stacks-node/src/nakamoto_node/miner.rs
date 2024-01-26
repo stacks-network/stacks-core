@@ -562,13 +562,7 @@ impl BlockMinerThread {
 
         let mining_key = self.keychain.get_nakamoto_sk();
         let miner_signature = mining_key
-            .sign(
-                block
-                    .header
-                    .miner_signature_hash()
-                    .map_err(|_| NakamotoNodeError::SigningError("Could not create sighash"))?
-                    .as_bytes(),
-            )
+            .sign(block.header.miner_signature_hash().as_bytes())
             .map_err(NakamotoNodeError::SigningError)?;
         block.header.miner_signature = miner_signature;
 

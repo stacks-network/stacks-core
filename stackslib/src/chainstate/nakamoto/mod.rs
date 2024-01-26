@@ -386,7 +386,21 @@ impl StacksMessageCodec for NakamotoBlockHeader {
 impl NakamotoBlockHeader {
     /// Calculate the message digest for miners to sign.
     /// This includes all fields _except_ the signatures.
-    pub fn miner_signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+    pub fn miner_signature_hash(&self) -> Sha512Trunc256Sum {
+        self.miner_signature_hash_inner()
+            .expect("BUG: failed to calculate miner signature hash")
+    }
+
+    /// Calculate the message digest for signers to sign.
+    /// This includes all fields _except_ the signer signature.
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        self.signer_signature_hash_inner()
+            .expect("BUG: failed to calculate signer signature hash")
+    }
+
+    /// Inner calculation of the message digest for miners to sign.
+    /// This includes all fields _except_ the signatures.
+    fn miner_signature_hash_inner(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
         let fd = &mut hasher;
         write_next(fd, &self.version)?;
@@ -399,9 +413,9 @@ impl NakamotoBlockHeader {
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
-    /// Calculate the message digest for stackers to sign.
+    /// Inner calculation of the message digest for stackers to sign.
     /// This includes all fields _except_ the stacker signature.
-    pub fn signer_signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+    fn signer_signature_hash_inner(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
         let fd = &mut hasher;
         write_next(fd, &self.version)?;
@@ -416,7 +430,7 @@ impl NakamotoBlockHeader {
     }
 
     pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
-        let signed_hash = self.miner_signature_hash().ok()?;
+        let signed_hash = self.miner_signature_hash();
         let recovered_pk =
             StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature).ok()?;
 
@@ -438,7 +452,7 @@ impl NakamotoBlockHeader {
 
     /// Sign the block header by the miner
     pub fn sign_miner(&mut self, privk: &StacksPrivateKey) -> Result<(), ChainstateError> {
-        let sighash = self.miner_signature_hash()?.0;
+        let sighash = self.miner_signature_hash().0;
         let sig = privk
             .sign(&sighash)
             .map_err(|se| net_error::SigningError(se.to_string()))?;
@@ -1707,7 +1721,7 @@ impl NakamotoChainState {
         if !db_handle.expects_signer_signature(
             &block.header.consensus_hash,
             schnorr_signature,
-            &block.header.signer_signature_hash()?.0,
+            &block.header.signer_signature_hash().0,
             aggregate_public_key,
         )? {
             let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
