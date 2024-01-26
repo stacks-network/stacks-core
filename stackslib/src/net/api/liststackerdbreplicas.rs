@@ -117,9 +117,9 @@ impl RPCRequestHandler for RPCListStackerDBReplicasRequestHandler {
             .take()
             .ok_or(NetError::SendError("`contract_identifier` not set".into()))?;
 
-        let replicas_resp =
+        let (replicas_resp, local_peer, allow_private) =
             node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
-                PeerDB::find_stacker_db_replicas(
+                let replicas_resp = PeerDB::find_stacker_db_replicas(
                     network.peerdb_conn(),
                     network.bound_neighbor_key().network_id,
                     &contract_identifier,
@@ -132,22 +132,44 @@ impl RPCRequestHandler for RPCListStackerDBReplicasRequestHandler {
                         &preamble,
                         &HttpServerError::new("Unable to list replicas of StackerDB".to_string())
                     )
-                })
+                });
+                let local_peer_resp = network.get_local_peer().clone();
+                (replicas_resp, local_peer_resp, network.get_connection_opts().private_neighbors)
             });
 
-        let naddrs_resp = match replicas_resp {
+        let mut naddrs = match replicas_resp {
             Ok(neighbors) => neighbors
                 .into_iter()
                 .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
+                .filter(|naddr| {
+                    if naddr.addrbytes.is_anynet() {
+                        // don't expose 0.0.0.0 or ::1
+                        return false;
+                    }
+                    if !allow_private && naddr.addrbytes.is_in_private_range() {
+                        // filter unroutable network addresses
+                        return false;
+                    }
+                    true
+                })
                 .collect::<Vec<_>>(),
             Err(response) => {
                 return response.try_into_contents().map_err(NetError::from);
             }
         };
 
+        if local_peer
+            .stacker_dbs
+            .iter()
+            .find(|contract_id| contract_id == &&contract_identifier)
+            .is_some()
+        {
+            naddrs.insert(0, local_peer.to_public_neighbor_addr());
+        }
+
         let mut preamble = HttpResponsePreamble::ok_json(&preamble);
         preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
-        let body = HttpResponseContents::try_from_json(&naddrs_resp)?;
+        let body = HttpResponseContents::try_from_json(&naddrs)?;
         Ok((preamble, body))
     }
 }
