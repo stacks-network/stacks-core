@@ -1,3 +1,4 @@
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -15,7 +16,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
-use libsigner::{SignerMessage, SignerSession, StackerDBSession};
+use libsigner::{
+    SignerMessage, SignerSession, StackerDBSession, SIGNER_SLOTS_PER_USER, TRANSACTIONS_SLOT_ID,
+};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
@@ -91,6 +94,33 @@ impl StackerDB {
         }
     }
 
+    /// Get the latest signer transactions from signer ids
+    // TODO: update to actually retry
+    pub fn get_signer_transactions(
+        &mut self,
+        signer_ids: &[u32],
+    ) -> Result<Vec<StacksTransaction>, ClientError> {
+        let slot_ids: Vec<_> = signer_ids
+            .iter()
+            .map(|id| id * SIGNER_SLOTS_PER_USER + TRANSACTIONS_SLOT_ID)
+            .collect();
+
+        let mut transactions = Vec::new();
+        let chunks = self
+            .signers_stackerdb_session
+            .get_latest_chunks(&slot_ids)?;
+        for chunk in chunks {
+            if let Some(data) = chunk {
+                let message: SignerMessage = bincode::deserialize(&data).unwrap();
+                if let SignerMessage::Transactions(chunk_transactions) = message {
+                    transactions.extend(chunk_transactions);
+                } else {
+                    warn!("Signer wrote an unexpected type to the transactions slot");
+                }
+            }
+        }
+        Ok(transactions)
+    }
     /// Retrieve the signer contract id
     pub fn signers_contract_id(&self) -> &QualifiedContractIdentifier {
         &self.signers_stackerdb_session.stackerdb_contract_id

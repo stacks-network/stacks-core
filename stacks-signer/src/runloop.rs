@@ -17,8 +17,8 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{
@@ -132,7 +132,7 @@ pub struct RunLoop<C> {
     pub blocks: HashMap<Sha512Trunc256Sum, BlockInfo>,
     /// Transactions that we expect to see in the next block
     // TODO: fill this in and do proper garbage collection
-    pub transactions: Vec<Txid>,
+    pub transactions: Vec<StacksTransaction>,
 }
 
 impl<C: Coordinator> RunLoop<C> {
@@ -251,7 +251,6 @@ impl<C: Coordinator> RunLoop<C> {
         block_validate_response: BlockValidateResponse,
         res: Sender<Vec<OperationResult>>,
     ) {
-        let transactions = &self.transactions;
         let block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let Some(block_info) = self
@@ -291,7 +290,18 @@ impl<C: Coordinator> RunLoop<C> {
         if let Some(mut request) = block_info.nonce_request.take() {
             debug!("Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
             // We have an associated nonce request. Respond to it
-            Self::determine_vote(block_info, &mut request, transactions);
+            let signer_ids: Vec<_> = self
+                .signing_round
+                .public_keys
+                .signers
+                .keys()
+                .cloned()
+                .collect();
+            let Ok(transactions) = self.stackerdb.get_signer_transactions(&signer_ids) else {
+                // Failed to connect to the stacks node to get transcations. Cannot validate the block.
+                return;
+            };
+            Self::determine_vote(block_info, &mut request, &transactions);
             // Send the nonce request through with our vote
             let packet = Packet {
                 msg: Message::NonceRequest(request),
@@ -442,7 +452,6 @@ impl<C: Coordinator> RunLoop<C> {
             debug!("Received a nonce request for an unknown message stream. Reject it.");
             return false;
         };
-        let transactions = &self.transactions;
         let signer_signature_hash = block.header.signer_signature_hash();
         let Some(block_info) = self.blocks.get_mut(&signer_signature_hash) else {
             // We have not seen this block before. Cache it. Send a RPC to the stacks node to validate it.
@@ -465,7 +474,18 @@ impl<C: Coordinator> RunLoop<C> {
             block_info.nonce_request = Some(request.clone());
             return false;
         }
-        Self::determine_vote(block_info, request, transactions);
+        let signer_ids: Vec<_> = self
+            .signing_round
+            .public_keys
+            .signers
+            .keys()
+            .cloned()
+            .collect();
+        let Ok(transactions) = self.stackerdb.get_signer_transactions(&signer_ids) else {
+            // Failed to connect to the stacks node to get transcations. Cannot validate the block.
+            return false;
+        };
+        Self::determine_vote(block_info, request, &transactions);
         true
     }
 
@@ -473,14 +493,14 @@ impl<C: Coordinator> RunLoop<C> {
     fn determine_vote(
         block_info: &mut BlockInfo,
         nonce_request: &mut NonceRequest,
-        transactions: &[Txid],
+        transactions: &[StacksTransaction],
     ) {
         let mut vote_bytes = block_info.block.header.signer_signature_hash().0.to_vec();
         // Validate the block contents
         if !block_info.valid.unwrap_or(false)
             || !transactions
                 .iter()
-                .all(|txid| block_info.block.txs.iter().any(|tx| &tx.txid() == txid))
+                .all(|transaction| block_info.block.txs.contains(transaction))
         {
             // We don't like this block. Update the request to be across its hash with a byte indicating a vote no.
             debug!("Updating the request with a block hash with a vote no.");
