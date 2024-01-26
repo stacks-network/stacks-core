@@ -17,7 +17,7 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::boot::{NakamotoSignerEntry, RewardSet};
+use stacks::chainstate::stacks::boot::RewardSet;
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
@@ -103,15 +103,6 @@ pub struct MinedNakamotoBlockEvent {
     pub block_size: u64,
     pub cost: ExecutionCost,
     pub tx_events: Vec<TransactionEvent>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PoxAnchorBlockEvent {
-    /// the StacksBlockId of the PoX anchor block
-    pub block_id: String,
-    pub reward_cycle: u64,
-    pub total_stx_stacked: u128,
-    pub signer_set: Vec<NakamotoSignerEntry>,
 }
 
 impl EventObserver {
