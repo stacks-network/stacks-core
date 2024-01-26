@@ -116,11 +116,14 @@ impl StackerDB {
             if !chunk_ack.is_empty() {
                 for chunk in chunk_ack {
                     if let Some(data) = chunk {
-                        let message: SignerMessage = bincode::deserialize(&data).unwrap();
-                        if let SignerMessage::Transactions(chunk_transactions) = message {
-                            transactions.extend(chunk_transactions);
+                        if let Ok(message) = bincode::deserialize::<SignerMessage>(&data) {
+                            if let SignerMessage::Transactions(chunk_transactions) = message {
+                                transactions.extend(chunk_transactions);
+                            } else {
+                                warn!("Signer wrote an unexpected type to the transactions slot");
+                            }
                         } else {
-                            warn!("Signer wrote an unexpected type to the transactions slot");
+                            warn!("Failed to deserialize chunk data into a SignerMessage");
                         }
                     }
                 }
