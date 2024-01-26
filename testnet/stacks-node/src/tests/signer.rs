@@ -13,6 +13,7 @@ use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::util_lib::boot::boot_code_id;
+use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
 };
@@ -365,7 +366,8 @@ fn stackerdb_dkg_sign() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     let mut block = NakamotoBlock {
         header,

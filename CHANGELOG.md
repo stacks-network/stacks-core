@@ -12,6 +12,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - New `/new_pox_anchor` endpoint for broadcasting PoX anchor block processing.
 - Stacker bitvec in NakamotoBlock
 
+### Modified
+
+- `pox-4.aggregation-commit` contains a signing-key parameter (like
+  `stack-stx` and `stack-extend`), the signing-key parameter is removed from
+  `delegate-*` functions.
+
 ## [2.4.0.0.4]
 
 This is a high-priority hotfix that addresses a bug in transaction processing which
