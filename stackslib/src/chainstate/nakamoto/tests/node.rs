@@ -74,6 +74,7 @@ pub struct TestStacker {
 }
 
 impl TestStacker {
+    pub const DEFAULT_STACKER_AMOUNT: u128 = 1_000_000_000_000_000_000;
     pub fn from_seed(seed: &[u8]) -> TestStacker {
         let stacker_private_key = StacksPrivateKey::from_seed(seed);
         let mut signer_seed = seed.to_vec();
@@ -88,6 +89,21 @@ impl TestStacker {
 
     pub fn signer_public_key(&self) -> StacksPublicKey {
         StacksPublicKey::from_private(&self.signer_private_key)
+    }
+
+    /// make a set of stackers who will share a single signing key and stack with
+    /// `Self::DEFAULT_STACKER_AMOUNT`
+    pub fn common_signing_set(test_signers: &TestSigners) -> Vec<TestStacker> {
+        let mut signing_key_seed = test_signers.num_keys.to_be_bytes().to_vec();
+        signing_key_seed.extend_from_slice(&[1, 1, 1, 1]);
+        let signing_key = StacksPrivateKey::from_seed(signing_key_seed.as_slice());
+        (0..test_signers.num_keys)
+            .map(|index| TestStacker {
+                signer_private_key: signing_key.clone(),
+                stacker_private_key: StacksPrivateKey::from_seed(&index.to_be_bytes()),
+                amount: Self::DEFAULT_STACKER_AMOUNT,
+            })
+            .collect()
     }
 }
 

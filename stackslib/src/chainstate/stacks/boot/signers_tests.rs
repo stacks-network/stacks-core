@@ -202,7 +202,7 @@ fn signers_get_signer_keys_from_stackerdb() {
     let (mut peer, test_signers, latest_block_id, _) = prepare_signers_test(
         function_name!(),
         vec![],
-        Some(vec![&stacker_1, &stacker_2]),
+        &[stacker_1.clone(), stacker_2.clone()],
         None,
     );
 
@@ -248,7 +248,7 @@ fn signers_get_signer_keys_from_stackerdb() {
 pub fn prepare_signers_test<'a>(
     test_name: &str,
     initial_balances: Vec<(PrincipalData, u64)>,
-    stackers: Option<Vec<&TestStacker>>,
+    stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
 ) -> (TestPeer<'a>, TestSigners, StacksBlockId, u128) {
     let mut test_signers = TestSigners::default();

@@ -149,7 +149,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
     let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
         function_name!(),
         vec![(signer, 1000)],
-        Some(vec![&stacker_1, &stacker_2]),
+        &[stacker_1.clone(), stacker_2.clone()],
         Some(&observer),
     );
 
@@ -236,7 +236,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
         function_name!(),
         vec![(signer_1, 1000), (signer_2, 1000)],
-        Some(vec![&stacker_1, &stacker_2]),
+        &[stacker_1.clone(), stacker_2.clone()],
         Some(&observer),
     );
 

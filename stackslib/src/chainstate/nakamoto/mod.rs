@@ -47,13 +47,14 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use wsts::curve::point::Point;
 
+use self::signer_set::SignerCalculation;
 use super::burn::db::sortdb::{
     get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionHandle,
     SortitionHandleConn, SortitionHandleTx,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
 use super::stacks::boot::{
-    PoxVersions, RawRewardSetEntry, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
+    PoxVersions, RawRewardSetEntry, RewardSet, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
     BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
 };
 use super::stacks::db::accounts::MinerReward;
@@ -72,6 +73,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
@@ -99,6 +101,7 @@ pub mod coordinator;
 pub mod miner;
 pub mod tenure;
 
+pub mod signer_set;
 #[cfg(test)]
 pub mod tests;
 
@@ -160,6 +163,14 @@ lazy_static! {
                      data BLOB NOT NULL,
                     
                      PRIMARY KEY(block_hash,consensus_hash)
+    );"#.into(),
+    r#"
+    -- Table for storing calculated reward sets. This must be in the Chainstate DB because calculation occurs
+    --   during block processing.
+    CREATE TABLE nakamoto_reward_sets (
+                     index_block_hash TEXT NOT NULL,
+                     reward_set TEXT NOT NULL,
+                     PRIMARY KEY (index_block_hash)
     );"#.into(),
     NAKAMOTO_TENURES_SCHEMA.into(),
     r#"
@@ -297,6 +308,8 @@ pub struct SetupBlockResult<'a, 'b> {
     pub burn_delegate_stx_ops: Vec<DelegateStxOp>,
     /// STX auto-unlock events from PoX
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
+    /// Result of a signer set calculation if one occurred
+    pub signer_set_calc: Option<SignerCalculation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1828,274 +1841,6 @@ impl NakamotoChainState {
         }
     }
 
-    fn get_reward_slots(
-        clarity: &mut ClarityTransactionConnection,
-        reward_cycle: u64,
-        pox_contract: &str,
-    ) -> Result<Vec<RawRewardSetEntry>, ChainstateError> {
-        let is_mainnet = clarity.is_mainnet();
-        if !matches!(
-            PoxVersions::lookup_by_name(pox_contract),
-            Some(PoxVersions::Pox4)
-        ) {
-            error!("Invoked Nakamoto reward-set fetch on non-pox-4 contract");
-            return Err(ChainstateError::DefunctPoxContract);
-        }
-        let pox_contract = &boot_code_id(pox_contract, is_mainnet);
-
-        let list_length = clarity
-            .eval_method_read_only(
-                pox_contract,
-                "get-reward-set-size",
-                &[SymbolicExpression::atom_value(Value::UInt(
-                    reward_cycle.into(),
-                ))],
-            )?
-            .expect_u128();
-
-        let mut slots = vec![];
-        for index in 0..list_length {
-            let entry = clarity
-                .eval_method_read_only(
-                    pox_contract,
-                    "get-reward-set-pox-address",
-                    &[
-                        SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-                        SymbolicExpression::atom_value(Value::UInt(index)),
-                    ],
-                )?
-                .expect_optional()
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    index, list_length, reward_cycle
-                ))
-                .expect_tuple();
-
-            let pox_addr_tuple = entry
-                .get("pox-addr")
-                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
-                .to_owned();
-
-            let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
-
-            let total_ustx = entry
-                .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
-                .to_owned()
-                .expect_u128();
-
-            let stacker = entry
-                .get("stacker")
-                .expect(&format!(
-                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, index
-                ))
-                .to_owned()
-                .expect_optional()
-                .map(|value| value.expect_principal());
-
-            let signer = entry
-                .get("signer")
-                .expect(&format!(
-                    "FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, index
-                ))
-                .to_owned()
-                .expect_buff(SIGNERS_PK_LEN);
-            // (buff 33) only enforces max size, not min size, so we need to do a len check
-            let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
-                let mut bytes = [0; SIGNERS_PK_LEN];
-                bytes.copy_from_slice(signer.as_slice());
-                bytes
-            } else {
-                [0; SIGNERS_PK_LEN]
-            };
-
-            slots.push(RawRewardSetEntry {
-                reward_address,
-                amount_stacked: total_ustx,
-                stacker,
-                signer: Some(pk_bytes),
-            })
-        }
-
-        Ok(slots)
-    }
-
-    pub fn handle_signer_stackerdb_update(
-        clarity: &mut ClarityTransactionConnection,
-        pox_constants: &PoxConstants,
-        reward_cycle: u64,
-        pox_contract: &str,
-    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
-        let is_mainnet = clarity.is_mainnet();
-        let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
-        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
-
-        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx());
-        let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            &pox_constants,
-            &reward_slots[..],
-            liquid_ustx,
-        );
-        let reward_set =
-            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
-
-        let signers_list = if participation == 0 {
-            vec![]
-        } else {
-            reward_set
-                .signers
-                .ok_or(ChainstateError::PoxNoRewardCycle)?
-                .iter()
-                .map(|signer| {
-                    let signer_hash = Hash160::from_data(&signer.signing_key);
-                    let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
-                    Value::Tuple(
-                        TupleData::from_data(vec![
-                            (
-                                "signer".into(),
-                                Value::Principal(PrincipalData::from(signing_address)),
-                            ),
-                            ("num-slots".into(), Value::UInt(signer.slots.into())),
-                        ])
-                            .expect(
-                                "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
-                            ),
-                    )
-                })
-                .collect()
-        };
-        if signers_list.len() > SIGNERS_MAX_LIST_SIZE {
-            panic!(
-                "FATAL: signers list returned by reward set calculations longer than maximum ({} > {})",
-                signers_list.len(),
-                SIGNERS_MAX_LIST_SIZE,
-            );
-        }
-
-        let args = [
-            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).expect(
-                "BUG: Failed to construct `(list 4000 { signer: principal, num-slots: u64 })` list",
-            )),
-            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
-        ];
-
-        let (value, _, events, _) = clarity
-            .with_abort_callback(
-                |vm_env| {
-                    vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
-                        env.execute_contract_allow_private(
-                            &signers_contract,
-                            "stackerdb-set-signer-slots",
-                            &args,
-                            false,
-                        )
-                    })
-                },
-                |_, _| false,
-            )
-            .expect("FATAL: failed to update signer stackerdb");
-
-        if let Value::Response(ref data) = value {
-            if !data.committed {
-                error!(
-                    "Error while updating .signers contract";
-                    "reward_cycle" => reward_cycle,
-                    "cc_response" => %value,
-                );
-                panic!();
-            }
-        }
-
-        Ok(events)
-    }
-
-    pub fn check_and_handle_prepare_phase_start(
-        clarity_tx: &mut ClarityTx,
-        first_block_height: u64,
-        pox_constants: &PoxConstants,
-        burn_tip_height: u64,
-    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
-        let current_epoch = clarity_tx.get_epoch();
-        if current_epoch < StacksEpochId::Epoch25 {
-            // before Epoch-2.5, no need for special handling
-            return Ok(vec![]);
-        }
-        // now, determine if we are in a prepare phase, and we are the first
-        //  block in this prepare phase in our fork
-        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height) {
-            // if we're not in a prepare phase, don't need to do anything
-            return Ok(vec![]);
-        }
-
-        let Some(cycle_of_prepare_phase) =
-            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height)
-        else {
-            // if we're not in a prepare phase, don't need to do anything
-            return Ok(vec![]);
-        };
-
-        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height);
-        if !matches!(
-            PoxVersions::lookup_by_name(active_pox_contract),
-            Some(PoxVersions::Pox4)
-        ) {
-            debug!(
-                "Active PoX contract is not PoX-4, skipping .signers updates until PoX-4 is active"
-            );
-            return Ok(vec![]);
-        }
-
-        let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
-
-        // are we the first block in the prepare phase in our fork?
-        let needs_update = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
-            if !clarity_db.has_contract(signers_contract) {
-                // if there's no signers contract, no need to update anything.
-                return false
-            }
-            let Ok(value) = clarity_db.lookup_variable_unknown_descriptor(
-                signers_contract,
-                SIGNERS_UPDATE_STATE,
-                &current_epoch,
-            ) else {
-                error!("FATAL: Failed to read `{SIGNERS_UPDATE_STATE}` variable from .signers contract");
-                panic!();
-            };
-            let cycle_number = value.expect_u128();
-            // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
-            //  the .signers state.
-            cycle_number < cycle_of_prepare_phase.into()
-        });
-
-        if !needs_update {
-            debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
-            return Ok(vec![]);
-        }
-
-        info!(
-            "Performing .signers state update";
-            "burn_height" => burn_tip_height,
-            "for_cycle" => cycle_of_prepare_phase,
-            "signers_contract" => %signers_contract,
-        );
-
-        clarity_tx.connection().as_free_transaction(|clarity| {
-            Self::handle_signer_stackerdb_update(
-                clarity,
-                &pox_constants,
-                cycle_of_prepare_phase,
-                active_pox_contract,
-            )
-        })
-    }
-
     /// Get the aggregate public key for a block.
     /// TODO: The block at which the aggregate public key is queried needs to be better defined.
     /// See https://github.com/stacks-network/stacks-core/issues/4109
@@ -2649,6 +2394,33 @@ impl NakamotoChainState {
         Ok(new_tip_info)
     }
 
+    pub fn write_reward_set(
+        tx: &mut ChainstateTx,
+        block_id: &StacksBlockId,
+        reward_set: &RewardSet,
+    ) -> Result<(), ChainstateError> {
+        let sql = "INSERT INTO nakamoto_reward_sets (index_block_hash, reward_set) VALUES (?, ?)";
+        let args = rusqlite::params![block_id, &reward_set.metadata_serialize(),];
+        tx.execute(sql, args)?;
+        Ok(())
+    }
+
+    pub fn get_reward_set(
+        chainstate_db: &Connection,
+        block_id: &StacksBlockId,
+    ) -> Result<Option<RewardSet>, ChainstateError> {
+        let sql = "SELECT reward_set FROM nakamoto_reward_sets WHERE index_block_hash = ?";
+        chainstate_db
+            .query_row(sql, &[block_id], |row| {
+                let reward_set: String = row.get(0)?;
+                let reward_set = RewardSet::metadata_deserialize(&reward_set)
+                    .map_err(|s| FromSqlError::Other(s.into()))?;
+                Ok(reward_set)
+            })
+            .optional()
+            .map_err(ChainstateError::from)
+    }
+
     /// Begin block-processing and return all of the pre-processed state within a
     /// `SetupBlockResult`.
     ///
@@ -2839,13 +2611,17 @@ impl NakamotoChainState {
         }
 
         // Handle signer stackerdb updates
+        let signer_set_calc;
         if evaluated_epoch >= StacksEpochId::Epoch25 {
-            let _events = Self::check_and_handle_prepare_phase_start(
+            signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
                 &mut clarity_tx,
                 first_block_height,
                 &pox_constants,
                 burn_header_height.into(),
+                coinbase_height,
             )?;
+        } else {
+            signer_set_calc = None;
         }
 
         debug!(
@@ -2864,6 +2640,7 @@ impl NakamotoChainState {
             burn_transfer_stx_ops: transfer_burn_ops,
             auto_unlock_events,
             burn_delegate_stx_ops: delegate_burn_ops,
+            signer_set_calc,
         })
     }
 
@@ -3155,6 +2932,7 @@ impl NakamotoChainState {
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
             mut auto_unlock_events,
+            signer_set_calc,
         } = Self::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -3321,6 +3099,13 @@ impl NakamotoChainState {
 
         let new_block_id = new_tip.index_block_hash();
         chainstate_tx.log_transactions_processed(&new_block_id, &tx_receipts);
+
+        // store the reward set calculated during this block if it happened
+        // NOTE: miner and proposal evaluation should not invoke this because
+        //  it depends on knowing the StacksBlockId.
+        if let Some(signer_calculation) = signer_set_calc {
+            Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?
+        }
 
         monitoring::set_last_block_transaction_count(u64::try_from(block.txs.len()).unwrap());
         monitoring::set_last_execution_cost_observed(&block_execution_cost, &block_limit);

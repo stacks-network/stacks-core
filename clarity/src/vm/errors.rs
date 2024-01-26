@@ -100,6 +100,7 @@ pub enum RuntimeErrorType {
     UnwrapFailure,
     DefunctPoxContract,
     PoxAlreadyLocked,
+    MetadataAlreadySet,
 }
 
 #[derive(Debug, PartialEq)]

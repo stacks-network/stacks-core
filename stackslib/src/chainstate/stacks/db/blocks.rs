@@ -52,6 +52,7 @@ use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::coordinator::BlockEventDispatcher;
+use crate::chainstate::nakamoto::signer_set::{NakamotoSigners, SignerCalculation};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use crate::chainstate::stacks::db::accounts::MinerReward;
@@ -168,6 +169,8 @@ pub struct SetupBlockResult<'a, 'b> {
     pub burn_transfer_stx_ops: Vec<TransferStxOp>,
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
     pub burn_delegate_stx_ops: Vec<DelegateStxOp>,
+    /// Result of a signer set calculation if one occurred
+    pub signer_set_calc: Option<SignerCalculation>,
 }
 
 pub struct DummyEventDispatcher;
@@ -5142,13 +5145,17 @@ impl StacksChainState {
 
         // Handle signer stackerdb updates
         let first_block_height = burn_dbconn.get_burn_start_height();
+        let signer_set_calc;
         if evaluated_epoch >= StacksEpochId::Epoch25 {
-            let _events = NakamotoChainState::check_and_handle_prepare_phase_start(
+            signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
                 &mut clarity_tx,
                 first_block_height.into(),
                 &pox_constants,
                 burn_tip_height.into(),
+                chain_tip.stacks_block_height,
             )?;
+        } else {
+            signer_set_calc = None;
         }
 
         debug!(
@@ -5170,6 +5177,7 @@ impl StacksChainState {
             burn_transfer_stx_ops: transfer_burn_ops,
             auto_unlock_events,
             burn_delegate_stx_ops: delegate_burn_ops,
+            signer_set_calc,
         })
     }
 
@@ -5365,6 +5373,7 @@ impl StacksChainState {
             burn_transfer_stx_ops,
             mut auto_unlock_events,
             burn_delegate_stx_ops,
+            signer_set_calc,
         } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -5663,6 +5672,18 @@ impl StacksChainState {
         .expect("FATAL: failed to advance chain tip");
 
         chainstate_tx.log_transactions_processed(&new_tip.index_block_hash(), &tx_receipts);
+
+        // store the reward set calculated during this block if it happened
+        // NOTE: miner and proposal evaluation should not invoke this because
+        //  it depends on knowing the StacksBlockId.
+        if let Some(signer_calculation) = signer_set_calc {
+            let new_block_id = new_tip.index_block_hash();
+            NakamotoChainState::write_reward_set(
+                chainstate_tx,
+                &new_block_id,
+                &signer_calculation.reward_set,
+            )?
+        }
 
         set_last_block_transaction_count(
             u64::try_from(block.txs.len()).expect("more than 2^64 txs"),

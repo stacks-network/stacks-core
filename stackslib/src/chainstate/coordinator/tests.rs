@@ -520,6 +520,17 @@ impl RewardSetProvider for StubbedRewardSetProvider {
             signers: None,
         })
     }
+
+    fn get_reward_set_nakamoto(
+        &self,
+        cycle_start_burn_height: u64,
+        chainstate: &mut StacksChainState,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+    ) -> Result<RewardSet, CoordError> {
+        panic!("Stubbed reward set provider cannot be invoked in nakamoto")
+    }
 }
 
 fn make_reward_set_coordinator<'a>(
