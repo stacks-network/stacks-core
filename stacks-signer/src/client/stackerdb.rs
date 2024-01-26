@@ -95,31 +95,40 @@ impl StackerDB {
     }
 
     /// Get the latest signer transactions from signer ids
-    // TODO: update to actually retry
-    pub fn get_signer_transactions(
+    pub fn get_signer_transactions_with_retry(
         &mut self,
         signer_ids: &[u32],
     ) -> Result<Vec<StacksTransaction>, ClientError> {
-        let slot_ids: Vec<_> = signer_ids
-            .iter()
-            .map(|id| id * SIGNER_SLOTS_PER_USER + TRANSACTIONS_SLOT_ID)
-            .collect();
+        loop {
+            let slot_ids: Vec<_> = signer_ids
+                .iter()
+                .map(|id| id * SIGNER_SLOTS_PER_USER + TRANSACTIONS_SLOT_ID)
+                .collect();
 
-        let mut transactions = Vec::new();
-        let chunks = self
-            .signers_stackerdb_session
-            .get_latest_chunks(&slot_ids)?;
-        for chunk in chunks {
-            if let Some(data) = chunk {
-                let message: SignerMessage = bincode::deserialize(&data).unwrap();
-                if let SignerMessage::Transactions(chunk_transactions) = message {
-                    transactions.extend(chunk_transactions);
-                } else {
-                    warn!("Signer wrote an unexpected type to the transactions slot");
+            let send_request = || {
+                     self.signers_stackerdb_session
+                    .get_latest_chunks(&slot_ids)
+                    .map_err(backoff::Error::transient)
+            };
+            let chunk_ack = retry_with_exponential_backoff(send_request)?;
+            let mut transactions = Vec::new();
+
+            if !chunk_ack.is_empty() {
+                for chunk in chunk_ack{
+                    if let Some(data) = chunk {
+                        let message: SignerMessage = bincode::deserialize(&data).unwrap();
+                        if let SignerMessage::Transactions(chunk_transactions) = message {
+                            transactions.extend(chunk_transactions);
+                        } else {
+                            warn!("Signer wrote an unexpected type to the transactions slot");
+                        }
+                    }
                 }
+                return Ok(transactions)
+            } else {
+                warn!("Recieved empty chuncks from stackerdb: {:?}", chunk_ack);
             }
         }
-        Ok(transactions)
     }
     /// Retrieve the signer contract id
     pub fn signers_contract_id(&self) -> &QualifiedContractIdentifier {

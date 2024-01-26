@@ -297,7 +297,7 @@ impl<C: Coordinator> RunLoop<C> {
                 .keys()
                 .cloned()
                 .collect();
-            let Ok(transactions) = self.stackerdb.get_signer_transactions(&signer_ids) else {
+            let Ok(transactions) = self.stackerdb.get_signer_transactions_with_retry(&signer_ids) else {
                 // Failed to connect to the stacks node to get transcations. Cannot validate the block.
                 return;
             };
@@ -481,7 +481,7 @@ impl<C: Coordinator> RunLoop<C> {
             .keys()
             .cloned()
             .collect();
-        let Ok(transactions) = self.stackerdb.get_signer_transactions(&signer_ids) else {
+        let Ok(transactions) = self.stackerdb.get_signer_transactions_with_retry(&signer_ids) else {
             // Failed to connect to the stacks node to get transcations. Cannot validate the block.
             return false;
         };
