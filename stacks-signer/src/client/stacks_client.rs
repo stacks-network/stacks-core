@@ -21,6 +21,9 @@ use blockstack_lib::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSpendingCondition, TransactionVersion,
 };
+use blockstack_lib::core::{
+    BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT, BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
+};
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
@@ -76,10 +79,16 @@ impl StacksClient {
         Ok(peer_info.stacks_tip_consensus_hash)
     }
 
-    /// Retrieve the burn tip height from the stacks node
-    pub fn get_burn_block_height(&self) -> Result<u64, ClientError> {
-        let peer_info = self.get_peer_info()?;
-        Ok(peer_info.burn_block_height)
+    /// Determine if the stacks node is pre or post epoch 3.0 activation
+    pub fn is_pre_nakamoto(&self) -> Result<bool, ClientError> {
+        let is_mainnet = self.chain_id == CHAIN_ID_MAINNET;
+        let burn_block_height = self.get_burn_block_height()?;
+        let epoch_30_activation_height = if is_mainnet {
+            BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT
+        } else {
+            BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT
+        };
+        Ok(burn_block_height >= epoch_30_activation_height)
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
@@ -153,6 +162,12 @@ impl StacksClient {
         }
         let pox_info_data = response.json::<RPCPoxInfoData>()?;
         Ok(pox_info_data)
+    }
+
+    /// Helper function to retrieve the burn tip height from the stacks node
+    fn get_burn_block_height(&self) -> Result<u64, ClientError> {
+        let peer_info = self.get_peer_info()?;
+        Ok(peer_info.burn_block_height)
     }
 
     /// Helper function to retrieve the current reward cycle number from the stacks node
