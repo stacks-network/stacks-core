@@ -257,6 +257,16 @@ impl RewardSet {
             signers: None,
         }
     }
+
+    /// Serialization used when stored as ClarityDB metadata
+    pub fn metadata_serialize(&self) -> String {
+        serde_json::to_string(self).expect("FATAL: failure to serialize RewardSet struct")
+    }
+
+    /// Deserializer corresponding to `RewardSet::metadata_serialize`
+    pub fn metadata_deserialize(from: &str) -> Result<RewardSet, String> {
+        serde_json::from_str(from).map_err(|e| e.to_string())
+    }
 }
 
 impl StacksChainState {
@@ -526,7 +536,7 @@ impl StacksChainState {
         Ok(total_events)
     }
 
-    fn eval_boot_code_read_only(
+    pub fn eval_boot_code_read_only(
         &mut self,
         sortdb: &SortitionDB,
         stacks_block_id: &StacksBlockId,
@@ -1201,67 +1211,8 @@ impl StacksChainState {
                 ))
                 .expect_tuple()?;
 
-            let pox_addr_tuple = tuple
-                .get("pox-addr")
-                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
-                .to_owned();
-
-            let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
-
-            let total_ustx = tuple
-                .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
-                .to_owned()
-                .expect_u128()?;
-
-            let stacker_opt = tuple
-                .get("stacker")
-                .expect(&format!(
-                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i
-                ))
-                .to_owned()
-                .expect_optional()?;
-
-            let stacker = match stacker_opt {
-                Some(stacker_value) => Some(stacker_value.expect_principal()?),
-                None => None,
-            };
-
-            let signer = tuple
-                .get("signer")
-                .expect(&format!(
-                    "FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i
-                ))
-                .to_owned()
-                .expect_buff(SIGNERS_PK_LEN)?;
-            // (buff 33) only enforces max size, not min size, so we need to do a len check
-            let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
-                let mut bytes = [0; SIGNERS_PK_LEN];
-                bytes.copy_from_slice(signer.as_slice());
-                bytes
-            } else {
-                [0; SIGNERS_PK_LEN]
-            };
-
-            debug!(
-                "Parsed PoX reward address";
-                "stacked_ustx" => total_ustx,
-                "reward_address" => %reward_address,
-                "stacker" => ?stacker,
-                "signer" => ?signer
-            );
-            ret.push(RawRewardSetEntry {
-                reward_address,
-                amount_stacked: total_ustx,
-                stacker,
-                signer: Some(pk_bytes),
-            })
+            let entry = RawRewardSetEntry::from_pox_4_tuple(self.mainnet, tuple);
+            ret.push(entry)
         }
 
         Ok(ret)
