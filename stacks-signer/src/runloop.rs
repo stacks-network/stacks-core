@@ -329,7 +329,7 @@ impl<C: Coordinator> RunLoop<C> {
         let packets: Vec<Packet> = messages
             .into_iter()
             .filter_map(|msg| match msg {
-                SignerMessage::BlockResponse(_) => None,
+                SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
                 SignerMessage::Packet(packet) => {
                     self.verify_packet(packet, &coordinator_public_key)
                 }
