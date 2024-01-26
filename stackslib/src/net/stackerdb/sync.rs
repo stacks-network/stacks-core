@@ -77,23 +77,58 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         dbsync
     }
 
-    /// Coalesce a list of peers such that each one has a unique IP:port
-    fn coalesce_peers_by_ipaddr(peers: Vec<NeighborAddress>) -> Vec<NeighborAddress> {
-        // coalesce peers on the same host:port
-        let mut same_host_port = HashSet::new();
-        let unique_ip_peers: Vec<_> = peers
+    /// Find stackerdb replicas and apply filtering rules
+    fn find_qualified_replicas(
+        &self,
+        network: &PeerNetwork,
+    ) -> Result<HashSet<NeighborAddress>, net_error> {
+        let mut found = HashSet::new();
+        let mut min_age =
+            get_epoch_time_secs().saturating_sub(network.get_connection_opts().max_neighbor_age);
+        while found.len() < self.max_neighbors && min_age != 0 {
+            let peers_iter = PeerDB::find_stacker_db_replicas(
+                network.peerdb_conn(),
+                network.get_local_peer().network_id,
+                &self.smart_contract_id,
+                min_age,
+                self.max_neighbors,
+            )?
             .into_iter()
-            .filter_map(|naddr| {
-                if same_host_port.contains(&naddr.addrbytes.to_socketaddr(naddr.port)) {
-                    None
-                } else {
-                    same_host_port.insert(naddr.addrbytes.to_socketaddr(naddr.port));
-                    Some(naddr)
-                }
+            .map(|neighbor| {
+                (
+                    NeighborAddress::from_neighbor(&neighbor),
+                    neighbor.last_contact_time,
+                )
             })
-            .collect();
+            .filter(|(naddr, _)| {
+                if naddr.addrbytes.is_anynet() {
+                    return false;
+                }
+                if !network.get_connection_opts().private_neighbors
+                    && naddr.addrbytes.is_in_private_range()
+                {
+                    return false;
+                }
+                true
+            });
 
-        unique_ip_peers
+            for (peer, last_contact) in peers_iter {
+                found.insert(peer);
+                if found.len() >= self.max_neighbors {
+                    break;
+                }
+                min_age = min_age.min(last_contact);
+            }
+
+            // search for older neighbors
+            if min_age > 1 {
+                min_age = 1;
+            }
+            else if min_age == 1 {
+                min_age = 0;
+            }
+        }
+        Ok(found)
     }
 
     /// Calculate the new set of replicas to contact.
@@ -108,24 +143,13 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         // keep all connected replicas, and replenish from config hints and the DB as needed
         let mut peers = config.hint_replicas.clone();
         if let Some(network) = network {
-            let extra_peers: Vec<_> = PeerDB::find_stacker_db_replicas(
-                network.peerdb_conn(),
-                network.get_local_peer().network_id,
-                &self.smart_contract_id,
-                get_epoch_time_secs()
-                    .saturating_sub(network.get_connection_opts().max_neighbor_age),
-                self.max_neighbors,
-            )?
-            .into_iter()
-            .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
-            .collect();
+            let extra_peers = self.find_qualified_replicas(network)?;
             peers.extend(extra_peers);
         }
 
         peers.shuffle(&mut thread_rng());
 
-        let unique_ip_peers = Self::coalesce_peers_by_ipaddr(peers);
-        for peer in unique_ip_peers {
+        for peer in peers {
             if connected_replicas.len() >= config.max_neighbors {
                 break;
             }
@@ -586,20 +610,8 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
     pub fn connect_begin(&mut self, network: &mut PeerNetwork) -> Result<bool, net_error> {
         if self.replicas.len() == 0 {
             // find some from the peer Db
-            let replicas = PeerDB::find_stacker_db_replicas(
-                network.peerdb_conn(),
-                network.get_local_peer().network_id,
-                &self.smart_contract_id,
-                get_epoch_time_secs()
-                    .saturating_sub(network.get_connection_opts().max_neighbor_age),
-                self.max_neighbors,
-            )?
-            .into_iter()
-            .map(|neighbor| NeighborAddress::from_neighbor(&neighbor))
-            .collect();
-
-            let unique_ip_peers = Self::coalesce_peers_by_ipaddr(replicas);
-            self.replicas = unique_ip_peers.into_iter().collect();
+            let replicas = self.find_qualified_replicas(network)?;
+            self.replicas = replicas;
         }
         debug!(
             "{:?}: connect_begin: establish StackerDB sessions to {} neighbors",
