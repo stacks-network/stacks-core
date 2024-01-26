@@ -18,4 +18,4 @@ RUN --mount=type=tmpfs,target=${BUILD_DIR} cp -R /src/. ${BUILD_DIR}/ \
     && cp -R ${BUILD_DIR}/target/${TARGET}/release/. /out
 
 FROM scratch AS export-stage
-COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /out/stacks-signer /
+COPY --from=build /out/stacks-inspect /out/blockstack-cli /out/clarity-cli /out/stacks-node /
