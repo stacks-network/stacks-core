@@ -880,14 +880,16 @@ mod tests {
         let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
         bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
+
     fn mock_stacks_client_response(mock_server: TcpListener, random_consensus: bool) {
         let consensus_hash = match random_consensus {
             true => generate_random_consensus_hash(),
-            false => "static_hash_value".to_string(),
+            false => "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string(),
         };
 
+        println!("{}", consensus_hash);
         let response = format!(
-            "HTTP/1.1 200 OK\n\n{{\"stacks_tip_consensus_hash\": \"{}\"}}",
+            "HTTP/1.1 200 OK\n\n{{\"stacks_tip_consensus_hash\":\"{}\",\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"burn_block_height\":2575799,\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}",
             consensus_hash
         );
 

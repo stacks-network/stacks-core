@@ -22,6 +22,7 @@ use blockstack_lib::chainstate::stacks::{
     TransactionSpendingCondition, TransactionVersion,
 };
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::boot_code_id;
@@ -31,7 +32,9 @@ use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::debug;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::chainstate::{
+    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+};
 use wsts::curve::point::{Compressed, Point};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
@@ -68,34 +71,15 @@ impl From<&Config> for StacksClient {
 
 impl StacksClient {
     /// Retrieve the stacks tip consensus hash from the stacks node
-    pub fn get_stacks_tip_consensus_hash(&self) -> Result<String, ClientError> {
-        let send_request = || {
-            self.stacks_node_client
-                .get(self.core_info_path())
-                .send()
-                .map_err(backoff::Error::transient)
-        };
+    pub fn get_stacks_tip_consensus_hash(&self) -> Result<ConsensusHash, ClientError> {
+        let peer_info = self.get_peer_info()?;
+        Ok(peer_info.stacks_tip_consensus_hash)
+    }
 
-        let response = retry_with_exponential_backoff(send_request)?;
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
-        }
-
-        let json_response = response
-            .json::<serde_json::Value>()
-            .map_err(ClientError::ReqwestError)?;
-
-        let stacks_tip_consensus_hash = json_response
-            .get("stacks_tip_consensus_hash")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .ok_or_else(|| {
-                ClientError::UnexpectedResponseFormat(
-                    "Missing or invalid 'stacks_tip_consensus_hash' field".to_string(),
-                )
-            })?;
-
-        Ok(stacks_tip_consensus_hash)
+    /// Retrieve the burn tip height from the stacks node
+    pub fn get_burn_block_height(&self) -> Result<u64, ClientError> {
+        let peer_info = self.get_peer_info()?;
+        Ok(peer_info.burn_block_height)
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
@@ -135,6 +119,23 @@ impl StacksClient {
             function_args,
         )?;
         self.parse_aggregate_public_key(&contract_response_hex)
+    }
+
+    // Helper function to retrieve the peer info data from the stacks node
+    fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
+        debug!("Getting stacks node info...");
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.core_info_path())
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let peer_info_data = response.json::<RPCPeerInfoData>()?;
+        Ok(peer_info_data)
     }
 
     // Helper function to retrieve the pox data from the stacks node
@@ -639,15 +640,42 @@ pub(crate) mod tests {
         let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
         write_response(
             config.mock_server,
-            b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\": \"3b593b712f8310768bf16e58f378aea999b8aa3b\"}",
+            b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"burn_block_height\":2575799,\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
         );
-        assert!(h.join().unwrap().is_ok());
+        let consensus_hash = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(
+            consensus_hash.to_hex(),
+            "64c8c3049ff6b939c65828e3168210e6bb32d880"
+        );
     }
 
     #[test]
     fn core_info_call_with_invalid_response_should_fail() {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
+        );
+        assert!(h.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn core_info_call_for_burn_block_height_should_succeed() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_burn_block_height());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"burn_block_height\":2575799,\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
+        );
+        let burn_block_height = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(burn_block_height, 2575799);
+    }
+
+    #[test]
+    fn core_info_call_for_burn_block_height_should_fail() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_burn_block_height());
         write_response(
             config.mock_server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
