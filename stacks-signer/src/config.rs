@@ -91,6 +91,14 @@ impl Network {
             Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
         }
     }
+
+    /// Check if the network is Mainnet or not
+    pub fn is_mainnet(&self) -> bool {
+        match self {
+            Self::Mainnet => true,
+            Self::Testnet | Self::Mocknet => false,
+        }
+    }
 }
 
 /// The parsed configuration for the signer
