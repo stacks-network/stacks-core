@@ -14,7 +14,6 @@ use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
-use stacks::util_lib::boot::boot_code_id;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,

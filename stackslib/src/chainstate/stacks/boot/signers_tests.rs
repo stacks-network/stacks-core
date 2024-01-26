@@ -177,9 +177,9 @@ fn signers_get_config() {
         ),
         Value::okay(Value::Tuple(
             TupleData::from_data(vec![
-                ("chunk-size".into(), Value::UInt(4096)),
+                ("chunk-size".into(), Value::UInt(2 * 1024 * 1024)),
                 ("write-freq".into(), Value::UInt(0)),
-                ("max-writes".into(), Value::UInt(4096)),
+                ("max-writes".into(), Value::UInt(u128::MAX)),
                 ("max-neighbors".into(), Value::UInt(32)),
                 (
                     "hint-replicas".into(),
