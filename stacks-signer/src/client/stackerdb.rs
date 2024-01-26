@@ -62,7 +62,7 @@ impl StackerDB {
             let slot_version = *self.slot_versions.entry(slot_id).or_insert(0) + 1;
             let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message_bytes.clone());
             chunk.sign(&self.stacks_private_key)?;
-            debug!("Sending a chunk to stackerdb!\n{:?}", &chunk);
+            debug!("Sending a chunk to stackerdb!\n{:?}", chunk);
             let send_request = || {
                 self.signers_stackerdb_session
                     .put_chunk(&chunk)
@@ -80,7 +80,7 @@ impl StackerDB {
             if let Some(reason) = chunk_ack.reason {
                 // TODO: fix this jankiness. Update stackerdb to use an error code mapping instead of just a string
                 // See: https://github.com/stacks-network/stacks-blockchain/issues/3917
-                if reason == "Data for this slot and version already exist" {
+                if reason.contains("DataAlreadyExists") {
                     warn!("Failed to send message to stackerdb due to wrong version number {}. Incrementing and retrying...", slot_version);
                 } else {
                     warn!("Failed to send message to stackerdb: {}", reason);
