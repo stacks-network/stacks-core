@@ -56,7 +56,7 @@ use crate::EventError;
 /// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
 /// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
 /// Is equal to the number of message types
-pub const SIGNER_SLOTS_PER_USER: u32 = 11;
+pub const SIGNER_SLOTS_PER_USER: u32 = 12;
 
 // The slot IDS for each message type
 const DKG_BEGIN_SLOT_ID: u32 = 0;
@@ -71,22 +71,25 @@ const SIGNATURE_SHARE_REQUEST_SLOT_ID: u32 = 8;
 const SIGNATURE_SHARE_RESPONSE_SLOT_ID: u32 = 9;
 /// The slot ID for the block response for miners to observe
 pub const BLOCK_SLOT_ID: u32 = 10;
+/// The slot ID for the transactions list for miners and signers to observe
+pub const TRANSACTIONS_SLOT_ID: u32 = 11;
 
 define_u8_enum!(TypePrefix {
     BlockResponse = 0,
     Packet = 1,
-    DkgBegin = 2,
-    DkgPrivateBegin = 3,
-    DkgEndBegin = 4,
-    DkgEnd = 5,
-    DkgPublicShares = 6,
-    DkgPrivateShares = 7,
-    NonceRequest = 8,
-    NonceResponse = 9,
-    SignatureShareRequest = 10,
-    SignatureShareResponse = 11,
-    DkgStatusSuccess = 12,
-    DkgStatusFailure = 13
+    Transactions = 2,
+    DkgBegin = 3,
+    DkgPrivateBegin = 4,
+    DkgEndBegin = 5,
+    DkgEnd = 6,
+    DkgPublicShares = 7,
+    DkgPrivateShares = 8,
+    NonceRequest = 9,
+    NonceResponse = 10,
+    SignatureShareRequest = 11,
+    SignatureShareResponse = 12,
+    DkgStatusSuccess = 13,
+    DkgStatusFailure = 14
 });
 
 impl TryFrom<u8> for TypePrefix {
@@ -102,6 +105,7 @@ impl From<&SignerMessage> for TypePrefix {
         match message {
             SignerMessage::Packet(_) => TypePrefix::Packet,
             SignerMessage::BlockResponse(_) => TypePrefix::BlockResponse,
+            SignerMessage::Transactions(_) => TypePrefix::Transactions,
         }
     }
 }
@@ -130,6 +134,8 @@ pub enum SignerMessage {
     BlockResponse(BlockResponse),
     /// DKG and Signing round data for other signers to observe
     Packet(Packet),
+    /// The list of transactions for miners and signers to observe that this signer cares about
+    Transactions(Vec<StacksTransaction>),
 }
 
 impl StacksMessageCodec for SignerMessage {
@@ -141,6 +147,9 @@ impl StacksMessageCodec for SignerMessage {
             }
             SignerMessage::BlockResponse(block_response) => {
                 write_next(fd, block_response)?;
+            }
+            SignerMessage::Transactions(transactions) => {
+                write_next(fd, transactions)?;
             }
         };
         Ok(())
@@ -157,6 +166,10 @@ impl StacksMessageCodec for SignerMessage {
             TypePrefix::BlockResponse => {
                 let block_response = read_next::<BlockResponse, _>(fd)?;
                 SignerMessage::BlockResponse(block_response)
+            }
+            TypePrefix::Transactions => {
+                let transactions = read_next::<Vec<StacksTransaction>, _>(fd)?;
+                SignerMessage::Transactions(transactions)
             }
             _ => {
                 return Err(CodecError::DeserializeError(format!(
@@ -802,6 +815,10 @@ pub enum RejectCode {
     SignedRejection(ThresholdSignature),
     /// Insufficient signers agreed to sign the block
     InsufficientSigners(Vec<u32>),
+    /// Missing the following expected transactions
+    MissingTransactions(Vec<StacksTransaction>),
+    /// The block was rejected due to connectivity issues with the signer
+    ConnectivityIssues,
 }
 
 impl StacksMessageCodec for RejectCode {
@@ -819,6 +836,11 @@ impl StacksMessageCodec for RejectCode {
                 write_next(fd, &2u8)?;
                 write_next(fd, malicious_signers)?
             }
+            RejectCode::MissingTransactions(missing_transactions) => {
+                write_next(fd, &3u8)?;
+                write_next(fd, missing_transactions)?
+            }
+            RejectCode::ConnectivityIssues => write_next(fd, &4u8)?,
         };
         Ok(())
     }
@@ -858,6 +880,15 @@ impl std::fmt::Display for RejectCode {
                 f,
                 "Insufficient signers agreed to sign the block. The following signers are malicious: {:?}",
                 malicious_signers
+            ),
+            RejectCode::MissingTransactions(missing_transactions) => write!(
+                f,
+                "Missing the following expected transactions: {:?}",
+                missing_transactions.iter().map(|tx| tx.txid()).collect::<Vec<_>>()
+            ),
+            RejectCode::ConnectivityIssues => write!(
+                f,
+                "The block was rejected due to connectivity issues with the signer."
             ),
         }
     }
@@ -904,6 +935,7 @@ impl SignerMessage {
                 Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_SLOT_ID,
             },
             Self::BlockResponse(_) => BLOCK_SLOT_ID,
+            Self::Transactions(_) => TRANSACTIONS_SLOT_ID,
         };
         SIGNER_SLOTS_PER_USER * id + slot_id
     }
@@ -912,8 +944,10 @@ impl SignerMessage {
 #[cfg(test)]
 mod test {
 
+    use blockstack_lib::{chainstate::stacks::{TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion}, util_lib::strings::StacksString};
     use rand::Rng;
     use rand_core::OsRng;
+    use stacks_common::{consts::CHAIN_ID_TESTNET, types::chainstate::StacksPrivateKey};
     use wsts::common::Signature;
 
     use super::{StacksMessageCodecExtensions, *};
@@ -1220,6 +1254,29 @@ mod test {
                 z: Scalar::random(rng),
             }),
         )));
+        let serialized_signer_message = signer_message.serialize_to_vec();
+        let deserialized_signer_message =
+            read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])
+                .expect("Failed to deserialize SignerMessage");
+        assert_eq!(signer_message, deserialized_signer_message);
+    
+        let sk = StacksPrivateKey::new();
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: CHAIN_ID_TESTNET,
+            auth: TransactionAuth::from_p2pkh(&sk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "test-contract".into(),
+                    code_body: StacksString::from_str("(/ 1 0)").unwrap(),
+                },
+                None,
+            ),
+        };
+        let signer_message = SignerMessage::Transactions(vec![tx]);
         let serialized_signer_message = signer_message.serialize_to_vec();
         let deserialized_signer_message =
             read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])
