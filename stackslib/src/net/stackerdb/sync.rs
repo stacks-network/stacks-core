@@ -85,7 +85,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
         let mut found = HashSet::new();
         let mut min_age =
             get_epoch_time_secs().saturating_sub(network.get_connection_opts().max_neighbor_age);
-        while found.len() < self.max_neighbors && min_age != 0 {
+        while found.len() < self.max_neighbors {
             let peers_iter = PeerDB::find_stacker_db_replicas(
                 network.peerdb_conn(),
                 network.get_local_peer().network_id,
@@ -123,8 +123,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             // search for older neighbors
             if min_age > 1 {
                 min_age = 1;
-            } else if min_age == 1 {
-                min_age = 0;
+            } else if min_age <= 1 {
                 break;
             }
         }

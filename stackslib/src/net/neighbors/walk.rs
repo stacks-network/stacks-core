@@ -673,7 +673,9 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // just use the one we used to contact it.  This can happen if the
         // node is behind a load-balancer, or is doing port-forwarding,
         // etc.
-        if neighbor_from_handshake.addr.addrbytes.is_in_private_range() {
+        if neighbor_from_handshake.addr.addrbytes.is_in_private_range()
+            || neighbor_from_handshake.addr.addrbytes.is_anynet()
+        {
             debug!(
                 "{}: outbound neighbor gave private IP address {:?}; assuming it meant {:?}",
                 local_peer_str, &neighbor_from_handshake.addr, &self.cur_neighbor.addr
