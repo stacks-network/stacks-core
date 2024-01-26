@@ -382,12 +382,7 @@ fn stackerdb_dkg_sign() {
     block.header.tx_merkle_root = tx_merkle_root;
 
     // The block is invalid so the signers should return a signature across its hash + b'n'
-    let mut msg = block
-        .header
-        .signer_signature_hash()
-        .expect("Failed to get signature hash")
-        .0
-        .to_vec();
+    let mut msg = block.header.signer_signature_hash().0.to_vec();
     msg.push(b'n');
 
     let signer_test = SignerTest::new(10, 400);
@@ -640,16 +635,16 @@ fn stackerdb_block_proposal() {
         thread::sleep(Duration::from_secs(1));
     }
     let validate_responses = test_observer::get_proposal_responses();
-    let mut proposed_block = match validate_responses.first().expect("No block proposal") {
-        BlockValidateResponse::Ok(block_validated) => block_validated.block.clone(),
-        _ => panic!("Unexpected response"),
-    };
-    let signature_hash = proposed_block
-        .header
-        .signer_signature_hash()
-        .expect("Unable to retrieve signature hash from proposed block");
+    let proposed_signer_signature_hash =
+        match validate_responses.first().expect("No block proposal") {
+            BlockValidateResponse::Ok(block_validated) => block_validated.signer_signature_hash,
+            _ => panic!("Unexpected response"),
+        };
     assert!(
-        signature.verify(&aggregate_public_key, signature_hash.0.as_slice()),
+        signature.verify(
+            &aggregate_public_key,
+            proposed_signer_signature_hash.0.as_slice()
+        ),
         "Signature verification failed"
     );
     // Verify that the signers broadcasted a signed NakamotoBlock back to the .signers contract
@@ -678,9 +673,13 @@ fn stackerdb_block_proposal() {
     }
     let chunk = chunk.unwrap();
     let signer_message = bincode::deserialize::<SignerMessage>(&chunk).unwrap();
-    if let SignerMessage::BlockResponse(BlockResponse::Accepted(block)) = signer_message {
-        proposed_block.header.signer_signature = ThresholdSignature(signature);
-        assert_eq!(block, proposed_block);
+    if let SignerMessage::BlockResponse(BlockResponse::Accepted((
+        block_signer_signature_hash,
+        block_signature,
+    ))) = signer_message
+    {
+        assert_eq!(block_signer_signature_hash, proposed_signer_signature_hash);
+        assert_eq!(block_signature, ThresholdSignature(signature));
     } else {
         panic!("Received unexpected message");
     }
