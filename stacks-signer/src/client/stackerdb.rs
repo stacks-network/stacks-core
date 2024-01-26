@@ -106,7 +106,7 @@ impl StackerDB {
                 .collect();
 
             let send_request = || {
-                     self.signers_stackerdb_session
+                self.signers_stackerdb_session
                     .get_latest_chunks(&slot_ids)
                     .map_err(backoff::Error::transient)
             };
@@ -114,7 +114,7 @@ impl StackerDB {
             let mut transactions = Vec::new();
 
             if !chunk_ack.is_empty() {
-                for chunk in chunk_ack{
+                for chunk in chunk_ack {
                     if let Some(data) = chunk {
                         let message: SignerMessage = bincode::deserialize(&data).unwrap();
                         if let SignerMessage::Transactions(chunk_transactions) = message {
@@ -124,7 +124,7 @@ impl StackerDB {
                         }
                     }
                 }
-                return Ok(transactions)
+                return Ok(transactions);
             } else {
                 warn!("Recieved empty chuncks from stackerdb: {:?}", chunk_ack);
             }
