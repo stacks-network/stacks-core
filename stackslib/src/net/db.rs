@@ -185,6 +185,21 @@ impl LocalPeer {
             )),
         }
     }
+
+    /// Best-effort attempt to calculate a publicly-routable neighbor address for local peer
+    pub fn to_public_neighbor_addr(&self) -> NeighborAddress {
+        if let Some((peer_addr, peer_port)) = self.public_ip_address.as_ref() {
+            NeighborAddress {
+                addrbytes: peer_addr.clone(),
+                port: *peer_port,
+                public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                    &self.private_key,
+                )),
+            }
+        } else {
+            self.to_neighbor_addr()
+        }
+    }
 }
 
 impl FromRow<LocalPeer> for LocalPeer {
