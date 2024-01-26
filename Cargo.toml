@@ -13,7 +13,7 @@ members = [
     "testnet/stacks-node"]
 
 # Dependencies we want to keep the same between workspace members
-[workspace.dependencies]  
+[workspace.dependencies]
 wsts = "6.1"
 rand_core = "0.6"
 rand = "0.8"

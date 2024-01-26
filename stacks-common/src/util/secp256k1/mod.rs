@@ -1,8 +1,11 @@
 #[cfg(not(feature = "wasm"))]
 mod secp256k1;
 
+#[cfg(not(feature = "wasm"))]
 use wsts::common::Signature as WSTSSignature;
+#[cfg(not(feature = "wasm"))]
 use wsts::curve::point::{Compressed, Point};
+#[cfg(not(feature = "wasm"))]
 use wsts::curve::scalar::Scalar;
 
 #[cfg(not(feature = "wasm"))]
@@ -36,6 +39,7 @@ impl Default for SchnorrSignature {
     }
 }
 
+#[cfg(not(feature = "wasm"))]
 impl SchnorrSignature {
     /// Attempt to convert a Schnorr signature to a WSTS Signature
     pub fn to_wsts_signature(&self) -> Option<WSTSSignature> {
@@ -51,6 +55,7 @@ impl SchnorrSignature {
     }
 }
 
+#[cfg(not(feature = "wasm"))]
 /// Convert a WSTS Signature to a SchnorrSignature
 impl From<&WSTSSignature> for SchnorrSignature {
     fn from(signature: &WSTSSignature) -> Self {
