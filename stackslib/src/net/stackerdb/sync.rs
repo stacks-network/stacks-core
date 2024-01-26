@@ -123,9 +123,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             // search for older neighbors
             if min_age > 1 {
                 min_age = 1;
-            }
-            else if min_age == 1 {
+            } else if min_age == 1 {
                 min_age = 0;
+                break;
             }
         }
         Ok(found)
