@@ -124,6 +124,8 @@ pub struct Config {
     pub signer_key_ids: SignerKeyIds,
     /// This signer's ID
     pub signer_id: u32,
+    /// All signer IDs participating in the current reward cycle
+    pub signer_ids: Vec<u32>,
     /// The time to wait for a response from the stacker-db instance
     pub event_timeout: Duration,
     /// timeout to gather DkgPublicShares messages
@@ -266,6 +268,7 @@ impl TryFrom<RawConfigFile> for Config {
             &vec![stacks_public_key],
         )
         .ok_or(ConfigError::UnsupportedAddressVersion)?;
+        let mut signer_ids = vec![];
         let mut public_keys = PublicKeys::default();
         let mut signer_key_ids = SignerKeyIds::default();
         for (i, s) in raw_data.signers.iter().enumerate() {
@@ -283,10 +286,10 @@ impl TryFrom<RawConfigFile> for Config {
                 }
                 public_keys.key_ids.insert(*key_id, signer_public_key);
             }
-            //We start our signer and key IDs from 1 hence the + 1;
-            let signer_key = u32::try_from(i).unwrap();
-            public_keys.signers.insert(signer_key, signer_public_key);
-            signer_key_ids.insert(signer_key, s.key_ids.clone());
+            let signer_id = u32::try_from(i).unwrap();
+            public_keys.signers.insert(signer_id, signer_public_key);
+            signer_key_ids.insert(signer_id, s.key_ids.clone());
+            signer_ids.push(signer_id);
         }
         let event_timeout =
             Duration::from_millis(raw_data.event_timeout_ms.unwrap_or(EVENT_TIMEOUT_MS));
@@ -305,6 +308,7 @@ impl TryFrom<RawConfigFile> for Config {
             network: raw_data.network,
             signer_ids_public_keys: public_keys,
             signer_id: raw_data.signer_id,
+            signer_ids,
             signer_key_ids,
             event_timeout,
             dkg_end_timeout,

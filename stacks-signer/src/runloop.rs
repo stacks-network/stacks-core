@@ -82,7 +82,7 @@ pub struct BlockInfo {
     /// The associated packet nonce request if we have one
     nonce_request: Option<NonceRequest>,
     /// Whether this block is already being signed over
-    signing_round: bool,
+    signed_over: bool,
 }
 
 impl BlockInfo {
@@ -93,7 +93,7 @@ impl BlockInfo {
             vote: None,
             valid: None,
             nonce_request: None,
-            signing_round: false,
+            signed_over: false,
         }
     }
 
@@ -104,7 +104,7 @@ impl BlockInfo {
             vote: None,
             valid: None,
             nonce_request: Some(nonce_request),
-            signing_round: true,
+            signed_over: true,
         }
     }
 }
@@ -133,6 +133,10 @@ pub struct RunLoop<C> {
     /// Transactions that we expect to see in the next block
     // TODO: fill this in and do proper garbage collection
     pub transactions: Vec<StacksTransaction>,
+    /// This signer's ID
+    pub signer_id: u32,
+    /// The IDs of all signers partipating in the current reward cycle
+    pub signer_ids: Vec<u32>,
 }
 
 impl<C: Coordinator> RunLoop<C> {
@@ -147,7 +151,7 @@ impl<C: Coordinator> RunLoop<C> {
             // Update the state to IDLE so we don't needlessy requeue the DKG command.
             let (coordinator_id, _) =
                 calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
-            if coordinator_id == self.signing_round.signer_id
+            if coordinator_id == self.signer_id
                 && self.commands.front() != Some(&RunLoopCommand::Dkg)
             {
                 self.commands.push_front(RunLoopCommand::Dkg);
@@ -167,7 +171,7 @@ impl<C: Coordinator> RunLoop<C> {
                     Ok(msg) => {
                         let ack = self
                             .stackerdb
-                            .send_message_with_retry(self.signing_round.signer_id, msg.into());
+                            .send_message_with_retry(self.signer_id, msg.into());
                         debug!("ACK: {:?}", ack);
                         self.state = State::Dkg;
                         true
@@ -190,7 +194,7 @@ impl<C: Coordinator> RunLoop<C> {
                     .blocks
                     .entry(signer_signature_hash)
                     .or_insert_with(|| BlockInfo::new(block.clone()));
-                if block_info.signing_round {
+                if block_info.signed_over {
                     debug!("Received a sign command for a block we are already signing over. Ignore it.");
                     return false;
                 }
@@ -203,10 +207,10 @@ impl<C: Coordinator> RunLoop<C> {
                     Ok(msg) => {
                         let ack = self
                             .stackerdb
-                            .send_message_with_retry(self.signing_round.signer_id, msg.into());
+                            .send_message_with_retry(self.signer_id, msg.into());
                         debug!("ACK: {:?}", ack);
                         self.state = State::Sign;
-                        block_info.signing_round = true;
+                        block_info.signed_over = true;
                         true
                     }
                     Err(e) => {
@@ -253,15 +257,18 @@ impl<C: Coordinator> RunLoop<C> {
     ) {
         let block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                let Some(block_info) = self
-                    .blocks
-                    .get_mut(&block_validate_ok.signer_signature_hash)
-                else {
+                let signer_signature_hash = block_validate_ok.signer_signature_hash;
+                let Some(block_info) = self.blocks.get_mut(&signer_signature_hash) else {
                     // We have not seen this block before. Why are we getting a response for it?
                     debug!("Received a block validate response for a block we have not seen before. Ignoring...");
                     return;
                 };
-                block_info.valid = Some(true);
+                let are_transactions_verified = Self::verify_transactions(
+                    &mut self.stackerdb,
+                    &self.signer_ids,
+                    &block_info.block,
+                );
+                block_info.valid = Some(are_transactions_verified);
                 block_info
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
@@ -277,37 +284,23 @@ impl<C: Coordinator> RunLoop<C> {
                 block_info.valid = Some(false);
                 // Submit a rejection response to the .signers contract for miners
                 // to observe so they know to send another block and to prove signers are doing work);
-                if let Err(e) = self.stackerdb.send_message_with_retry(
-                    self.signing_round.signer_id,
-                    block_validate_reject.into(),
-                ) {
+                if let Err(e) = self
+                    .stackerdb
+                    .send_message_with_retry(self.signer_id, block_validate_reject.into())
+                {
                     warn!("Failed to send block rejection to stacker-db: {:?}", e);
                 }
                 block_info
             }
         };
 
-        if let Some(mut request) = block_info.nonce_request.take() {
+        if let Some(mut nonce_request) = block_info.nonce_request.take() {
             debug!("Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
-            // We have an associated nonce request. Respond to it
-            let signer_ids: Vec<_> = self
-                .signing_round
-                .public_keys
-                .signers
-                .keys()
-                .cloned()
-                .collect();
-            let Ok(transactions) = self
-                .stackerdb
-                .get_signer_transactions_with_retry(&signer_ids)
-            else {
-                // Failed to connect to the stacks node to get transcations. Cannot validate the block.
-                return;
-            };
-            Self::determine_vote(block_info, &mut request, &transactions);
+            // We have received validation from the stacks node. Determine our vote and update the request message
+            Self::determine_vote(block_info, &mut nonce_request);
             // Send the nonce request through with our vote
             let packet = Packet {
-                msg: Message::NonceRequest(request),
+                msg: Message::NonceRequest(nonce_request),
                 sig: vec![],
             };
             self.handle_packets(res, &[packet]);
@@ -315,8 +308,8 @@ impl<C: Coordinator> RunLoop<C> {
             let (coordinator_id, _) =
                 calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
             if block_info.valid.unwrap_or(false)
-                && !block_info.signing_round
-                && coordinator_id == self.signing_round.signer_id
+                && !block_info.signed_over
+                && coordinator_id == self.signer_id
             {
                 debug!("Received a valid block proposal from the miner. Triggering a signing round over it...");
                 // We are the coordinator. Trigger a signing round for this block
@@ -449,8 +442,9 @@ impl<C: Coordinator> RunLoop<C> {
     /// If the request is for a block, we will update the request message
     /// as either a hash indicating a vote no or the signature hash indicating a vote yes
     /// Returns whether the request is valid or not
-    fn validate_nonce_request(&mut self, request: &mut NonceRequest) -> bool {
-        let Some(block) = read_next::<NakamotoBlock, _>(&mut &request.message[..]).ok() else {
+    fn validate_nonce_request(&mut self, nonce_request: &mut NonceRequest) -> bool {
+        let Some(block) = read_next::<NakamotoBlock, _>(&mut &nonce_request.message[..]).ok()
+        else {
             // We currently reject anything that is not a block
             debug!("Received a nonce request for an unknown message stream. Reject it.");
             return false;
@@ -462,7 +456,7 @@ impl<C: Coordinator> RunLoop<C> {
             // Store the block in our cache
             self.blocks.insert(
                 signer_signature_hash,
-                BlockInfo::new_with_request(block.clone(), request.clone()),
+                BlockInfo::new_with_request(block.clone(), nonce_request.clone()),
             );
             self.stacks_client
                 .submit_block_for_validation(block)
@@ -471,43 +465,43 @@ impl<C: Coordinator> RunLoop<C> {
                 });
             return false;
         };
+
         if block_info.valid.is_none() {
             // We have not yet received validation from the stacks node. Cache the request and wait for validation
             debug!("We have yet to receive validation from the stacks node for a nonce request. Cache the nonce request and wait for block validation...");
-            block_info.nonce_request = Some(request.clone());
+            block_info.nonce_request = Some(nonce_request.clone());
             return false;
         }
-        let signer_ids: Vec<_> = self
-            .signing_round
-            .public_keys
-            .signers
-            .keys()
-            .cloned()
-            .collect();
-        let Ok(transactions) = self
-            .stackerdb
-            .get_signer_transactions_with_retry(&signer_ids)
-        else {
-            // Failed to connect to the stacks node to get transcations. Cannot validate the block.
-            return false;
-        };
-        Self::determine_vote(block_info, request, &transactions);
+
+        Self::determine_vote(block_info, nonce_request);
         true
     }
 
+    /// Verify that the proposed block contains the transactions we expect
+    fn verify_transactions(
+        stackerdb: &mut StackerDB,
+        signer_ids: &[u32],
+        block: &NakamotoBlock,
+    ) -> bool {
+        if let Ok(transactions) = stackerdb.get_signer_transactions_with_retry(&signer_ids) {
+            // Ensure the block contains the transactions we expect
+            // Filter out transactions that are not special cased transactions
+            // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
+            // TODO: broadcast to the node that we are missing the specific transactions as a hint
+            transactions
+                .iter()
+                .all(|transaction| block.txs.contains(transaction))
+        } else {
+            // Failed to connect to the stacks node to get transactions. Cannot validate the block.
+            false
+        }
+    }
+
     /// Determine the vote for a block and update the block info and nonce request accordingly
-    fn determine_vote(
-        block_info: &mut BlockInfo,
-        nonce_request: &mut NonceRequest,
-        transactions: &[StacksTransaction],
-    ) {
+    fn determine_vote(block_info: &mut BlockInfo, nonce_request: &mut NonceRequest) {
         let mut vote_bytes = block_info.block.header.signer_signature_hash().0.to_vec();
         // Validate the block contents
-        if !block_info.valid.unwrap_or(false)
-            || !transactions
-                .iter()
-                .all(|transaction| block_info.block.txs.contains(transaction))
-        {
+        if !block_info.valid.unwrap_or(false) {
             // We don't like this block. Update the request to be across its hash with a byte indicating a vote no.
             debug!("Updating the request with a block hash with a vote no.");
             vote_bytes.push(b'n');
@@ -622,7 +616,7 @@ impl<C: Coordinator> RunLoop<C> {
         // Submit signature result to miners to observe
         if let Err(e) = self
             .stackerdb
-            .send_message_with_retry(self.signing_round.signer_id, block_submission)
+            .send_message_with_retry(self.signer_id, block_submission)
         {
             warn!("Failed to send block submission to stacker-db: {:?}", e);
         }
@@ -664,7 +658,7 @@ impl<C: Coordinator> RunLoop<C> {
                 // Submit signature result to miners to observe
                 if let Err(e) = self
                     .stackerdb
-                    .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
+                    .send_message_with_retry(self.signer_id, block_rejection.into())
                 {
                     warn!("Failed to send block submission to stacker-db: {:?}", e);
                 }
@@ -702,7 +696,7 @@ impl<C: Coordinator> RunLoop<C> {
         for msg in outbound_messages {
             let ack = self
                 .stackerdb
-                .send_message_with_retry(self.signing_round.signer_id, msg.into());
+                .send_message_with_retry(self.signer_id, msg.into());
             if let Ok(ack) = ack {
                 debug!("ACK: {:?}", ack);
             } else {
@@ -783,6 +777,8 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             mainnet: config.network == Network::Mainnet,
             blocks: HashMap::new(),
             transactions: Vec::new(),
+            signer_ids: config.signer_ids.clone(),
+            signer_id: config.signer_id,
         }
     }
 }
@@ -804,7 +800,7 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
     ) -> Option<Vec<OperationResult>> {
         info!(
             "Running one pass for signer ID# {}. Current state: {:?}",
-            self.signing_round.signer_id, self.state
+            self.signer_id, self.state
         );
         if let Some(command) = cmd {
             self.commands.push_back(command);
