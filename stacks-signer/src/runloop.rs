@@ -256,11 +256,12 @@ impl<C: Coordinator> RunLoop<C> {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let Some(block_info) = self
                     .blocks
-                    .get_mut(&block_validate_ok.signer_signature_hash) else {
-                        // We have not seen this block before. Why are we getting a response for it?
-                        debug!("Received a block validate response for a block we have not seen before. Ignoring...");
-                        return;
-                    };
+                    .get_mut(&block_validate_ok.signer_signature_hash)
+                else {
+                    // We have not seen this block before. Why are we getting a response for it?
+                    debug!("Received a block validate response for a block we have not seen before. Ignoring...");
+                    return;
+                };
                 block_info.valid = Some(true);
                 block_info
             }
@@ -268,11 +269,12 @@ impl<C: Coordinator> RunLoop<C> {
                 // There is no point in triggering a sign round for this block if validation failed from the stacks node
                 let Some(block_info) = self
                     .blocks
-                    .get_mut(&block_validate_reject.signer_signature_hash) else {
-                        // We have not seen this block before. Why are we getting a response for it?
-                        debug!("Received a block validate response for a block we have not seen before. Ignoring...");
-                        return;
-                    };
+                    .get_mut(&block_validate_reject.signer_signature_hash)
+                else {
+                    // We have not seen this block before. Why are we getting a response for it?
+                    debug!("Received a block validate response for a block we have not seen before. Ignoring...");
+                    return;
+                };
                 block_info.valid = Some(false);
                 // Submit a rejection response to the .signers contract for miners
                 // to observe so they know to send another block and to prove signers are doing work);
@@ -566,7 +568,9 @@ impl<C: Coordinator> RunLoop<C> {
         } else {
             &message
         };
-        let Some(signer_signature_hash) = Sha512Trunc256Sum::from_bytes(signer_signature_hash_bytes) else {
+        let Some(signer_signature_hash) =
+            Sha512Trunc256Sum::from_bytes(signer_signature_hash_bytes)
+        else {
             debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
             return;
         };
