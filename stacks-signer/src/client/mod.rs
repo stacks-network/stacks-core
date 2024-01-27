@@ -109,3 +109,51 @@ where
 
     backoff::retry_notify(backoff_timer, request_fn, notify).map_err(|_| ClientError::RetryTimeout)
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpListener};
+
+    use super::*;
+    use crate::config::Config;
+
+    pub(crate) struct TestConfig {
+        pub(crate) mock_server: TcpListener,
+        pub(crate) client: StacksClient,
+        pub(crate) stackerdb: StackerDB,
+    }
+
+    impl TestConfig {
+        pub(crate) fn new() -> Self {
+            let mut config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+
+            let mut mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
+            // Ask the OS to assign a random port to listen on by passing 0
+            let mock_server = TcpListener::bind(mock_server_addr).unwrap();
+
+            // Update the config to use this port
+            mock_server_addr.set_port(mock_server.local_addr().unwrap().port());
+            config.node_host = mock_server_addr;
+
+            let client = StacksClient::from(&config);
+            let stackerdb = StackerDB::from(&config);
+            Self {
+                mock_server,
+                client,
+                stackerdb,
+            }
+        }
+    }
+
+    pub(crate) fn write_response(mock_server: TcpListener, bytes: &[u8]) -> [u8; 1024] {
+        debug!("Writing a response...");
+        let mut request_bytes = [0u8; 1024];
+        {
+            let mut stream = mock_server.accept().unwrap().0;
+            let _ = stream.read(&mut request_bytes).unwrap();
+            stream.write_all(bytes).unwrap();
+        }
+        request_bytes
+    }
+}

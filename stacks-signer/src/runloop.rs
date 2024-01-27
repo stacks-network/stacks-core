@@ -927,7 +927,7 @@ mod tests {
     use rand::Rng;
 
     use super::*;
-    use crate::client::stacks_client::tests::{write_response, TestConfig};
+    use crate::client::tests::{write_response, TestConfig};
 
     fn generate_random_consensus_hash() -> String {
         let rng = rand::thread_rng();

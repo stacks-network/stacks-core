@@ -101,12 +101,11 @@ impl StackerDB {
         &mut self,
         signer_ids: &[u32],
     ) -> Result<Vec<StacksTransaction>, ClientError> {
+        let slot_ids: Vec<_> = signer_ids
+            .iter()
+            .map(|id| id * SIGNER_SLOTS_PER_USER + TRANSACTIONS_SLOT_ID)
+            .collect();
         loop {
-            let slot_ids: Vec<_> = signer_ids
-                .iter()
-                .map(|id| id * SIGNER_SLOTS_PER_USER + TRANSACTIONS_SLOT_ID)
-                .collect();
-
             let send_request = || {
                 self.signers_stackerdb_session
                     .get_latest_chunks(&slot_ids)
@@ -138,5 +137,56 @@ impl StackerDB {
     /// Retrieve the signer contract id
     pub fn signers_contract_id(&self) -> &QualifiedContractIdentifier {
         &self.signers_stackerdb_session.stackerdb_contract_id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::thread::spawn;
+
+    use blockstack_lib::chainstate::stacks::{
+        TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
+        TransactionSmartContract, TransactionVersion,
+    };
+    use blockstack_lib::util_lib::strings::StacksString;
+
+    use super::*;
+    use crate::client::tests::{write_response, TestConfig};
+
+    #[test]
+    fn get_signer_transactions_with_retry_should_succeed() {
+        let mut config = TestConfig::new();
+        let sk = StacksPrivateKey::new();
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0,
+            auth: TransactionAuth::from_p2pkh(&sk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "test-contract".into(),
+                    code_body: StacksString::from_str("(/ 1 0)").unwrap(),
+                },
+                None,
+            ),
+        };
+
+        let signer_message = SignerMessage::Transactions(vec![tx.clone()]);
+        let message = bincode::serialize(&signer_message).unwrap();
+
+        let signer_ids = vec![0];
+        let h = spawn(move || {
+            config
+                .stackerdb
+                .get_signer_transactions_with_retry(&signer_ids)
+        });
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        write_response(config.mock_server, response_bytes.as_slice());
+        let transactions = h.join().unwrap().unwrap();
+        assert_eq!(transactions.len(), 1);
+        assert_eq!(transactions[0], tx);
     }
 }
