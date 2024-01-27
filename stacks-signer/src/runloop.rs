@@ -587,6 +587,18 @@ impl<C: Coordinator> RunLoop<C> {
                 }
                 OperationResult::Dkg(_point) => {
                     // TODO: cast the aggregate public key for the latest round here
+                    // Broadcast via traditional methods to the stacks node if we are pre nakamoto or we cannot determine our Epoch
+                    if self.stacks_client.is_pre_nakamoto().unwrap_or(false) {
+                        // We are in the pre-nakamoto phase. Broadcast the aggregate public key stx transaction to the stacks node via the mempool
+                    }
+                    // Always broadcast the transactions to stackerdb so miners and signers can observe it when building and validating the block, respectively.
+                    let signer_message = SignerMessage::Transactions(self.transactions.clone());
+                    if let Err(e) = self
+                        .stackerdb
+                        .send_message_with_retry(self.signing_round.signer_id, signer_message)
+                    {
+                        warn!("Failed to update transactions in stacker-db: {:?}", e);
+                    }
                 }
                 OperationResult::SignError(e) => {
                     self.process_sign_error(e);

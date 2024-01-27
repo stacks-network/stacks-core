@@ -661,7 +661,7 @@ fn stackerdb_block_proposal() {
 
         let nakamoto_blocks = test_observer::get_stackerdb_chunks();
         for event in nakamoto_blocks {
-            // The tenth slot is the miners block slot
+            // Only care about the miners block slot
             for slot in event.modified_slots {
                 if slot.slot_id == BLOCK_SLOT_ID {
                     chunk = Some(slot.data);
