@@ -1042,8 +1042,15 @@ mod tests {
 
     use assert_matches::assert_matches;
     use libsigner::SignerStopSignaler;
+    use stacks_common::util::secp256k1::MessageSignature;
 
-    use crate::client::tests::{write_response, TestConfig};
+    use crate::{
+        client::{
+            tests::{write_response, TestConfig},
+            PING_SLOT_ID,
+        },
+        ping::is_ping_slot,
+    };
 
     use super::*;
 
@@ -1110,5 +1117,145 @@ mod tests {
         //assert on ping entry stored in map.
             run_loop.ping_entries.get(&ping.id()).unwrap()
         });
+    }
+
+    #[test]
+    fn filter_and_process_ping_chunks_skip_signer_message() {
+        let cfg = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let mut run_loop = RunLoop::from(&cfg);
+
+        let slot_id = 0;
+        assert!(!is_ping_slot(slot_id));
+
+        let chunks = vec![StackerDBChunkData {
+            data: bincode::serialize(&[0u8; 0]).unwrap(),
+            slot_id,
+            slot_version: slot_id,
+            sig: MessageSignature::empty(),
+        }];
+
+        // propagate, dont consume chunk
+        assert!(!run_loop.filter_and_process_ping_chunks(&chunks).is_empty());
+    }
+
+    #[test]
+    fn filter_and_process_ping_chunks_filter_own_events() {
+        let cfg = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let mut run_loop = RunLoop::from(&cfg);
+
+        let slot_id = PING_SLOT_ID;
+        assert!(is_ping_slot(slot_id));
+
+        let chunks = {
+            let msg: SignerMessage = Ping::new(0).into();
+
+            vec![StackerDBChunkData {
+                data: bincode::serialize(&msg).unwrap(),
+                slot_id,
+                slot_version: 0,
+                sig: MessageSignature::empty(),
+            }]
+        };
+
+        // consume chunk, no side effects
+        // doesnt block
+        assert!(run_loop.filter_and_process_ping_chunks(&chunks).is_empty());
+    }
+
+    #[test]
+    fn filter_and_process_ping_pings() {
+        let ctx = TestConfig::new();
+        let mut cfg = Config::load_from_file("./src/tests/conf/signer-1.toml").unwrap();
+        cfg.node_host = ctx.host().trim_start_matches("http://").parse().unwrap();
+        let mut run_loop = RunLoop::from(&cfg);
+
+        let slot_id = PING_SLOT_ID;
+        assert!(is_ping_slot(slot_id));
+
+        let ping = Ping::new(0);
+        let ping_id = ping.id();
+
+        let msg = SignerMessage::from(ping);
+        //The incoming Ping does not belong to you.
+        assert_ne!(msg.slot_id(cfg.signer_id), slot_id);
+
+        let chunks = {
+            vec![StackerDBChunkData {
+                data: bincode::serialize(&msg).unwrap(),
+                slot_id,
+                slot_version: 0,
+                sig: MessageSignature::empty(),
+            }]
+        };
+
+        // consume chunk; blocks
+        let handle = thread::spawn(move || {
+            assert!(run_loop.filter_and_process_ping_chunks(&chunks).is_empty());
+            run_loop
+        });
+
+        //serve response
+        let mut stream = ctx.mock_server.accept().unwrap().0;
+        //mock response
+        let body = "{\"accepted\":true,\"metadata\":{\"slot_id\":10,\"slot_version\":0,\"data_hash\":\"1452a9c5dd13034a788bd9ae3a0c6e139c02f5a277d6729166af489e5cc6cffe\",\"signature\":\"01d13198d6646c6f7190d31a9f3825af93d5ac9525531a055e6d1007d7d1ea72c011daa979823c8f67c2b40fd751e0bdbc97ef130f9eb498727437a060ddc82bc1\"}}";
+        let response = format!(
+            "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.flush().unwrap();
+        let mut buf = vec![0; 1024];
+        let mut reader = BufReader::new(&stream);
+        let len = reader.read(&mut buf).unwrap();
+        stream.shutdown(std::net::Shutdown::Both).unwrap();
+        let response_body = std::str::from_utf8(&buf[..len])
+            .unwrap()
+            .split_once("\r\n\r\n")
+            .unwrap()
+            .1;
+
+        handle.join().unwrap();
+
+        // assert on received chunk
+        let chunk: StackerDBChunkData = serde_json::from_str(response_body).unwrap();
+        let msg: SignerMessage = bincode::deserialize(&chunk.data).unwrap();
+        assert_matches!(msg, SignerMessage::Ping(LatencyPacket::Pong(pong)) => {
+            assert_eq!(ping_id, pong.id());
+        });
+    }
+
+    #[test]
+    fn filter_and_process_ping_process_pongs() {
+        let cfg = Config::load_from_file("./src/tests/conf/signer-1.toml").unwrap();
+
+        let mut run_loop = RunLoop::from(&cfg);
+        let rx = run_loop.subscribe_ping_collector();
+
+        let slot_id = PING_SLOT_ID;
+        assert!(is_ping_slot(slot_id));
+
+        let pong = Ping::new(0).pong();
+        let pong_id = pong.id();
+        run_loop.ping_entries.insert(pong_id, Instant::now());
+
+        let msg = SignerMessage::from(pong);
+        //The incoming Ping does not belong to you.
+        assert_ne!(msg.slot_id(cfg.signer_id), slot_id);
+
+        let chunks = {
+            vec![StackerDBChunkData {
+                data: bincode::serialize(&msg).unwrap(),
+                slot_id,
+                slot_version: 0,
+                sig: MessageSignature::empty(),
+            }]
+        };
+
+        // consume chunk, no side effects
+        // doesnt block
+        assert!(run_loop.filter_and_process_ping_chunks(&chunks).is_empty());
+
+        // RTT sent
+        rx.recv().unwrap();
     }
 }
