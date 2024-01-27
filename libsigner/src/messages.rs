@@ -944,10 +944,15 @@ impl SignerMessage {
 #[cfg(test)]
 mod test {
 
-    use blockstack_lib::{chainstate::stacks::{TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract, TransactionVersion}, util_lib::strings::StacksString};
+    use blockstack_lib::chainstate::stacks::{
+        TransactionAnchorMode, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
+        TransactionSmartContract, TransactionVersion,
+    };
+    use blockstack_lib::util_lib::strings::StacksString;
     use rand::Rng;
     use rand_core::OsRng;
-    use stacks_common::{consts::CHAIN_ID_TESTNET, types::chainstate::StacksPrivateKey};
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::chainstate::StacksPrivateKey;
     use wsts::common::Signature;
 
     use super::{StacksMessageCodecExtensions, *};
@@ -1259,7 +1264,7 @@ mod test {
             read_next::<SignerMessage, _>(&mut &serialized_signer_message[..])
                 .expect("Failed to deserialize SignerMessage");
         assert_eq!(signer_message, deserialized_signer_message);
-    
+
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
             version: TransactionVersion::Testnet,

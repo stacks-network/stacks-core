@@ -21,7 +21,7 @@ use libsigner::{
 };
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::{debug, warn};
 
@@ -37,6 +37,8 @@ pub struct StackerDB {
     stacks_private_key: StacksPrivateKey,
     /// A map of a slot ID to last chunk version
     slot_versions: HashMap<u32, u32>,
+    /// The signer ID
+    signer_id: u32,
 }
 
 impl From<&Config> for StackerDB {
@@ -48,6 +50,7 @@ impl From<&Config> for StackerDB {
             ),
             stacks_private_key: config.stacks_private_key,
             slot_versions: HashMap::new(),
+            signer_id: config.signer_id,
         }
     }
 }
@@ -56,11 +59,10 @@ impl StackerDB {
     /// Sends messages to the .signers stacker-db with an exponential backoff retry
     pub fn send_message_with_retry(
         &mut self,
-        id: u32,
         message: SignerMessage,
     ) -> Result<StackerDBChunkAckData, ClientError> {
         let message_bytes = message.serialize_to_vec();
-        let slot_id = message.slot_id(id);
+        let slot_id = message.slot_id(self.signer_id);
 
         loop {
             let slot_version = *self.slot_versions.entry(slot_id).or_insert(0) + 1;
@@ -116,7 +118,7 @@ impl StackerDB {
             if !chunk_ack.is_empty() {
                 for chunk in chunk_ack {
                     if let Some(data) = chunk {
-                        if let Ok(message) = bincode::deserialize::<SignerMessage>(&data) {
+                        if let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) {
                             if let SignerMessage::Transactions(chunk_transactions) = message {
                                 transactions.extend(chunk_transactions);
                             } else {

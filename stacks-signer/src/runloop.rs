@@ -169,9 +169,7 @@ impl<C: Coordinator> RunLoop<C> {
                 info!("Starting DKG");
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
-                        let ack = self
-                            .stackerdb
-                            .send_message_with_retry(self.signer_id, msg.into());
+                        let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("ACK: {:?}", ack);
                         self.state = State::Dkg;
                         true
@@ -205,9 +203,7 @@ impl<C: Coordinator> RunLoop<C> {
                     *merkle_root,
                 ) {
                     Ok(msg) => {
-                        let ack = self
-                            .stackerdb
-                            .send_message_with_retry(self.signer_id, msg.into());
+                        let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("ACK: {:?}", ack);
                         self.state = State::Sign;
                         block_info.signed_over = true;
@@ -284,9 +280,10 @@ impl<C: Coordinator> RunLoop<C> {
                 block_info.valid = Some(false);
                 // Submit a rejection response to the .signers contract for miners
                 // to observe so they know to send another block and to prove signers are doing work);
+                debug!("Broadcasting a block rejection due to stacks node validation failure...");
                 if let Err(e) = self
                     .stackerdb
-                    .send_message_with_retry(self.signer_id, block_validate_reject.into())
+                    .send_message_with_retry(block_validate_reject.into())
                 {
                     warn!("Failed to send block rejection to stacker-db: {:?}", e);
                 }
@@ -319,7 +316,7 @@ impl<C: Coordinator> RunLoop<C> {
                     merkle_root: None,
                 });
             } else {
-                debug!("Ignoring block proposal.");
+                debug!("Ignoring block proposal.\nValid: {:?}\nSigned Over: {:?}\nCoordinator ID: {:?}\nOur ID: {:?}", block_info.valid, block_info.signed_over, coordinator_id, self.signer_id);
             }
         }
     }
@@ -485,14 +482,42 @@ impl<C: Coordinator> RunLoop<C> {
     ) -> bool {
         if let Ok(transactions) = stackerdb.get_signer_transactions_with_retry(&signer_ids) {
             // Ensure the block contains the transactions we expect
-            // Filter out transactions that are not special cased transactions
-            // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
-            // TODO: broadcast to the node that we are missing the specific transactions as a hint
-            transactions
-                .iter()
-                .all(|transaction| block.txs.contains(transaction))
+            // TODO: Filter out transactions that are not special cased transactions
+            // TODO: Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
+            let missing_transactions: Vec<_> = transactions
+                .into_iter()
+                .filter_map(|transaction| {
+                    if !block.txs.contains(&transaction) {
+                        Some(transaction)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let are_transactions_verified = missing_transactions.is_empty();
+            if !are_transactions_verified {
+                debug!("Broadcasting a block rejection due to missing expected transactions...");
+                let block_rejection = BlockRejection::new(
+                    block.header.signer_signature_hash(),
+                    RejectCode::MissingTransactions(missing_transactions),
+                );
+                // Submit signature result to miners to observe
+                if let Err(e) = stackerdb.send_message_with_retry(block_rejection.into()) {
+                    warn!("Failed to send block submission to stacker-db: {:?}", e);
+                }
+            }
+            are_transactions_verified
         } else {
-            // Failed to connect to the stacks node to get transactions. Cannot validate the block.
+            // Failed to connect to the stacks node to get transactions. Cannot validate the block. Reject it.
+            debug!("Broadcasting a block rejection due to signer connectivity issues...");
+            let block_rejection = BlockRejection::new(
+                block.header.signer_signature_hash(),
+                RejectCode::ConnectivityIssues,
+            );
+            // Submit signature result to miners to observe
+            if let Err(e) = stackerdb.send_message_with_retry(block_rejection.into()) {
+                warn!("Failed to send block submission to stacker-db: {:?}", e);
+            }
             false
         }
     }
@@ -614,10 +639,7 @@ impl<C: Coordinator> RunLoop<C> {
         };
 
         // Submit signature result to miners to observe
-        if let Err(e) = self
-            .stackerdb
-            .send_message_with_retry(self.signer_id, block_submission)
-        {
+        if let Err(e) = self.stackerdb.send_message_with_retry(block_submission) {
             warn!("Failed to send block submission to stacker-db: {:?}", e);
         }
     }
@@ -658,7 +680,7 @@ impl<C: Coordinator> RunLoop<C> {
                 // Submit signature result to miners to observe
                 if let Err(e) = self
                     .stackerdb
-                    .send_message_with_retry(self.signer_id, block_rejection.into())
+                    .send_message_with_retry(block_rejection.into())
                 {
                     warn!("Failed to send block submission to stacker-db: {:?}", e);
                 }
@@ -694,9 +716,7 @@ impl<C: Coordinator> RunLoop<C> {
             outbound_messages.len()
         );
         for msg in outbound_messages {
-            let ack = self
-                .stackerdb
-                .send_message_with_retry(self.signer_id, msg.into());
+            let ack = self.stackerdb.send_message_with_retry(msg.into());
             if let Ok(ack) = ack {
                 debug!("ACK: {:?}", ack);
             } else {
