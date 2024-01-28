@@ -1971,6 +1971,7 @@ dependencies = [
 name = "libsigner"
 version = "0.0.1"
 dependencies = [
+ "bincode",
  "clarity",
  "libc",
  "libstackerdb",

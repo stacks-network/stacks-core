@@ -44,7 +44,8 @@ mod session;
 
 pub use crate::error::{EventError, RPCError};
 pub use crate::events::{
-    EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver, SignerStopSignaler,
+    BlockRejection, BlockResponse, EventReceiver, EventStopSignaler, RejectCode, SignerEvent,
+    SignerEventReceiver, SignerMessage, SignerStopSignaler, BLOCK_SLOT_ID, SIGNER_SLOTS_PER_USER,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};

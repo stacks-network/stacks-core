@@ -13,160 +13,17 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::net::api::postblock_proposal::{BlockValidateReject, ValidateRejectCode};
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::{SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
-use serde_derive::{Deserialize, Serialize};
 use slog::{slog_debug, slog_warn};
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::{debug, warn};
-use wsts::net::{Message, Packet};
 
 use super::ClientError;
 use crate::client::retry_with_exponential_backoff;
 use crate::config::Config;
-
-/// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
-/// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
-/// Is equal to the number of message types
-pub const SIGNER_SLOTS_PER_USER: u32 = 11;
-
-// The slot IDS for each message type
-const DKG_BEGIN_SLOT_ID: u32 = 0;
-const DKG_PRIVATE_BEGIN_SLOT_ID: u32 = 1;
-const DKG_END_BEGIN_SLOT_ID: u32 = 2;
-const DKG_END_SLOT_ID: u32 = 3;
-const DKG_PUBLIC_SHARES_SLOT_ID: u32 = 4;
-const DKG_PRIVATE_SHARES_SLOT_ID: u32 = 5;
-const NONCE_REQUEST_SLOT_ID: u32 = 6;
-const NONCE_RESPONSE_SLOT_ID: u32 = 7;
-const SIGNATURE_SHARE_REQUEST_SLOT_ID: u32 = 8;
-const SIGNATURE_SHARE_RESPONSE_SLOT_ID: u32 = 9;
-const BLOCK_SLOT_ID: u32 = 10;
-
-/// The messages being sent through the stacker db contracts
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum SignerMessage {
-    /// The signed/validated Nakamoto block for miners to observe
-    BlockResponse(BlockResponse),
-    /// DKG and Signing round data for other signers to observe
-    Packet(Packet),
-}
-
-/// The response that a signer sends back to observing miners
-/// either accepting or rejecting a Nakamoto block with the corresponding reason
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum BlockResponse {
-    /// The Nakamoto block was accepted and therefore signed
-    Accepted(NakamotoBlock),
-    /// The Nakamoto block was rejected and therefore not signed
-    Rejected(BlockRejection),
-}
-
-/// A rejection response from a signer for a proposed block
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BlockRejection {
-    /// The reason for the rejection
-    pub reason: String,
-    /// The reason code for the rejection
-    pub reason_code: RejectCode,
-    /// The block that was rejected
-    pub block: NakamotoBlock,
-}
-
-impl BlockRejection {
-    /// Create a new BlockRejection for the provided block and reason code
-    pub fn new(block: NakamotoBlock, reason_code: RejectCode) -> Self {
-        Self {
-            reason: reason_code.to_string(),
-            reason_code,
-            block,
-        }
-    }
-}
-
-impl From<BlockValidateReject> for BlockRejection {
-    fn from(reject: BlockValidateReject) -> Self {
-        Self {
-            reason: reject.reason,
-            reason_code: RejectCode::ValidationFailed(reject.reason_code),
-            block: reject.block,
-        }
-    }
-}
-
-/// This enum is used to supply a `reason_code` for block rejections
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum RejectCode {
-    /// RPC endpoint Validation failed
-    ValidationFailed(ValidateRejectCode),
-    /// Signers signed a block rejection
-    SignedRejection,
-    /// Invalid signature hash
-    InvalidSignatureHash,
-}
-
-impl std::fmt::Display for RejectCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            RejectCode::ValidationFailed(code) => write!(f, "Validation failed: {:?}", code),
-            RejectCode::SignedRejection => {
-                write!(f, "A threshold number of signers rejected the block.")
-            }
-            RejectCode::InvalidSignatureHash => write!(f, "The signature hash was invalid."),
-        }
-    }
-}
-
-impl From<Packet> for SignerMessage {
-    fn from(packet: Packet) -> Self {
-        Self::Packet(packet)
-    }
-}
-
-impl From<BlockResponse> for SignerMessage {
-    fn from(block_response: BlockResponse) -> Self {
-        Self::BlockResponse(block_response)
-    }
-}
-
-impl From<BlockRejection> for SignerMessage {
-    fn from(block_rejection: BlockRejection) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(block_rejection))
-    }
-}
-
-impl From<BlockValidateReject> for SignerMessage {
-    fn from(rejection: BlockValidateReject) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
-    }
-}
-
-impl SignerMessage {
-    /// Helper function to determine the slot ID for the provided stacker-db writer id
-    pub fn slot_id(&self, id: u32) -> u32 {
-        let slot_id = match self {
-            Self::Packet(packet) => match packet.msg {
-                Message::DkgBegin(_) => DKG_BEGIN_SLOT_ID,
-                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_SLOT_ID,
-                Message::DkgEndBegin(_) => DKG_END_BEGIN_SLOT_ID,
-                Message::DkgEnd(_) => DKG_END_SLOT_ID,
-                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_SLOT_ID,
-                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_SLOT_ID,
-                Message::NonceRequest(_) => NONCE_REQUEST_SLOT_ID,
-                Message::NonceResponse(_) => NONCE_RESPONSE_SLOT_ID,
-                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_SLOT_ID,
-                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_SLOT_ID,
-            },
-            Self::BlockResponse(_) => BLOCK_SLOT_ID,
-        };
-        SIGNER_SLOTS_PER_USER * id + slot_id
-    }
-}
 
 /// The StackerDB client for communicating with the .signers contract
 pub struct StackerDB {
