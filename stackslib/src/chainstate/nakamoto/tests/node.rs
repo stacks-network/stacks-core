@@ -67,6 +67,31 @@ use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
 
 #[derive(Debug, Clone)]
+pub struct TestStacker {
+    pub stacker_private_key: StacksPrivateKey,
+    pub signer_private_key: StacksPrivateKey,
+    pub amount: u128,
+}
+
+impl TestStacker {
+    pub fn from_seed(seed: &[u8]) -> TestStacker {
+        let stacker_private_key = StacksPrivateKey::from_seed(seed);
+        let mut signer_seed = seed.to_vec();
+        signer_seed.append(&mut vec![0xff, 0x00, 0x00, 0x00]);
+        let signer_private_key = StacksPrivateKey::from_seed(signer_seed.as_slice());
+        TestStacker {
+            stacker_private_key,
+            signer_private_key,
+            amount: 1_000_000_000_000_000_000,
+        }
+    }
+
+    pub fn signer_public_key(&self) -> StacksPublicKey {
+        StacksPublicKey::from_private(&self.signer_private_key)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TestSigners {
     /// The parties that will sign the blocks
     pub signer_parties: Vec<wsts::v2::Party>,
@@ -130,11 +155,7 @@ impl Default for TestSigners {
 impl TestSigners {
     pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
         let mut rng = rand_core::OsRng;
-        let msg = block
-            .header
-            .signer_signature_hash()
-            .expect("Failed to determine the block header signature hash for signers.")
-            .0;
+        let msg = block.header.signer_signature_hash().0;
         let (nonces, sig_shares, key_ids) =
             wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
 
@@ -508,7 +529,7 @@ impl TestStacksNode {
             'a,
             TestEventObserver,
             (),
-            OnChainRewardSetProvider,
+            OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
             BitcoinIndexer,
@@ -599,6 +620,7 @@ impl TestStacksNode {
 
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let mut sort_handle = sortdb.index_handle(&sort_tip);
+            info!("Processing the new nakamoto block");
             let accepted = match Relayer::process_new_nakamoto_block(
                 sortdb,
                 &mut sort_handle,

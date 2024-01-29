@@ -36,7 +36,10 @@ use std::time::Duration;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
+use libsigner::{
+    RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession,
+    SIGNER_SLOTS_PER_USER,
+};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
 use stacks_common::address::{
@@ -49,7 +52,6 @@ use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
     SignArgs, StackerDBArgs,
 };
-use stacks_signer::client::SIGNER_SLOTS_PER_USER;
 use stacks_signer::config::{Config, Network};
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
@@ -90,7 +92,10 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
-    let ev = SignerEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
+    let ev = SignerEventReceiver::new(
+        vec![config.stackerdb_contract_id.clone()],
+        config.network.is_mainnet(),
+    );
     let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,

@@ -24,6 +24,7 @@ use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::{Address, StacksEpoch};
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
 use wsts::curve::point::Point;
 
@@ -31,10 +32,12 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::coordinator::tests::p2pkh_from;
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::tests::node::TestSigners;
+use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::test::{make_pox_4_aggregate_key, make_pox_4_lockup};
+use crate::chainstate::stacks::boot::test::{
+    key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup,
+};
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{
@@ -46,19 +49,17 @@ use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
 use crate::net::relay::Relayer;
 use crate::net::stackerdb::StackerDBConfig;
-use crate::net::test::{TestPeer, TestPeerConfig};
+use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
 
 /// Bring a TestPeer into the Nakamoto Epoch
-fn advance_to_nakamoto(peer: &mut TestPeer) {
+fn advance_to_nakamoto(
+    peer: &mut TestPeer,
+    test_signers: &TestSigners,
+    test_stackers: Vec<TestStacker>,
+) {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
-    let signer_key = StacksPublicKey::from_slice(&[
-        0x02, 0xb6, 0x19, 0x6d, 0xe8, 0x8b, 0xce, 0xe7, 0x93, 0xfa, 0x9a, 0x8a, 0x85, 0x96, 0x9b,
-        0x64, 0x7f, 0x84, 0xc9, 0x0e, 0x9d, 0x13, 0xf9, 0xc8, 0xb8, 0xce, 0x42, 0x6c, 0xc8, 0x1a,
-        0x59, 0x98, 0x3c,
-    ])
-    .unwrap();
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -70,17 +71,24 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
     for sortition_height in 0..11 {
         // stack to pox-3 in cycle 7
         let txs = if sortition_height == 6 {
-            // stack them all
-            let stack_tx = make_pox_4_lockup(
-                &private_key,
-                0,
-                1_000_000_000_000_000_000,
-                PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone()),
-                12,
-                signer_key,
-                34,
-            );
-            vec![stack_tx]
+            // Make all the test Stackers stack
+            test_stackers
+                .iter()
+                .map(|test_stacker| {
+                    make_pox_4_lockup(
+                        &test_stacker.stacker_private_key,
+                        0,
+                        test_stacker.amount,
+                        PoxAddress::from_legacy(
+                            AddressHashMode::SerializeP2PKH,
+                            addr.bytes.clone(),
+                        ),
+                        12,
+                        StacksPublicKey::from_private(&test_stacker.signer_private_key),
+                        34,
+                    )
+                })
+                .collect()
         } else {
             vec![]
         };
@@ -92,11 +100,13 @@ fn advance_to_nakamoto(peer: &mut TestPeer) {
 
 /// Make a peer and transition it into the Nakamoto epoch.
 /// The node needs to be stacking; otherwise, Nakamoto won't activate.
-pub fn boot_nakamoto(
+pub fn boot_nakamoto<'a>(
     test_name: &str,
     mut initial_balances: Vec<(PrincipalData, u64)>,
-    aggregate_public_key: Point,
-) -> TestPeer {
+    test_signers: &TestSigners,
+    test_stackers: Option<Vec<&TestStacker>>,
+) -> TestPeer<'a> {
+    let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
     let private_key = peer_config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
@@ -117,13 +127,46 @@ pub fn boot_nakamoto(
         .push(boot_code_id(MINERS_NAME, false));
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+
+    let test_stackers: Vec<TestStacker> = if let Some(stackers) = test_stackers {
+        stackers.into_iter().cloned().collect()
+    } else {
+        // Create a list of test Stackers and their signer keys
+        (0..test_signers.num_keys)
+            .map(|index| {
+                let stacker_private_key = StacksPrivateKey::from_seed(&index.to_be_bytes());
+                let signer_private_key = StacksPrivateKey::from_seed(&(index + 1000).to_be_bytes());
+                TestStacker {
+                    stacker_private_key,
+                    signer_private_key,
+                    amount: 1_000_000_000_000_000_000,
+                }
+            })
+            .collect()
+    };
+
+    // Create some balances for test Stackers
+    let mut stacker_balances = test_stackers
+        .iter()
+        .map(|test_stacker| {
+            (
+                PrincipalData::from(key_to_stacks_addr(&test_stacker.stacker_private_key)),
+                u64::try_from(test_stacker.amount).expect("Stacking amount too large"),
+            )
+        })
+        .collect();
+
+    peer_config.initial_balances.append(&mut stacker_balances);
     peer_config.initial_balances.append(&mut initial_balances);
     peer_config.burnchain.pox_constants.v2_unlock_height = 21;
     peer_config.burnchain.pox_constants.pox_3_activation_height = 26;
     peer_config.burnchain.pox_constants.v3_unlock_height = 27;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
+    peer_config.test_stackers = Some(test_stackers.clone());
     let mut peer = TestPeer::new(peer_config);
-    advance_to_nakamoto(&mut peer);
+
+    advance_to_nakamoto(&mut peer, &test_signers, test_stackers);
+
     peer
 }
 
@@ -133,9 +176,12 @@ fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     replay_config.test_name = format!("{}.replay", &peer.config.test_name);
     replay_config.server_port = 0;
     replay_config.http_port = 0;
+    replay_config.test_stackers = peer.config.test_stackers.clone();
 
+    let test_stackers = replay_config.test_stackers.clone().unwrap_or(vec![]);
     let mut replay_peer = TestPeer::new(replay_config);
-    advance_to_nakamoto(&mut replay_peer);
+    let observer = TestEventObserver::new();
+    advance_to_nakamoto(&mut replay_peer, &TestSigners::default(), test_stackers);
 
     // sanity check
     let replay_tip = {
@@ -162,7 +208,7 @@ fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
 }
 
 /// Make a token-transfer from a private key
-fn make_token_transfer(
+pub fn make_token_transfer(
     chainstate: &mut StacksChainState,
     sortdb: &SortitionDB,
     private_key: &StacksPrivateKey,
@@ -250,11 +296,7 @@ fn replay_reward_cycle(
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
     let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(
-        function_name!(),
-        vec![],
-        test_signers.aggregate_public_key.clone(),
-    );
+    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None);
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -313,7 +355,8 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key.clone(),
+        &test_signers,
+        None,
     );
 
     let (burn_ops, mut tenure_change, miner_key) =
@@ -434,7 +477,8 @@ fn test_nakamoto_chainstate_getters() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key.clone(),
+        &test_signers,
+        None,
     );
 
     let sort_tip = {
@@ -922,7 +966,8 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key.clone(),
+        &test_signers,
+        None,
     );
 
     let mut all_blocks = vec![];
@@ -1248,7 +1293,8 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key.clone(),
+        &test_signers,
+        None,
     );
 
     let mut rc_burn_ops = vec![];
@@ -1582,7 +1628,8 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        test_signers.aggregate_public_key.clone(),
+        &test_signers,
+        None,
     );
 
     let mut all_blocks = vec![];
