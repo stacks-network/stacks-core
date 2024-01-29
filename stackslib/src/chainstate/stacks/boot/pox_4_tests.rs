@@ -1788,6 +1788,137 @@ fn stack_extend_verify_sig() {
     tx_result(valid_nonce).expect_result_ok();
 }
 
+#[test]
+/// Tests for verifying signatures in `stack-aggregation-commit`
+fn stack_agg_commit_verify_sig() {
+    let lock_period = 2;
+    let observer = TestEventObserver::new();
+    let (burnchain, mut peer, keys, latest_block, block_height, coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
+
+    let mut coinbase_nonce = coinbase_nonce;
+
+    let mut delegate_nonce = 0;
+    let stacker_nonce = 0;
+    let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+
+    let stacker_key = &keys[0];
+    let stacker_addr = PrincipalData::from(key_to_stacks_addr(&stacker_key));
+
+    let signer_sk = &keys[1];
+    let signer_pk = StacksPublicKey::from_private(signer_sk);
+
+    let delegate_key = &keys[2];
+    let delegate_addr = key_to_stacks_addr(&delegate_key);
+
+    let pox_addr = pox_addr_from(&delegate_key);
+
+    let reward_cycle = burnchain
+        .block_height_to_reward_cycle(block_height)
+        .unwrap() as u128;
+    let next_reward_cycle = reward_cycle + 1;
+
+    // Setup: delegate-stx and delegate-stack-stx
+
+    let delegate_tx = make_pox_4_delegate_stx(
+        &stacker_key,
+        stacker_nonce,
+        min_ustx,
+        delegate_addr.clone().into(),
+        None,
+        None,
+    );
+
+    let delegate_stack_stx_nonce = delegate_nonce;
+    let delegate_stack_stx_tx = make_pox_4_delegate_stack_stx(
+        &delegate_key,
+        delegate_nonce,
+        stacker_addr,
+        min_ustx,
+        pox_addr.clone(),
+        block_height.into(),
+        lock_period,
+    );
+
+    // Test 1: invalid reward cycle
+    delegate_nonce += 1;
+    let next_reward_cycle = reward_cycle + 1; // wrong cycle for signature
+    let signature = make_signer_key_signature(&pox_addr, &signer_sk, next_reward_cycle);
+    let invalid_cycle_nonce = delegate_nonce;
+    let invalid_cycle_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        signature,
+        &signer_pk,
+    );
+
+    // Test 2: invalid pox addr
+    delegate_nonce += 1;
+    let other_pox_addr = pox_addr_from(&Secp256k1PrivateKey::new());
+    let signature = make_signer_key_signature(&other_pox_addr, &signer_sk, reward_cycle);
+    let invalid_pox_addr_nonce = delegate_nonce;
+    let invalid_stacker_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        signature,
+        &signer_pk,
+    );
+
+    // Test 3: invalid signature
+    delegate_nonce += 1;
+    let signature = make_signer_key_signature(&pox_addr, &delegate_key, reward_cycle);
+    let invalid_key_nonce = delegate_nonce;
+    let invalid_key_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        signature,
+        &signer_pk,
+    );
+
+    // Test 4: valid signature
+    delegate_nonce += 1;
+    let signature = make_signer_key_signature(&pox_addr, &signer_sk, reward_cycle);
+    let valid_nonce = delegate_nonce;
+    let valid_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        signature,
+        &signer_pk,
+    );
+
+    peer.tenure_with_txs(
+        &[
+            delegate_tx,
+            delegate_stack_stx_tx,
+            invalid_cycle_tx,
+            invalid_stacker_tx,
+            invalid_key_tx,
+            valid_tx,
+        ],
+        &mut coinbase_nonce,
+    );
+
+    let txs = get_last_block_sender_transactions(&observer, delegate_addr);
+
+    let tx_result = |nonce: u64| -> Value { txs.get(nonce as usize).unwrap().result.clone() };
+
+    let expected_error = Value::error(Value::Int(35)).unwrap();
+
+    tx_result(delegate_stack_stx_nonce).expect_result_ok();
+    assert_eq!(tx_result(invalid_cycle_nonce), expected_error);
+    assert_eq!(tx_result(invalid_pox_addr_nonce), expected_error);
+    assert_eq!(tx_result(invalid_key_nonce), expected_error);
+    tx_result(valid_nonce).expect_result_ok();
+}
+
 pub fn assert_latest_was_burn(peer: &mut TestPeer) {
     let tip = get_tip(peer.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();

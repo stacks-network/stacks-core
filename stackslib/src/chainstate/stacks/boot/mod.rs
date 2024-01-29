@@ -1382,7 +1382,7 @@ pub mod test {
     use clarity::vm::types::*;
     use stacks_common::types::PrivateKey;
     use stacks_common::util::hash::Sha256Sum;
-    use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+    use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
     use stacks_common::util::*;
 
     use super::*;
@@ -2146,17 +2146,22 @@ pub mod test {
     pub fn make_pox_4_aggregation_commit_indexed(
         key: &StacksPrivateKey,
         nonce: u64,
-        amount: u128,
-        delegate_to: PrincipalData,
-        until_burn_ht: Option<u128>,
-        pox_addr: PoxAddress,
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        signature: Vec<u8>,
+        signer_key: &Secp256k1PublicKey,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-aggregation-commit-indexed",
-            vec![addr_tuple, Value::UInt(amount)],
+            vec![
+                addr_tuple,
+                Value::UInt(reward_cycle),
+                Value::buff_from(signature).unwrap(),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
         )
         .unwrap();
 
