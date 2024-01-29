@@ -43,6 +43,9 @@
 (define-read-only (current-reward-cycle)
     (burn-height-to-reward-cycle burn-block-height))
     
+(define-read-only (get-last-round (reward-cycle uint))
+    (map-get? rounds reward-cycle))
+
 (define-read-only (get-signer-slots (signer principal) (reward-cycle uint))
     (contract-call? .signers get-signer-slots signer reward-cycle))
 
@@ -68,4 +71,4 @@
 (define-private (update-last-round (reward-cycle uint) (round uint))
     (match (map-get? rounds reward-cycle)
         last-round (and (> round last-round) (map-set rounds reward-cycle round))
-        true))
+        (map-set rounds reward-cycle round)))
