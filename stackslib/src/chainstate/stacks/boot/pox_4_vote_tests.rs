@@ -56,9 +56,11 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
     get_stacking_state_pox, get_stx_account_at, with_clarity_db_ro, PoxPrintFields,
     StackingStateCheckData,
 };
-use crate::chainstate::stacks::boot::pox_4_tests::{assert_latest_was_burn, get_tip, make_test_epochs_pox};
+use crate::chainstate::stacks::boot::pox_4_tests::{
+    assert_latest_was_burn, get_last_block_sender_transactions, get_tip, make_test_epochs_pox,
+};
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_4_VOTE_NAME
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -128,19 +130,90 @@ pub fn prepare_pox4_test<'a>(
 
 #[test]
 fn vote_for_aggregate_public_key() {
+    let observer = TestEventObserver::new();
 
-   let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), None);
+    let (burnchain, mut peer, keys, latest_block_id, block_height, mut coinbase_nonce) =
+        prepare_pox4_test(function_name!(), Some(&observer));
 
-    let signer_nonce = 0;
+    let current_reward_cycle = readonly_call(
+        &mut peer,
+        &latest_block_id,
+        POX_4_VOTE_NAME.into(),
+        "current-reward-cycle".into(),
+        vec![],
+    )
+    .expect_u128();
+
+    assert_eq!(current_reward_cycle, 22);
+
+    let mut signer_nonce = 0;
     let signer_key = &keys[0];
-    let signer_principal = PrincipalData::from(key_to_stacks_addr(signer_key));
-    let cycle_id = 1;
-    let aggreated_public_key: Point = Point::new();
+    let signer_address = key_to_stacks_addr(signer_key);
+    let signer_principal = PrincipalData::from(signer_address);
+    let cycle_id = current_reward_cycle;
+    let aggregated_public_key: Point = Point::new();
 
-    let txs = vec![
-        make_pox_4_vote_for_aggregate_public_key(signer_key, signer_nonce, cycle_id, &aggreated_public_key)
-    ];
+    // cast a vote for the aggregate public key
+    let txs = vec![make_pox_4_vote_for_aggregate_public_key(
+        signer_key,
+        signer_nonce,
+        &aggregated_public_key,
+        cycle_id,
+        0,
+    )];
 
-    let latest_block = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let tx_receipts = get_last_block_sender_transactions(&observer, signer_address);
+    assert_eq!(tx_receipts.len(), 1);
+    assert_eq!(
+        tx_receipts[0].result,
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Bool(true))
+        })
+    );
+
+    signer_nonce += 1;
+
+    // cast same vote twice
+    let txs = vec![make_pox_4_vote_for_aggregate_public_key(
+        signer_key,
+        signer_nonce,
+        &aggregated_public_key,
+        cycle_id,
+        0,
+    )];
+
+    let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let tx_receipts = get_last_block_sender_transactions(&observer, signer_address);
+    assert_eq!(tx_receipts.len(), 1);
+    assert_eq!(
+        tx_receipts[0].result,
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::UInt(10004)) // err-duplicate-vote
+        })
+    );
+
+    signer_nonce += 1;
+
+    // cast vote too late
+    let txs = vec![make_pox_4_vote_for_aggregate_public_key(
+        signer_key,
+        signer_nonce,
+        &aggregated_public_key,
+        cycle_id - 1,
+        0,
+    )];
+
+    let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
+    let tx_receipts = get_last_block_sender_transactions(&observer, signer_address);
+    assert_eq!(tx_receipts.len(), 1);
+    assert_eq!(
+        tx_receipts[0].result,
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::UInt(10001)) // err-incorrect-reward-cycle
+        })
+    ); 
 }
