@@ -30,7 +30,7 @@ use wsts::curve::point::Point;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::coordinator::tests::p2pkh_from;
+use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
@@ -75,22 +75,17 @@ fn advance_to_nakamoto(
             test_stackers
                 .iter()
                 .map(|test_stacker| {
-                    let reward_cycle = 6;
-                    let stacker =
-                        PrincipalData::from(key_to_stacks_addr(&test_stacker.stacker_private_key));
-                    let signature = make_signer_key_signature(
-                        &stacker,
-                        &test_stacker.signer_private_key,
-                        reward_cycle,
+                    let pox_addr = PoxAddress::from_legacy(
+                        AddressHashMode::SerializeP2PKH,
+                        addr.bytes.clone(),
                     );
+                    let signature =
+                        make_signer_key_signature(&pox_addr, &test_stacker.signer_private_key, 6);
                     make_pox_4_lockup(
                         &test_stacker.stacker_private_key,
                         0,
                         test_stacker.amount,
-                        PoxAddress::from_legacy(
-                            AddressHashMode::SerializeP2PKH,
-                            addr.bytes.clone(),
-                        ),
+                        pox_addr.clone(),
                         12,
                         StacksPublicKey::from_private(&test_stacker.signer_private_key),
                         34,

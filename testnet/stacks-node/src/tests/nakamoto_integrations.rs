@@ -28,6 +28,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
@@ -43,7 +44,7 @@ use stacks::net::api::postblock_proposal::{
 };
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::signed_structured_data::sign_structured_data;
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -355,26 +356,15 @@ pub fn boot_to_epoch_3(
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
 
     // stack enough to activate pox-4
-    let pox_addr_tuple = clarity::vm::tests::execute(&format!(
-        "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
-        to_hex(&[0; 20]),
-        AddressHashMode::SerializeP2PKH as u8,
-    ));
 
-    let stacker = StacksAddress::from_public_keys(
-        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(&stacker_sk)],
-    )
-    .unwrap();
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        tests::to_addr(&stacker_sk).bytes,
+    );
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
     let reward_cycle = 7 as u128;
     let signer_pubkey = StacksPublicKey::from_private(&signer_sk);
-    let signature = make_signer_key_signature(
-        &PrincipalData::from(stacker.clone()),
-        &signer_sk,
-        reward_cycle,
-    );
+    let signature = make_signer_key_signature(&pox_addr, &signer_sk, reward_cycle);
 
     let stacking_tx = tests::make_contract_call(
         &stacker_sk,
@@ -406,7 +396,7 @@ pub fn boot_to_epoch_3(
 }
 
 fn make_signer_key_signature(
-    stacker: &PrincipalData,
+    pox_addr: &PoxAddress,
     signer_key: &StacksPrivateKey,
     reward_cycle: u128,
 ) -> Vec<u8> {
@@ -431,8 +421,8 @@ fn make_signer_key_signature(
     let data_tuple = clarity::vm::Value::Tuple(
         clarity::vm::types::TupleData::from_data(vec![
             (
-                "stacker".into(),
-                clarity::vm::Value::Principal(stacker.clone()),
+                "pox-addr".into(),
+                pox_addr.clone().as_clarity_tuple().unwrap().into(),
             ),
             (
                 "reward-cycle".into(),
@@ -955,11 +945,12 @@ fn correct_burn_outs() {
                 continue;
             };
 
-            let pox_addr_tuple = clarity::vm::tests::execute(&format!(
-                "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
-                tests::to_addr(&account.0).bytes.to_hex(),
-                AddressHashMode::SerializeP2PKH as u8,
-            ));
+            let pox_addr = PoxAddress::from_legacy(
+                AddressHashMode::SerializeP2PKH,
+                tests::to_addr(&account.0).bytes,
+            );
+            let pox_addr_tuple: clarity::vm::Value =
+                pox_addr.clone().as_clarity_tuple().unwrap().into();
             // create a new SK, mixing in the nonce, because signing keys cannot (currently)
             //  be reused.
             let mut seed_inputs = account.0.to_bytes();
@@ -968,7 +959,7 @@ fn correct_burn_outs() {
             let pk_bytes = StacksPublicKey::from_private(&new_sk).to_bytes_compressed();
 
             let reward_cycle = pox_info.current_cycle.id;
-            let signature = make_signer_key_signature(&account.1, &new_sk, reward_cycle.into());
+            let signature = make_signer_key_signature(&pox_addr, &new_sk, reward_cycle.into());
 
             let stacking_tx = tests::make_contract_call(
                 &account.0,

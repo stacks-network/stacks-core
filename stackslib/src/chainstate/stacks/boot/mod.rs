@@ -2212,7 +2212,7 @@ pub mod test {
     }
 
     pub fn make_signer_key_signature(
-        stacker: &PrincipalData,
+        pox_addr: &PoxAddress,
         signer_key: &StacksPrivateKey,
         reward_cycle: u128,
     ) -> Vec<u8> {
@@ -2233,7 +2233,10 @@ pub mod test {
 
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![
-                ("stacker".into(), Value::Principal(stacker.clone())),
+                (
+                    "pox-addr".into(),
+                    pox_addr.clone().as_clarity_tuple().unwrap().into(),
+                ),
                 ("reward-cycle".into(), Value::UInt(reward_cycle)),
             ])
             .unwrap(),
