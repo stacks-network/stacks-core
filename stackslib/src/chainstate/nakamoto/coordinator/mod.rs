@@ -55,6 +55,9 @@ pub mod tests;
 
 impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
     /// Read a reward_set written while updating .signers
+    /// `debug_log` should be set to true if the reward set loading should
+    ///  log messages as `debug!` instead of `error!` or `info!`. This allows
+    ///  RPC endpoints to expose this without flooding loggers.
     pub fn read_reward_set_nakamoto(
         &self,
         cycle_start_burn_height: u64,
@@ -62,6 +65,7 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
+        debug_log: bool,
     ) -> Result<RewardSet, Error> {
         let cycle = burnchain
             .block_height_to_reward_cycle(cycle_start_burn_height)
@@ -77,10 +81,17 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             .expect_optional()
             .map(|x| u64::try_from(x.expect_u128()).expect("FATAL: block height exceeded u64"))
         else {
-            error!(
-                "The reward set was not written to .signers before it was needed by Nakamoto";
-                "cycle_number" => cycle,
-            );
+            if debug_log {
+                debug!(
+                    "The reward set was not written to .signers before it was needed by Nakamoto";
+                    "cycle_number" => cycle,
+                );
+            } else {
+                error!(
+                    "The reward set was not written to .signers before it was needed by Nakamoto";
+                    "cycle_number" => cycle,
+                );
+            }
             return Err(Error::PoXAnchorBlockRequired);
         };
 
@@ -90,7 +101,11 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             coinbase_height_of_calculation,
         )?
         else {
-            error!("Failed to find the block in which .signers was written");
+            if debug_log {
+                debug!("Failed to find the block in which .signers was written");
+            } else {
+                error!("Failed to find the block in which .signers was written");
+            }
             return Err(Error::PoXAnchorBlockRequired);
         };
 
@@ -99,7 +114,18 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             &reward_set_block.index_block_hash(),
         )?
         else {
-            error!("No reward set stored at the block in which .signers was written");
+            if debug_log {
+                debug!(
+                    "No reward set stored at the block in which .signers was written";
+                    "checked_block" => %reward_set_block.index_block_hash()
+                );
+            } else {
+                error!(
+                    "No reward set stored at the block in which .signers was written";
+                    "checked_block" => %reward_set_block.index_block_hash(),
+                    "coinbase_height_of_calculation" => coinbase_height_of_calculation,
+                );
+            }
             return Err(Error::PoXAnchorBlockRequired);
         };
 
@@ -108,17 +134,32 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         //  Non participation is fatal.
         if reward_set.rewarded_addresses.is_empty() {
             // no one is stacking
-            error!("No PoX participation");
+            if debug_log {
+                debug!("No PoX participation");
+            } else {
+                error!("No PoX participation");
+            }
             return Err(Error::PoXAnchorBlockRequired);
         }
 
-        info!(
-            "PoX reward set loaded from written block state";
-            "reward_set_block_id" => %reward_set_block.index_block_hash(),
-        );
+        if debug_log {
+            debug!(
+                "PoX reward set loaded from written block state";
+                "reward_set_block_id" => %reward_set_block.index_block_hash(),
+            );
+        } else {
+            info!(
+                "PoX reward set loaded from written block state";
+                "reward_set_block_id" => %reward_set_block.index_block_hash(),
+            );
+        }
 
         if reward_set.signers.is_none() {
-            error!("FATAL: PoX reward set did not specify signer set in Nakamoto");
+            if debug_log {
+                debug!("FATAL: PoX reward set did not specify signer set in Nakamoto");
+            } else {
+                error!("FATAL: PoX reward set did not specify signer set in Nakamoto");
+            }
             return Err(Error::PoXAnchorBlockRequired);
         }
 
