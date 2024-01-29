@@ -732,6 +732,7 @@
 ;; *New in Stacks 2.1.*
 (define-private (inner-stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                                 (reward-cycle uint)
+                                                (signer-sig (buff 65))
                                                 (signer-key (buff 33)))
   (let ((partial-stacked
          ;; fetch the partial commitments
@@ -740,6 +741,7 @@
     ;; must be called directly by the tx-sender or by an allowed contract-caller
     (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
+    (try! (verify-signer-key-sig tx-sender signer-sig signer-key))
     (let ((amount-ustx (get stacked-amount partial-stacked)))
       (try! (can-stack-stx pox-addr amount-ustx reward-cycle u1))
       ;; Add the pox addr to the reward cycle, and extract the index of the PoX address
@@ -773,8 +775,9 @@
 ;; Returns (err ...) on failure.
 (define-public (stack-aggregation-commit (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                          (reward-cycle uint)
+                                         (signer-sig (buff 65))
                                          (signer-key (buff 33)))
-    (match (inner-stack-aggregation-commit pox-addr reward-cycle signer-key)
+    (match (inner-stack-aggregation-commit pox-addr reward-cycle signer-sig signer-key)
         pox-addr-index (ok true)
         commit-err (err commit-err)))
 
@@ -782,8 +785,9 @@
 ;; *New in Stacks 2.1.*
 (define-public (stack-aggregation-commit-indexed (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                                  (reward-cycle uint)
+                                                 (signer-sig (buff 65))
                                                  (signer-key (buff 33)))
-    (inner-stack-aggregation-commit pox-addr reward-cycle signer-key))
+    (inner-stack-aggregation-commit pox-addr reward-cycle signer-sig signer-key))
 
 ;; Commit partially stacked STX to a PoX address which has already received some STX (more than the Stacking min).
 ;; This allows a delegator to lock up marginally more STX from new delegates, even if they collectively do not

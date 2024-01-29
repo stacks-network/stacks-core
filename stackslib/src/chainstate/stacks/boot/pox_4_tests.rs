@@ -2089,11 +2089,16 @@ fn delegate_stack_stx_signer_key() {
         AddressHashMode::SerializeP2WSH,
         key_to_stacks_addr(delegate_key).bytes,
     );
-    let signer_bytes =
-        hex_bytes("03a0f9818ea8c14a827bb144aec9cfbaeba225af22be18ed78a2f298106f4e281b").unwrap();
-    let signer_key = Secp256k1PublicKey::from_slice(&signer_bytes).unwrap();
-    let signer_key_val = Value::buff_from(signer_bytes.clone()).unwrap();
+    let signer_sk = Secp256k1PrivateKey::from_seed(&[1, 1, 1]);
+    let signer_key = Secp256k1PublicKey::from_private(&signer_sk);
+    let signer_key_val = Value::buff_from(signer_key.to_bytes_compressed()).unwrap();
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
+
+    let signature = make_signer_key_signature(
+        &delegate_principal,
+        &signer_sk,
+        (next_reward_cycle - 1).into(),
+    );
 
     let txs = vec![
         make_pox_4_contract_call(
@@ -2128,6 +2133,7 @@ fn delegate_stack_stx_signer_key() {
             vec![
                 pox_addr.clone(),
                 Value::UInt(next_reward_cycle.into()),
+                Value::buff_from(signature).unwrap(),
                 signer_key_val.clone(),
             ],
         ),
@@ -2159,7 +2165,10 @@ fn delegate_stack_stx_signer_key() {
         PoxAddress::try_from_pox_tuple(false, &pox_addr).unwrap(),
         reward_entry.reward_address
     );
-    assert_eq!(&reward_entry.signer.unwrap(), signer_bytes.as_slice(),);
+    assert_eq!(
+        &reward_entry.signer.unwrap(),
+        signer_key.to_bytes_compressed().as_slice()
+    );
 }
 
 // In this test case, Alice delegates to Bob.
@@ -2249,9 +2258,11 @@ fn delegate_stack_stx_extend_signer_key() {
         .expect("No stacking state, stack-stx failed")
         .expect_tuple();
 
-    let next_reward_cycle = 1 + burnchain
+    let reward_cycle = burnchain
         .block_height_to_reward_cycle(block_height)
         .unwrap();
+
+    let next_reward_cycle = 1 + reward_cycle;
 
     let extend_cycle = 1 + next_reward_cycle;
 
@@ -2275,8 +2286,8 @@ fn delegate_stack_stx_extend_signer_key() {
 
     bob_nonce += 1;
 
-    // let signature =
-    //     make_signer_key_signature(&alice_principal, &bob_new_signer_private_key, reward_cycle);
+    let signature =
+        make_signer_key_signature(&bob_delegate_principal, &signer_sk, reward_cycle.into());
 
     let delegate_stack_extend = make_pox_4_delegate_stack_extend(
         bob_delegate_private_key,
@@ -2293,8 +2304,15 @@ fn delegate_stack_stx_extend_signer_key() {
         vec![
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(next_reward_cycle.into()),
+            Value::buff_from(signature).unwrap(),
             signer_key_val.clone(),
         ],
+    );
+
+    let extend_signature = make_signer_key_signature(
+        &bob_delegate_principal,
+        &signer_extend_sk,
+        reward_cycle.into(),
     );
 
     let agg_tx_1 = make_pox_4_contract_call(
@@ -2304,6 +2322,7 @@ fn delegate_stack_stx_extend_signer_key() {
         vec![
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(extend_cycle.into()),
+            Value::buff_from(extend_signature).unwrap(),
             signer_extend_key_val.clone(),
         ],
     );
@@ -2503,6 +2522,12 @@ fn delegate_stack_increase() {
         min_ustx,
     );
 
+    let signature = make_signer_key_signature(
+        &bob_delegate_address,
+        &signer_sk,
+        (next_reward_cycle - 1).into(),
+    );
+
     let agg_tx = make_pox_4_contract_call(
         bob_delegate_key,
         bob_nonce + 1,
@@ -2510,6 +2535,7 @@ fn delegate_stack_increase() {
         vec![
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(next_reward_cycle.into()),
+            Value::buff_from(signature).unwrap(),
             signer_key_val.clone(),
         ],
     );
