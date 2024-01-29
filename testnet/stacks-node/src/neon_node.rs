@@ -1454,7 +1454,7 @@ impl BlockMinerThread {
             chain_state,
             burn_db,
             &self.burnchain,
-            &OnChainRewardSetProvider(),
+            &OnChainRewardSetProvider::new(),
             self.config.node.always_use_affirmation_maps,
         ) {
             Ok(x) => x,

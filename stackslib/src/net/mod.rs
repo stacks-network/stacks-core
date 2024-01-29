@@ -1594,7 +1594,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
-    use crate::chainstate::nakamoto::tests::node::TestSigners;
+    use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
@@ -1880,6 +1880,15 @@ pub mod test {
         ) {
             // pass
         }
+
+        fn announce_reward_set(
+            &self,
+            _reward_set: &RewardSet,
+            _block_id: &StacksBlockId,
+            _cycle_number: u64,
+        ) {
+            // pass
+        }
     }
 
     // describes a peer's initial configuration
@@ -1919,6 +1928,7 @@ pub mod test {
         pub services: u16,
         /// aggregate public key to use
         pub aggregate_public_key: Option<Point>,
+        pub test_stackers: Option<Vec<TestStacker>>,
     }
 
     impl TestPeerConfig {
@@ -1983,6 +1993,7 @@ pub mod test {
                     | (ServiceFlags::RPC as u16)
                     | (ServiceFlags::STACKERDB as u16),
                 aggregate_public_key: None,
+                test_stackers: None,
             }
         }
 
@@ -2099,7 +2110,7 @@ pub mod test {
             'a,
             TestEventObserver,
             (),
-            OnChainRewardSetProvider,
+            OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
             BitcoinIndexer,
@@ -2337,7 +2348,7 @@ pub mod test {
                 &config.burnchain,
                 config.network_id,
                 &test_path,
-                OnChainRewardSetProvider(),
+                OnChainRewardSetProvider(observer),
                 observer,
                 indexer,
                 None,
@@ -3342,7 +3353,7 @@ pub mod test {
                 &mut stacks_node.chainstate,
                 &mut sortdb,
                 &self.config.burnchain,
-                &OnChainRewardSetProvider(),
+                &OnChainRewardSetProvider::new(),
                 true,
             ) {
                 Ok(recipients) => {

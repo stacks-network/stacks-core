@@ -538,6 +538,29 @@ impl PoxConstants {
         )
     }
 
+    /// Return the reward cycle that the current prepare phase corresponds to if `block_height` is _in_ a prepare
+    /// phase. If it is not in a prepare phase, return None.
+    pub fn reward_cycle_of_prepare_phase(
+        &self,
+        first_block_height: u64,
+        block_height: u64,
+    ) -> Option<u64> {
+        if !self.is_in_prepare_phase(first_block_height, block_height) {
+            return None;
+        }
+        // the None branches here should be unreachable, because if `first_block_height > block_height`,
+        //   `is_in_prepare_phase` would have returned false, but no need to be unsafe anyways.
+        let effective_height = block_height.checked_sub(first_block_height)?;
+        let current_cycle = self.block_height_to_reward_cycle(first_block_height, block_height)?;
+        if effective_height % u64::from(self.reward_cycle_length) == 0 {
+            // if this is the "mod 0" block of a prepare phase, its corresponding reward cycle is the current one
+            Some(current_cycle)
+        } else {
+            // otherwise, the corresponding reward cycle is actually the _next_ reward cycle
+            Some(current_cycle + 1)
+        }
+    }
+
     pub fn is_in_prepare_phase(&self, first_block_height: u64, block_height: u64) -> bool {
         Self::static_is_in_prepare_phase(
             first_block_height,
