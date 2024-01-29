@@ -805,7 +805,7 @@ checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network//clarity-wasm?branch=test/always-wasm#f27bf5997360b73fd101ed72706f52d33914961c"
+source = "git+https://github.com/stacks-network//clarity-wasm?branch=test/always-wasm#578c6ff9d4bcfea9324de90d80a2a441f90684b2"
 dependencies = [
  "chrono",
  "clap 4.4.18",
@@ -845,7 +845,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.2.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#e8405022709ebb3c7721cb7e353c21b354052b4a"
 dependencies = [
  "integer-sqrt",
  "lazy_static",
@@ -2379,7 +2379,7 @@ dependencies = [
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#e8405022709ebb3c7721cb7e353c21b354052b4a"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "libc",
@@ -2426,7 +2426,7 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#e8405022709ebb3c7721cb7e353c21b354052b4a"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "secp256k1",
@@ -3047,7 +3047,7 @@ dependencies = [
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#e8405022709ebb3c7721cb7e353c21b354052b4a"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm)",
  "slog",
@@ -4082,7 +4082,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#e8405022709ebb3c7721cb7e353c21b354052b4a"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -4180,7 +4180,7 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#e8405022709ebb3c7721cb7e353c21b354052b4a"
 dependencies = [
  "backoff",
  "bincode",
@@ -4258,7 +4258,7 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#e8405022709ebb3c7721cb7e353c21b354052b4a"
 dependencies = [
  "chrono",
  "clar2wasm",
@@ -4385,7 +4385,7 @@ dependencies = [
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#ea8f11098b10217ed5956808c24493985ad35a8c"
+source = "git+https://github.com/stacks-network//stacks-core?branch=test/always-wasm#e8405022709ebb3c7721cb7e353c21b354052b4a"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
