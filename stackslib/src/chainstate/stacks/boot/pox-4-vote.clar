@@ -11,15 +11,18 @@
 
 (define-constant err-not-allowed (err u10000))
 (define-constant err-incorrect-reward-cycle (err u10001))
-(define-constant err-invalid-aggregate-public-key (err u10002))
-(define-constant err-duplicate-aggregate-public-key (err u10003))
-(define-constant err-duplicate-vote (err u10004))
-(define-constant err-invalid-burn-block-height (err u10005))
+(define-constant err-old-round (err u10002))
+(define-constant err-invalid-aggregate-public-key (err u10003))
+(define-constant err-duplicate-aggregate-public-key (err u10004))
+(define-constant err-duplicate-vote (err u10005))
+(define-constant err-invalid-burn-block-height (err u10006))
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
 
-(define-data-var last-round uint u0)
+;; maps reward-cycle ids to last round
+(define-map rounds uint uint)
+
 (define-data-var is-state-1-active bool true)
 (define-data-var state-1 {reward-cycle: uint, round: uint, aggregate-public-key: (optional (buff 33)),
     total-votes: uint}  {reward-cycle: u0, round: u0, aggregate-public-key: none, total-votes: u0})
@@ -43,11 +46,9 @@
 (define-read-only (get-signer-slots (signer principal) (reward-cycle uint))
     (contract-call? .signers get-signer-slots signer reward-cycle))
 
-;; aggregate public key must be unique and can be used only once per cylce and round
-(define-read-only (is-unique-aggregated-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
-    (match (map-get? used-aggregate-public-keys key)
-        when (is-eq when dkg-id)
-        true))
+;; aggregate public key must be unique and can be used only in a single cycle-round pair
+(define-read-only (is-valid-aggregated-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
+    (is-eq (default-to dkg-id (map-get? used-aggregate-public-keys key)) dkg-id))
 
 (define-public (vote-for-aggregate-public-key (key (buff 33)) (reward-cycle uint) (round uint))
     (let ((tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
@@ -55,9 +56,16 @@
             (num-slots (unwrap! (get-signer-slots tx-sender reward-cycle) err-not-allowed))
             (new-total (+ num-slots (default-to u0 (map-get? tally tally-key)))))
         (asserts! (is-eq reward-cycle (current-reward-cycle)) err-incorrect-reward-cycle)
+        (asserts! (>= round (default-to u0 (map-get? rounds reward-cycle))) err-old-round)
         (asserts! (is-eq (len key) u33) err-invalid-aggregate-public-key)
-        (asserts! (is-unique-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) err-duplicate-aggregate-public-key)
+        (asserts! (is-valid-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) err-duplicate-aggregate-public-key)
         (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-slots}) err-duplicate-vote)
         (map-set tally tally-key new-total)
+        (update-last-round reward-cycle round)
         (print "voted")
         (ok true)))
+
+(define-private (update-last-round (reward-cycle uint) (round uint))
+    (match (map-get? rounds reward-cycle)
+        last-round (and (> round last-round) (map-set rounds reward-cycle round))
+        true))

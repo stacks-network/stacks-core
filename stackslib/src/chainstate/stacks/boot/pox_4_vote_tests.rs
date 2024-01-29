@@ -60,7 +60,7 @@ use crate::chainstate::stacks::boot::pox_4_tests::{
     assert_latest_was_burn, get_last_block_sender_transactions, get_tip, make_test_epochs_pox,
 };
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_4_VOTE_NAME
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, POX_4_VOTE_NAME,
 };
 use crate::chainstate::stacks::db::{
     MinerPaymentSchedule, StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY,
@@ -191,7 +191,7 @@ fn vote_for_aggregate_public_key() {
         tx_receipts[0].result,
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::UInt(10004)) // err-duplicate-vote
+            data: Box::new(Value::UInt(10005)) // err-duplicate-vote
         })
     );
 
@@ -215,5 +215,5 @@ fn vote_for_aggregate_public_key() {
             committed: false,
             data: Box::new(Value::UInt(10001)) // err-incorrect-reward-cycle
         })
-    ); 
+    );
 }
