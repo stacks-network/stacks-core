@@ -845,7 +845,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.2.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#417a013015e62676117e38aa4939b9e9cd8c2804"
 dependencies = [
  "integer-sqrt",
  "lazy_static",
@@ -2379,7 +2379,7 @@ dependencies = [
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#417a013015e62676117e38aa4939b9e9cd8c2804"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm)",
  "libc",
@@ -2426,7 +2426,7 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#417a013015e62676117e38aa4939b9e9cd8c2804"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm)",
  "secp256k1",
@@ -3047,7 +3047,7 @@ dependencies = [
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#417a013015e62676117e38aa4939b9e9cd8c2804"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm)",
  "slog",
@@ -4082,7 +4082,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#417a013015e62676117e38aa4939b9e9cd8c2804"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -4180,7 +4180,7 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#417a013015e62676117e38aa4939b9e9cd8c2804"
 dependencies = [
  "backoff",
  "bincode",
@@ -4258,7 +4258,7 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#417a013015e62676117e38aa4939b9e9cd8c2804"
 dependencies = [
  "chrono",
  "clar2wasm",
@@ -4385,7 +4385,7 @@ dependencies = [
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#417a013015e62676117e38aa4939b9e9cd8c2804"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
