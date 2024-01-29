@@ -380,6 +380,7 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
             burnchain,
             sortdb,
             block_id,
+            false,
         )
     }
 }

@@ -367,6 +367,7 @@ impl NakamotoSigners {
             "Performing .signers state update";
             "burn_height" => burn_tip_height,
             "for_cycle" => cycle_of_prepare_phase,
+            "coinbase_height" => coinbase_height,
             "signers_contract" => %signers_contract,
         );
 

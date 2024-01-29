@@ -5086,6 +5086,24 @@ impl StacksChainState {
 
         let evaluated_epoch = clarity_tx.get_epoch();
 
+        // Handle signer stackerdb updates
+        // this must happen *before* any state transformations from burn ops, rewards unlocking, etc.
+        // this ensures that the .signers updates will match the PoX anchor block calculation in Epoch 2.5
+        let first_block_height = burn_dbconn.get_burn_start_height();
+        let signer_set_calc;
+        if evaluated_epoch >= StacksEpochId::Epoch25 {
+            signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
+                &mut clarity_tx,
+                first_block_height.into(),
+                &pox_constants,
+                burn_tip_height.into(),
+                // this is the block height that the write occurs *during*
+                chain_tip.stacks_block_height + 1,
+            )?;
+        } else {
+            signer_set_calc = None;
+        }
+
         let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
             let unlock_events = Self::check_and_handle_reward_start(
                 burn_tip_height.into(),
@@ -5141,21 +5159,6 @@ impl StacksChainState {
                 &chain_tip.consensus_hash,
                 &chain_tip.anchored_header.block_hash()
             );
-        }
-
-        // Handle signer stackerdb updates
-        let first_block_height = burn_dbconn.get_burn_start_height();
-        let signer_set_calc;
-        if evaluated_epoch >= StacksEpochId::Epoch25 {
-            signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
-                &mut clarity_tx,
-                first_block_height.into(),
-                &pox_constants,
-                burn_tip_height.into(),
-                chain_tip.stacks_block_height,
-            )?;
-        } else {
-            signer_set_calc = None;
         }
 
         debug!(

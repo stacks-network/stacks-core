@@ -38,6 +38,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
+use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
@@ -131,6 +132,20 @@ lazy_static! {
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
     ];
+}
+
+pub fn get_stacker_set(http_origin: &str, cycle: u64) -> GetStackersResponse {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{http_origin}/v2/stacker_set/{cycle}");
+    let res = client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<serde_json::Value>()
+        .unwrap();
+    info!("Stacker set response: {res}");
+    let res = serde_json::from_value(res).unwrap();
+    res
 }
 
 pub fn add_initial_balances(
@@ -939,6 +954,21 @@ fn correct_burn_outs() {
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
 
+    // we should already be able to query the stacker set via RPC
+    let burnchain = naka_conf.get_burnchain();
+    let first_epoch_3_cycle = burnchain
+        .block_height_to_reward_cycle(epoch_3.start_height)
+        .unwrap();
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let stacker_response = get_stacker_set(&http_origin, first_epoch_3_cycle);
+    assert!(stacker_response.stacker_set.signers.is_some());
+    assert_eq!(
+        stacker_response.stacker_set.signers.as_ref().unwrap().len(),
+        1
+    );
+    assert_eq!(stacker_response.stacker_set.rewarded_addresses.len(), 1);
+
     // first block wakes up the run loop, wait until a key registration has been submitted.
     next_block_and(&mut btc_regtest_controller, 60, || {
         let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
@@ -955,7 +985,6 @@ fn correct_burn_outs() {
 
     info!("Bootstrapped to Epoch-3.0 boundary, mining nakamoto blocks");
 
-    let burnchain = naka_conf.get_burnchain();
     let sortdb = burnchain.open_sortition_db(true).unwrap();
 
     // Mine nakamoto tenures
@@ -1001,9 +1030,6 @@ fn correct_burn_outs() {
         "Stacker set should be sorted by cycle number already"
     );
 
-    let first_epoch_3_cycle = burnchain
-        .block_height_to_reward_cycle(epoch_3.start_height)
-        .unwrap();
     for (_, cycle_number, reward_set) in stacker_sets.iter() {
         if *cycle_number < first_epoch_3_cycle {
             assert!(reward_set.signers.is_none());
