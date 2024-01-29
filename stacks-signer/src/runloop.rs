@@ -25,7 +25,11 @@ use libsigner::{
     BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage, SignerRunLoop,
 };
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 use stacks_common::codec::{read_next, StacksMessageCodec};
+use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::{MerkleRoot, Signature};
@@ -254,25 +258,22 @@ impl<C: Coordinator> RunLoop<C> {
         let block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
                 let signer_signature_hash = block_validate_ok.signer_signature_hash;
-                let Some(block_info) = self.blocks.get_mut(&signer_signature_hash) else {
+                // For mutability reasons, we need to take the block_info out of the map and add it back after processing
+                let Some(mut block_info) = self.blocks.remove(&signer_signature_hash) else {
                     // We have not seen this block before. Why are we getting a response for it?
                     debug!("Received a block validate response for a block we have not seen before. Ignoring...");
                     return;
                 };
-                let are_transactions_verified = Self::verify_transactions(
-                    &mut self.stackerdb,
-                    &self.signer_ids,
-                    &block_info.block,
-                );
-                block_info.valid = Some(are_transactions_verified);
-                block_info
+                let is_valid = self.verify_transactions(&block_info.block);
+                block_info.valid = Some(is_valid);
+                // Add the block info back to the map
+                self.blocks
+                    .entry(signer_signature_hash)
+                    .or_insert(block_info)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
-                // There is no point in triggering a sign round for this block if validation failed from the stacks node
-                let Some(block_info) = self
-                    .blocks
-                    .get_mut(&block_validate_reject.signer_signature_hash)
-                else {
+                let signer_signature_hash = block_validate_reject.signer_signature_hash;
+                let Some(block_info) = self.blocks.get_mut(&signer_signature_hash) else {
                     // We have not seen this block before. Why are we getting a response for it?
                     debug!("Received a block validate response for a block we have not seen before. Ignoring...");
                     return;
@@ -308,15 +309,26 @@ impl<C: Coordinator> RunLoop<C> {
                 && !block_info.signed_over
                 && coordinator_id == self.signer_id
             {
-                debug!("Received a valid block proposal from the miner. Triggering a signing round over it...");
                 // We are the coordinator. Trigger a signing round for this block
+                debug!(
+                    "Signer triggering a signing round over the block.";
+                    "block_hash" => block_info.block.header.block_hash(),
+                    "signer_id" => self.signer_id,
+                );
                 self.commands.push_back(RunLoopCommand::Sign {
                     block: block_info.block.clone(),
                     is_taproot: false,
                     merkle_root: None,
                 });
             } else {
-                debug!("Ignoring block proposal.\nValid: {:?}\nSigned Over: {:?}\nCoordinator ID: {:?}\nOur ID: {:?}", block_info.valid, block_info.signed_over, coordinator_id, self.signer_id);
+                debug!(
+                    "Signer ignoring block.";
+                    "block_hash" => block_info.block.header.block_hash(),
+                    "valid" => block_info.valid,
+                    "signed_over" => block_info.signed_over,
+                    "coordinator_id" => coordinator_id,
+                    "signer_id" => self.signer_id,
+                );
             }
         }
     }
@@ -474,39 +486,36 @@ impl<C: Coordinator> RunLoop<C> {
         true
     }
 
-    /// Verify that the proposed block contains the transactions we expect
-    fn verify_transactions(
-        stackerdb: &mut StackerDB,
-        signer_ids: &[u32],
-        block: &NakamotoBlock,
-    ) -> bool {
-        if let Ok(transactions) = stackerdb.get_signer_transactions_with_retry(&signer_ids) {
+    /// Verify the transactions in a block are as expected
+    fn verify_transactions(&mut self, block: &NakamotoBlock) -> bool {
+        if let Ok(expected_transactions) = self.get_expected_transactions() {
             // Ensure the block contains the transactions we expect
-            // TODO: Filter out transactions that are not special cased transactions
-            // TODO: Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
-            let missing_transactions: Vec<_> = transactions
+            let missing_transactions = expected_transactions
                 .into_iter()
-                .filter_map(|transaction| {
-                    if !block.txs.contains(&transaction) {
-                        Some(transaction)
+                .filter_map(|tx| {
+                    if !block.txs.contains(&tx) {
+                        Some(tx)
                     } else {
                         None
                     }
                 })
-                .collect();
-            let are_transactions_verified = missing_transactions.is_empty();
-            if !are_transactions_verified {
+                .collect::<Vec<_>>();
+            let is_valid = missing_transactions.is_empty();
+            if !is_valid {
                 debug!("Broadcasting a block rejection due to missing expected transactions...");
                 let block_rejection = BlockRejection::new(
                     block.header.signer_signature_hash(),
                     RejectCode::MissingTransactions(missing_transactions),
                 );
                 // Submit signature result to miners to observe
-                if let Err(e) = stackerdb.send_message_with_retry(block_rejection.into()) {
+                if let Err(e) = self
+                    .stackerdb
+                    .send_message_with_retry(block_rejection.into())
+                {
                     warn!("Failed to send block submission to stacker-db: {:?}", e);
                 }
             }
-            are_transactions_verified
+            is_valid
         } else {
             // Failed to connect to the stacks node to get transactions. Cannot validate the block. Reject it.
             debug!("Broadcasting a block rejection due to signer connectivity issues...");
@@ -515,11 +524,65 @@ impl<C: Coordinator> RunLoop<C> {
                 RejectCode::ConnectivityIssues,
             );
             // Submit signature result to miners to observe
-            if let Err(e) = stackerdb.send_message_with_retry(block_rejection.into()) {
+            if let Err(e) = self
+                .stackerdb
+                .send_message_with_retry(block_rejection.into())
+            {
                 warn!("Failed to send block submission to stacker-db: {:?}", e);
             }
             false
         }
+    }
+
+    /// Get the transactions we expect to see in the next block
+    fn get_expected_transactions(&mut self) -> Result<Vec<StacksTransaction>, ClientError> {
+        let signer_ids = self
+            .signing_round
+            .public_keys
+            .signers
+            .keys()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let transactions = self
+            .stackerdb
+            .get_signer_transactions_with_retry(&signer_ids)?;
+        let mut expected_transactions = vec![];
+        for (signer_id, signer_transactions) in transactions {
+            let Some(public_key) = self.signing_round.public_keys.signers.get(&signer_id) else {
+                // Received a transaction for a signer we do not know about. Ignore it.
+                continue;
+            };
+            let version = if self.mainnet {
+                C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+            } else {
+                C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+            };
+            let stacks_public_key = StacksPublicKey::from_slice(public_key.to_bytes().as_slice()).expect("BUG: This should never fail as we only add valid public keys to the signing round.");
+            let stacks_address = StacksAddress::from_public_keys(
+                version,
+                &AddressHashMode::SerializeP2PKH,
+                1,
+                &vec![stacks_public_key],
+            ).expect("BUG: This should never fail as we only add valid public keys to the signing round.");
+            let Ok(account_nonce) = self.stacks_client.get_account_nonce(&stacks_address) else {
+                warn!("Unable to get account nonce for signer id {signer_id}. Ignoring their transactions.");
+                continue;
+            };
+            for signer_transaction in signer_transactions {
+                // TODO: Filter out transactions that are not special cased transactions (cast votes, etc.)
+                // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
+                if signer_transaction.origin_address() != stacks_address
+                    || signer_transaction.get_origin_nonce() < account_nonce
+                {
+                    debug!("Received a transaction for signer id {signer_id} that is either not valid or has already been confirmed. Ignoring it.");
+                    continue;
+                } else {
+                    expected_transactions.push(signer_transaction);
+                }
+            }
+        }
+        Ok(expected_transactions)
     }
 
     /// Determine the vote for a block and update the block info and nonce request accordingly

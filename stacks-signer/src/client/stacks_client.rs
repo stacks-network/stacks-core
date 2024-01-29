@@ -25,6 +25,7 @@ use blockstack_lib::core::{
     BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT, BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
 };
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::getaccount::AccountEntryResponse;
 use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
@@ -130,6 +131,12 @@ impl StacksClient {
         self.parse_aggregate_public_key(&contract_response_hex)
     }
 
+    /// Retrieve the current account nonce for the provided address
+    pub fn get_account_nonce(&self, address: &StacksAddress) -> Result<u64, ClientError> {
+        let account_entry = self.get_account_entry(address)?;
+        Ok(account_entry.nonce)
+    }
+
     // Helper function to retrieve the peer info data from the stacks node
     fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
         debug!("Getting stacks node info...");
@@ -181,6 +188,26 @@ impl StacksClient {
     fn get_next_possible_nonce(&self) -> Result<u64, ClientError> {
         //FIXME: use updated RPC call to get mempool nonces. Depends on https://github.com/stacks-network/stacks-blockchain/issues/4000
         todo!("Get the next possible nonce from the stacks node");
+    }
+
+    /// Helper function to retrieve the account info from the stacks node for a specific address
+    fn get_account_entry(
+        &self,
+        address: &StacksAddress,
+    ) -> Result<AccountEntryResponse, ClientError> {
+        debug!("Getting account info...");
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.accounts_path(address))
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let account_entry = response.json::<AccountEntryResponse>()?;
+        Ok(account_entry)
     }
 
     /// Helper function that attempts to deserialize a clarity hex string as the aggregate public key
@@ -253,7 +280,7 @@ impl StacksClient {
         // https://github.com/stacks-network/stacks-blockchain/issues/4006
         // Note: if set to 0 now, will cause a failure (MemPoolRejection::FeeTooLow)
         unsigned_tx.set_tx_fee(10_000);
-        unsigned_tx.set_origin_nonce(self.get_next_possible_nonce()?);
+        unsigned_tx.set_origin_nonce(self.get_account_nonce(&self.stacks_address)?);
 
         unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
         unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -365,6 +392,10 @@ impl StacksClient {
 
     fn core_info_path(&self) -> String {
         format!("{}/v2/info", self.http_origin)
+    }
+
+    fn accounts_path(&self, stacks_address: &StacksAddress) -> String {
+        format!("{}/v2/accounts/{stacks_address}", self.http_origin)
     }
 }
 
@@ -658,6 +689,31 @@ mod tests {
         write_response(
             config.mock_server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
+        );
+        assert!(h.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn get_account_nonce_should_succeed() {
+        let config = TestConfig::new();
+        let address = config.client.stacks_address;
+        let h = spawn(move || config.client.get_account_nonce(&address));
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"nonce\":0,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0,\"balance_proof\":\"\",\"nonce_proof\":\"\"}"
+        );
+        let nonce = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(nonce, 0);
+    }
+
+    #[test]
+    fn get_account_nonce_should_fail() {
+        let config = TestConfig::new();
+        let address = config.client.stacks_address;
+        let h = spawn(move || config.client.get_account_nonce(&address));
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"nonce\":\"invalid nonce\",\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0,\"balance_proof\":\"\",\"nonce_proof\":\"\"}"
         );
         assert!(h.join().unwrap().is_err());
     }
