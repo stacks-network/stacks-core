@@ -309,7 +309,7 @@ checksum = "05b1b633a2115cd122d73b955eadd9916c18c8f510ec9cd1686404c60ad1c29c"
 dependencies = [
  "async-channel 2.1.1",
  "async-executor",
- "async-io 2.3.0",
+ "async-io 2.3.1",
  "async-lock 3.3.0",
  "blocking",
  "futures-lite 2.2.0",
@@ -355,9 +355,9 @@ dependencies = [
 
 [[package]]
 name = "async-io"
-version = "2.3.0"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb41eb19024a91746eba0773aa5e16036045bbf45733766661099e182ea6a744"
+checksum = "8f97ab0c5b00a7cdbe5a371b9a782ee7be1316095885c8a4ea1daf490eb0ef65"
 dependencies = [
  "async-lock 3.3.0",
  "cfg-if 1.0.0",
@@ -845,7 +845,7 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.2.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#cb0b69ebd0c2d745bca179956db610c1bc0f5932"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
 dependencies = [
  "integer-sqrt",
  "lazy_static",
@@ -1721,7 +1721,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 dependencies = [
  "fallible-iterator 0.3.0",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "stable_deref_trait",
 ]
 
@@ -1755,7 +1755,7 @@ dependencies = [
  "futures-sink",
  "futures-util",
  "http",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "slab",
  "tokio",
  "tokio-util",
@@ -2091,9 +2091,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.1.0"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d530e1a18b1cb4c484e6e34556a0d948706958449fca0cab753d649f2bce3d1f"
+checksum = "433de089bd45971eecf4668ee0ee8f4cec17db4f8bd8f7bc3197a6ce37aa7d9b"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.3",
@@ -2379,7 +2379,7 @@ dependencies = [
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#cb0b69ebd0c2d745bca179956db610c1bc0f5932"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm)",
  "libc",
@@ -2426,7 +2426,7 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#cb0b69ebd0c2d745bca179956db610c1bc0f5932"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm)",
  "secp256k1",
@@ -2698,7 +2698,7 @@ checksum = "a6a622008b6e321afc04970976f62ee297fdbaa6f95318ca343e3eebb9648441"
 dependencies = [
  "crc32fast",
  "hashbrown 0.14.3",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "memchr",
 ]
 
@@ -3047,7 +3047,7 @@ dependencies = [
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#cb0b69ebd0c2d745bca179956db610c1bc0f5932"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm)",
  "slog",
@@ -3744,9 +3744,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.195"
+version = "1.0.196"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63261df402c67811e9ac6def069e4786148c4563f4b50fd4bf30aa370d626b02"
+checksum = "870026e60fa08c69f064aa766c10f10b1d62db9ccd4d0abb206472bee0ce3b32"
 dependencies = [
  "serde_derive",
 ]
@@ -3763,9 +3763,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.195"
+version = "1.0.196"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46fe8f8603d81ba86327b23a2e9cdf49e1255fb94a4c5f297f6ee0547178ea2c"
+checksum = "33c85360c95e7d137454dc81d9a4ed2b8efd8fbe19cee57357b32b9771fccb67"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3774,9 +3774,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.111"
+version = "1.0.113"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "176e46fa42316f18edd598015a5166857fc835ec732f5215eac6b7bdbf0a84f4"
+checksum = "69801b70b1c3dac963ecb03a364ba0ceda9cf60c71cfe475e99864759c8b8a79"
 dependencies = [
  "itoa",
  "ryu",
@@ -4082,7 +4082,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#cb0b69ebd0c2d745bca179956db610c1bc0f5932"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -4180,7 +4180,7 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#cb0b69ebd0c2d745bca179956db610c1bc0f5932"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
 dependencies = [
  "backoff",
  "bincode",
@@ -4258,7 +4258,7 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#cb0b69ebd0c2d745bca179956db610c1bc0f5932"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
 dependencies = [
  "chrono",
  "clar2wasm",
@@ -4385,7 +4385,7 @@ dependencies = [
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#cb0b69ebd0c2d745bca179956db610c1bc0f5932"
+source = "git+https://github.com/stacks-network//stacks-core?branch=devnet-wasm#219968857986772bb16f051307e6ddd08487fd99"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
@@ -4730,7 +4730,7 @@ version = "0.20.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70f427fce4d84c72b5b732388bf4a9f4531b53f74e2887e3ecb2481f68f66d81"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "toml_datetime",
  "winnow",
 ]
@@ -4741,7 +4741,7 @@ version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d34d383cd00a163b4a5b85053df514d45bc330f6de7737edfe0a93311d1eaa03"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "serde",
  "serde_spanned",
  "toml_datetime",
@@ -5213,7 +5213,7 @@ version = "0.116.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a58e28b80dd8340cb07b8242ae654756161f6fc8d0038123d679b7b99964fa50"
 dependencies = [
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "semver 1.0.21",
 ]
 
@@ -5229,7 +5229,7 @@ dependencies = [
  "bumpalo",
  "cfg-if 1.0.0",
  "fxprof-processed-profile",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "libc",
  "log",
  "object",
@@ -5354,7 +5354,7 @@ dependencies = [
  "anyhow",
  "cranelift-entity",
  "gimli 0.28.1",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "log",
  "object",
  "serde",
@@ -5439,7 +5439,7 @@ dependencies = [
  "anyhow",
  "cc",
  "cfg-if 1.0.0",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "libc",
  "log",
  "mach",
@@ -5491,7 +5491,7 @@ checksum = "4b804dfd3d0c0d6d37aa21026fe7772ba1a769c89ee4f5c4f13b82d91d75216f"
 dependencies = [
  "anyhow",
  "heck 0.4.1",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "wit-parser",
 ]
 
@@ -5736,9 +5736,9 @@ checksum = "dff9641d1cd4be8d1a070daf9e3773c5f67e78b4d9d42263020c057706765c04"
 
 [[package]]
 name = "winnow"
-version = "0.5.34"
+version = "0.5.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7cf47b659b318dccbd69cc4797a39ae128f533dce7902a1096044d1967b9c16"
+checksum = "1931d78a9c73861da0134f453bb1f790ce49b2e30eba8410b4b79bac72b46a2d"
 dependencies = [
  "memchr",
 ]
@@ -5761,7 +5761,7 @@ checksum = "df4913a2219096373fd6512adead1fb77ecdaa59d7fc517972a7d30b12f625be"
 dependencies = [
  "anyhow",
  "id-arena",
- "indexmap 2.1.0",
+ "indexmap 2.2.1",
  "log",
  "semver 1.0.21",
  "serde",
