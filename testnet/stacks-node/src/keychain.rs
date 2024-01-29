@@ -1,17 +1,16 @@
-use stacks::address::AddressHashMode;
 use stacks::burnchains::BurnchainSigner;
 use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksPublicKey, StacksTransactionSigner, TransactionAuth,
 };
-use stacks::types::chainstate::StacksAddress;
-use stacks::util::hash::{Hash160, Sha256Sum};
-use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::{Hash160, Sha256Sum};
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
+use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
 use super::operations::BurnchainOpSigner;
-
-use stacks_common::address::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
 
 /// A wrapper around a node's seed, coupled with operations for using it
 #[derive(Clone)]
@@ -126,6 +125,11 @@ impl Keychain {
         sk
     }
 
+    pub fn get_pub_key(&self) -> Secp256k1PublicKey {
+        let sk = self.get_secret_key();
+        StacksPublicKey::from_private(&sk)
+    }
+
     /// Get the Stacks address for the inner secret state
     pub fn get_address(&self, is_mainnet: bool) -> StacksAddress {
         let sk = self.get_secret_key();
@@ -190,25 +194,19 @@ impl Keychain {
 mod tests {
     use std::collections::HashMap;
 
-    use stacks::address::AddressHashMode;
     use stacks::burnchains::PrivateKey;
     use stacks::chainstate::stacks::{
-        StacksPrivateKey, StacksPublicKey, StacksTransactionSigner, TransactionAuth,
+        StacksPrivateKey, StacksPublicKey, StacksTransaction, StacksTransactionSigner,
+        TokenTransferMemo, TransactionAuth, TransactionPayload, TransactionPostConditionMode,
+        TransactionVersion,
     };
-    use stacks::types::chainstate::StacksAddress;
-    use stacks::util::hash::{Hash160, Sha256Sum};
-    use stacks::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
-
-    use crate::operations::BurnchainOpSigner;
+    use stacks_common::address::AddressHashMode;
+    use stacks_common::types::chainstate::StacksAddress;
+    use stacks_common::util::hash::{Hash160, Sha256Sum};
+    use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
     use super::Keychain;
-
-    use stacks::chainstate::stacks::StacksTransaction;
-    use stacks::chainstate::stacks::TokenTransferMemo;
-    use stacks::chainstate::stacks::TransactionPayload;
-    use stacks::chainstate::stacks::TransactionPostConditionMode;
-    use stacks::chainstate::stacks::TransactionVersion;
-
+    use crate::operations::BurnchainOpSigner;
     use crate::stacks_common::types::Address;
 
     /// Legacy implementation; kept around for testing

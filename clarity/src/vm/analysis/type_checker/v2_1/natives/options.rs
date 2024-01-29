@@ -16,19 +16,17 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::TypeSignature;
-use crate::vm::ClarityVersion;
-
 use super::{
     check_argument_count, check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker,
     TypeResult,
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
-
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::CallableSubtype;
+use crate::vm::types::TypeSignature;
+use crate::vm::ClarityVersion;
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,
@@ -84,9 +82,9 @@ pub fn check_special_is_response(
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::ResponseType(_types) = input {
-        return Ok(TypeSignature::BoolType);
+        Ok(TypeSignature::BoolType)
     } else {
-        return Err(CheckErrors::ExpectedResponseType(input.clone()).into());
+        Err(CheckErrors::ExpectedResponseType(input.clone()).into())
     }
 }
 
@@ -102,9 +100,9 @@ pub fn check_special_is_optional(
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::OptionalType(_type) = input {
-        return Ok(TypeSignature::BoolType);
+        Ok(TypeSignature::BoolType)
     } else {
-        return Err(CheckErrors::ExpectedOptionalType(input.clone()).into());
+        Err(CheckErrors::ExpectedOptionalType(input.clone()).into())
     }
 }
 
@@ -125,7 +123,7 @@ pub fn check_special_default_to(
         TypeSignature::least_supertype(&StacksEpochId::Epoch21, &default, &contained_type)
             .map_err(|_| CheckErrors::DefaultTypesMustMatch(default, contained_type).into())
     } else {
-        return Err(CheckErrors::ExpectedOptionalType(input).into());
+        Err(CheckErrors::ExpectedOptionalType(input).into())
     }
 }
 

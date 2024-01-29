@@ -153,7 +153,7 @@ impl TraitsResolver {
                 | DefineFunctions::PersistedVariable
                 | DefineFunctions::FungibleToken
                 | DefineFunctions::NonFungibleToken => {
-                    if args.len() > 0 {
+                    if !args.is_empty() {
                         self.probe_for_generics(args[1..].to_vec(), &mut referenced_traits, false)?;
                     }
                 }
@@ -169,7 +169,7 @@ impl TraitsResolver {
                     trait_reference.to_string(),
                 ));
                 err.set_pre_expression(&expr);
-                return Err(err.into());
+                return Err(err);
             }
         }
 
@@ -192,6 +192,7 @@ impl TraitsResolver {
         Some((define_type, args.to_vec()))
     }
 
+    #[allow(clippy::only_used_in_recursion)]
     fn probe_for_generics(
         &mut self,
         exprs: Vec<&PreSymbolicExpression>,

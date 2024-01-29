@@ -14,18 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::ClarityVersion;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::mem_type_check;
-use crate::vm::analysis::{
-    arithmetic_checker::ArithmeticOnlyChecker, arithmetic_checker::Error,
-    arithmetic_checker::Error::*, ContractAnalysis,
-};
+use crate::vm::analysis::arithmetic_checker::Error::*;
+use crate::vm::analysis::arithmetic_checker::{ArithmeticOnlyChecker, Error};
+use crate::vm::analysis::{mem_type_check, ContractAnalysis};
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::functions::define::DefineFunctions;
@@ -33,6 +30,7 @@ use crate::vm::functions::NativeFunctions;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::variables::NativeVariables;
+use crate::vm::ClarityVersion;
 
 /// Checks whether or not a contract only contains arithmetic expressions (for example, defining a
 /// map would not pass this check).

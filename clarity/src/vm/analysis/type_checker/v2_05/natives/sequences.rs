@@ -14,26 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use stacks_common::types::StacksEpochId;
+use std::convert::{TryFrom, TryInto};
 
-use crate::vm::functions::NativeFunctions;
-use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
-pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
-use crate::vm::types::{FunctionType, TypeSignature};
-use crate::vm::types::{SequenceSubtype::*, StringSubtype::*};
-use crate::vm::types::{Value, MAX_VALUE_SIZE};
-use crate::vm::ClarityVersion;
-use std::convert::TryFrom;
-use std::convert::TryInto;
+use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_05::{
     check_argument_count, check_arguments_at_least, no_type, CheckErrors, CheckResult, TypeChecker,
     TypeResult, TypingContext,
 };
-
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, cost_functions, runtime_cost};
+use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
+use crate::vm::types::SequenceSubtype::*;
+use crate::vm::types::StringSubtype::*;
+use crate::vm::types::{FunctionType, TypeSignature, Value, MAX_VALUE_SIZE};
+use crate::vm::ClarityVersion;
 
 fn get_simple_native_or_user_define(
     function_name: &str,
@@ -44,7 +42,7 @@ fn get_simple_native_or_user_define(
         NativeFunctions::lookup_by_name_at_version(function_name, &ClarityVersion::Clarity1)
     {
         if let TypedNativeFunction::Simple(SimpleNativeFunction(function_type)) =
-            TypedNativeFunction::type_native_function(native_function)
+            TypedNativeFunction::type_native_function(native_function)?
         {
             Ok(function_type)
         } else {
@@ -79,17 +77,17 @@ pub fn check_special_map(
     let mut func_args = vec![];
     let mut min_args = u32::MAX;
     for arg in args[1..].iter() {
-        let argument_type = checker.type_check(&arg, context)?;
+        let argument_type = checker.type_check(arg, context)?;
         let entry_type = match argument_type {
             TypeSignature::SequenceType(sequence) => {
                 let (entry_type, len) = match sequence {
                     ListType(list_data) => list_data.destruct(),
-                    BufferType(buffer_data) => (TypeSignature::min_buffer(), buffer_data.into()),
+                    BufferType(buffer_data) => (TypeSignature::min_buffer()?, buffer_data.into()),
                     StringType(ASCII(ascii_data)) => {
-                        (TypeSignature::min_string_ascii(), ascii_data.into())
+                        (TypeSignature::min_string_ascii()?, ascii_data.into())
                     }
                     StringType(UTF8(utf8_data)) => {
-                        (TypeSignature::min_string_utf8(), utf8_data.into())
+                        (TypeSignature::min_string_utf8()?, utf8_data.into())
                     }
                 };
                 min_args = min_args.min(len);
@@ -132,7 +130,7 @@ pub fn check_special_filter(
 
     {
         let input_type = match argument_type {
-            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
+            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
             _ => Err(CheckErrors::ExpectedSequence(argument_type.clone())),
         }?;
 
@@ -169,7 +167,7 @@ pub fn check_special_fold(
     let argument_type = checker.type_check(&args[1], context)?;
 
     let input_type = match argument_type {
-        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()),
+        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()?),
         _ => Err(CheckErrors::ExpectedSequence(argument_type)),
     }?;
 
@@ -229,8 +227,7 @@ pub fn check_special_concat(
                     let new_len = lhs_max_len
                         .checked_add(rhs_max_len)
                         .ok_or(CheckErrors::MaxLengthOverflow)?;
-                    let type_sig = TypeSignature::list_of(list_entry_type, new_len)?;
-                    type_sig
+                    TypeSignature::list_of(list_entry_type, new_len)?
                 }
                 (BufferType(lhs_len), BufferType(rhs_len)) => {
                     let size: u32 = u32::from(lhs_len)
@@ -286,7 +283,7 @@ pub fn check_special_append(
                 .checked_add(1)
                 .ok_or(CheckErrors::MaxLengthOverflow)?;
             let return_type = TypeSignature::list_of(list_entry_type, new_len)?;
-            return Ok(return_type);
+            Ok(return_type)
         }
         _ => Err(CheckErrors::ExpectedListApplication.into()),
     }
@@ -385,12 +382,14 @@ pub fn check_special_element_at(
         }
         TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(ASCII(
-                BufferLength::try_from(1u32).unwrap(),
+                BufferLength::try_from(1u32)
+                    .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             )))),
         )),
         TypeSignature::SequenceType(StringType(UTF8(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(UTF8(
-                StringUTF8Length::try_from(1u32).unwrap(),
+                StringUTF8Length::try_from(1u32)
+                    .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             )))),
         )),
         _ => Err(CheckErrors::ExpectedSequence(collection_type).into()),
@@ -408,7 +407,7 @@ pub fn check_special_index_of(
     let list_type = checker.type_check(&args[0], context)?;
 
     let expected_input_type = match list_type {
-        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
+        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
         _ => Err(CheckErrors::ExpectedSequence(list_type)),
     }?;
 

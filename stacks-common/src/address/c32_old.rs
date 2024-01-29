@@ -17,10 +17,9 @@
 //! This module (`c32_old`) is only here to test compatibility with the new `c32`
 //! module. It will be removed in the next network upgrade.
 
-use super::Error;
+use sha2::{Digest, Sha256};
 
-use sha2::Digest;
-use sha2::Sha256;
+use super::Error;
 
 const C32_CHARACTERS: &str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -42,8 +41,8 @@ fn c32_encode(input_bytes: &[u8]) -> String {
         if carry_bits >= 5 {
             let c32_value = carry & ((1 << 5) - 1);
             result.push(c32_chars[c32_value as usize]);
-            carry_bits = carry_bits - 5;
-            carry = carry >> 5;
+            carry_bits -= 5;
+            carry >>= 5;
         }
     }
 
@@ -75,9 +74,8 @@ fn c32_encode(input_bytes: &[u8]) -> String {
 fn c32_normalize(input_str: &str) -> String {
     let norm_str: String = input_str
         .to_uppercase()
-        .replace("O", "0")
-        .replace("L", "1")
-        .replace("I", "1");
+        .replace('O', "0")
+        .replace(['L', 'I'], "1");
     norm_str
 }
 
@@ -100,7 +98,7 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
     let iter_c32_digits: Vec<usize> = iter_c32_digits_opts
         .iter()
         .filter_map(|x| x.as_ref())
-        .map(|ref_x| *ref_x)
+        .copied()
         .collect();
 
     if iter_c32_digits.len() != iter_c32_digits_opts.len() {
@@ -115,7 +113,7 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
         if carry_bits >= 8 {
             result.push((carry & ((1 << 8) - 1)) as u8);
             carry_bits -= 8;
-            carry = carry >> 8;
+            carry >>= 8;
         }
     }
 
@@ -153,7 +151,7 @@ fn double_sha256_checksum(data: &[u8]) -> Vec<u8> {
     tmp.copy_from_slice(sha2.finalize().as_slice());
 
     let mut sha2_2 = Sha256::new();
-    sha2_2.update(&tmp);
+    sha2_2.update(tmp);
     tmp_2.copy_from_slice(sha2_2.finalize().as_slice());
 
     tmp_2[0..4].to_vec()

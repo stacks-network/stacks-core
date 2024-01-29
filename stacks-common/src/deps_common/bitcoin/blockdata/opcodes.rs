@@ -20,11 +20,11 @@
 
 #![allow(non_camel_case_types)]
 
-#[cfg(feature = "serde")]
-use serde;
-
 // Heavy stick to translate between opcode types
 use std::mem::transmute;
+
+#[cfg(feature = "serde")]
+use serde;
 
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};

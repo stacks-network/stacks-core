@@ -35,13 +35,13 @@ pub struct RetryReader<'a, R: Read> {
 impl<'a, R: Read> RetryReader<'a, R> {
     pub fn new(fd: &'a mut R) -> RetryReader<'a, R> {
         RetryReader {
-            fd: fd,
+            fd,
             buf: vec![],
             i: 0,
         }
     }
 
-    pub fn set_position(&mut self, offset: usize) -> () {
+    pub fn set_position(&mut self, offset: usize) {
         if offset <= self.buf.len() {
             self.i = offset
         } else {
@@ -88,7 +88,7 @@ impl<'a, R: Read> BoundReader<'a, R> {
     pub fn from_reader(reader: &'a mut R, max_len: u64) -> BoundReader<'a, R> {
         BoundReader {
             fd: reader,
-            max_len: max_len,
+            max_len,
             read_so_far: 0,
         }
     }
@@ -126,10 +126,7 @@ pub struct LogReader<'a, R: Read> {
 
 impl<'a, R: Read> LogReader<'a, R> {
     pub fn from_reader(fd: &'a mut R) -> LogReader<'a, R> {
-        LogReader {
-            fd: fd,
-            reads: vec![],
-        }
+        LogReader { fd, reads: vec![] }
     }
 
     pub fn log(&self) -> &Vec<Vec<u8>> {

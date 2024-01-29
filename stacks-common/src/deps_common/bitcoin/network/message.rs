@@ -22,16 +22,15 @@
 use std::io::Cursor;
 use std::iter;
 
-use crate::deps_common::bitcoin::blockdata::block;
-use crate::deps_common::bitcoin::blockdata::transaction;
+use crate::deps_common::bitcoin::blockdata::{block, transaction};
 use crate::deps_common::bitcoin::network::address::Address;
-use crate::deps_common::bitcoin::network::encodable::CheckedData;
-use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
-use crate::deps_common::bitcoin::network::message_blockdata;
-use crate::deps_common::bitcoin::network::message_network;
+use crate::deps_common::bitcoin::network::encodable::{
+    CheckedData, ConsensusDecodable, ConsensusEncodable,
+};
 use crate::deps_common::bitcoin::network::serialize::{
     self, serialize, RawDecoder, SimpleDecoder, SimpleEncoder,
 };
+use crate::deps_common::bitcoin::network::{message_blockdata, message_network};
 
 /// Serializer for command string
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -40,15 +39,13 @@ pub struct CommandString(pub String);
 impl<S: SimpleEncoder> ConsensusEncodable<S> for CommandString {
     #[inline]
     fn consensus_encode(&self, s: &mut S) -> Result<(), serialize::Error> {
-        let &CommandString(ref inner_str) = self;
+        let CommandString(ref inner_str) = self;
         let mut rawbytes = [0u8; 12];
         let strbytes = inner_str.as_bytes();
         if strbytes.len() > 12 {
             panic!("Command string longer than 12 bytes");
         }
-        for x in 0..strbytes.len() {
-            rawbytes[x] = strbytes[x];
-        }
+        rawbytes[..strbytes.len()].copy_from_slice(strbytes);
         rawbytes.consensus_encode(s)
     }
 }
@@ -201,17 +198,13 @@ impl<D: SimpleDecoder> ConsensusDecodable<D> for RawNetworkMessage {
             "alert" => NetworkMessage::Alert(ConsensusDecodable::consensus_decode(&mut mem_d)?),
             _ => return Err(serialize::Error::UnrecognizedNetworkCommand(cmd)),
         };
-        Ok(RawNetworkMessage {
-            magic: magic,
-            payload: payload,
-        })
+        Ok(RawNetworkMessage { magic, payload })
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::{CommandString, NetworkMessage, RawNetworkMessage};
-
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]

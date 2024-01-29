@@ -16,27 +16,21 @@
 
 use std::char::from_digit;
 use std::convert::TryInto;
-use std::fmt;
 use std::fmt::Write;
-use std::mem;
-
-use crate::util::log;
-use crate::util::pair::*;
-use crate::util::secp256k1::Secp256k1PublicKey;
-use crate::util::HexError;
+use std::{fmt, mem};
 
 use ripemd::Ripemd160;
+use serde::de::{Deserialize, Error as de_Error};
+use serde::ser::Error as ser_Error;
+use serde::Serialize;
 use sha2::{Digest, Sha256, Sha512, Sha512_256};
 use sha3::Keccak256;
 
-use crate::util::uint::Uint256;
-
 use crate::types::StacksPublicKeyBuffer;
-
-use serde::de::Deserialize;
-use serde::de::Error as de_Error;
-use serde::ser::Error as ser_Error;
-use serde::Serialize;
+use crate::util::pair::*;
+use crate::util::secp256k1::Secp256k1PublicKey;
+use crate::util::uint::Uint256;
+use crate::util::{log, HexError};
 
 // hash function for Merkle trees
 pub trait MerkleHashFunc {
@@ -226,7 +220,7 @@ impl MerkleHashFunc for Hash160 {
     fn from_tagged_data(tag: u8, data: &[u8]) -> Hash160 {
         let mut tmp = [0u8; 32];
         let mut sha2 = Sha256::new();
-        sha2.update(&[tag]);
+        sha2.update([tag]);
         sha2.update(data);
         tmp.copy_from_slice(sha2.finalize().as_slice());
         Hash160::from_sha256(&tmp)
@@ -246,7 +240,7 @@ impl MerkleHashFunc for Sha256Sum {
         let mut tmp = [0u8; 32];
 
         let mut sha2 = Sha256::new();
-        sha2.update(&[tag]);
+        sha2.update([tag]);
         sha2.update(data);
         tmp.copy_from_slice(sha2.finalize().as_slice());
 
@@ -268,12 +262,12 @@ impl MerkleHashFunc for DoubleSha256 {
         let mut tmp2 = [0u8; 32];
 
         let mut sha2_1 = Sha256::new();
-        sha2_1.update(&[tag]);
+        sha2_1.update([tag]);
         sha2_1.update(data);
         tmp.copy_from_slice(sha2_1.finalize().as_slice());
 
         let mut sha2_2 = Sha256::new();
-        sha2_2.update(&tmp);
+        sha2_2.update(tmp);
         tmp2.copy_from_slice(sha2_2.finalize().as_slice());
 
         DoubleSha256(tmp2)
@@ -294,7 +288,7 @@ impl MerkleHashFunc for Sha512Trunc256Sum {
         let mut tmp = [0u8; 32];
 
         let mut sha2 = Sha512_256::new();
-        sha2.update(&[tag]);
+        sha2.update([tag]);
         sha2.update(data);
         tmp.copy_from_slice(sha2.finalize().as_slice());
 
@@ -332,7 +326,7 @@ impl DoubleSha256 {
     pub fn into_le(self) -> Uint256 {
         let DoubleSha256(data) = self;
         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() {
+        for x in ret.iter_mut() {
             *x = x.to_le();
         }
         Uint256(ret)
@@ -344,7 +338,7 @@ impl DoubleSha256 {
         let DoubleSha256(mut data) = self;
         data.reverse();
         let mut ret: [u64; 4] = unsafe { mem::transmute(data) };
-        for x in (&mut ret).iter_mut() {
+        for x in ret.iter_mut() {
             *x = x.to_be();
         }
         Uint256(ret)
@@ -404,7 +398,7 @@ where
     }
 
     pub fn new(data: &Vec<Vec<u8>>) -> MerkleTree<H> {
-        if data.len() == 0 {
+        if data.is_empty() {
             return MerkleTree { nodes: vec![] };
         }
 
@@ -447,7 +441,7 @@ where
             nodes.push(row_hashes);
         }
 
-        MerkleTree { nodes: nodes }
+        MerkleTree { nodes }
     }
 
     /// Get the leaf hash
@@ -472,13 +466,7 @@ where
                 self.nodes.len()
             );
         }
-
-        for i in 0..self.nodes[row_index].len() {
-            if self.nodes[row_index][i] == *hash {
-                return Some(i);
-            }
-        }
-        None
+        (0..self.nodes[row_index].len()).find(|&i| self.nodes[row_index][i] == *hash)
     }
 
     /// Given an index into the Merkle tree, find the pair of hashes
@@ -533,8 +521,8 @@ where
     /// Get the Merkle root hash.
     /// will be all 0's if the tree is empty.
     pub fn root(&self) -> H {
-        if self.nodes.len() > 0 {
-            if self.nodes[self.nodes.len() - 1].len() > 0 {
+        if !self.nodes.is_empty() {
+            if !self.nodes[self.nodes.len() - 1].is_empty() {
                 self.nodes[self.nodes.len() - 1][0].clone()
             } else {
                 H::empty()
@@ -547,7 +535,7 @@ where
     /// Get the path from the given data's leaf up to the root.
     /// will be None if the data isn't a leaf.
     pub fn path(&self, data: &[u8]) -> Option<MerklePath<H>> {
-        let leaf_hash = MerkleTree::get_leaf_hash(&data[..]);
+        let leaf_hash = MerkleTree::get_leaf_hash(data);
         let mut hash_index = match self.find_hash_index(&leaf_hash, 0) {
             None => {
                 return None;
@@ -590,19 +578,19 @@ where
 
     /// Verify a datum and its Merkle path against a Merkle root
     pub fn path_verify(data: &[u8], path: &MerklePath<H>, root: &H) -> bool {
-        if path.len() < 1 {
+        if path.is_empty() {
             // invalid path
             return false;
         }
 
-        let mut hash_acc = MerkleTree::get_leaf_hash(&data[..]);
-        for i in 0..path.len() {
-            match path[i].order {
+        let mut hash_acc = MerkleTree::get_leaf_hash(data);
+        for path_point in path {
+            match path_point.order {
                 MerklePathOrder::Left => {
-                    hash_acc = MerkleTree::get_node_hash(&hash_acc, &path[i].hash);
+                    hash_acc = MerkleTree::get_node_hash(&hash_acc, &path_point.hash);
                 }
                 MerklePathOrder::Right => {
-                    hash_acc = MerkleTree::get_node_hash(&path[i].hash, &hash_acc);
+                    hash_acc = MerkleTree::get_node_hash(&path_point.hash, &hash_acc);
                 }
             }
         }
@@ -617,20 +605,15 @@ pub fn hex_bytes(s: &str) -> Result<Vec<u8>, HexError> {
     let mut v = vec![];
     let mut iter = s.chars().pair();
     // Do the parsing
-    iter.by_ref().fold(Ok(()), |e, (f, s)| {
-        if e.is_err() {
-            e
-        } else {
-            match (f.to_digit(16), s.to_digit(16)) {
-                (None, _) => Err(HexError::BadCharacter(f)),
-                (_, None) => Err(HexError::BadCharacter(s)),
-                (Some(f), Some(s)) => {
-                    v.push((f * 0x10 + s) as u8);
-                    Ok(())
-                }
+    iter.by_ref()
+        .try_fold((), |_, (f, s)| match (f.to_digit(16), s.to_digit(16)) {
+            (None, _) => Err(HexError::BadCharacter(f)),
+            (_, None) => Err(HexError::BadCharacter(s)),
+            (Some(f), Some(s)) => {
+                v.push((f * 0x10 + s) as u8);
+                Ok(())
             }
-        }
-    })?;
+        })?;
     // Check that there was no remainder
     match iter.remainder() {
         Some(_) => Err(HexError::BadLength(s.len())),
@@ -667,7 +650,7 @@ pub fn to_hex(s: &[u8]) -> String {
     for b in s.iter() {
         write!(r, "{:02x}", b).unwrap();
     }
-    return r;
+    r
 }
 
 /// Convert a slice of u8 into a binary string
@@ -676,23 +659,19 @@ pub fn to_bin(s: &[u8]) -> String {
     for b in s.iter() {
         write!(r, "{:08b}", b).unwrap();
     }
-    return r;
+    r
 }
 
 /// Convert a vec of u8 to a hex string
 pub fn bytes_to_hex(s: &[u8]) -> String {
-    to_hex(&s[..])
+    to_hex(s)
 }
 
 #[cfg(test)]
 mod test {
-    use super::bin_bytes;
-    use super::hex_bytes;
-    use super::to_bin;
-    use super::DoubleSha256;
-    use super::MerkleHashFunc;
-    use super::MerklePath;
-    use super::MerkleTree;
+    use super::{
+        bin_bytes, hex_bytes, to_bin, DoubleSha256, MerkleHashFunc, MerklePath, MerkleTree,
+    };
 
     struct MerkleTreeFixture {
         data: Vec<Vec<u8>>,
@@ -806,7 +785,7 @@ mod test {
             if fixture.res.is_some() {
                 let nodes = fixture.res.unwrap().nodes;
 
-                if nodes.len() > 0 {
+                if !nodes.is_empty() {
                     assert_eq!(tree.root(), nodes[nodes.len() - 1][0]);
                 } else {
                     assert_eq!(tree.root(), DoubleSha256::empty());
@@ -818,7 +797,7 @@ mod test {
                     assert!(MerkleTree::path_verify(&d, &path, &tree.root()));
                 }
 
-                if nodes.len() > 0 {
+                if !nodes.is_empty() {
                     let no_path = tree.path(&hex_bytes("012345").unwrap());
                     assert!(no_path.is_none());
                 }

@@ -36,7 +36,9 @@ jobs:
       - name: Setup Test Environment
         id: setup_tests
         uses: stacks-network/actions/stacks-core/testenv@main
-
+        with:
+          btc-version: "25.0"
+          
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests

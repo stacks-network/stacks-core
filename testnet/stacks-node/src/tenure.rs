@@ -1,7 +1,3 @@
-/// Only used by the Helium (Mocknet) node
-use super::node::ChainTip;
-use super::{BurnchainTip, Config};
-
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -11,14 +7,19 @@ use stacks::burnchains::PoxConstants;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::db::sortdb::SortitionDBConn;
 use stacks::chainstate::stacks::db::StacksChainState;
+use stacks::chainstate::stacks::miner::BlockBuilderSettings;
 use stacks::chainstate::stacks::{
-    miner::BlockBuilderSettings, StacksBlock, StacksBlockBuilder, StacksMicroblock,
-    StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
+    StacksTransaction,
 };
 use stacks::core::mempool::MemPoolDB;
-use stacks::types::chainstate::VRFSeed;
-use stacks::util::hash::Hash160;
-use stacks::util::vrf::VRFProof;
+use stacks_common::types::chainstate::VRFSeed;
+use stacks_common::util::hash::Hash160;
+use stacks_common::util::vrf::VRFProof;
+
+/// Only used by the Helium (Mocknet) node
+use super::node::ChainTip;
+use super::{BurnchainTip, Config};
 
 pub struct TenureArtifacts {
     pub anchored_block: StacksBlock,

@@ -1,0 +1,15 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "description": "Response of get constant val request",
+    "title": "ConstantValResponse",
+    "type": "object",
+    "required": [
+        "data"
+    ],
+    "properties": {
+        "data": {
+            "type": "string",
+            "description": "Hex-encoded string of clarity value."
+        }
+    }
+}

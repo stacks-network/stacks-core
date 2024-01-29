@@ -16,3 +16,8 @@
 
 pub mod bech32;
 pub mod bitcoin;
+pub mod ctrlc;
+pub mod httparse;
+
+#[cfg(test)]
+pub mod httparse_tests;

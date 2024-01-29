@@ -14,19 +14,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::tests::test_clarity_versions;
-
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
 use rstest_reuse::{self, *};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
+use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
 use crate::vm::{execute, ClarityVersion};
-use stacks_common::types::StacksEpochId;
 
 fn assert_eq_err(e1: CheckErrors, e2: Error) {
     let e1: Error = e1.into();
@@ -40,19 +39,19 @@ fn test_defines() {
          (define-private (f (a int) (b int)) (+ x y a b))
          (f 3 1)";
 
-    assert_eq!(Ok(Some(Value::Int(29))), execute(&tests));
+    assert_eq!(Ok(Some(Value::Int(29))), execute(tests));
 
     let tests = "(define-private (f (a int) (b int)) (+ a b))
          (f 3 1 4)";
 
     assert_eq!(
-        execute(&tests).unwrap_err(),
+        execute(tests).unwrap_err(),
         CheckErrors::IncorrectArgumentCount(2, 3).into()
     );
 
     let tests = "1";
 
-    assert_eq!(Ok(Some(Value::Int(1))), execute(&tests));
+    assert_eq!(Ok(Some(Value::Int(1))), execute(tests));
 }
 
 #[apply(test_clarity_versions)]
@@ -98,16 +97,16 @@ fn test_bad_define_names() {
 
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("tx-sender".to_string()),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("*".to_string()),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
-    assert_eq_err(CheckErrors::ExpectedName, execute(&test2).unwrap_err());
+    assert_eq_err(CheckErrors::ExpectedName, execute(test2).unwrap_err());
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("foo".to_string()),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -120,23 +119,23 @@ fn test_unwrap_ret() {
     let test4 = "(define-private (foo) (unwrap-err! (err 1) 2)) (foo)";
     let test5 = "(define-private (foo) (unwrap-err! (err 1))) (foo)";
 
-    assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
+    assert_eq!(Ok(Some(Value::Int(1))), execute(test0));
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::ExpectedOptionalOrResponseValue(Value::Int(1)),
-        execute(&test2).unwrap_err(),
+        execute(test2).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::ExpectedResponseValue(Value::Int(1)),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
-    assert_eq!(Ok(Some(Value::Int(1))), execute(&test4));
+    assert_eq!(Ok(Some(Value::Int(1))), execute(test4));
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test5).unwrap_err(),
+        execute(test5).unwrap_err(),
     );
 }
 
@@ -149,18 +148,18 @@ fn test_define_read_only() {
     let test3 =
         "(define-read-only (silly) (map-set map-name (tuple (value 1)) (tuple (value 1)))) (silly)";
 
-    assert_eq!(Ok(Some(Value::Int(1))), execute(&test0));
+    assert_eq!(Ok(Some(Value::Int(1))), execute(test0));
     assert_eq_err(
         CheckErrors::WriteAttemptedInReadOnly,
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::WriteAttemptedInReadOnly,
-        execute(&test2).unwrap_err(),
+        execute(test2).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::WriteAttemptedInReadOnly,
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -175,17 +174,17 @@ fn test_stack_depth() {
             i - 1
         ));
     }
-    function_defines.push(format!("(foo-62 1)"));
+    function_defines.push("(foo-62 1)".into());
 
     let test0 = function_defines.join("\n");
-    function_defines.push(format!("(foo-63 2)"));
+    function_defines.push("(foo-63 2)".into());
     let test1 = function_defines.join("\n");
 
     assert_eq!(Ok(Some(Value::Int(64))), execute(&test0));
-    assert!(match execute(&test1).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::MaxStackDepthReached, _) => true,
-        _ => false,
-    })
+    assert!(matches!(
+        execute(&test1),
+        Err(Error::Runtime(RuntimeErrorType::MaxStackDepthReached, _))
+    ))
 }
 
 #[apply(test_clarity_versions)]
@@ -204,29 +203,26 @@ fn test_recursive_panic(#[case] version: ClarityVersion, #[case] epoch: StacksEp
         epoch,
     )
     .unwrap_err();
-    match err.err {
-        ParseErrors::CircularReference(_) => {}
-        _ => panic!("{:?}", err),
-    }
+    assert!(matches!(err.err, ParseErrors::CircularReference(_)));
 }
 
 #[test]
 fn test_bad_variables() {
     let test0 = "(+ a 1)";
     let expected = CheckErrors::UndefinedVariable("a".to_string());
-    assert_eq_err(expected, execute(&test0).unwrap_err());
+    assert_eq_err(expected, execute(test0).unwrap_err());
 
     let test1 = "(foo 2 1)";
     let expected = CheckErrors::UndefinedFunction("foo".to_string());
-    assert_eq_err(expected, execute(&test1).unwrap_err());
+    assert_eq_err(expected, execute(test1).unwrap_err());
 
     let test2 = "((lambda (x y) 1) 2 1)";
     let expected = CheckErrors::BadFunctionName;
-    assert_eq_err(expected, execute(&test2).unwrap_err());
+    assert_eq_err(expected, execute(test2).unwrap_err());
 
     let test4 = "()";
     let expected = CheckErrors::NonFunctionApplication;
-    assert_eq_err(expected, execute(&test4).unwrap_err());
+    assert_eq_err(expected, execute(test4).unwrap_err());
 }
 
 #[test]
@@ -250,19 +246,19 @@ fn test_variable_shadowing() {
 
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("cursor".to_string()),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("cursor".to_string()),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("cursor".to_string()),
-        execute(&test2).unwrap_err(),
+        execute(test2).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::NameAlreadyUsed("cursor".to_string()),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -270,7 +266,7 @@ fn test_variable_shadowing() {
 fn test_define_parse_panic() {
     let tests = "(define-private () 1)";
     let expected = CheckErrors::DefineFunctionBadSignature;
-    assert_eq_err(expected, execute(&tests).unwrap_err());
+    assert_eq_err(expected, execute(tests).unwrap_err());
 }
 
 #[test]
@@ -278,7 +274,7 @@ fn test_define_parse_panic_2() {
     let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
         CheckErrors::BadSyntaxExpectedListOfPairs,
-        execute(&tests).unwrap_err(),
+        execute(tests).unwrap_err(),
     );
 }
 
@@ -291,16 +287,16 @@ fn test_define_constant_arg_count() {
 
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 0),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
-    execute(&test2).unwrap();
+    execute(test2).unwrap();
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 3),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -313,16 +309,16 @@ fn test_define_private_arg_count() {
 
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 0),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
-    execute(&test2).unwrap();
+    execute(test2).unwrap();
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 3),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -335,16 +331,16 @@ fn test_define_public_arg_count() {
 
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 0),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
-    execute(&test2).unwrap();
+    execute(test2).unwrap();
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 3),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -357,16 +353,16 @@ fn test_define_read_only_arg_count() {
 
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 0),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
-    execute(&test2).unwrap();
+    execute(test2).unwrap();
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 3),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -380,20 +376,20 @@ fn test_define_map_arg_count() {
 
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(3, 0),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(3, 1),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(3, 2),
-        execute(&test2).unwrap_err(),
+        execute(test2).unwrap_err(),
     );
-    execute(&test3).unwrap();
+    execute(test3).unwrap();
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(3, 4),
-        execute(&test4).unwrap_err(),
+        execute(test4).unwrap_err(),
     );
 }
 
@@ -407,20 +403,20 @@ fn test_define_data_var_arg_count() {
 
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(3, 0),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(3, 1),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(3, 2),
-        execute(&test2).unwrap_err(),
+        execute(test2).unwrap_err(),
     );
-    execute(&test3).unwrap();
+    execute(test3).unwrap();
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(3, 4),
-        execute(&test4).unwrap_err(),
+        execute(test4).unwrap_err(),
     );
 }
 
@@ -433,13 +429,13 @@ fn test_define_fungible_token_arg_count() {
 
     assert_eq_err(
         CheckErrors::RequiresAtLeastArguments(1, 0),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
-    execute(&test1).unwrap();
-    execute(&test2).unwrap();
+    execute(test1).unwrap();
+    execute(test2).unwrap();
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(1, 3),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -452,16 +448,16 @@ fn test_define_non_fungible_token_arg_count() {
 
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 0),
-        execute(&test0).unwrap_err(),
+        execute(test0).unwrap_err(),
     );
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 1),
-        execute(&test1).unwrap_err(),
+        execute(test1).unwrap_err(),
     );
-    execute(&test2).unwrap();
+    execute(test2).unwrap();
     assert_eq_err(
         CheckErrors::IncorrectArgumentCount(2, 3),
-        execute(&test3).unwrap_err(),
+        execute(test3).unwrap_err(),
     );
 }
 
@@ -473,7 +469,7 @@ fn test_define_trait_arg_count() {
     let test3 = "(define-trait foo () ())";
 
     // These errors are hit in the trait resolver, before reaching the type-checker
-    match execute(&test0).unwrap_err() {
+    match execute(test0).unwrap_err() {
         Error::Runtime(
             RuntimeErrorType::ASTError(ParseError {
                 err: ParseErrors::DefineTraitBadSignature,
@@ -484,7 +480,7 @@ fn test_define_trait_arg_count() {
         ) => (),
         e => panic!("{:?}", e),
     };
-    match execute(&test1).unwrap_err() {
+    match execute(test1).unwrap_err() {
         Error::Runtime(
             RuntimeErrorType::ASTError(ParseError {
                 err: ParseErrors::DefineTraitBadSignature,
@@ -495,8 +491,8 @@ fn test_define_trait_arg_count() {
         ) => (),
         e => panic!("{}", e),
     };
-    execute(&test2).unwrap();
-    match execute(&test3).unwrap_err() {
+    execute(test2).unwrap();
+    match execute(test3).unwrap_err() {
         Error::Runtime(
             RuntimeErrorType::ASTError(ParseError {
                 err: ParseErrors::DefineTraitBadSignature,
@@ -517,7 +513,7 @@ fn test_use_trait_arg_count() {
     let test3 = "(use-trait foo .bar.baz .goo)";
 
     // These errors are hit in the trait resolver, before reaching the type-checker
-    match execute(&test0).unwrap_err() {
+    match execute(test0).unwrap_err() {
         Error::Runtime(
             RuntimeErrorType::ASTError(ParseError {
                 err: ParseErrors::ImportTraitBadSignature,
@@ -528,7 +524,7 @@ fn test_use_trait_arg_count() {
         ) => (),
         e => panic!("{:?}", e),
     };
-    match execute(&test1).unwrap_err() {
+    match execute(test1).unwrap_err() {
         Error::Runtime(
             RuntimeErrorType::ASTError(ParseError {
                 err: ParseErrors::ImportTraitBadSignature,
@@ -539,8 +535,8 @@ fn test_use_trait_arg_count() {
         ) => (),
         e => panic!("{}", e),
     };
-    execute(&test2).unwrap();
-    match execute(&test3).unwrap_err() {
+    execute(test2).unwrap();
+    match execute(test3).unwrap_err() {
         Error::Runtime(
             RuntimeErrorType::ASTError(ParseError {
                 err: ParseErrors::ImportTraitBadSignature,
@@ -560,7 +556,7 @@ fn test_impl_trait_arg_count() {
     let test2 = "(impl-trait .foo.bar .bar.baz)";
 
     // These errors are hit in the trait resolver, before reaching the type-checker
-    match execute(&test0).unwrap_err() {
+    match execute(test0).unwrap_err() {
         Error::Runtime(
             RuntimeErrorType::ASTError(ParseError {
                 err: ParseErrors::ImplTraitBadSignature,
@@ -571,8 +567,8 @@ fn test_impl_trait_arg_count() {
         ) => (),
         e => panic!("{:?}", e),
     };
-    execute(&test1).unwrap();
-    match execute(&test2).unwrap_err() {
+    execute(test1).unwrap();
+    match execute(test2).unwrap_err() {
         Error::Runtime(
             RuntimeErrorType::ASTError(ParseError {
                 err: ParseErrors::ImplTraitBadSignature,

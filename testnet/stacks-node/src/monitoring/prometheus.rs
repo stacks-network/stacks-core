@@ -1,9 +1,8 @@
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task;
-use stacks::prometheus::{gather, Encoder, TextEncoder};
-
 use http_types::{Body, Response, StatusCode};
+use stacks::prometheus::{gather, Encoder, TextEncoder};
 
 pub fn start_serving_prometheus_metrics(bind_address: String) {
     let addr = bind_address.clone();

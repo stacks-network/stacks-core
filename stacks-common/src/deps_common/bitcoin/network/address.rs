@@ -18,9 +18,8 @@
 //! network addresses in Bitcoin messages.
 //!
 
-use std::fmt;
-use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::{fmt, io};
 
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::network::serialize::{self, SimpleDecoder, SimpleEncoder};
@@ -41,13 +40,13 @@ impl Address {
     /// Create an address message for a socket
     pub fn new(socket: &SocketAddr, services: u64) -> Address {
         let (address, port) = match socket {
-            &SocketAddr::V4(ref addr) => (addr.ip().to_ipv6_mapped().segments(), addr.port()),
-            &SocketAddr::V6(ref addr) => (addr.ip().segments(), addr.port()),
+            SocketAddr::V4(addr) => (addr.ip().to_ipv6_mapped().segments(), addr.port()),
+            SocketAddr::V6(addr) => (addr.ip().segments(), addr.port()),
         };
         Address {
-            address: address,
-            port: port,
-            services: services,
+            address,
+            port,
+            services,
         }
     }
 
@@ -128,7 +127,7 @@ impl Clone for Address {
 impl PartialEq for Address {
     fn eq(&self, other: &Address) -> bool {
         self.services == other.services
-            && &self.address[..] == &other.address[..]
+            && self.address[..] == other.address[..]
             && self.port == other.port
     }
 }
@@ -137,10 +136,10 @@ impl Eq for Address {}
 
 #[cfg(test)]
 mod test {
-    use super::Address;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
     use std::str::FromStr;
 
+    use super::Address;
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
 
     #[test]
@@ -167,10 +166,7 @@ mod test {
         ]);
         assert!(addr.is_ok());
         let full = addr.unwrap();
-        assert!(match full.socket_addr().unwrap() {
-            SocketAddr::V4(_) => true,
-            _ => false,
-        });
+        assert!(matches!(full.socket_addr().unwrap(), SocketAddr::V4(_)));
         assert_eq!(full.services, 1);
         assert_eq!(full.address, [0, 0, 0, 0, 0, 0xffff, 0x0a00, 0x0001]);
         assert_eq!(full.port, 8333);

@@ -20,8 +20,6 @@
 //! these blocks and the blockchain.
 //!
 
-use crate::util::uint::Uint256;
-
 use crate::deps_common::bitcoin::blockdata::constants::max_target;
 use crate::deps_common::bitcoin::blockdata::transaction::Transaction;
 use crate::deps_common::bitcoin::network::constants::Network;
@@ -31,6 +29,7 @@ use crate::deps_common::bitcoin::util;
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 use crate::deps_common::bitcoin::util::Error;
 use crate::deps_common::bitcoin::util::Error::{SpvBadProofOfWork, SpvBadTarget};
+use crate::util::uint::Uint256;
 
 /// A block header, which contains all the block's information except
 /// the actual transactions
@@ -179,10 +178,9 @@ impl_consensus_encoding!(LoneBlockHeader, header, tx_count);
 
 #[cfg(test)]
 mod tests {
-    use crate::util::hash::hex_bytes as hex_decode;
-
     use crate::deps_common::bitcoin::blockdata::block::{Block, BlockHeader};
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn block_test() {

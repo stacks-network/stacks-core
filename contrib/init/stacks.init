@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# # Modelled after https://github.com/bitcoin/bitcoin/blob/master/contrib/init/bitcoind.init
+## Modelled after https://github.com/bitcoin/bitcoin/blob/master/contrib/init/bitcoind.init
 #
 #  Stacks Blockchain
 #
@@ -41,7 +41,7 @@ stacks_bin=${STACKS_BLOCKCHAIN_BIN-/usr/local/bin/stacks-node}
 stacks_config=${STACKS_BLOCKCHAIN_CONFIG-/etc/stacks-blockchain/Config.toml}
 
 # stacks-blockchain log file default to /var/log/stacks-blockchain.log, override with STACKS_BLOCKCHAIN_LOG
-stacks_log=${STACKS_BLOCKCHAIN_LOG-/stacks-blockchain/output.log}
+stacks_log=${STACKS_BLOCKCHAIN_LOG-/var/log/stacks-blockchain.log}
 # Note: no logrotate is provided, you're encouraged to set something up like the following logrotate file:
 # cat <<EOF> /etc/logrotate.d/stacks-blockchain 
 # /stacks-blockchain/output.log
@@ -60,7 +60,7 @@ start() {
         return 1
     fi
     echo -n $"Starting $prog: "
-    $stacks_bin start --config="$stacks_config" > "$stacks_log" 2>&1 &
+    $stacks_bin start --config "$stacks_config" > "$stacks_log" 2>&1 &
     RETVAL=$?
     [ $RETVAL -eq 0 ] && touch "$lockfile"
     echo
@@ -111,3 +111,4 @@ case "$1" in
 esac
 
 exit $?
+

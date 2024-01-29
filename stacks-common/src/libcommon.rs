@@ -5,6 +5,7 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
+#![allow(clippy::assertions_on_constants)]
 
 extern crate curve25519_dalek;
 extern crate ed25519_dalek;
@@ -31,6 +32,12 @@ extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
 
+#[cfg(unix)]
+extern crate nix;
+
+#[cfg(windows)]
+extern crate winapi;
+
 #[macro_use]
 pub mod util;
 
@@ -46,8 +53,7 @@ pub mod deps_common;
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
 pub mod consts {
-    use crate::types::chainstate::BlockHeaderHash;
-    use crate::types::chainstate::ConsensusHash;
+    use crate::types::chainstate::{BlockHeaderHash, ConsensusHash};
 
     pub const TOKEN_TRANSFER_MEMO_LENGTH: usize = 34; // same as it is in Stacks v1
 

@@ -1,22 +1,17 @@
-use crate::vm::analysis;
-use crate::vm::analysis::ContractAnalysis;
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors};
+use std::fmt;
+
+use stacks_common::types::StacksEpochId;
+
+use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
-use crate::vm::ast::ASTRules;
-use crate::vm::ast::ContractAST;
-use crate::vm::contexts::Environment;
-use crate::vm::contexts::{AssetMap, OwnedEnvironment};
-use crate::vm::costs::ExecutionCost;
-use crate::vm::costs::LimitedCostTracker;
+use crate::vm::ast::{ASTRules, ContractAST};
+use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
+use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::Error as InterpreterError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
-use crate::vm::ClarityVersion;
-use crate::vm::ContractContext;
-use crate::vm::{ast, SymbolicExpression, Value};
-use stacks_common::types::StacksEpochId;
-use std::fmt;
+use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
 
 #[derive(Debug)]
 pub enum Error {
@@ -141,9 +136,14 @@ pub trait ClarityConnection {
             let result = vm_env
                 .execute_in_env(sender, sponsor, Some(initial_context), to_do)
                 .map(|(result, _, _)| result);
-            let (db, _) = vm_env
-                .destruct()
-                .expect("Failed to recover database reference after executing transaction");
+            // this expect is allowed, if the database has escaped this context, then it is no longer sane
+            //  and we must crash
+            #[allow(clippy::expect_used)]
+            let (db, _) = {
+                vm_env
+                    .destruct()
+                    .expect("Failed to recover database reference after executing transaction")
+            };
             (result, db)
         })
     }
@@ -165,7 +165,8 @@ pub trait TransactionConnection: ClarityConnection {
     ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>;
+        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        E: From<InterpreterError>;
 
     /// Do something with the analysis database and cost tracker
     ///  instance of this transaction connection. This is a low-level
@@ -234,12 +235,20 @@ pub trait TransactionConnection: ClarityConnection {
             let result = db.insert_contract(identifier, contract_analysis);
             match result {
                 Ok(_) => {
-                    db.commit();
-                    (cost_tracker, Ok(()))
+                    let result = db
+                        .commit()
+                        .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into());
+                    (cost_tracker, result)
                 }
                 Err(e) => {
-                    db.roll_back();
-                    (cost_tracker, Err(e))
+                    let result = db
+                        .roll_back()
+                        .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into());
+                    if result.is_err() {
+                        (cost_tracker, result)
+                    } else {
+                        (cost_tracker, Err(e))
+                    }
                 }
             }
         })

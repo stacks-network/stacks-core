@@ -1,11 +1,8 @@
 use std::fmt::Write as FmtWrite;
-use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
-use std::{
-    env,
-    fs::File,
-    io::{BufRead, BufReader, Read, Write},
-};
+use std::{env, fs};
 
 use libflate::deflate;
 use sha2::{Digest, Sha256};

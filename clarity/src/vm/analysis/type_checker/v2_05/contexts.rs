@@ -14,15 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::FunctionSignature;
-use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature};
 use std::collections::{BTreeMap, HashMap, HashSet};
-
-use crate::vm::contexts::MAX_CONTEXT_DEPTH;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::contexts::MAX_CONTEXT_DEPTH;
+use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::{FunctionType, TraitIdentifier, TypeSignature};
 
 pub struct ContractContext {
     map_types: HashMap<ClarityName, (TypeSignature, TypeSignature)>,
@@ -35,6 +34,12 @@ pub struct ContractContext {
     non_fungible_tokens: HashMap<ClarityName, TypeSignature>,
     traits: HashMap<ClarityName, BTreeMap<ClarityName, FunctionSignature>>,
     pub implemented_traits: HashSet<TraitIdentifier>,
+}
+
+impl Default for ContractContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ContractContext {
@@ -204,35 +209,35 @@ impl ContractContext {
     ///  into the provided ContractAnalysis
     pub fn into_contract_analysis(mut self, contract_analysis: &mut ContractAnalysis) {
         for (name, function_type) in self.public_function_types.drain() {
-            contract_analysis.add_public_function(name.into(), function_type);
+            contract_analysis.add_public_function(name, function_type);
         }
 
         for (name, function_type) in self.read_only_function_types.drain() {
-            contract_analysis.add_read_only_function(name.into(), function_type);
+            contract_analysis.add_read_only_function(name, function_type);
         }
 
         for (name, (key_type, map_type)) in self.map_types.drain() {
-            contract_analysis.add_map_type(name.into(), key_type, map_type);
+            contract_analysis.add_map_type(name, key_type, map_type);
         }
 
         for (name, function_type) in self.private_function_types.drain() {
-            contract_analysis.add_private_function(name.into(), function_type);
+            contract_analysis.add_private_function(name, function_type);
         }
 
         for (name, variable_type) in self.variable_types.drain() {
-            contract_analysis.add_variable_type(name.into(), variable_type);
+            contract_analysis.add_variable_type(name, variable_type);
         }
 
         for (name, persisted_variable_type) in self.persisted_variable_types.drain() {
-            contract_analysis.add_persisted_variable_type(name.into(), persisted_variable_type);
+            contract_analysis.add_persisted_variable_type(name, persisted_variable_type);
         }
 
         for name in self.fungible_tokens.drain() {
-            contract_analysis.add_fungible_token(name.into());
+            contract_analysis.add_fungible_token(name);
         }
 
         for (name, nft_type) in self.non_fungible_tokens.drain() {
-            contract_analysis.add_non_fungible_token(name.into(), nft_type);
+            contract_analysis.add_non_fungible_token(name, nft_type);
         }
 
         for (name, trait_signature) in self.traits.drain() {

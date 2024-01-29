@@ -65,10 +65,8 @@ impl_consensus_encoding!(
 #[cfg(test)]
 mod tests {
     use super::VersionMessage;
-
-    use crate::util::hash::hex_bytes as hex_decode;
-
     use crate::deps_common::bitcoin::network::serialize::{deserialize, serialize};
+    use crate::util::hash::hex_bytes as hex_decode;
 
     #[test]
     fn version_message_test() {
@@ -85,7 +83,7 @@ mod tests {
         assert_eq!(real_decode.nonce, 16735069437859780935);
         assert_eq!(real_decode.user_agent, "/Satoshi:0.9.99/".to_string());
         assert_eq!(real_decode.start_height, 302892);
-        assert_eq!(real_decode.relay, true);
+        assert!(real_decode.relay);
 
         assert_eq!(serialize(&real_decode).ok(), Some(from_sat));
     }

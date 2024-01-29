@@ -14,31 +14,29 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use stacks_common::address::{
+    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash;
+use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
+
 use crate::vm::callables::{CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     constants as cost_constants, cost_functions, runtime_cost, CostTracker, MemoryConsumer,
 };
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, Error,
+    check_argument_count, check_arguments_at_least, CheckErrors, Error, InterpreterError,
     InterpreterResult as Result, RuntimeErrorType, ShortReturnType,
 };
 use crate::vm::representations::SymbolicExpressionType::{Atom, List};
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::StacksAddressExtensions;
 use crate::vm::types::{
-    BuffData, CharType, PrincipalData, ResponseData, SequenceData, TypeSignature, Value, BUFF_32,
-    BUFF_33, BUFF_65,
+    BuffData, CharType, PrincipalData, ResponseData, SequenceData, StacksAddressExtensions,
+    TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65,
 };
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
-use stacks_common::address::AddressHashMode;
-use stacks_common::address::{
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use stacks_common::util::hash;
-use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
-
-use crate::types::chainstate::StacksAddress;
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
@@ -51,7 +49,7 @@ macro_rules! native_hash_func {
                     vec![
                         TypeSignature::IntType,
                         TypeSignature::UIntType,
-                        TypeSignature::max_buffer(),
+                        TypeSignature::max_buffer()?,
                     ],
                     input,
                 )),
@@ -70,19 +68,19 @@ native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
 // This method preserves the old, incorrect behavior for those running Clarity1.
-fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> StacksAddress {
+fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> Result<StacksAddress> {
     StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
         1,
         &vec![pub_key],
     )
-    .unwrap()
+    .ok_or_else(|| InterpreterError::Expect("Failed to create address from pubkey".into()).into())
 }
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
 // This version contains the code for Clarity2 and going forward.
-fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> StacksAddress {
+fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> Result<StacksAddress> {
     let network_byte = if is_mainnet {
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG
     } else {
@@ -94,7 +92,7 @@ fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> Stacks
         1,
         &vec![pub_key],
     )
-    .unwrap()
+    .ok_or_else(|| InterpreterError::Expect("Failed to create address from pubkey".into()).into())
 }
 
 pub fn special_principal_of(
@@ -119,18 +117,19 @@ pub fn special_principal_of(
         _ => return Err(CheckErrors::TypeValueError(BUFF_33.clone(), param0).into()),
     };
 
-    if let Ok(pub_key) = Secp256k1PublicKey::from_slice(&pub_key) {
+    if let Ok(pub_key) = Secp256k1PublicKey::from_slice(pub_key) {
         // Note: Clarity1 had a bug in how the address is computed (issues/2619).
         // We want to preserve the old behavior unless the version is greater.
         let addr = if *env.contract_context.get_clarity_version() > ClarityVersion::Clarity1 {
-            pubkey_to_address_v2(pub_key, env.global_context.mainnet)
+            pubkey_to_address_v2(pub_key, env.global_context.mainnet)?
         } else {
-            pubkey_to_address_v1(pub_key)
+            pubkey_to_address_v1(pub_key)?
         };
         let principal = addr.to_account_principal();
-        return Ok(Value::okay(Value::Principal(principal)).unwrap());
+        return Ok(Value::okay(Value::Principal(principal))
+            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?);
     } else {
-        return Ok(Value::err_uint(1));
+        Ok(Value::err_uint(1))
     }
 }
 
@@ -172,7 +171,13 @@ pub fn special_secp256k1_recover(
 
     match secp256k1_recover(&message, &signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature)
     {
-        Ok(pubkey) => return Ok(Value::okay(Value::buff_from(pubkey.to_vec()).unwrap()).unwrap()),
+        Ok(pubkey) => {
+            return Ok(Value::okay(
+                Value::buff_from(pubkey.to_vec())
+                    .map_err(|_| InterpreterError::Expect("Failed to construct buff".into()))?,
+            )
+            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?)
+        }
         _ => return Ok(Value::err_uint(1)),
     };
 }
@@ -228,6 +233,6 @@ pub fn special_secp256k1_verify(
     };
 
     Ok(Value::Bool(
-        secp256k1_verify(&message, &signature, &pubkey).is_ok(),
+        secp256k1_verify(message, signature, pubkey).is_ok(),
     ))
 }

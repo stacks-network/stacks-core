@@ -14,20 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::types::chainstate::BlockHeaderHash;
-pub use crate::vm::analysis::errors::CheckErrors;
+use std::error::Error as ErrorTrait;
+use std::{error, fmt};
+
+use rusqlite::Error as SqliteError;
+use serde_json::Error as SerdeJSONErr;
+use stacks_common::types::chainstate::BlockHeaderHash;
+
+use super::ast::errors::ParseErrors;
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
 };
 use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
 use crate::vm::types::{TypeSignature, Value};
-use rusqlite::Error as SqliteError;
-use serde_json::Error as SerdeJSONErr;
-use std::error;
-use std::error::Error as ErrorTrait;
-use std::fmt;
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
@@ -64,6 +65,7 @@ pub enum InterpreterError {
     InsufficientBalance,
     CostContractLoadFailure,
     DBError(String),
+    Expect(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected
@@ -167,21 +169,28 @@ impl error::Error for RuntimeErrorType {
     }
 }
 
-impl From<CostErrors> for Error {
-    fn from(err: CostErrors) -> Self {
-        Error::from(CheckErrors::from(err))
-    }
-}
-
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        Error::from(RuntimeErrorType::ASTError(err))
+        match &err.err {
+            ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+                "Unexpected interpreter failure during parsing".into(),
+            )),
+            _ => Error::from(RuntimeErrorType::ASTError(err)),
+        }
     }
 }
 
-impl From<SerdeJSONErr> for Error {
-    fn from(err: SerdeJSONErr) -> Self {
-        Error::from(RuntimeErrorType::JSONParseError(IncomparableError { err }))
+impl From<CostErrors> for Error {
+    fn from(err: CostErrors) -> Self {
+        match err {
+            CostErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+                "Interpreter failure during cost calculation".into(),
+            )),
+            CostErrors::Expect(s) => Error::from(InterpreterError::Expect(format!(
+                "Interpreter failure during cost calculation: {s}"
+            ))),
+            other_err => Error::from(CheckErrors::from(other_err)),
+        }
     }
 }
 
@@ -229,6 +238,7 @@ mod test {
     use crate::vm::execute;
 
     #[test]
+    #[cfg(feature = "developer-mode")]
     fn error_formats() {
         let t = "(/ 10 0)";
         let expected = "DivisionByZero

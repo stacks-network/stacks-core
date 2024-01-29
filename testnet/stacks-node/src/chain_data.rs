@@ -15,34 +15,22 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::process::Command;
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::db::sortdb::SortitionHandle;
+use stacks::burnchains::bitcoin::address::BitcoinAddress;
+use stacks::burnchains::bitcoin::{BitcoinNetworkType, BitcoinTxOutput};
+use stacks::burnchains::{Burnchain, BurnchainSigner, Error as BurnchainError, Txid};
+use stacks::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use stacks::chainstate::burn::distribution::BurnSamplePoint;
 use stacks::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, BURN_BLOCK_MINED_AT_MODULUS,
 };
 use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
 use stacks::chainstate::stacks::address::PoxAddress;
-
-use stacks::burnchains::bitcoin::address::BitcoinAddress;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
-use stacks::burnchains::bitcoin::BitcoinTxOutput;
-use stacks::burnchains::Burnchain;
-use stacks::burnchains::BurnchainSigner;
-use stacks::burnchains::Txid;
-use stacks_common::types::chainstate::BlockHeaderHash;
-use stacks_common::types::chainstate::BurnchainHeaderHash;
-use stacks_common::types::chainstate::VRFSeed;
-use stacks_common::util::hash::hex_bytes;
-
 use stacks::core::MINING_COMMITMENT_WINDOW;
-
 use stacks::util_lib::db::Error as DBError;
-
-use stacks::burnchains::Error as BurnchainError;
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
+use stacks_common::util::hash::hex_bytes;
 
 pub struct MinerStats {
     pub unconfirmed_commits_helper: String,
@@ -538,26 +526,21 @@ impl MinerStats {
 
 #[cfg(test)]
 pub mod tests {
-    use super::MinerStats;
-    use stacks::burnchains::BurnchainSigner;
-    use stacks::burnchains::Txid;
+    use std::fs;
+    use std::io::Write;
+
+    use stacks::burnchains::{BurnchainSigner, Txid};
     use stacks::chainstate::burn::distribution::BurnSamplePoint;
     use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use stacks::chainstate::burn::operations::LeaderBlockCommitOp;
-    use stacks::chainstate::stacks::address::PoxAddress;
-    use stacks::chainstate::stacks::address::PoxAddressType20;
-    use stacks_common::types::chainstate::BlockHeaderHash;
-    use stacks_common::types::chainstate::BurnchainHeaderHash;
-    use stacks_common::types::chainstate::StacksAddress;
-    use stacks_common::types::chainstate::StacksPublicKey;
-    use stacks_common::types::chainstate::VRFSeed;
-    use stacks_common::util::hash::hex_bytes;
-    use stacks_common::util::hash::Hash160;
-    use stacks_common::util::uint::BitArray;
-    use stacks_common::util::uint::Uint256;
+    use stacks::chainstate::stacks::address::{PoxAddress, PoxAddressType20};
+    use stacks_common::types::chainstate::{
+        BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPublicKey, VRFSeed,
+    };
+    use stacks_common::util::hash::{hex_bytes, Hash160};
+    use stacks_common::util::uint::{BitArray, Uint256};
 
-    use std::fs;
-    use std::io::Write;
+    use super::MinerStats;
 
     #[test]
     fn test_burn_dist_to_prob_dist() {

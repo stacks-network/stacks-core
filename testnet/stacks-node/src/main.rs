@@ -11,14 +11,15 @@ extern crate serde_json;
 #[macro_use]
 extern crate stacks_common;
 
+extern crate clarity;
 extern crate stacks;
 
 #[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
-pub use stacks::util;
-use stacks::util::hash::hex_bytes;
+pub use stacks_common::util;
+use stacks_common::util::hash::hex_bytes;
 
 pub mod monitoring;
 
@@ -36,6 +37,16 @@ pub mod syncctl;
 pub mod tenure;
 
 use std::collections::HashMap;
+use std::convert::TryInto;
+use std::{env, panic, process};
+
+use backtrace::Backtrace;
+use pico_args::Arguments;
+use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
+use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
+use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::db::StacksChainState;
 
 pub use self::burnchains::{
     BitcoinRegtestController, BurnchainController, BurnchainTip, MocknetController,
@@ -46,27 +57,8 @@ pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
-
-use crate::neon_node::BlockMinerThread;
-
-use stacks::chainstate::burn::db::sortdb::SortitionDB;
-use stacks::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
-use stacks::chainstate::coordinator::get_next_recipients;
-use stacks::chainstate::coordinator::OnChainRewardSetProvider;
-use stacks::chainstate::stacks::address::PoxAddress;
-use stacks::chainstate::stacks::db::StacksChainState;
-
 use crate::chain_data::MinerStats;
-use crate::neon_node::TipCandidate;
-
-use pico_args::Arguments;
-use std::env;
-
-use std::convert::TryInto;
-use std::panic;
-use std::process;
-
-use backtrace::Backtrace;
+use crate::neon_node::{BlockMinerThread, TipCandidate};
 
 /// Implmentation of `pick_best_tip` CLI option
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
@@ -284,8 +276,7 @@ fn main() {
             let pid = process::id();
             eprintln!("Dumping core for pid {}", std::process::id());
 
-            use libc::kill;
-            use libc::SIGQUIT;
+            use libc::{kill, SIGQUIT};
 
             // *should* trigger a core dump, if you run `ulimit -c unlimited` first!
             unsafe { kill(pid.try_into().unwrap(), SIGQUIT) };
@@ -496,14 +487,14 @@ start\t\tStart a node with a config of your own. Can be used for joining a netwo
 \t\tArguments:
 \t\t  --config: path of the config (such as https://github.com/blockstack/stacks-blockchain/blob/master/testnet/stacks-node/conf/testnet-follower-conf.toml).
 \t\tExample:
-\t\t  stacks-node start --config=/path/to/config.toml
+\t\t  stacks-node start --config /path/to/config.toml
 
 check-config\t\tValidates the config file without starting up the node. Uses same arguments as start subcommand.
 
 version\t\tDisplay information about the current version and our release cycle.
 
 key-for-seed\tOutput the associated secret key for a burnchain signer created with a given seed.
-\t\tCan be passed a config file for the seed via the `--config=<file>` option *or* by supplying the hex seed on
+\t\tCan be passed a config file for the seed via the `--config <file>` option *or* by supplying the hex seed on
 \t\tthe command line directly.
 
 help\t\tDisplay this help.
