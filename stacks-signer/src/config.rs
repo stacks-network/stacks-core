@@ -340,9 +340,9 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::Network;
-    use super::{Config, RawConfigFile};
     use blockstack_lib::util_lib::boot::boot_code_id;
+
+    use super::{Config, Network, RawConfigFile};
 
     fn create_raw_config(overrides: impl FnOnce(&mut RawConfigFile)) -> RawConfigFile {
         let mut config = RawConfigFile {

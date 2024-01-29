@@ -979,7 +979,7 @@ impl MockamotoNode {
 
         let miner_signature = self
             .miner_key
-            .sign(block.header.miner_signature_hash().unwrap().as_bytes())
+            .sign(block.header.miner_signature_hash().as_bytes())
             .unwrap();
 
         block.header.miner_signature = miner_signature;
