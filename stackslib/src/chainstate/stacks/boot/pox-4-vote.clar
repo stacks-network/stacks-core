@@ -45,6 +45,9 @@
 (define-read-only (get-last-round (reward-cycle uint))
     (map-get? rounds reward-cycle))
 
+(define-read-only (get-vote (reward-cycle uint) (round uint) (signer principal))
+    (map-get? votes {reward-cycle: reward-cycle, round: round, signer: signer}))
+    
 (define-read-only (get-signer-slots (signer principal) (reward-cycle uint))
     (contract-call? .signers get-signer-slots signer reward-cycle))
 

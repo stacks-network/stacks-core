@@ -195,4 +195,37 @@ describe("test pox-4-vote contract voting rounds", () => {
                 expect(resultVoteBob).toEqual(Cl.error(Cl.uint(ERR_OLD_ROUND)));
             })
         })
+
+    describe("test get-vote", () => {
+        it("should return correct aggregate-public-key and shared", () => {
+            // Alice votes for cycle 0, round 0
+            const { result: resultVoteAlice } = simnet.callPublicFn("pox-4-vote", "vote-for-aggregate-public-key",
+                [Cl.bufferFromHex(KEY_1), Cl.uint(0), Cl.uint(0),], alice);
+            expect(resultVoteAlice).toEqual(Cl.ok(Cl.bool(true)));
+
+            const { result: vote } = simnet.callReadOnlyFn(
+                "pox-4-vote",
+                "get-vote",
+                [Cl.uint(0), Cl.uint(0), Cl.standardPrincipal(alice)],
+                alice,
+            );
+            expect(vote).toEqual(Cl.some(Cl.tuple({
+                "aggregate-public-key": Cl.bufferFromHex(KEY_1),
+                "reward-slots":
+                    Cl.uint(1)
+            })));
+
+        });
+
+        it("should return none when not yet voted", () => {
+            const { result: vote } = simnet.callReadOnlyFn(
+                "pox-4-vote",
+                "get-vote",
+                [Cl.uint(0), Cl.uint(0), Cl.standardPrincipal(alice)],
+                alice,
+            );
+            expect(vote).toEqual(Cl.none());
+
+        });
+    })
 });
