@@ -593,10 +593,7 @@ impl<C: Coordinator> RunLoop<C> {
                     }
                     // Always broadcast the transactions to stackerdb so miners and signers can observe it when building and validating the block, respectively.
                     let signer_message = SignerMessage::Transactions(self.transactions.clone());
-                    if let Err(e) = self
-                        .stackerdb
-                        .send_message_with_retry(self.signing_round.signer_id, signer_message)
-                    {
+                    if let Err(e) = self.stackerdb.send_message_with_retry(signer_message) {
                         warn!("Failed to update transactions in stacker-db: {:?}", e);
                     }
                 }
