@@ -1401,7 +1401,9 @@ pub mod test {
     use crate::core::{StacksEpochId, *};
     use crate::net::test::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
-    use crate::util_lib::signed_structured_data::sign_structured_data;
+    use crate::util_lib::signed_structured_data::{
+        make_structured_data_domain, sign_structured_data,
+    };
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
@@ -2216,20 +2218,7 @@ pub mod test {
         signer_key: &StacksPrivateKey,
         reward_cycle: u128,
     ) -> Vec<u8> {
-        let domain_tuple = Value::Tuple(
-            TupleData::from_data(vec![
-                (
-                    "name".into(),
-                    Value::string_ascii_from_bytes("pox-4-signer".into()).unwrap(),
-                ),
-                (
-                    "version".into(),
-                    Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
-                ),
-                ("chain-id".into(), Value::UInt(CHAIN_ID_TESTNET.into())),
-            ])
-            .unwrap(),
-        );
+        let domain_tuple = make_structured_data_domain("pox-4-signer", "1.0.0", CHAIN_ID_TESTNET);
 
         let data_tuple = Value::Tuple(
             TupleData::from_data(vec![

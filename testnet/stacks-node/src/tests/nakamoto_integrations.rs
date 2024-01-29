@@ -43,7 +43,7 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks::util_lib::boot::boot_code_id;
-use stacks::util_lib::signed_structured_data::sign_structured_data;
+use stacks::util_lib::signed_structured_data::{make_structured_data_domain, sign_structured_data};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
@@ -400,39 +400,21 @@ fn make_signer_key_signature(
     signer_key: &StacksPrivateKey,
     reward_cycle: u128,
 ) -> Vec<u8> {
-    let domain_tuple = clarity::vm::Value::Tuple(
-        clarity::vm::types::TupleData::from_data(vec![
-            (
-                "name".into(),
-                clarity::vm::Value::string_ascii_from_bytes("pox-4-signer".into()).unwrap(),
-            ),
-            (
-                "version".into(),
-                clarity::vm::Value::string_ascii_from_bytes("1.0.0".into()).unwrap(),
-            ),
-            (
-                "chain-id".into(),
-                clarity::vm::Value::UInt(CHAIN_ID_TESTNET.into()),
-            ),
-        ])
-        .unwrap(),
-    );
+    let domain_tuple = make_structured_data_domain("pox-4-signer", "1.0.0", CHAIN_ID_TESTNET);
 
-    let data_tuple = clarity::vm::Value::Tuple(
-        clarity::vm::types::TupleData::from_data(vec![
-            (
-                "pox-addr".into(),
-                pox_addr.clone().as_clarity_tuple().unwrap().into(),
-            ),
-            (
-                "reward-cycle".into(),
-                clarity::vm::Value::UInt(reward_cycle),
-            ),
-        ])
-        .unwrap(),
-    );
+    let data_tuple = clarity::vm::types::TupleData::from_data(vec![
+        (
+            "pox-addr".into(),
+            pox_addr.clone().as_clarity_tuple().unwrap().into(),
+        ),
+        (
+            "reward-cycle".into(),
+            clarity::vm::Value::UInt(reward_cycle),
+        ),
+    ])
+    .unwrap();
 
-    let signature = sign_structured_data(data_tuple, domain_tuple, signer_key).unwrap();
+    let signature = sign_structured_data(data_tuple.into(), domain_tuple, signer_key).unwrap();
 
     signature.to_rsv()
 }

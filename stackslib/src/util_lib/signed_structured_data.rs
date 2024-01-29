@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::Value;
+use clarity::vm::{types::TupleData, Value};
 use stacks_common::{
     codec::StacksMessageCodec,
     types::PrivateKey,
@@ -54,6 +54,24 @@ pub fn sign_structured_data(
 ) -> Result<MessageSignature, &str> {
     let msg_hash = structured_data_message_hash(structured_data, domain);
     private_key.sign(msg_hash.as_bytes())
+}
+
+// Helper function to generate domain for structured data hash
+pub fn make_structured_data_domain(name: &str, version: &str, chain_id: u32) -> Value {
+    Value::Tuple(
+        TupleData::from_data(vec![
+            (
+                "name".into(),
+                Value::string_ascii_from_bytes(name.into()).unwrap(),
+            ),
+            (
+                "version".into(),
+                Value::string_ascii_from_bytes(version.into()).unwrap(),
+            ),
+            ("chain-id".into(), Value::UInt(chain_id.into())),
+        ])
+        .unwrap(),
+    )
 }
 
 #[cfg(test)]
