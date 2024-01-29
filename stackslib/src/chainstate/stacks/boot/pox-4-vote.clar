@@ -23,7 +23,6 @@
 ;; maps reward-cycle ids to last round
 (define-map rounds uint uint)
 
-(define-data-var is-state-1-active bool true)
 (define-data-var state-1 {reward-cycle: uint, round: uint, aggregate-public-key: (optional (buff 33)),
     total-votes: uint}  {reward-cycle: u0, round: u0, aggregate-public-key: none, total-votes: u0})
 (define-data-var state-2 {reward-cycle: uint, round: uint, aggregate-public-key: (optional (buff 33)),
@@ -35,7 +34,7 @@
 
 ;; get current voting info
 (define-read-only (get-current-info)
-    (if (var-get is-state-1-active) (var-get state-1) (var-get state-2)))
+    (if (is-eq (/ (current-reward-cycle 2) 0)) (var-get state-1) (var-get state-2)))
 
 (define-read-only (burn-height-to-reward-cycle (height uint))
     (/ (- height (get first-burnchain-block-height pox-info)) (get reward-cycle-length pox-info)))
@@ -64,6 +63,7 @@
         (asserts! (is-valid-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) err-duplicate-aggregate-public-key)
         (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-slots}) err-duplicate-vote)
         (map-set tally tally-key new-total)
+        (map-set used-aggregate-public-keys key {reward-cycle: reward-cycle, round: round})
         (update-last-round reward-cycle round)
         (print "voted")
         (ok true)))
