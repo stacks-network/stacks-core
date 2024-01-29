@@ -111,9 +111,10 @@ fn test_try_make_response() {
         Some(1)
     );
 
-    let mut resp = response.decode_stackerdb_replicas().unwrap();
-    assert_eq!(resp.len(), 1);
-    let naddr = resp.pop().unwrap();
+    let resp = response.decode_stackerdb_replicas().unwrap();
+    assert_eq!(resp.len(), 2);
+
+    let naddr = resp.last().clone().unwrap();
     assert_eq!(naddr.addrbytes, PeerAddress::from_ipv4(127, 0, 0, 1));
     assert_eq!(naddr.port, 0);
     assert_eq!(
