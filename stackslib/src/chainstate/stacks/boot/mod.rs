@@ -78,8 +78,8 @@ pub const POX_1_NAME: &'static str = "pox";
 pub const POX_2_NAME: &'static str = "pox-2";
 pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
-pub const POX_4_VOTE_NAME: &'static str = "pox-4-vote";
 pub const SIGNERS_NAME: &'static str = "signers";
+pub const SIGNERS_VOTING_NAME: &'static str = "signers-voting";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
@@ -90,7 +90,7 @@ const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
-const POX_4_VOTE_BODY: &'static str = std::include_str!("pox-4-vote.clar");
+const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -119,7 +119,7 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
     pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
-    pub static ref POX_4_VOTE_CODE: String = format!("{}", POX_4_VOTE_BODY);
+    pub static ref SIGNER_VOTING_CODE: String = format!("{}", SIGNERS_VOTING_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -1309,9 +1309,9 @@ pub mod pox_3_tests;
 #[cfg(test)]
 pub mod pox_4_tests;
 #[cfg(test)]
-pub mod pox_4_vote_tests;
-#[cfg(test)]
 mod signers_tests;
+#[cfg(test)]
+pub mod signers_voting_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -1881,7 +1881,7 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    pub fn make_pox_4_vote_for_aggregate_public_key(
+    pub fn make_signers_vote_for_aggregate_public_key(
         key: &StacksPrivateKey,
         nonce: u64,
         aggregate_public_key: &Point,
@@ -1892,7 +1892,7 @@ pub mod test {
             .expect("Failed to serialize aggregate public key");
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
-            POX_4_VOTE_NAME,
+            SIGNERS_VOTING_NAME,
             "vote-for-aggregate-public-key",
             vec![
                 aggregate_public_key,
