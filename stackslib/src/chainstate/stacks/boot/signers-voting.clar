@@ -34,7 +34,7 @@
 
 ;; get current voting info
 (define-read-only (get-current-info)
-    (if (is-eq (/ (current-reward-cycle) u2) u0) (var-get state-1) (var-get state-2)))
+    (if (is-eq (mod (current-reward-cycle) u2)) (var-get state-1) (var-get state-2)))
 
 (define-read-only (burn-height-to-reward-cycle (height uint))
     (/ (- height (get first-burnchain-block-height pox-info)) (get reward-cycle-length pox-info)))
