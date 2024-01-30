@@ -25,11 +25,8 @@ use libsigner::{
     BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage, SignerRunLoop,
 };
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
 use stacks_common::codec::{read_next, StacksMessageCodec};
-use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::{MerkleRoot, Signature};
@@ -141,6 +138,8 @@ pub struct RunLoop<C> {
     pub signer_id: u32,
     /// The IDs of all signers partipating in the current reward cycle
     pub signer_ids: Vec<u32>,
+    /// The stacks addresses of the signers participating in the current reward cycle
+    pub signer_addresses: Vec<StacksAddress>,
 }
 
 impl<C: Coordinator> RunLoop<C> {
@@ -161,6 +160,13 @@ impl<C: Coordinator> RunLoop<C> {
                 self.commands.push_front(RunLoopCommand::Dkg);
             }
         }
+        // Get the signer writers from the stacker-db to verify transactions against
+        self.signer_addresses = self
+            .stacks_client
+            .get_stackerdb_signer_slots(self.stackerdb.signers_contract_id())?
+            .into_iter()
+            .map(|(address, _)| address)
+            .collect();
         self.state = State::Idle;
         Ok(())
     }
@@ -549,30 +555,18 @@ impl<C: Coordinator> RunLoop<C> {
             .get_signer_transactions_with_retry(&signer_ids)?;
         let mut expected_transactions = vec![];
         for (signer_id, signer_transactions) in transactions {
-            let Some(public_key) = self.signing_round.public_keys.signers.get(&signer_id) else {
+            let Some(stacks_address) = self.signer_addresses.get(signer_id as usize) else {
                 // Received a transaction for a signer we do not know about. Ignore it.
                 continue;
             };
-            let version = if self.mainnet {
-                C32_ADDRESS_VERSION_MAINNET_SINGLESIG
-            } else {
-                C32_ADDRESS_VERSION_TESTNET_SINGLESIG
-            };
-            let stacks_public_key = StacksPublicKey::from_slice(public_key.to_bytes().as_slice()).expect("BUG: This should never fail as we only add valid public keys to the signing round.");
-            let stacks_address = StacksAddress::from_public_keys(
-                version,
-                &AddressHashMode::SerializeP2PKH,
-                1,
-                &vec![stacks_public_key],
-            ).expect("BUG: This should never fail as we only add valid public keys to the signing round.");
-            let Ok(account_nonce) = self.stacks_client.get_account_nonce(&stacks_address) else {
+            let Ok(account_nonce) = self.stacks_client.get_account_nonce(stacks_address) else {
                 warn!("Unable to get account nonce for signer id {signer_id}. Ignoring their transactions.");
                 continue;
             };
             for signer_transaction in signer_transactions {
                 // TODO: Filter out transactions that are not special cased transactions (cast votes, etc.)
                 // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
-                if signer_transaction.origin_address() != stacks_address
+                if signer_transaction.origin_address() != *stacks_address
                     || signer_transaction.get_origin_nonce() < account_nonce
                 {
                     debug!("Received a transaction for signer id {signer_id} that is either not valid or has already been confirmed. Ignoring it.");
@@ -838,7 +832,7 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             dkg_threshold,
             num_signers: total_signers,
             num_keys: total_keys,
-            message_private_key: config.message_private_key,
+            message_private_key: config.ecdsa_private_key,
             dkg_public_timeout: config.dkg_public_timeout,
             dkg_private_timeout: config.dkg_private_timeout,
             dkg_end_timeout: config.dkg_end_timeout,
@@ -853,7 +847,7 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             total_keys,
             config.signer_id,
             key_ids,
-            config.message_private_key,
+            config.ecdsa_private_key,
             config.signer_ids_public_keys.clone(),
         );
         let stacks_client = StacksClient::from(config);
@@ -871,6 +865,7 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             transactions: Vec::new(),
             signer_ids: config.signer_ids.clone(),
             signer_id: config.signer_id,
+            signer_addresses: vec![],
         }
     }
 }

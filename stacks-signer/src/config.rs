@@ -30,6 +30,7 @@ use stacks_common::address::{
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::PrivateKey;
 use wsts::curve::ecdsa;
 use wsts::curve::scalar::Scalar;
 use wsts::state_machine::PublicKeys;
@@ -66,6 +67,17 @@ pub enum Network {
     Testnet,
     /// The mocknet network
     Mocknet,
+}
+
+impl std::fmt::Display for Network {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let network = match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+            Self::Mocknet => "mocknet",
+        };
+        write!(f, "{}", network)
+    }
 }
 
 impl Network {
@@ -111,7 +123,7 @@ pub struct Config {
     /// smart contract that controls the target signers' stackerdb
     pub stackerdb_contract_id: QualifiedContractIdentifier,
     /// The Scalar representation of the private key for signer communication
-    pub message_private_key: Scalar,
+    pub ecdsa_private_key: Scalar,
     /// The signer's Stacks private key
     pub stacks_private_key: StacksPrivateKey,
     /// The signer's Stacks address
@@ -156,9 +168,6 @@ struct RawConfigFile {
     pub endpoint: String,
     /// Signers' Stacker db contract identifier
     pub stackerdb_contract_id: Option<String>,
-
-    /// the 32 byte ECDSA private key used to sign blocks, chunks, transactions, and WSTS messages
-    pub message_private_key: String,
     /// The hex representation of the signer's Stacks private key used for communicating
     /// with the Stacks Node, including writing to the Stacker DB instance.
     pub stacks_private_key: String,
@@ -245,16 +254,16 @@ impl TryFrom<RawConfigFile> for Config {
             None => boot_code_id("signers", raw_data.network == Network::Mainnet),
         };
 
-        let message_private_key =
-            Scalar::try_from(raw_data.message_private_key.as_str()).map_err(|_| {
+        let stacks_private_key =
+            StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
                 ConfigError::BadField(
-                    "message_private_key".to_string(),
-                    raw_data.message_private_key.clone(),
+                    "stacks_private_key".to_string(),
+                    raw_data.stacks_private_key.clone(),
                 )
             })?;
 
-        let stacks_private_key =
-            StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
+        let ecdsa_private_key =
+            Scalar::try_from(&stacks_private_key.to_bytes()[..32]).map_err(|_| {
                 ConfigError::BadField(
                     "stacks_private_key".to_string(),
                     raw_data.stacks_private_key.clone(),
@@ -302,7 +311,7 @@ impl TryFrom<RawConfigFile> for Config {
             node_host,
             endpoint,
             stackerdb_contract_id,
-            message_private_key,
+            ecdsa_private_key,
             stacks_private_key,
             stacks_address,
             network: raw_data.network,
@@ -353,7 +362,6 @@ mod tests {
             node_host: "127.0.0.1:20443".to_string(),
             endpoint: "127.0.0.1:30000".to_string(),
             stackerdb_contract_id: None,
-            message_private_key: "2ZCxUV9BAKJrGnTPaamKHb4HVgj9ArQgEhowuTe7uRt3".to_string(),
             stacks_private_key:
                 "69be0e68947fa7128702761151dc8d9b39ee1401e547781bb2ec3e5b4eb1b36f01".to_string(),
             network: Network::Testnet,

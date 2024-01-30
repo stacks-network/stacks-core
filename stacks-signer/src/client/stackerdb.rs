@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
@@ -56,6 +58,21 @@ impl From<&Config> for StackerDB {
 }
 
 impl StackerDB {
+    /// Create a new StackerDB client
+    pub fn new(
+        host: SocketAddr,
+        stackerdb_contract_id: QualifiedContractIdentifier,
+        stacks_private_key: StacksPrivateKey,
+        signer_id: u32,
+    ) -> Self {
+        Self {
+            signers_stackerdb_session: StackerDBSession::new(host, stackerdb_contract_id),
+            stacks_private_key,
+            slot_versions: HashMap::new(),
+            signer_id,
+        }
+    }
+
     /// Sends messages to the .signers stacker-db with an exponential backoff retry
     pub fn send_message_with_retry(
         &mut self,
@@ -68,7 +85,10 @@ impl StackerDB {
             let slot_version = *self.slot_versions.entry(slot_id).or_insert(0) + 1;
             let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message_bytes.clone());
             chunk.sign(&self.stacks_private_key)?;
-            debug!("Sending a chunk to stackerdb!\n{:?}", &chunk);
+            debug!(
+                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version}!\n{:?}",
+                &chunk
+            );
             let send_request = || {
                 self.signers_stackerdb_session
                     .put_chunk(&chunk)
@@ -86,7 +106,7 @@ impl StackerDB {
             if let Some(reason) = chunk_ack.reason {
                 // TODO: fix this jankiness. Update stackerdb to use an error code mapping instead of just a string
                 // See: https://github.com/stacks-network/stacks-blockchain/issues/3917
-                if reason == "Data for this slot and version already exist" {
+                if reason.contains("Data for this slot and version already exist") {
                     warn!("Failed to send message to stackerdb due to wrong version number {}. Incrementing and retrying...", slot_version);
                 } else {
                     warn!("Failed to send message to stackerdb: {}", reason);
@@ -105,6 +125,10 @@ impl StackerDB {
             .iter()
             .map(|id| id * SIGNER_SLOTS_PER_USER + TRANSACTIONS_SLOT_ID)
             .collect();
+        debug!(
+            "Getting latest chunks from stackerdb for the following signers: {:?}",
+            signer_ids
+        );
         loop {
             let send_request = || {
                 self.signers_stackerdb_session
@@ -113,25 +137,28 @@ impl StackerDB {
             };
             let chunk_ack = retry_with_exponential_backoff(send_request)?;
             let mut transactions = Vec::new();
-
-            if !chunk_ack.is_empty() {
-                for (signer_id, chunk) in chunk_ack.iter().enumerate() {
-                    if let Some(data) = chunk {
-                        if let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) {
-                            if let SignerMessage::Transactions(chunk_transactions) = message {
-                                transactions.push((signer_id as u32, chunk_transactions));
-                            } else {
-                                warn!("Signer wrote an unexpected type to the transactions slot");
-                            }
+            for (i, chunk) in chunk_ack.iter().enumerate() {
+                if let Some(data) = chunk {
+                    if let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) {
+                        if let SignerMessage::Transactions(chunk_transactions) = message {
+                            let signer_id = *signer_ids.get(i).expect(
+                                "BUG: retrieved an unequal amount of chunks to requested chunks",
+                            );
+                            debug!(
+                                "Retrieved {} transactions from signer ID {}.",
+                                chunk_transactions.len(),
+                                signer_id
+                            );
+                            transactions.push((signer_id, chunk_transactions));
                         } else {
-                            warn!("Failed to deserialize chunk data into a SignerMessage");
+                            warn!("Signer wrote an unexpected type to the transactions slot");
                         }
+                    } else {
+                        warn!("Failed to deserialize chunk data into a SignerMessage");
                     }
                 }
-                return Ok(transactions);
-            } else {
-                warn!("Recieved empty chuncks from stackerdb: {:?}", chunk_ack);
             }
+            return Ok(transactions);
         }
     }
     /// Retrieve the signer contract id
@@ -174,7 +201,7 @@ mod tests {
         };
 
         let signer_message = SignerMessage::Transactions(vec![tx.clone()]);
-        let message = bincode::serialize(&signer_message).unwrap();
+        let message = signer_message.serialize_to_vec();
 
         let signer_ids = vec![0];
         let h = spawn(move || {

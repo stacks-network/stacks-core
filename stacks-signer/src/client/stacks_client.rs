@@ -30,6 +30,7 @@ use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use serde_json::json;
 use slog::slog_debug;
@@ -74,6 +75,23 @@ impl From<&Config> for StacksClient {
 }
 
 impl StacksClient {
+    /// Retrieve the signer slots stored within the stackerdb contract
+    pub fn get_stackerdb_signer_slots(
+        &self,
+        stackerdb_contract: &QualifiedContractIdentifier,
+    ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
+        let function_name_str = "stackerdb-get-signer-slots";
+        let function_name = ClarityName::try_from(function_name_str)
+            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
+        let function_args = &[];
+        let contract_response_hex = self.read_only_contract_call_with_retry(
+            &stackerdb_contract.issuer.clone().into(),
+            &stackerdb_contract.name,
+            &function_name,
+            function_args,
+        )?;
+        self.parse_signer_slots(&contract_response_hex)
+    }
     /// Retrieve the stacks tip consensus hash from the stacks node
     pub fn get_stacks_tip_consensus_hash(&self) -> Result<ConsensusHash, ClientError> {
         let peer_info = self.get_peer_info()?;
@@ -229,6 +247,28 @@ impl StacksClient {
         let point = Point::try_from(&compressed_data)
             .map_err(|_e| ClientError::MalformedClarityValue(value))?;
         Ok(Some(point))
+    }
+
+    /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
+    fn parse_signer_slots(&self, hex: &str) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
+        debug!("Parsing signer slots: {hex}...");
+        // Due to .signers definition, the  signer slots is always a result of a list of tuples of signer addresses and the number of slots they have
+        // If this fails, we have bigger problems than the signer crashing...
+        let value = ClarityValue::try_deserialize_hex_untyped(hex)?.expect_result_ok()?;
+        let values = value.expect_list()?;
+        let mut signer_slots = Vec::with_capacity(values.len());
+        for value in values {
+            let tuple_data = value.expect_tuple()?;
+            let principal_data = tuple_data.get("signer")?.clone().expect_principal()?;
+            let signer = if let PrincipalData::Standard(signer) = principal_data {
+                signer.into()
+            } else {
+                panic!("Invalid signer data type")
+            };
+            let num_slots = tuple_data.get("num-slots")?.clone().expect_u128()?;
+            signer_slots.push((signer, num_slots));
+        }
+        Ok(signer_slots)
     }
 
     /// Sends a transaction to the stacks node for a modifying contract call
@@ -403,6 +443,8 @@ impl StacksClient {
 mod tests {
     use std::io::{BufWriter, Write};
     use std::thread::spawn;
+
+    use libsigner::SIGNER_SLOTS_PER_USER;
 
     use super::*;
     use crate::client::tests::{write_response, TestConfig};
@@ -716,5 +758,17 @@ mod tests {
             b"HTTP/1.1 200 OK\n\n{\"nonce\":\"invalid nonce\",\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0,\"balance_proof\":\"\",\"nonce_proof\":\"\"}"
         );
         assert!(h.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn parse_valid_signer_slots_should_succeed() {
+        let config = TestConfig::new();
+        let clarity_value_hex =
+            "0x070b000000050c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a8195196a9a7cf9c37cb13e1ed69a7bc047a84e050c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a6505471146dcf722f0580911183f28bef30a8a890c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a1d7f8e3936e5da5f32982cc47f31d7df9fb1b38a0c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a126d1a814313c952e34c7840acec9211e1727fb80c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a7374ea6bb39f2e8d3d334d62b9f302a977de339a";
+        let signer_slots = config.client.parse_signer_slots(clarity_value_hex).unwrap();
+        assert_eq!(signer_slots.len(), 5);
+        signer_slots
+            .into_iter()
+            .for_each(|(_address, slots)| assert!(slots == SIGNER_SLOTS_PER_USER as u128));
     }
 }
