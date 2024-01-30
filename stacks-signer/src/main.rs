@@ -262,7 +262,7 @@ fn handle_run(args: RunDkgArgs) {
 fn handle_generate_files(args: GenerateFilesArgs) {
     debug!("Generating files...");
     let signer_stacks_private_keys = if let Some(path) = args.private_keys {
-        let file = File::open(&path).unwrap();
+        let file = File::open(path).unwrap();
         let reader = io::BufReader::new(file);
 
         let private_keys: Vec<String> = reader.lines().collect::<Result<_, _>>().unwrap();

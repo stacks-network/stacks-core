@@ -129,38 +129,37 @@ impl StackerDB {
             "Getting latest chunks from stackerdb for the following signers: {:?}",
             signer_ids
         );
-        loop {
-            let send_request = || {
-                self.signers_stackerdb_session
-                    .get_latest_chunks(&slot_ids)
-                    .map_err(backoff::Error::transient)
-            };
-            let chunk_ack = retry_with_exponential_backoff(send_request)?;
-            let mut transactions = Vec::new();
-            for (i, chunk) in chunk_ack.iter().enumerate() {
-                if let Some(data) = chunk {
-                    if let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) {
-                        if let SignerMessage::Transactions(chunk_transactions) = message {
-                            let signer_id = *signer_ids.get(i).expect(
-                                "BUG: retrieved an unequal amount of chunks to requested chunks",
-                            );
-                            debug!(
-                                "Retrieved {} transactions from signer ID {}.",
-                                chunk_transactions.len(),
-                                signer_id
-                            );
-                            transactions.push((signer_id, chunk_transactions));
-                        } else {
-                            warn!("Signer wrote an unexpected type to the transactions slot");
-                        }
+        let send_request = || {
+            self.signers_stackerdb_session
+                .get_latest_chunks(&slot_ids)
+                .map_err(backoff::Error::transient)
+        };
+        let chunk_ack = retry_with_exponential_backoff(send_request)?;
+        let mut transactions = Vec::new();
+        for (i, chunk) in chunk_ack.iter().enumerate() {
+            if let Some(data) = chunk {
+                if let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) {
+                    if let SignerMessage::Transactions(chunk_transactions) = message {
+                        let signer_id = *signer_ids.get(i).expect(
+                            "BUG: retrieved an unequal amount of chunks to requested chunks",
+                        );
+                        debug!(
+                            "Retrieved {} transactions from signer ID {}.",
+                            chunk_transactions.len(),
+                            signer_id
+                        );
+                        transactions.push((signer_id, chunk_transactions));
                     } else {
-                        warn!("Failed to deserialize chunk data into a SignerMessage");
+                        warn!("Signer wrote an unexpected type to the transactions slot");
                     }
+                } else {
+                    warn!("Failed to deserialize chunk data into a SignerMessage");
                 }
             }
-            return Ok(transactions);
         }
+        Ok(transactions)
     }
+
     /// Retrieve the signer contract id
     pub fn signers_contract_id(&self) -> &QualifiedContractIdentifier {
         &self.signers_stackerdb_session.stackerdb_contract_id

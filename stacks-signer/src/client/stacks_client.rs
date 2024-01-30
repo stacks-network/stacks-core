@@ -81,8 +81,7 @@ impl StacksClient {
         stackerdb_contract: &QualifiedContractIdentifier,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
         let function_name_str = "stackerdb-get-signer-slots";
-        let function_name = ClarityName::try_from(function_name_str)
-            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
+        let function_name = ClarityName::from(function_name_str);
         let function_args = &[];
         let contract_response_hex = self.read_only_contract_call_with_retry(
             &stackerdb_contract.issuer.clone().into(),
@@ -136,8 +135,7 @@ impl StacksClient {
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
         let function_name_str = "get-aggregate-public-key";
-        let function_name = ClarityName::try_from(function_name_str)
-            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
+        let function_name = ClarityName::from(function_name_str);
         let pox_contract_id = boot_code_id(POX_4_NAME, self.chain_id == CHAIN_ID_MAINNET);
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
         let contract_response_hex = self.read_only_contract_call_with_retry(
@@ -456,8 +454,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[],
             )
         });
@@ -475,8 +473,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[ClarityValue::UInt(10_u128)],
             )
         });
@@ -494,8 +492,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[],
             )
         });
@@ -514,8 +512,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[],
             )
         });
@@ -536,8 +534,8 @@ mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[],
             )
         });
@@ -627,8 +625,8 @@ mod tests {
             .client
             .build_signed_transaction(
                 &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
+                ContractName::from("contract-name"),
+                ClarityName::from("function-name"),
                 &[],
             )
             .unwrap();
@@ -674,8 +672,8 @@ mod tests {
         let h = spawn(move || {
             config.client.transaction_contract_call(
                 &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
+                ContractName::from("contract-name"),
+                ClarityName::from("function-name"),
                 &[],
             )
         });
