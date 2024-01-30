@@ -18,7 +18,9 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::tests::symbols_from_values;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions, TupleData,
+};
 use clarity::vm::Value::Principal;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use stacks_common::address::AddressHashMode;
@@ -44,7 +46,7 @@ use crate::chainstate::stacks::boot::pox_4_tests::{
 use crate::chainstate::stacks::boot::test::{
     instantiate_pox_peer_with_epoch, key_to_stacks_addr, make_pox_4_lockup, with_sortdb,
 };
-use crate::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME};
+use crate::chainstate::stacks::boot::{NakamotoSignerEntry, SIGNERS_NAME, SIGNERS_VOTING_NAME};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{
@@ -197,7 +199,7 @@ fn signers_get_signer_keys_from_stackerdb() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
     let stacker_2 = TestStacker::from_seed(&[5, 6]);
 
-    let (mut peer, test_signers, latest_block_id) = prepare_signers_test(
+    let (mut peer, test_signers, latest_block_id, _) = prepare_signers_test(
         function_name!(),
         vec![],
         Some(vec![&stacker_1, &stacker_2]),
@@ -248,7 +250,7 @@ pub fn prepare_signers_test<'a>(
     initial_balances: Vec<(PrincipalData, u64)>,
     stackers: Option<Vec<&TestStacker>>,
     observer: Option<&'a TestEventObserver>,
-) -> (TestPeer<'a>, TestSigners, StacksBlockId) {
+) -> (TestPeer<'a>, TestSigners, StacksBlockId, u128) {
     let mut test_signers = TestSigners::default();
 
     let mut peer = boot_nakamoto(
@@ -281,7 +283,30 @@ pub fn prepare_signers_test<'a>(
     );
     let latest_block_id = blocks_and_sizes.last().unwrap().0.block_id();
 
-    (peer, test_signers, latest_block_id)
+    let current_reward_cycle = readonly_call(
+        &mut peer,
+        &latest_block_id,
+        SIGNERS_VOTING_NAME.into(),
+        "current-reward-cycle".into(),
+        vec![],
+    )
+    .expect_u128();
+
+    assert_eq!(current_reward_cycle, 7);
+
+    let last_set_cycle = readonly_call(
+        &mut peer,
+        &latest_block_id,
+        SIGNERS_NAME.into(),
+        "stackerdb-get-last-set-cycle".into(),
+        vec![],
+    )
+    .expect_result_ok()
+    .expect_u128();
+
+    assert_eq!(last_set_cycle, 7);
+
+    (peer, test_signers, latest_block_id, current_reward_cycle)
 }
 
 fn advance_blocks(
@@ -366,4 +391,34 @@ fn readonly_call(
         })
     })
     .unwrap()
+}
+
+pub fn get_signer_index(
+    peer: &mut TestPeer<'_>,
+    latest_block_id: StacksBlockId,
+    signer_address: StacksAddress,
+) -> u128 {
+    let signers = readonly_call(
+        peer,
+        &latest_block_id,
+        "signers".into(),
+        "stackerdb-get-signer-slots".into(),
+        vec![],
+    )
+    .expect_result_ok()
+    .expect_list();
+
+    signers
+        .iter()
+        .position(|value| {
+            value
+                .clone()
+                .expect_tuple()
+                .get("signer")
+                .unwrap()
+                .clone()
+                .expect_principal()
+                == signer_address.to_account_principal()
+        })
+        .expect("signer not found") as u128
 }

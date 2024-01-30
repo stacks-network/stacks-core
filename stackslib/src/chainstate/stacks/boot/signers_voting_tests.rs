@@ -64,7 +64,7 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
 use crate::chainstate::stacks::boot::pox_4_tests::{
     assert_latest_was_burn, get_last_block_sender_transactions, get_tip, make_test_epochs_pox,
 };
-use crate::chainstate::stacks::boot::signers_tests::prepare_signers_test;
+use crate::chainstate::stacks::boot::signers_tests::{get_signer_index, prepare_signers_test};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, SIGNERS_NAME,
     SIGNERS_VOTING_NAME,
@@ -136,42 +136,21 @@ pub fn prepare_pox4_test<'a>(
 }
 
 #[test]
-fn vote_for_aggregate_public_key() {
+fn vote_for_aggregate_public_key_in_first_block() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
     let stacker_2 = TestStacker::from_seed(&[5, 6]);
     let observer = TestEventObserver::new();
 
     let signer = key_to_stacks_addr(&stacker_1.signer_private_key).to_account_principal();
 
-    let (mut peer, mut test_signers, latest_block_id) = prepare_signers_test(
+    let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
         function_name!(),
         vec![(signer, 1000)],
         Some(vec![&stacker_1, &stacker_2]),
         Some(&observer),
     );
 
-    let current_reward_cycle = readonly_call(
-        &mut peer,
-        &latest_block_id,
-        SIGNERS_VOTING_NAME.into(),
-        "current-reward-cycle".into(),
-        vec![],
-    )
-    .expect_u128();
-
-    assert_eq!(current_reward_cycle, 7);
-
-    let last_set_cycle = readonly_call(
-        &mut peer,
-        &latest_block_id,
-        SIGNERS_NAME.into(),
-        "stackerdb-get-last-set-cycle".into(),
-        vec![],
-    )
-    .expect_result_ok()
-    .expect_u128();
-
-    assert_eq!(last_set_cycle, 7);
+    // create vote txs
 
     let signer_nonce = 0;
     let signer_key = &stacker_1.signer_private_key;
@@ -179,31 +158,80 @@ fn vote_for_aggregate_public_key() {
     let signer_principal = PrincipalData::from(signer_address);
     let cycle_id = current_reward_cycle;
 
-    let signers = readonly_call(
-        &mut peer,
-        &latest_block_id,
-        "signers".into(),
-        "stackerdb-get-signer-slots".into(),
-        vec![],
-    )
-    .expect_result_ok()
-    .expect_list();
-
-    let signer_index = signers
-        .iter()
-        .position(|value| {
-            value
-                .clone()
-                .expect_tuple()
-                .get("signer")
-                .unwrap()
-                .clone()
-                .expect_principal()
-                == signer_address.to_account_principal()
-        })
-        .expect("signer not found") as u128;
+    let signer_index = get_signer_index(&mut peer, latest_block_id, signer_address);
 
     let aggregated_public_key: Point = Point::new();
+
+    let txs = vec![
+        // cast a vote for the aggregate public key
+        make_signers_vote_for_aggregate_public_key(
+            signer_key,
+            signer_nonce,
+            signer_index,
+            &aggregated_public_key,
+            0,
+        ),
+        // cast the vote twice
+        make_signers_vote_for_aggregate_public_key(
+            signer_key,
+            signer_nonce + 1,
+            signer_index,
+            &aggregated_public_key,
+            0,
+        ),
+    ];
+
+    let txids: Vec<Txid> = txs.clone().iter().map(|t| t.txid()).collect();
+    dbg!(txids);
+
+    //
+    // vote in the first burn block of prepare phase
+    //
+    let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs], signer_key);
+
+    // check the last two txs in the last block
+    let block = observer.get_blocks().last().unwrap().clone();
+    let receipts = block.receipts.as_slice();
+    assert_eq!(receipts.len(), 4);
+
+    // ignore tenure change tx
+    // ignore tenure coinbase tx
+
+    // first vote should succeed
+    let tx1 = &receipts[receipts.len() - 2];
+    assert_eq!(
+        tx1.result,
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Bool(true))
+        })
+    );
+
+    // second vote should fail with duplicate vote error
+    let tx2 = &receipts[receipts.len() - 1];
+    assert_eq!(
+        tx2.result,
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::UInt(10006)) // err-duplicate-vote
+        })
+    );
+}
+
+#[test]
+fn vote_for_aggregate_public_key_in_last_block() {
+    let stacker_1 = TestStacker::from_seed(&[3, 4]);
+    let stacker_2 = TestStacker::from_seed(&[5, 6]);
+    let observer = TestEventObserver::new();
+
+    let signer = key_to_stacks_addr(&stacker_1.signer_private_key).to_account_principal();
+
+    let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
+        function_name!(),
+        vec![(signer, 1000)],
+        Some(vec![&stacker_1, &stacker_2]),
+        Some(&observer),
+    );
 
     let mut stacker_1_nonce: u64 = 1;
     let dummy_tx_1 = make_dummy_tx(
@@ -221,21 +249,15 @@ fn vote_for_aggregate_public_key() {
         &stacker_1.stacker_private_key,
         &mut stacker_1_nonce,
     );
-    let dummy_tx_4 = make_dummy_tx(
-        &mut peer,
-        &stacker_1.stacker_private_key,
-        &mut stacker_1_nonce,
-    );
-    let dummy_tx_5 = make_dummy_tx(
-        &mut peer,
-        &stacker_1.stacker_private_key,
-        &mut stacker_1_nonce,
-    );
-    let dummy_tx_6 = make_dummy_tx(
-        &mut peer,
-        &stacker_1.stacker_private_key,
-        &mut stacker_1_nonce,
-    );
+
+    // create vote txs
+    let signer_nonce = 0;
+    let signer_key = &stacker_1.signer_private_key;
+    let signer_address = key_to_stacks_addr(signer_key);
+    let signer_principal = PrincipalData::from(signer_address);
+    let cycle_id = current_reward_cycle;
+    let signer_index = get_signer_index(&mut peer, latest_block_id, signer_address);
+    let aggregated_public_key: Point = Point::new();
 
     let txs = vec![
         // cast a vote for the aggregate public key
@@ -277,13 +299,15 @@ fn vote_for_aggregate_public_key() {
         signer_key,
     );
 
-    // vote now
+    // vote in second block of tenure
     let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs], signer_key);
+
+    // check the last two txs in the last block
     let block = observer.get_blocks().last().unwrap().clone();
     let receipts = block.receipts.as_slice();
-    assert_eq!(receipts.len(), 2);
-    // ignore tenure change tx
-    // ignore coinbase tx
+    assert_eq!(receipts.len(), 4);
+
+    // first vote should succeed
     let tx1 = &receipts[receipts.len() - 2];
     assert_eq!(
         tx1.result,
@@ -293,6 +317,7 @@ fn vote_for_aggregate_public_key() {
         })
     );
 
+    // second vote should fail with duplicate vote error
     let tx2 = &receipts[receipts.len() - 1];
     assert_eq!(
         tx2.result,
