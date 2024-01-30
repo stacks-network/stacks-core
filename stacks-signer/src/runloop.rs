@@ -547,7 +547,6 @@ impl<C: Coordinator> RunLoop<C> {
             .public_keys
             .signers
             .keys()
-            .into_iter()
             .cloned()
             .collect::<Vec<_>>();
         let transactions = self
@@ -969,12 +968,13 @@ pub fn calculate_coordinator(
     // or default to the first signer if none are found
     selection_ids
         .first()
-        .and_then(|(_, id)| public_keys.signers.get(id).map(|pk| (*id, pk.clone())))
+        .and_then(|(_, id)| public_keys.signers.get(id).map(|pk| (*id, *pk)))
         .unwrap_or((0, public_keys.signers.get(&0).cloned().unwrap()))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
     use std::net::TcpListener;
     use std::thread::{sleep, spawn};
 
@@ -987,7 +987,11 @@ mod tests {
     fn generate_random_consensus_hash() -> String {
         let rng = rand::thread_rng();
         let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
-        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+        let hex_string = bytes.iter().fold(String::new(), |mut acc, &b| {
+            write!(&mut acc, "{:02x}", b).expect("Error writing to string");
+            acc
+        });
+        hex_string
     }
 
     fn mock_stacks_client_response(mock_server: TcpListener, random_consensus: bool) {
@@ -1032,7 +1036,7 @@ mod tests {
         // Check that not all coordinator public keys are the same
         let all_keys_same = results
             .iter()
-            .all(|&(_, ref key)| key.key.data == results[0].1.key.data);
+            .all(|&(_, key)| key.key.data == results[0].1.key.data);
         assert!(
             !all_keys_same,
             "Not all coordinator public keys should be the same"
@@ -1059,7 +1063,7 @@ mod tests {
             .all(|&(id, _)| id == results_with_random_hash[0].0);
         let all_keys_same = results_with_random_hash
             .iter()
-            .all(|&(_, ref key)| key.key.data == results_with_random_hash[0].1.key.data);
+            .all(|&(_, key)| key.key.data == results_with_random_hash[0].1.key.data);
         assert!(!all_ids_same, "Not all coordinator IDs should be the same");
         assert!(
             !all_keys_same,
@@ -1072,7 +1076,7 @@ mod tests {
             .all(|&(id, _)| id == results_with_static_hash[0].0);
         let all_keys_same = results_with_static_hash
             .iter()
-            .all(|&(_, ref key)| key.key.data == results_with_static_hash[0].1.key.data);
+            .all(|&(_, key)| key.key.data == results_with_static_hash[0].1.key.data);
         assert!(all_ids_same, "All coordinator IDs should be the same");
         assert!(
             all_keys_same,
