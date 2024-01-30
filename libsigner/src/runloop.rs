@@ -28,7 +28,7 @@ use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 
 use crate::error::EventError;
-use crate::events::{EventReceiver, EventStopSignaler, StackerDBChunksEvent};
+use crate::events::{EventReceiver, EventStopSignaler, SignerEvent};
 
 /// Some libcs, like musl, have a very small stack size.
 /// Make sure it's big enough.
@@ -45,12 +45,12 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
     fn set_event_timeout(&mut self, timeout: Duration);
     /// Getter for the event poll timeout
     fn get_event_timeout(&self) -> Duration;
-    /// Run one pass of the event loop, given new StackerDB events discovered since the last pass.
+    /// Run one pass of the event loop, given new Signer events discovered since the last pass.
     /// Returns Some(R) if this is the final pass -- the runloop evaluated to R
     /// Returns None to keep running.
     fn run_one_pass(
         &mut self,
-        event: Option<StackerDBChunksEvent>,
+        event: Option<SignerEvent>,
         cmd: Option<CMD>,
         res: Sender<R>,
     ) -> Option<R>;
@@ -64,7 +64,7 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
     /// This would run in a separate thread from the event receiver.
     fn main_loop<EVST: EventStopSignaler>(
         &mut self,
-        event_recv: Receiver<StackerDBChunksEvent>,
+        event_recv: Receiver<SignerEvent>,
         command_recv: Receiver<CMD>,
         result_send: Sender<R>,
         mut event_stop_signaler: EVST,
@@ -79,14 +79,8 @@ pub trait SignerRunLoop<R: Send, CMD: Send> {
                     return None;
                 }
             };
-            let next_command_opt = match command_recv.recv_timeout(poll_timeout) {
-                Ok(cmd) => Some(cmd),
-                Err(RecvTimeoutError::Timeout) => None,
-                Err(RecvTimeoutError::Disconnected) => {
-                    info!("Command receiver disconnected");
-                    return None;
-                }
-            };
+            // Do not block for commands
+            let next_command_opt = command_recv.try_recv().ok();
             if let Some(final_state) =
                 self.run_one_pass(next_event_opt, next_command_opt, result_send.clone())
             {

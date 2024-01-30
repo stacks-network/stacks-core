@@ -16,6 +16,7 @@
 
 use std::boxed::Box;
 use std::cmp;
+use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::CheckErrors;
@@ -24,21 +25,25 @@ use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
 use clarity::vm::contexts::ContractContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{ClarityCostFunctionReference, CostStateSummary, LimitedCostTracker};
-use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use clarity::vm::errors::{Error as VmError, InterpreterError};
+use clarity::vm::database::{
+    ClarityDatabase, DataVariableMetadata, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+};
+use clarity::vm::errors::{Error as VmError, InterpreterError, InterpreterResult};
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::{ClarityName, ContractName};
+use clarity::vm::types::TypeSignature::UIntType;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData,
     TypeSignature, Value,
 };
 use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
 use lazy_static::lazy_static;
+use serde::Deserialize;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, StacksBlockId};
-use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
 
@@ -73,10 +78,17 @@ pub const POX_1_NAME: &'static str = "pox";
 pub const POX_2_NAME: &'static str = "pox-2";
 pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
+pub const SIGNERS_NAME: &'static str = "signers";
+/// This is the name of a variable in the `.signers` contract which tracks the most recently updated
+/// reward cycle number.
+pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
+pub const SIGNERS_MAX_LIST_SIZE: usize = 4000;
+pub const SIGNERS_PK_LEN: usize = 33;
 
 const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
+pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -86,6 +98,8 @@ pub const COSTS_3_NAME: &'static str = "costs-3";
 ///  function called `aggregate-key` with zero arguments which returns a (buff 33)
 pub const BOOT_TEST_POX_4_AGG_KEY_CONTRACT: &'static str = "pox-4-agg-test-booter";
 pub const BOOT_TEST_POX_4_AGG_KEY_FNAME: &'static str = "aggregate-key";
+
+pub const MINERS_NAME: &'static str = "miners";
 
 pub mod docs;
 
@@ -102,10 +116,7 @@ lazy_static! {
         format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_3_BODY);
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
-    pub static ref POX_4_MAINNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_MAINNET_CONSTS, POX_4_BODY);
-    pub static ref POX_4_TESTNET_CODE: String =
-        format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_4_BODY);
+    pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -151,7 +162,22 @@ pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,
     pub amount_stacked: u128,
     pub stacker: Option<PrincipalData>,
+    pub signer: Option<[u8; SIGNERS_PK_LEN]>,
 }
+
+// This enum captures the names of the PoX contracts by version.
+// This should deprecate the const values `POX_version_NAME`, but
+// that is the kind of refactor that should be in its own PR.
+// Having an enum here is useful for a bunch of reasons, but chiefly:
+//   * we'll be able to add an Ord implementation, so that we can
+//     do much easier version checks
+//   * static enforcement of matches
+define_named_enum!(PoxVersions {
+    Pox1("pox"),
+    Pox2("pox-2"),
+    Pox3("pox-3"),
+    Pox4("pox-4"),
+});
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct PoxStartCycleInfo {
@@ -164,10 +190,41 @@ pub struct PoxStartCycleInfo {
     pub missed_reward_slots: Vec<(PrincipalData, u128)>,
 }
 
+fn hex_serialize<S: serde::Serializer>(addr: &[u8; 33], s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&to_hex(addr))
+}
+
+fn hex_deserialize<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<[u8; SIGNERS_PK_LEN], D::Error> {
+    let hex_str = String::deserialize(d)?;
+    let bytes_vec = hex_bytes(&hex_str).map_err(serde::de::Error::custom)?;
+    if bytes_vec.len() != SIGNERS_PK_LEN {
+        return Err(serde::de::Error::invalid_length(
+            bytes_vec.len(),
+            &"array of len == SIGNERS_PK_LEN",
+        ));
+    }
+    let mut bytes = [0; SIGNERS_PK_LEN];
+    bytes.copy_from_slice(bytes_vec.as_slice());
+    Ok(bytes)
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct NakamotoSignerEntry {
+    #[serde(serialize_with = "hex_serialize", deserialize_with = "hex_deserialize")]
+    pub signing_key: [u8; 33],
+    pub stacked_amt: u128,
+    pub slots: u32,
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RewardSet {
     pub rewarded_addresses: Vec<PoxAddress>,
     pub start_cycle_state: PoxStartCycleInfo,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    // only generated for nakamoto reward sets
+    pub signers: Option<Vec<NakamotoSignerEntry>>,
 }
 
 const POX_CYCLE_START_HANDLED_VALUE: &'static str = "1";
@@ -194,6 +251,7 @@ impl RewardSet {
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: vec![],
             },
+            signers: None,
         }
     }
 }
@@ -246,12 +304,12 @@ impl StacksChainState {
                         &format!(r#"
                             (unwrap-panic (map-get? stacking-state {{ stacker: '{unlocked_principal} }}))
                             "#,
-                            unlocked_principal = Value::Principal(principal.clone())
+                                 unlocked_principal = Value::Principal(principal.clone())
                         ),
-                        ASTRules::PrecheckSize
+                        ASTRules::PrecheckSize,
                     )
                 })
-                .expect("FATAL: failed to query unlocked principal");
+            .expect("FATAL: failed to query unlocked principal");
 
         user_stacking_state.expect_tuple()
     }
@@ -573,6 +631,61 @@ impl StacksChainState {
         .map(|value| value.expect_bool())
     }
 
+    pub fn make_signer_set(
+        threshold: u128,
+        entries: &[RawRewardSetEntry],
+    ) -> Option<Vec<NakamotoSignerEntry>> {
+        let Some(first_entry) = entries.first() else {
+            // entries is empty: there's no signer set
+            return None;
+        };
+        // signing keys must be all-or-nothing in the reward set
+        let expects_signing_keys = first_entry.signer.is_some();
+        for entry in entries.iter() {
+            if entry.signer.is_some() != expects_signing_keys {
+                panic!("FATAL: stacking-set contains mismatched entries with and without signing keys.");
+            }
+        }
+        if !expects_signing_keys {
+            return None;
+        }
+
+        let mut signer_set = BTreeMap::new();
+        for entry in entries.iter() {
+            let signing_key = entry
+                .signer
+                .clone()
+                .expect("BUG: signing keys should all be set in reward-sets with any signing keys");
+            if let Some(existing_entry) = signer_set.get_mut(&signing_key) {
+                *existing_entry += entry.amount_stacked;
+            } else {
+                signer_set.insert(signing_key.clone(), entry.amount_stacked);
+            };
+        }
+
+        let mut signer_set: Vec<_> = signer_set
+            .into_iter()
+            .filter_map(|(signing_key, stacked_amt)| {
+                let slots = u32::try_from(stacked_amt / threshold)
+                    .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
+                if slots == 0 {
+                    return None;
+                }
+                Some(NakamotoSignerEntry {
+                    signing_key,
+                    stacked_amt,
+                    slots,
+                })
+            })
+            .collect();
+
+        // finally, we must sort the signer set: the signer participation bit vector depends
+        //  on a consensus-critical ordering of the signer set.
+        signer_set.sort_by_key(|entry| entry.signing_key);
+
+        Some(signer_set)
+    }
+
     /// Given a threshold and set of registered addresses, return a reward set where
     ///   every entry address has stacked more than the threshold, and addresses
     ///   are repeated floor(stacked_amt / threshold) times.
@@ -591,10 +704,14 @@ impl StacksChainState {
         } else {
             addresses.sort_by_cached_key(|k| k.reward_address.to_burnchain_repr());
         }
+
+        let signer_set = Self::make_signer_set(threshold, &addresses);
+
         while let Some(RawRewardSetEntry {
             reward_address: address,
             amount_stacked: mut stacked_amt,
             stacker,
+            ..
         }) = addresses.pop()
         {
             let mut contributed_stackers = vec![];
@@ -671,6 +788,7 @@ impl StacksChainState {
             start_cycle_state: PoxStartCycleInfo {
                 missed_reward_slots: missed_slots,
             },
+            signers: signer_set,
         }
     }
 
@@ -798,6 +916,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker: None,
+                signer: None,
             })
         }
 
@@ -887,6 +1006,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
+                signer: None,
             })
         }
 
@@ -976,6 +1096,7 @@ impl StacksChainState {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
+                signer: None,
             })
         }
 
@@ -990,14 +1111,6 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Vec<RawRewardSetEntry>, Error> {
-        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
-            debug!(
-                "PoX was voted disabled in block {} (reward cycle {})",
-                block_id, reward_cycle
-            );
-            return Ok(vec![]);
-        }
-
         // how many in this cycle?
         let num_addrs = self
             .eval_boot_code_read_only(
@@ -1015,7 +1128,13 @@ impl StacksChainState {
 
         let mut ret = vec![];
         for i in 0..num_addrs {
-            // value should be (optional (tuple (pox-addr (tuple (...))) (total-ustx uint))).
+            // value should be:
+            // (optional {
+            //     pox-addr: { version: (buff 1), hashbytes: (buff 32) },
+            //     total-ustx: uint,
+            //     stacker: (optional principal),
+            //     signer: principal
+            // })
             let tuple = self
                 .eval_boot_code_read_only(
                     sortdb,
@@ -1057,16 +1176,35 @@ impl StacksChainState {
                 .expect_optional()
                 .map(|value| value.expect_principal());
 
+            let signer = tuple
+                .get("signer")
+                .expect(&format!(
+                    "FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i
+                ))
+                .to_owned()
+                .expect_buff(SIGNERS_PK_LEN);
+            // (buff 33) only enforces max size, not min size, so we need to do a len check
+            let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
+                let mut bytes = [0; SIGNERS_PK_LEN];
+                bytes.copy_from_slice(signer.as_slice());
+                bytes
+            } else {
+                [0; SIGNERS_PK_LEN]
+            };
+
             debug!(
                 "Parsed PoX reward address";
                 "stacked_ustx" => total_ustx,
                 "reward_address" => %reward_address,
                 "stacker" => ?stacker,
+                "signer" => ?signer
             );
             ret.push(RawRewardSetEntry {
                 reward_address,
                 amount_stacked: total_ustx,
                 stacker,
+                signer: Some(pk_bytes),
             })
         }
 
@@ -1140,14 +1278,6 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Option<Point>, Error> {
-        if !self.is_pox_active(sortdb, block_id, u128::from(reward_cycle), POX_4_NAME)? {
-            debug!(
-                "PoX was voted disabled in block {} (reward cycle {})",
-                block_id, reward_cycle
-            );
-            return Ok(None);
-        }
-
         let aggregate_public_key = self
             .eval_boot_code_read_only(
                 sortdb,
@@ -1175,6 +1305,8 @@ pub mod pox_2_tests;
 pub mod pox_3_tests;
 #[cfg(test)]
 pub mod pox_4_tests;
+#[cfg(test)]
+mod signers_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -1223,6 +1355,7 @@ pub mod test {
                 ),
                 amount_stacked: 1500,
                 stacker: None,
+                signer: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1232,6 +1365,7 @@ pub mod test {
 
                 amount_stacked: 500,
                 stacker: None,
+                signer: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1240,6 +1374,7 @@ pub mod test {
                 ),
                 amount_stacked: 1500,
                 stacker: None,
+                signer: None,
             },
             RawRewardSetEntry {
                 reward_address: PoxAddress::Standard(
@@ -1248,6 +1383,7 @@ pub mod test {
                 ),
                 amount_stacked: 400,
                 stacker: None,
+                signer: None,
             },
         ];
         assert_eq!(
@@ -1285,7 +1421,7 @@ pub mod test {
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[],
-                liquid
+                liquid,
             )
             .0,
             POX_THRESHOLD_STEPS_USTX
@@ -1296,9 +1432,10 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
-                    stacker: None
+                    stacker: None,
+                    signer: None,
                 }],
-                liquid
+                liquid,
             )
             .0,
             POX_THRESHOLD_STEPS_USTX
@@ -1310,7 +1447,7 @@ pub mod test {
             StacksChainState::get_reward_threshold_and_participation(
                 &test_pox_constants,
                 &[],
-                liquid
+                liquid,
             )
             .0,
             50_000 * MICROSTACKS_PER_STACKS as u128
@@ -1322,9 +1459,10 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid / 4,
-                    stacker: None
+                    stacker: None,
+                    signer: None,
                 }],
-                liquid
+                liquid,
             )
             .0,
             50_000 * MICROSTACKS_PER_STACKS as u128
@@ -1337,15 +1475,17 @@ pub mod test {
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
-                        stacker: None
+                        stacker: None,
+                        signer: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: 10_000_000 * (MICROSTACKS_PER_STACKS as u128),
-                        stacker: None
+                        stacker: None,
+                        signer: None,
                     },
                 ],
-                liquid
+                liquid,
             )
             .0,
             60_000 * MICROSTACKS_PER_STACKS as u128
@@ -1359,15 +1499,17 @@ pub mod test {
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: liquid / 4,
-                        stacker: None
+                        stacker: None,
+                        signer: None,
                     },
                     RawRewardSetEntry {
                         reward_address: rand_pox_addr(),
                         amount_stacked: MICROSTACKS_PER_STACKS as u128,
-                        stacker: None
+                        stacker: None,
+                        signer: None,
                     },
                 ],
-                liquid
+                liquid,
             )
             .0,
             60_000 * MICROSTACKS_PER_STACKS as u128
@@ -1380,9 +1522,10 @@ pub mod test {
                 &[RawRewardSetEntry {
                     reward_address: rand_pox_addr(),
                     amount_stacked: liquid,
-                    stacker: None
+                    stacker: None,
+                    signer: None,
                 }],
-                liquid
+                liquid,
             )
             .0,
             200_000 * MICROSTACKS_PER_STACKS as u128
@@ -1656,20 +1799,15 @@ pub mod test {
         make_pox_2_or_3_lockup(key, nonce, amount, addr, lock_period, burn_ht, POX_3_NAME)
     }
 
-    /// TODO: add signer key
     pub fn make_pox_4_lockup(
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
         addr: PoxAddress,
         lock_period: u128,
+        signer_key: StacksPublicKey,
         burn_ht: u64,
     ) -> StacksTransaction {
-        // ;; TODO: add signer key
-        // (define-public (stack-stx (amount-ustx uint)
-        //                           (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
-        //                           (burn-height uint)
-        //                           (lock-period uint))
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
@@ -1680,6 +1818,7 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
         .unwrap();
@@ -1792,13 +1931,168 @@ pub mod test {
         nonce: u64,
         addr: PoxAddress,
         lock_period: u128,
+        signer_key: StacksPublicKey,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-extend",
-            vec![Value::UInt(lock_period), addr_tuple],
+            vec![
+                Value::UInt(lock_period),
+                addr_tuple,
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stx(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        delegate_to: PrincipalData,
+        until_burn_ht: Option<u128>,
+        pox_addr: Option<PoxAddress>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stx",
+            vec![
+                Value::UInt(amount),
+                Value::Principal(delegate_to.clone()),
+                match until_burn_ht {
+                    Some(burn_ht) => Value::some(Value::UInt(burn_ht)).unwrap(),
+                    None => Value::none(),
+                },
+                match pox_addr {
+                    Some(addr) => {
+                        Value::some(Value::Tuple(addr.as_clarity_tuple().unwrap())).unwrap()
+                    }
+                    None => Value::none(),
+                },
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stack_stx(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: PrincipalData,
+        amount: u128,
+        pox_addr: PoxAddress,
+        start_burn_height: u128,
+        lock_period: u128,
+    ) -> StacksTransaction {
+        let payload: TransactionPayload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-stx",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::UInt(amount),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(start_burn_height),
+                Value::UInt(lock_period),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stack_extend(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: PrincipalData,
+        pox_addr: PoxAddress,
+        extend_count: u128,
+    ) -> StacksTransaction {
+        let payload: TransactionPayload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-extend",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(extend_count),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_aggregation_commit_indexed(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+        delegate_to: PrincipalData,
+        until_burn_ht: Option<u128>,
+        pox_addr: PoxAddress,
+    ) -> StacksTransaction {
+        let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "stack-aggregation-commit-indexed",
+            vec![addr_tuple, Value::UInt(amount)],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_stack_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        amount: u128,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "stack-increase",
+            vec![Value::UInt(amount)],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_delegate_stack_increase(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        stacker: &PrincipalData,
+        pox_addr: PoxAddress,
+        amount: u128,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "delegate-stack-increase",
+            vec![
+                Value::Principal(stacker.clone()),
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(amount),
+            ],
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_revoke_delegate_stx(key: &StacksPrivateKey, nonce: u64) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "revoke-delegate-stx",
+            vec![],
         )
         .unwrap();
 
@@ -1867,6 +2161,23 @@ pub mod test {
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_3_NAME,
+            function_name,
+            args,
+        )
+        .unwrap();
+
+        make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_pox_4_contract_call(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        function_name: &str,
+        args: Vec<Value>,
+    ) -> StacksTransaction {
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
             function_name,
             args,
         )
@@ -2367,7 +2678,6 @@ pub mod test {
                     let tx = make_tx(&alice, 7, 0, cc_payload.clone()); // should be allowed!
                     block_txs.push(alice_allowance);
                     block_txs.push(tx);
-
                 }
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
@@ -4261,7 +4571,7 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into()
+                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     )
                     .is_none());
 
@@ -4394,7 +4704,7 @@ pub mod test {
                     );
                     assert!(get_stacker_info(
                         &mut peer,
-                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into()
+                        &make_contract_id(&key_to_stacks_addr(&bob), "do-lockup").into(),
                     )
                     .is_none());
 
@@ -4770,7 +5080,7 @@ pub mod test {
                 // alice did _NOT_ spend
                 assert!(get_contract(
                     &mut peer,
-                    &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-spend").into()
+                    &make_contract_id(&key_to_stacks_addr(&alice), "alice-try-spend").into(),
                 )
                 .is_none());
             }
@@ -4959,12 +5269,12 @@ pub mod test {
                     // Charlie tries to stack, but it should fail.
                     // Specifically, (stack-stx) should fail with (err 17).
                     let charlie_stack = make_bare_contract(&charlie, 2, 0, "charlie-try-stack",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                           &format!(
+                                                               "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 17)
                                (print (contract-call? '{}.pox stack-stx u10240000000000 {{ version: 0x01, hashbytes: 0x1111111111111111111111111111111111111111 }} burn-block-height u1))))",
-                               boot_code_test_addr()));
+                                                               boot_code_test_addr()));
 
                     block_txs.push(charlie_stack);
 
@@ -4973,24 +5283,24 @@ pub mod test {
                     // stacked.
                     // If it's the case, then this tx will NOT be mined
                     let alice_reject = make_bare_contract(&alice, 1, 0, "alice-try-reject",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                          &format!(
+                                                              "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 3)
                                (print (contract-call? '{}.pox reject-pox))))",
-                               boot_code_test_addr()));
+                                                              boot_code_test_addr()));
 
                     block_txs.push(alice_reject);
 
                     // Charlie tries to reject again, but it should fail.
                     // Specifically, (reject-pox) should fail with (err 17).
                     let charlie_reject = make_bare_contract(&charlie, 3, 0, "charlie-try-reject",
-                        &format!(
-                            "(define-data-var test-passed bool false)
+                                                            &format!(
+                                                                "(define-data-var test-passed bool false)
                              (var-set test-passed (is-eq
                                (err 17)
                                (print (contract-call? '{}.pox reject-pox))))",
-                               boot_code_test_addr()));
+                                                                boot_code_test_addr()));
 
                     block_txs.push(charlie_reject);
                 }
@@ -5040,7 +5350,7 @@ pub mod test {
             })
             .unwrap();
 
-            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\ntotal-stacked next: {}\n", 
+            eprintln!("\ntenure: {}\nreward cycle: {}\nmin-uSTX: {}\naddrs: {:?}\ntotal_liquid_ustx: {}\ntotal-stacked: {}\ntotal-stacked next: {}\n",
                       tenure_id, cur_reward_cycle, min_ustx, &reward_addrs, total_liquid_ustx, total_stacked, total_stacked_next);
 
             if tenure_id <= 1 {

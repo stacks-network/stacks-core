@@ -3106,7 +3106,7 @@ fn pox_3_getters() {
         tip.block_height,
     );
 
-    // bob deleates to charlie
+    // bob delegates to charlie
     let bob_delegate_tx = make_pox_3_contract_call(
         &bob,
         0,

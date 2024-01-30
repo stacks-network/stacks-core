@@ -70,7 +70,7 @@ pub struct RPCPoxNextCycleInfo {
     pub blocks_until_prepare_phase: i64,
     pub reward_phase_start_block_height: u64,
     pub blocks_until_reward_phase: u64,
-    pub ustx_until_pox_rejection: u64,
+    pub ustx_until_pox_rejection: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ pub struct RPCPoxInfoData {
     pub prepare_phase_block_length: u64,
     pub reward_phase_block_length: u64,
     pub reward_slots: u64,
-    pub rejection_fraction: u64,
+    pub rejection_fraction: Option<u64>,
     pub total_liquid_supply_ustx: u64,
     pub current_cycle: RPCPoxCurrentCycleInfo,
     pub next_cycle: RPCPoxNextCycleInfo,
@@ -100,7 +100,7 @@ pub struct RPCPoxInfoData {
     pub prepare_cycle_length: u64,
     pub reward_cycle_id: u64,
     pub reward_cycle_length: u64,
-    pub rejection_votes_left_required: u64,
+    pub rejection_votes_left_required: Option<u64>,
     pub next_reward_cycle_in: u64,
 
     // Information specific to each PoX contract version
@@ -202,12 +202,6 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128() as u64;
 
-        let rejection_fraction = res
-            .get("rejection-fraction")
-            .expect(&format!("FATAL: no 'rejection-fraction'"))
-            .to_owned()
-            .expect_u128() as u64;
-
         let reward_cycle_id = res
             .get("reward-cycle-id")
             .expect(&format!("FATAL: no 'reward-cycle-id'"))
@@ -220,24 +214,39 @@ impl RPCPoxInfoData {
             .to_owned()
             .expect_u128() as u64;
 
-        let current_rejection_votes = res
-            .get("current-rejection-votes")
-            .expect(&format!("FATAL: no 'current-rejection-votes'"))
-            .to_owned()
-            .expect_u128() as u64;
-
         let total_liquid_supply_ustx = res
             .get("total-liquid-supply-ustx")
             .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
             .to_owned()
             .expect_u128() as u64;
 
-        let total_required = (total_liquid_supply_ustx as u128 / 100)
-            .checked_mul(rejection_fraction as u128)
-            .ok_or_else(|| NetError::DBError(DBError::Overflow))?
-            as u64;
+        let has_rejection_data = pox_contract_name == POX_1_NAME
+            || pox_contract_name == POX_2_NAME
+            || pox_contract_name == POX_3_NAME;
 
-        let rejection_votes_left_required = total_required.saturating_sub(current_rejection_votes);
+        let (rejection_fraction, rejection_votes_left_required) = if has_rejection_data {
+            let rejection_fraction = res
+                .get("rejection-fraction")
+                .expect(&format!("FATAL: no 'rejection-fraction'"))
+                .to_owned()
+                .expect_u128() as u64;
+
+            let current_rejection_votes = res
+                .get("current-rejection-votes")
+                .expect(&format!("FATAL: no 'current-rejection-votes'"))
+                .to_owned()
+                .expect_u128() as u64;
+
+            let total_required = (total_liquid_supply_ustx as u128 / 100)
+                .checked_mul(rejection_fraction as u128)
+                .ok_or_else(|| NetError::DBError(DBError::Overflow))?
+                as u64;
+
+            let votes_left = total_required.saturating_sub(current_rejection_votes);
+            (Some(rejection_fraction), Some(votes_left))
+        } else {
+            (None, None)
+        };
 
         let burnchain_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
 

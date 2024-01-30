@@ -1971,6 +1971,7 @@ dependencies = [
 name = "libsigner"
 version = "0.0.1"
 dependencies = [
+ "bincode",
  "clarity",
  "libc",
  "libstackerdb",
@@ -1984,8 +1985,10 @@ dependencies = [
  "slog-json",
  "slog-term",
  "stacks-common",
+ "stackslib",
  "thiserror",
  "tiny_http",
+ "wsts",
 ]
 
 [[package]]
@@ -3544,8 +3547,10 @@ dependencies = [
  "async-std",
  "backtrace",
  "base64 0.12.3",
+ "bincode",
  "chrono",
  "clarity",
+ "hashbrown 0.14.0",
  "http-types",
  "lazy_static",
  "libc",
@@ -3584,6 +3589,7 @@ dependencies = [
  "hashbrown 0.14.0",
  "libsigner",
  "libstackerdb",
+ "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
  "secp256k1",
@@ -3613,6 +3619,7 @@ dependencies = [
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
+ "hashbrown 0.14.0",
  "integer-sqrt",
  "lazy_static",
  "libc",
@@ -4712,9 +4719,9 @@ dependencies = [
 
 [[package]]
 name = "wsts"
-version = "5.0.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c250118354755b4abb091a83cb8d659b511c0ae211ccdb3b1254e3db199cb86"
+checksum = "c398736468f3322a43b6419be5315e68ae035e6565628603503c2a62ad726f36"
 dependencies = [
  "aes-gcm 0.10.2",
  "bs58 0.5.0",

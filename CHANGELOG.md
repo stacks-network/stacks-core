@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Next-Branch]
+
+### Added
+
+- New `/new_pox_anchor` endpoint for broadcasting PoX anchor block processing.
+- Stacker bitvec in NakamotoBlock
+
+### Modified
+
+- `pox-4.aggregation-commit` contains a signing-key parameter (like
+  `stack-stx` and `stack-extend`), the signing-key parameter is removed from
+  `delegate-*` functions.
+
 ## [2.4.0.0.4]
 
 This is a high-priority hotfix that addresses a bug in transaction processing which
@@ -53,6 +66,8 @@ the log message (PR #3784).
 - Added 3 new public and regionally diverse bootstrap nodes: est.stacksnodes.org, cet.stacksnodes.org, sgt.stacksnodes.org
 - satoshis_per_byte can be changed in the config file and miners will always use
   the most up to date value
+- New RPC endpoint at /v2/block_proposal for miner to validate proposed block.
+  Only accessible on local loopback interface
 
 ### Changed
 

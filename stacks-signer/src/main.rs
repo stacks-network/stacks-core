@@ -29,20 +29,25 @@ extern crate toml;
 use std::fs::File;
 use std::io::{self, BufRead, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, SignerSession, StackerDBEventReceiver, StackerDBSession};
+use libsigner::{
+    RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession,
+    SIGNER_SLOTS_PER_USER,
+};
 use libstackerdb::StackerDBChunkData;
-use slog::slog_debug;
+use slog::{slog_debug, slog_error};
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use stacks_common::debug;
+use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
     SignArgs, StackerDBArgs,
@@ -52,12 +57,12 @@ use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::state_machine::coordinator::frost::Coordinator as FrostCoordinator;
+use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::OperationResult;
 use wsts::v2;
 
 struct SpawnedSigner {
-    running_signer: RunningSigner<StackerDBEventReceiver, Vec<OperationResult>>,
+    running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
     cmd_send: Sender<RunLoopCommand>,
     res_recv: Receiver<Vec<OperationResult>>,
 }
@@ -87,16 +92,18 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
-    let ev = StackerDBEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
-    let runloop: RunLoop<FrostCoordinator<v2::Aggregator>> = RunLoop::from(&config);
+    let ev = SignerEventReceiver::new(
+        vec![config.stackerdb_contract_id.clone()],
+        config.network.is_mainnet(),
+    );
+    let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        RunLoop<FrostCoordinator<v2::Aggregator>>,
-        StackerDBEventReceiver,
+        RunLoop<FireCoordinator<v2::Aggregator>>,
+        SignerEventReceiver,
     > = Signer::new(runloop, ev, cmd_recv, res_send);
-    let endpoint = config.endpoint;
-    let running_signer = signer.spawn(endpoint).unwrap();
+    let running_signer = signer.spawn(config.endpoint).unwrap();
     SpawnedSigner {
         running_signer,
         cmd_send,
@@ -124,8 +131,11 @@ fn process_dkg_result(dkg_res: &[OperationResult]) {
                 &schnorr_proof.r, &schnorr_proof.s,
             );
         }
-        OperationResult::DkgError(..) | OperationResult::SignError(..) => {
-            todo!()
+        OperationResult::DkgError(dkg_error) => {
+            panic!("Received DkgError {}", dkg_error);
+        }
+        OperationResult::SignError(sign_error) => {
+            panic!("Received SignError {}", sign_error);
         }
     }
 }
@@ -150,8 +160,11 @@ fn process_sign_result(sign_res: &[OperationResult]) {
                 &schnorr_proof.r, &schnorr_proof.s,
             );
         }
-        OperationResult::DkgError(..) | OperationResult::SignError(..) => {
-            todo!()
+        OperationResult::DkgError(dkg_error) => {
+            panic!("Received DkgError {}", dkg_error);
+        }
+        OperationResult::SignError(sign_error) => {
+            panic!("Received SignError {}", sign_error);
         }
     }
 }
@@ -182,7 +195,7 @@ fn handle_put_chunk(args: PutChunkArgs) {
     let mut session = stackerdb_session(args.db_args.host, args.db_args.contract);
     let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
     chunk.sign(&args.private_key).unwrap();
-    let chunk_ack = session.put_chunk(chunk).unwrap();
+    let chunk_ack = session.put_chunk(&chunk).unwrap();
     println!("{}", serde_json::to_string(&chunk_ack).unwrap());
 }
 
@@ -198,10 +211,15 @@ fn handle_dkg(args: RunDkgArgs) {
 fn handle_sign(args: SignArgs) {
     debug!("Signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
+    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
+        error!("Unable to parse provided message as a NakamotoBlock.");
+        spawned_signer.running_signer.stop();
+        return;
+    };
     spawned_signer
         .cmd_send
         .send(RunLoopCommand::Sign {
-            message: args.data,
+            block,
             is_taproot: false,
             merkle_root: None,
         })
@@ -214,12 +232,17 @@ fn handle_sign(args: SignArgs) {
 fn handle_dkg_sign(args: SignArgs) {
     debug!("Running DKG and signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
+    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
+        error!("Unable to parse provided message as a NakamotoBlock.");
+        spawned_signer.running_signer.stop();
+        return;
+    };
     // First execute DKG, then sign
     spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
     spawned_signer
         .cmd_send
         .send(RunLoopCommand::Sign {
-            message: args.data,
+            block,
             is_taproot: false,
             merkle_root: None,
         })
@@ -268,36 +291,31 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         .iter()
         .map(|key| to_addr(key, &args.network))
         .collect::<Vec<StacksAddress>>();
-    // Build the stackerdb contract
-    let stackerdb_contract = build_stackerdb_contract(&signer_stacks_addresses);
+    // Build the signer and miner stackerdb contract
+    let signer_stackerdb_contract =
+        build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
+    write_file(&args.dir, "signers.clar", &signer_stackerdb_contract);
+
     let signer_config_tomls = build_signer_config_tomls(
         &signer_stacks_private_keys,
         args.num_keys,
-        &args.db_args.host.to_string(),
-        &args.db_args.contract.to_string(),
-        None,
+        &args.host.to_string(),
+        &args.signers_contract.to_string(),
         args.timeout.map(Duration::from_millis),
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
-        let signer_conf_path = args.dir.join(format!("signer-{}.toml", i));
-        let signer_conf_filename = signer_conf_path.to_str().unwrap();
-        let mut signer_conf_file = File::create(signer_conf_filename).unwrap();
-        signer_conf_file
-            .write_all(file_contents.as_bytes())
-            .unwrap();
-        println!("Created signer config toml file: {}", signer_conf_filename);
+        write_file(&args.dir, &format!("signer-{}.toml", i), file_contents);
     }
-    let stackerdb_contract_path = args.dir.join("stackerdb.clar");
-    let stackerdb_contract_filename = stackerdb_contract_path.to_str().unwrap();
-    let mut stackerdb_contract_file = File::create(stackerdb_contract_filename).unwrap();
-    stackerdb_contract_file
-        .write_all(stackerdb_contract.as_bytes())
-        .unwrap();
-    println!(
-        "Created stackerdb clarity contract: {}",
-        stackerdb_contract_filename
-    );
+}
+
+/// Helper function for writing the given contents to filename in the given directory
+fn write_file(dir: &Path, filename: &str, contents: &str) {
+    let file_path = dir.join(filename);
+    let filename = file_path.to_str().unwrap();
+    let mut file = File::create(filename).unwrap();
+    file.write_all(contents.as_bytes()).unwrap();
+    println!("Created file: {}", filename);
 }
 
 fn main() {

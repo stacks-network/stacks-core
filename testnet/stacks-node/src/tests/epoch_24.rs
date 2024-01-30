@@ -984,7 +984,7 @@ fn verify_auto_unlock_behavior() {
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
             "curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height,
@@ -1003,7 +1003,7 @@ fn verify_auto_unlock_behavior() {
         }
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-        let pox_info = get_pox_info(&http_origin);
+        let pox_info = get_pox_info(&http_origin).unwrap();
         info!(
             "curr height: {}, curr cycle id: {}, pox active: {}",
             tip_info.burn_block_height,

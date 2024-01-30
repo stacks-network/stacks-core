@@ -567,6 +567,25 @@ impl StackerDBs {
         inner_get_slot_validation(&self.conn, smart_contract, slot_id)
     }
 
+    /// Get the latest version of a given Slot ID from the database.
+    /// Returns Ok(Some(version)) if a chunk exists at the given slot ID.
+    /// Returns Ok(None) if the chunk does not exist at the given slot ID.
+    /// Returns Err(..) if the DB does not exist, or some other DB error occurs
+    pub fn get_slot_version(
+        &self,
+        smart_contract: &QualifiedContractIdentifier,
+        slot_id: u32,
+    ) -> Result<Option<u32>, net_error> {
+        let stackerdb_id = self.get_stackerdb_id(smart_contract)?;
+        let qry = "SELECT version FROM chunks WHERE stackerdb_id = ?1 AND slot_id = ?2";
+        let args: &[&dyn ToSql] = &[&stackerdb_id, &slot_id];
+
+        self.conn
+            .query_row(qry, args, |row| row.get(0))
+            .optional()
+            .map_err(|e| e.into())
+    }
+
     /// Get the list of slot ID versions for a given DB instance at a given reward cycle
     pub fn get_slot_versions(
         &self,

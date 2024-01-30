@@ -15,13 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
+use hashbrown::HashMap;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use stacks_common::address::*;
@@ -66,11 +67,36 @@ use crate::util_lib::boot::boot_code_addr;
 use crate::util_lib::db::Error as db_error;
 
 #[derive(Debug, Clone)]
+pub struct TestStacker {
+    pub stacker_private_key: StacksPrivateKey,
+    pub signer_private_key: StacksPrivateKey,
+    pub amount: u128,
+}
+
+impl TestStacker {
+    pub fn from_seed(seed: &[u8]) -> TestStacker {
+        let stacker_private_key = StacksPrivateKey::from_seed(seed);
+        let mut signer_seed = seed.to_vec();
+        signer_seed.append(&mut vec![0xff, 0x00, 0x00, 0x00]);
+        let signer_private_key = StacksPrivateKey::from_seed(signer_seed.as_slice());
+        TestStacker {
+            stacker_private_key,
+            signer_private_key,
+            amount: 1_000_000_000_000_000_000,
+        }
+    }
+
+    pub fn signer_public_key(&self) -> StacksPublicKey {
+        StacksPublicKey::from_private(&self.signer_private_key)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TestSigners {
     /// The parties that will sign the blocks
     pub signer_parties: Vec<wsts::v2::Party>,
     /// The commitments to the polynomials for the aggregate public key
-    pub poly_commitments: Vec<wsts::common::PolyCommitment>,
+    pub poly_commitments: HashMap<u32, wsts::common::PolyCommitment>,
     /// The aggregate public key
     pub aggregate_public_key: Point,
     /// The total number of key ids distributed among signer_parties
@@ -85,7 +111,7 @@ impl Default for TestSigners {
         let num_keys = 10;
         let threshold = 7;
         let party_key_ids: Vec<Vec<u32>> =
-            vec![vec![0, 1, 2], vec![3, 4], vec![5, 6, 7], vec![8, 9]];
+            vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8], vec![9, 10]];
         let num_parties = party_key_ids.len().try_into().unwrap();
 
         // Create the parties
@@ -111,10 +137,11 @@ impl Default for TestSigners {
                 panic!("Got secret errors from DKG: {:?}", secret_errors);
             }
         };
-        let aggregate_public_key = poly_commitments.iter().fold(
-            Point::default(),
-            |s, poly_commitment: &wsts::common::PolyCommitment| s + poly_commitment.poly[0],
-        );
+        let mut sig_aggregator = wsts::v2::Aggregator::new(num_keys, threshold);
+        sig_aggregator
+            .init(&poly_commitments)
+            .expect("aggregator init failed");
+        let aggregate_public_key = sig_aggregator.poly[0];
         Self {
             signer_parties,
             aggregate_public_key,
@@ -128,17 +155,13 @@ impl Default for TestSigners {
 impl TestSigners {
     pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
         let mut rng = rand_core::OsRng;
-        let msg = block
-            .header
-            .signer_signature_hash()
-            .expect("Failed to determine the block header signature hash for signers.")
-            .0;
+        let msg = block.header.signer_signature_hash().0;
         let (nonces, sig_shares, key_ids) =
             wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
 
         let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
         sig_aggregator
-            .init(self.poly_commitments.clone())
+            .init(&self.poly_commitments)
             .expect("aggregator init failed");
         let signature = sig_aggregator
             .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
@@ -476,8 +499,6 @@ impl TestStacksNode {
             previous_tenure_blocks,
             cause: tenure_change_cause,
             pubkey_hash: miner.nakamoto_miner_hash160(),
-            signature: ThresholdSignature::mock(),
-            signers: vec![],
         };
 
         let block_commit_op = self.make_nakamoto_tenure_commitment(
@@ -508,7 +529,7 @@ impl TestStacksNode {
             'a,
             TestEventObserver,
             (),
-            OnChainRewardSetProvider,
+            OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
             BitcoinIndexer,
@@ -555,8 +576,7 @@ impl TestStacksNode {
 
             // make a block
             let builder = if let Some(parent_tip) = parent_tip_opt {
-                NakamotoBlockBuilder::new_from_parent(
-                    &parent_tip.index_block_hash(),
+                NakamotoBlockBuilder::new(
                     &parent_tip,
                     tenure_id_consensus_hash,
                     burn_tip.total_burn,
@@ -573,7 +593,7 @@ impl TestStacksNode {
                 )
                 .unwrap()
             } else {
-                NakamotoBlockBuilder::new_tenure_from_genesis(
+                NakamotoBlockBuilder::new_first_block(
                     &tenure_change.clone().unwrap(),
                     &coinbase.clone().unwrap(),
                 )
@@ -582,9 +602,9 @@ impl TestStacksNode {
             tenure_change = None;
             coinbase = None;
 
-            let (mut nakamoto_block, size, cost) = builder
-                .make_nakamoto_block_from_txs(chainstate, &sortdb.index_conn(), txs)
-                .unwrap();
+            let (mut nakamoto_block, size, cost) =
+                Self::make_nakamoto_block_from_txs(builder, chainstate, &sortdb.index_conn(), txs)
+                    .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
             signers.sign_nakamoto_block(&mut nakamoto_block);
 
@@ -600,6 +620,7 @@ impl TestStacksNode {
 
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let mut sort_handle = sortdb.index_handle(&sort_tip);
+            info!("Processing the new nakamoto block");
             let accepted = match Relayer::process_new_nakamoto_block(
                 sortdb,
                 &mut sort_handle,
@@ -637,6 +658,81 @@ impl TestStacksNode {
             block_count += 1;
         }
         blocks
+    }
+
+    pub fn make_nakamoto_block_from_txs(
+        mut builder: NakamotoBlockBuilder,
+        chainstate_handle: &StacksChainState,
+        burn_dbconn: &SortitionDBConn,
+        mut txs: Vec<StacksTransaction>,
+    ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
+        use clarity::vm::ast::ASTRules;
+
+        debug!("Build Nakamoto block from {} transactions", txs.len());
+        let (mut chainstate, _) = chainstate_handle.reopen()?;
+
+        let mut tenure_cause = None;
+        for tx in txs.iter() {
+            let TransactionPayload::TenureChange(payload) = &tx.payload else {
+                continue;
+            };
+            tenure_cause = Some(payload.cause);
+            break;
+        }
+
+        let mut miner_tenure_info =
+            builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
+        let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
+        for tx in txs.drain(..) {
+            let tx_len = tx.tx_len();
+            match builder.try_mine_tx_with_len(
+                &mut tenure_tx,
+                &tx,
+                tx_len,
+                &BlockLimitFunction::NO_LIMIT_HIT,
+                ASTRules::PrecheckSize,
+            ) {
+                TransactionResult::Success(..) => {
+                    debug!("Included {}", &tx.txid());
+                }
+                TransactionResult::Skipped(TransactionSkipped { error, .. })
+                | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
+                    match error {
+                        ChainstateError::BlockTooBigError => {
+                            // done mining -- our execution budget is exceeded.
+                            // Make the block from the transactions we did manage to get
+                            debug!("Block budget exceeded on tx {}", &tx.txid());
+                        }
+                        ChainstateError::InvalidStacksTransaction(_emsg, true) => {
+                            // if we have an invalid transaction that was quietly ignored, don't warn here either
+                            test_debug!(
+                                "Failed to apply tx {}: InvalidStacksTransaction '{:?}'",
+                                &tx.txid(),
+                                &_emsg
+                            );
+                            continue;
+                        }
+                        ChainstateError::ProblematicTransaction(txid) => {
+                            test_debug!("Encountered problematic transaction. Aborting");
+                            return Err(ChainstateError::ProblematicTransaction(txid));
+                        }
+                        e => {
+                            warn!("Failed to apply tx {}: {:?}", &tx.txid(), &e);
+                            continue;
+                        }
+                    }
+                }
+                TransactionResult::Problematic(TransactionProblematic { tx, .. }) => {
+                    // drop from the mempool
+                    debug!("Encountered problematic transaction {}", &tx.txid());
+                    return Err(ChainstateError::ProblematicTransaction(tx.txid()));
+                }
+            }
+        }
+        let block = builder.mine_nakamoto_block(&mut tenure_tx);
+        let size = builder.bytes_so_far;
+        let cost = builder.tenure_finish(tenure_tx);
+        Ok((block, size, cost))
     }
 }
 

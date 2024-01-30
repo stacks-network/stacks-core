@@ -19,10 +19,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::{cmp, thread};
 
-use clarity::boot_util::boot_code_id;
-use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::TransactionConnection;
-use clarity::vm::ClarityVersion;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
 use stacks::burnchains::Burnchain;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -31,17 +27,17 @@ use stacks::chainstate::coordinator::comm::{CoordinatorChannels, CoordinatorRece
 use stacks::chainstate::coordinator::{
     ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
 };
-use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
 use stacks_common::types::PublicKey;
-use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::hash::Hash160;
 use stx_genesis::GenesisData;
 
 use crate::burnchains::make_bitcoin_indexer;
 use crate::globals::Globals as GenericGlobals;
-use crate::monitoring::start_serving_monitoring_metrics;
+use crate::monitoring::{start_serving_monitoring_metrics, MonitoringError};
 use crate::nakamoto_node::{self, StacksNode, BLOCK_PROCESSOR_STACK_SIZE, RELAYER_MAX_BUFFER};
 use crate::node::{
     get_account_balances, get_account_lockups, get_names, get_namespaces,
@@ -73,6 +69,7 @@ pub struct RunLoop {
     /// NOTE: this is duplicated in self.globals, but it needs to be accessible before globals is
     /// instantiated (namely, so the test framework can access it).
     miner_status: Arc<Mutex<MinerStatus>>,
+    monitoring_thread: Option<JoinHandle<Result<(), MonitoringError>>>,
 }
 
 impl RunLoop {
@@ -81,6 +78,7 @@ impl RunLoop {
         config: Config,
         should_keep_running: Option<Arc<AtomicBool>>,
         counters: Option<Counters>,
+        monitoring_thread: Option<JoinHandle<Result<(), MonitoringError>>>,
     ) -> Self {
         let channels = CoordinatorCommunication::instantiate();
         let should_keep_running =
@@ -107,6 +105,7 @@ impl RunLoop {
             burnchain: None,
             pox_watchdog_comms,
             miner_status,
+            monitoring_thread,
         }
     }
 
@@ -337,16 +336,22 @@ impl RunLoop {
 
     /// Start Prometheus logging
     fn start_prometheus(&mut self) {
-        let prometheus_bind = self.config.node.prometheus_bind.clone();
-        if let Some(prometheus_bind) = prometheus_bind {
-            thread::Builder::new()
-                .name("prometheus".to_string())
-                .spawn(move || {
-                    debug!("prometheus thread ID is {:?}", thread::current().id());
-                    start_serving_monitoring_metrics(prometheus_bind);
-                })
-                .unwrap();
+        if self.monitoring_thread.is_some() {
+            info!("Monitoring thread already running, nakamoto run-loop will not restart it");
+            return;
         }
+        let Some(prometheus_bind) = self.config.node.prometheus_bind.clone() else {
+            return;
+        };
+        let monitoring_thread = thread::Builder::new()
+            .name("prometheus".to_string())
+            .spawn(move || {
+                debug!("prometheus thread ID is {:?}", thread::current().id());
+                start_serving_monitoring_metrics(prometheus_bind)
+            })
+            .expect("FATAL: failed to start monitoring thread");
+
+        self.monitoring_thread.replace(monitoring_thread);
     }
 
     /// Get the sortition DB's highest block height, aligned to a reward cycle boundary, and the

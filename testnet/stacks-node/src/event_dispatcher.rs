@@ -10,7 +10,6 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{FTEventType, NFTEventType, STXEventType};
 use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 use http_types::{Method, Request, Url};
-pub use libsigner::StackerDBChunksEvent;
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::BlockstackOperationType;
@@ -18,18 +17,23 @@ use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::BlockEventDispatcher;
 use stacks::chainstate::nakamoto::NakamotoBlock;
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::boot::RewardSet;
 use stacks::chainstate::stacks::db::accounts::MinerReward;
 use stacks::chainstate::stacks::db::unconfirmed::ProcessedUnconfirmedState;
 use stacks::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use stacks::chainstate::stacks::events::{
-    StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt, TransactionOrigin,
+    StackerDBChunksEvent, StacksBlockEventData, StacksTransactionEvent, StacksTransactionReceipt,
+    TransactionOrigin,
 };
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{
     StacksBlock, StacksMicroblock, StacksTransaction, TransactionPayload,
 };
-use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher};
+use stacks::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use stacks::libstackerdb::StackerDBChunkData;
+use stacks::net::api::postblock_proposal::{
+    BlockValidateOk, BlockValidateReject, BlockValidateResponse,
+};
 use stacks::net::atlas::{Attachment, AttachmentInstance};
 use stacks::net::stackerdb::StackerDBEventDispatcher;
 use stacks_common::codec::StacksMessageCodec;
@@ -67,6 +71,8 @@ pub const PATH_STACKERDB_CHUNKS: &str = "stackerdb_chunks";
 pub const PATH_BURN_BLOCK_SUBMIT: &str = "new_burn_block";
 pub const PATH_BLOCK_PROCESSED: &str = "new_block";
 pub const PATH_ATTACHMENT_PROCESSED: &str = "attachments/new";
+pub const PATH_PROPOSAL_RESPONSE: &str = "proposal_response";
+pub const PATH_POX_ANCHOR: &str = "new_pox_set";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinedBlockEvent {
@@ -436,6 +442,32 @@ pub struct EventDispatcher {
     miner_observers_lookup: HashSet<u16>,
     mined_microblocks_observers_lookup: HashSet<u16>,
     stackerdb_observers_lookup: HashSet<u16>,
+    block_proposal_observers_lookup: HashSet<u16>,
+    pox_stacker_set_observers_lookup: HashSet<u16>,
+}
+
+/// This struct is used specifically for receiving proposal responses.
+/// It's constructed separately to play nicely with threading.
+struct ProposalCallbackHandler {
+    observers: Vec<EventObserver>,
+}
+
+impl ProposalCallbackReceiver for ProposalCallbackHandler {
+    fn notify_proposal_result(&self, result: Result<BlockValidateOk, BlockValidateReject>) {
+        let response = match serde_json::to_value(BlockValidateResponse::from(result)) {
+            Ok(x) => x,
+            Err(e) => {
+                error!(
+                    "Failed to serialize block proposal validation response, will not notify over event observer";
+                    "error" => ?e
+                );
+                return;
+            }
+        };
+        for observer in self.observers.iter() {
+            observer.send_payload(&response, PATH_PROPOSAL_RESPONSE);
+        }
+    }
 }
 
 impl MemPoolEventDispatcher for EventDispatcher {
@@ -494,6 +526,33 @@ impl MemPoolEventDispatcher for EventDispatcher {
             consumed,
             tx_events,
         )
+    }
+
+    fn get_proposal_callback_receiver(&self) -> Option<Box<dyn ProposalCallbackReceiver>> {
+        let callback_receivers: Vec<_> = self
+            .block_proposal_observers_lookup
+            .iter()
+            .filter_map(|observer_ix|
+                match self.registered_observers.get(usize::from(*observer_ix)) {
+                    Some(x) => Some(x.clone()),
+                    None => {
+                        warn!(
+                            "Event observer index not found in registered observers. Ignoring that index.";
+                            "index" => observer_ix,
+                            "observers_len" => self.registered_observers.len()
+                        );
+                        None
+                    }
+                }
+            )
+            .collect();
+        if callback_receivers.is_empty() {
+            return None;
+        }
+        let handler = ProposalCallbackHandler {
+            observers: callback_receivers,
+        };
+        Some(Box::new(handler))
     }
 }
 
@@ -558,6 +617,15 @@ impl BlockEventDispatcher for EventDispatcher {
             recipient_info,
         )
     }
+
+    fn announce_reward_set(
+        &self,
+        reward_set: &RewardSet,
+        block_id: &StacksBlockId,
+        cycle_number: u64,
+    ) {
+        self.process_stacker_set(reward_set, block_id, cycle_number)
+    }
 }
 
 impl EventDispatcher {
@@ -574,6 +642,8 @@ impl EventDispatcher {
             miner_observers_lookup: HashSet::new(),
             mined_microblocks_observers_lookup: HashSet::new(),
             stackerdb_observers_lookup: HashSet::new(),
+            block_proposal_observers_lookup: HashSet::new(),
+            pox_stacker_set_observers_lookup: HashSet::new(),
         }
     }
 
@@ -586,18 +656,7 @@ impl EventDispatcher {
         recipient_info: Vec<PoxAddress>,
     ) {
         // lazily assemble payload only if we have observers
-        let interested_observers: Vec<_> = self
-            .registered_observers
-            .iter()
-            .enumerate()
-            .filter(|(obs_id, _observer)| {
-                self.burn_block_observers_lookup
-                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
-                    || self.any_event_observers_lookup.contains(
-                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
-                    )
-            })
-            .collect();
+        let interested_observers = self.filter_observers(&self.burn_block_observers_lookup, true);
         if interested_observers.len() < 1 {
             return;
         }
@@ -610,7 +669,7 @@ impl EventDispatcher {
             recipient_info,
         );
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             observer.send_new_burn_block(&payload);
         }
     }
@@ -849,27 +908,58 @@ impl EventDispatcher {
         }
     }
 
-    pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
-        // lazily assemble payload only if we have observers
-        let interested_observers: Vec<_> = self
-            .registered_observers
+    fn filter_observers(&self, lookup: &HashSet<u16>, include_any: bool) -> Vec<&EventObserver> {
+        self.registered_observers
             .iter()
             .enumerate()
-            .filter(|(obs_id, _observer)| {
-                self.mempool_observers_lookup
-                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
-                    || self.any_event_observers_lookup.contains(
-                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
-                    )
+            .filter_map(|(obs_id, observer)| {
+                let lookup_ix = u16::try_from(obs_id).expect("FATAL: more than 2^16 observers");
+                if lookup.contains(&lookup_ix) {
+                    return Some(observer);
+                } else if include_any && self.any_event_observers_lookup.contains(&lookup_ix) {
+                    return Some(observer);
+                } else {
+                    return None;
+                }
             })
-            .collect();
+            .collect()
+    }
+
+    fn process_stacker_set(
+        &self,
+        reward_set: &RewardSet,
+        block_id: &StacksBlockId,
+        cycle_number: u64,
+    ) {
+        let interested_observers =
+            self.filter_observers(&self.pox_stacker_set_observers_lookup, false);
+
+        if interested_observers.is_empty() {
+            return;
+        }
+
+        let payload = json!({
+            "stacker_set": reward_set,
+            "block_id": block_id,
+            "cycle_number": cycle_number
+        });
+
+        for observer in interested_observers.iter() {
+            observer.send_payload(&payload, PATH_POX_ANCHOR);
+        }
+    }
+
+    pub fn process_new_mempool_txs(&self, txs: Vec<StacksTransaction>) {
+        // lazily assemble payload only if we have observers
+        let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
+
         if interested_observers.len() < 1 {
             return;
         }
 
         let payload = EventObserver::make_new_mempool_txs_payload(txs);
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             observer.send_new_mempool_txs(&payload);
         }
     }
@@ -883,15 +973,8 @@ impl EventDispatcher {
         confirmed_microblock_cost: &ExecutionCost,
         tx_events: Vec<TransactionEvent>,
     ) {
-        let interested_observers: Vec<_> = self
-            .registered_observers
-            .iter()
-            .enumerate()
-            .filter(|(obs_id, _observer)| {
-                self.miner_observers_lookup
-                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
-            })
-            .collect();
+        let interested_observers = self.filter_observers(&self.miner_observers_lookup, false);
+
         if interested_observers.len() < 1 {
             return;
         }
@@ -907,7 +990,7 @@ impl EventDispatcher {
         })
         .unwrap();
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             observer.send_mined_block(&payload);
         }
     }
@@ -919,15 +1002,8 @@ impl EventDispatcher {
         anchor_block_consensus_hash: ConsensusHash,
         anchor_block: BlockHeaderHash,
     ) {
-        let interested_observers: Vec<_> = self
-            .registered_observers
-            .iter()
-            .enumerate()
-            .filter(|(obs_id, _observer)| {
-                self.mined_microblocks_observers_lookup
-                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
-            })
-            .collect();
+        let interested_observers =
+            self.filter_observers(&self.mined_microblocks_observers_lookup, false);
         if interested_observers.len() < 1 {
             return;
         }
@@ -941,7 +1017,7 @@ impl EventDispatcher {
         })
         .unwrap();
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             observer.send_mined_microblock(&payload);
         }
     }
@@ -954,15 +1030,7 @@ impl EventDispatcher {
         consumed: &ExecutionCost,
         tx_events: Vec<TransactionEvent>,
     ) {
-        let interested_observers: Vec<_> = self
-            .registered_observers
-            .iter()
-            .enumerate()
-            .filter(|(obs_id, _observer)| {
-                self.miner_observers_lookup
-                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
-            })
-            .collect();
+        let interested_observers = self.filter_observers(&self.miner_observers_lookup, false);
         if interested_observers.len() < 1 {
             return;
         }
@@ -978,7 +1046,7 @@ impl EventDispatcher {
         })
         .unwrap();
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             observer.send_mined_nakamoto_block(&payload);
         }
     }
@@ -990,15 +1058,8 @@ impl EventDispatcher {
         contract_id: QualifiedContractIdentifier,
         new_chunks: Vec<StackerDBChunkData>,
     ) {
-        let interested_observers: Vec<_> = self
-            .registered_observers
-            .iter()
-            .enumerate()
-            .filter(|(obs_id, _observer)| {
-                self.stackerdb_observers_lookup
-                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
-            })
-            .collect();
+        let interested_observers = self.filter_observers(&self.stackerdb_observers_lookup, false);
+
         if interested_observers.len() < 1 {
             return;
         }
@@ -1009,25 +1070,15 @@ impl EventDispatcher {
         })
         .expect("FATAL: failed to serialize StackerDBChunksEvent to JSON");
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             observer.send_stackerdb_chunks(&payload);
         }
     }
 
     pub fn process_dropped_mempool_txs(&self, txs: Vec<Txid>, reason: MemPoolDropReason) {
         // lazily assemble payload only if we have observers
-        let interested_observers: Vec<_> = self
-            .registered_observers
-            .iter()
-            .enumerate()
-            .filter(|(obs_id, _observer)| {
-                self.mempool_observers_lookup
-                    .contains(&(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")))
-                    || self.any_event_observers_lookup.contains(
-                        &(u16::try_from(*obs_id).expect("FATAL: more than 2^16 observers")),
-                    )
-            })
-            .collect();
+        let interested_observers = self.filter_observers(&self.mempool_observers_lookup, true);
+
         if interested_observers.len() < 1 {
             return;
         }
@@ -1042,7 +1093,7 @@ impl EventDispatcher {
             "reason": reason.to_string(),
         });
 
-        for (_, observer) in interested_observers.iter() {
+        for observer in interested_observers.iter() {
             observer.send_dropped_mempool_txs(&payload);
         }
     }
@@ -1138,6 +1189,12 @@ impl EventDispatcher {
                 }
                 EventKeyType::StackerDBChunks => {
                     self.stackerdb_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::BlockProposal => {
+                    self.block_proposal_observers_lookup.insert(observer_index);
+                }
+                EventKeyType::StackerSet => {
+                    self.pox_stacker_set_observers_lookup.insert(observer_index);
                 }
             }
         }

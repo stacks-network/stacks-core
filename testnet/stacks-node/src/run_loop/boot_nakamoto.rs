@@ -54,7 +54,7 @@ impl BootRunLoop {
                 InnerLoops::Epoch2(neon),
             )
         } else {
-            let naka = NakaRunLoop::new(config.clone(), None, None);
+            let naka = NakaRunLoop::new(config.clone(), None, None, None);
             (
                 naka.get_coordinator_channel().unwrap(),
                 InnerLoops::Epoch3(naka),
@@ -122,6 +122,7 @@ impl BootRunLoop {
             .expect("FATAL: failed to spawn epoch-2/3-boot thread");
         neon_loop.start(burnchain_opt.clone(), mine_start);
 
+        let monitoring_thread = neon_loop.take_monitoring_thread();
         // did we exit because of the epoch-3.0 transition, or some other reason?
         let exited_for_transition = boot_thread
             .join()
@@ -136,6 +137,7 @@ impl BootRunLoop {
             self.config.clone(),
             Some(termination_switch),
             Some(counters),
+            monitoring_thread,
         );
         let new_coord_channels = naka
             .get_coordinator_channel()

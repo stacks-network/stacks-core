@@ -208,6 +208,18 @@ impl BlockEventDispatcher for DummyEventDispatcher {
             "We should never try to announce to the dummy dispatcher"
         );
     }
+
+    fn announce_reward_set(
+        &self,
+        _reward_set: &RewardSet,
+        _block_id: &StacksBlockId,
+        _cycle_number: u64,
+    ) {
+        assert!(
+            false,
+            "We should never try to announce to the dummy dispatcher"
+        );
+    }
 }
 
 impl MemPoolRejection {
@@ -5126,6 +5138,17 @@ impl StacksChainState {
                 &chain_tip.consensus_hash,
                 &chain_tip.anchored_header.block_hash()
             );
+        }
+
+        // Handle signer stackerdb updates
+        let first_block_height = burn_dbconn.get_burn_start_height();
+        if evaluated_epoch >= StacksEpochId::Epoch25 {
+            let _events = NakamotoChainState::check_and_handle_prepare_phase_start(
+                &mut clarity_tx,
+                first_block_height.into(),
+                &pox_constants,
+                burn_tip_height.into(),
+            )?;
         }
 
         debug!(

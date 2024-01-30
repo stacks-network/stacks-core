@@ -8,8 +8,6 @@ use async_h1::client;
 use async_std::io::ReadExt;
 use async_std::net::TcpStream;
 use base64::encode;
-#[cfg(test)]
-use clarity::vm::types::PrincipalData;
 use http_types::{Method, Request, Url};
 use serde::Serialize;
 use serde_json::json;
@@ -52,8 +50,6 @@ use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
-#[cfg(test)]
-use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
@@ -67,6 +63,10 @@ use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError
 ///  the cache is force-reset.
 const UTXO_CACHE_STALENESS_LIMIT: u64 = 6;
 const DUST_UTXO_LIMIT: u64 = 5500;
+
+#[cfg(test)]
+// Used to inject invalid block commits during testing.
+pub static TEST_MAGIC_BYTES: std::sync::Mutex<Option<[u8; 2]>> = std::sync::Mutex::new(None);
 
 pub struct BitcoinRegtestController {
     config: Config,
@@ -1178,6 +1178,20 @@ impl BitcoinRegtestController {
         Some(tx)
     }
 
+    fn magic_bytes(&self) -> Vec<u8> {
+        #[cfg(test)]
+        {
+            if let Some(set_bytes) = TEST_MAGIC_BYTES
+                .lock()
+                .expect("FATAL: test magic bytes mutex poisoned")
+                .clone()
+            {
+                return set_bytes.to_vec();
+            }
+        }
+        self.config.burnchain.magic_bytes.as_bytes().to_vec()
+    }
+
     fn send_block_commit_operation(
         &mut self,
         epoch_id: StacksEpochId,
@@ -1209,7 +1223,7 @@ impl BitcoinRegtestController {
         // Serialize the payload
         let op_bytes = {
             let mut buffer = vec![];
-            let mut magic_bytes = self.config.burnchain.magic_bytes.as_bytes().to_vec();
+            let mut magic_bytes = self.magic_bytes();
             buffer.append(&mut magic_bytes);
             payload
                 .consensus_serialize(&mut buffer)
@@ -1306,10 +1320,18 @@ impl BitcoinRegtestController {
         let burnchain_db = self.burnchain_db.as_ref().expect("BurnchainDB not opened");
 
         for txid in ongoing_op.txids.iter() {
+            // check if ongoing_op is in the burnchain_db *or* has been confirmed via the bitcoin RPC
             let mined_op = burnchain_db.find_burnchain_op(&self.indexer, txid);
-            if mined_op.is_some() {
-                // Good to go, the transaction in progress was mined
-                debug!("Was able to retrieve ongoing TXID - {}", txid);
+            let ongoing_tx_confirmed = mined_op.is_some()
+                || matches!(
+                    BitcoinRPCRequest::check_transaction_confirmed(&self.config, txid),
+                    Ok(true)
+                );
+            if ongoing_tx_confirmed {
+                debug!(
+                    "Was able to retrieve confirmation of ongoing burnchain TXID - {}",
+                    txid
+                );
                 let res = self.send_block_commit_operation(
                     epoch_id,
                     payload,
@@ -1322,7 +1344,7 @@ impl BitcoinRegtestController {
                 return res;
             } else {
                 debug!("Was unable to retrieve ongoing TXID - {}", txid);
-            }
+            };
         }
 
         // Did a re-org occur since we fetched our UTXOs, or are the UTXOs so stale that they should be abandoned?
@@ -1822,14 +1844,6 @@ impl BitcoinRegtestController {
         self.config.miner.segwit = segwit;
     }
 
-    #[cfg(test)]
-    pub fn set_allow_rbf(&mut self, val: bool) {
-        self.allow_rbf = val;
-    }
-
-    #[cfg(not(test))]
-    pub fn set_allow_rbf(&mut self, _val: bool) {}
-
     pub fn make_operation_tx(
         &mut self,
         epoch_id: StacksEpochId,
@@ -2215,6 +2229,32 @@ impl BitcoinRPCRequest {
         let res = BitcoinRPCRequest::send(&config, payload)?;
         debug!("Got raw transaction {}: {:?}", txid, &res);
         Ok(res.get("result").unwrap().as_str().unwrap().to_string())
+    }
+
+    /// Was a given transaction ID confirmed by the burnchain?
+    pub fn check_transaction_confirmed(config: &Config, txid: &Txid) -> RPCResult<bool> {
+        let payload = BitcoinRPCRequest {
+            method: "gettransaction".to_string(),
+            params: vec![format!("{}", txid).into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+        let res = BitcoinRPCRequest::send(&config, payload)?;
+        let confirmations = res
+            .get("result")
+            .ok_or_else(|| RPCError::Parsing("No 'result' field in bitcoind RPC response".into()))?
+            .get("confirmations")
+            .ok_or_else(|| {
+                RPCError::Parsing("No 'confirmations' field in bitcoind RPC response".into())
+            })?
+            .as_i64()
+            .ok_or_else(|| {
+                RPCError::Parsing(
+                    "Expected 'confirmations' field to be numeric in bitcoind RPC response".into(),
+                )
+            })?;
+
+        Ok(confirmations >= 1)
     }
 
     pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {

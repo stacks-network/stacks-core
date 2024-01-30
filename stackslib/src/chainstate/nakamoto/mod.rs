@@ -14,25 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::DerefMut;
-
-pub mod coordinator;
-pub mod miner;
-pub mod tenure;
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::database::BurnStateDB;
+use clarity::vm::database::{BurnStateDB, ClarityDatabase};
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::StacksAddressExtensions;
+use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
+    MAX_PAYLOAD_LEN,
 };
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
@@ -54,40 +52,52 @@ use super::burn::db::sortdb::{
     SortitionHandleConn, SortitionHandleTx,
 };
 use super::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
-use super::stacks::boot::{BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME};
+use super::stacks::boot::{
+    PoxVersions, RawRewardSetEntry, BOOT_TEST_POX_4_AGG_KEY_CONTRACT,
+    BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
+};
 use super::stacks::db::accounts::MinerReward;
 use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
 };
-use super::stacks::events::StacksTransactionReceipt;
+use super::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use super::stacks::{
     Error as ChainstateError, StacksBlock, StacksBlockHeader, StacksMicroblock, StacksTransaction,
     TenureChangeError, TenureChangePayload, ThresholdSignature, TransactionPayload,
 };
-use crate::burnchains::{PoxConstants, Txid};
+use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::{LeaderBlockCommitOp, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
-use crate::chainstate::stacks::boot::POX_4_NAME;
+use crate::chainstate::stacks::address::PoxAddress;
+use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
-use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
+use crate::clarity_vm::clarity::{
+    ClarityInstance, ClarityTransactionConnection, PreCommitClarityBlock,
+};
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
-use crate::monitoring;
+use crate::net::stackerdb::StackerDBConfig;
 use crate::net::Error as net_error;
+use crate::util_lib::boot;
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{
     query_int, query_row, query_row_panic, query_rows, u64_to_sql, DBConn, Error as DBError,
     FromRow,
 };
+use crate::{chainstate, monitoring};
+
+pub mod coordinator;
+pub mod miner;
+pub mod tenure;
 
 #[cfg(test)]
 pub mod tests;
@@ -187,6 +197,8 @@ lazy_static! {
                      miner_signature TEXT NOT NULL,
                      -- signers' signature over the block
                      signer_signature TEXT NOT NULL,
+                     -- bitvec capturing stacker participation in signature
+                     signer_bitvec TEXT NOT NULL,
           -- The following fields are not part of either the StacksHeaderInfo struct
           --   or its contained NakamotoBlockHeader struct, but are used for querying
                      -- what kind of header this is (nakamoto or stacks 2.x)
@@ -287,7 +299,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlockHeader {
     pub version: u8,
     /// The total number of StacksBlock and NakamotoBlocks preceding
@@ -311,6 +323,9 @@ pub struct NakamotoBlockHeader {
     pub miner_signature: MessageSignature,
     /// Schnorr signature over the block header from the signer set active during the tenure.
     pub signer_signature: ThresholdSignature,
+    /// A bitvec which represents the signers that participated in this block signature.
+    /// The maximum number of entries in the bitvec is 4000.
+    pub signer_bitvec: BitVec<4000>,
 }
 
 impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
@@ -328,6 +343,7 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
         let state_index_root = row.get("state_index_root")?;
         let signer_signature = row.get("signer_signature")?;
         let miner_signature = row.get("miner_signature")?;
+        let signer_bitvec = row.get("signer_bitvec")?;
 
         Ok(NakamotoBlockHeader {
             version,
@@ -339,11 +355,12 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
             state_index_root,
             signer_signature,
             miner_signature,
+            signer_bitvec,
         })
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
     pub txs: Vec<StacksTransaction>,
@@ -362,6 +379,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
         write_next(fd, &self.signer_signature)?;
+        write_next(fd, &self.signer_bitvec)?;
 
         Ok(())
     }
@@ -377,6 +395,7 @@ impl StacksMessageCodec for NakamotoBlockHeader {
             state_index_root: read_next(fd)?,
             miner_signature: read_next(fd)?,
             signer_signature: read_next(fd)?,
+            signer_bitvec: read_next(fd)?,
         })
     }
 }
@@ -384,7 +403,21 @@ impl StacksMessageCodec for NakamotoBlockHeader {
 impl NakamotoBlockHeader {
     /// Calculate the message digest for miners to sign.
     /// This includes all fields _except_ the signatures.
-    pub fn signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+    pub fn miner_signature_hash(&self) -> Sha512Trunc256Sum {
+        self.miner_signature_hash_inner()
+            .expect("BUG: failed to calculate miner signature hash")
+    }
+
+    /// Calculate the message digest for signers to sign.
+    /// This includes all fields _except_ the signer signature.
+    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+        self.signer_signature_hash_inner()
+            .expect("BUG: failed to calculate signer signature hash")
+    }
+
+    /// Inner calculation of the message digest for miners to sign.
+    /// This includes all fields _except_ the signatures.
+    fn miner_signature_hash_inner(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
         let fd = &mut hasher;
         write_next(fd, &self.version)?;
@@ -397,9 +430,9 @@ impl NakamotoBlockHeader {
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
-    /// Calculate the message digest for stackers to sign.
+    /// Inner calculation of the message digest for stackers to sign.
     /// This includes all fields _except_ the stacker signature.
-    pub fn signer_signature_hash(&self) -> Result<Sha512Trunc256Sum, CodecError> {
+    fn signer_signature_hash_inner(&self) -> Result<Sha512Trunc256Sum, CodecError> {
         let mut hasher = Sha512_256::new();
         let fd = &mut hasher;
         write_next(fd, &self.version)?;
@@ -410,11 +443,12 @@ impl NakamotoBlockHeader {
         write_next(fd, &self.tx_merkle_root)?;
         write_next(fd, &self.state_index_root)?;
         write_next(fd, &self.miner_signature)?;
+        write_next(fd, &self.signer_bitvec)?;
         Ok(Sha512Trunc256Sum::from_hasher(hasher))
     }
 
     pub fn recover_miner_pk(&self) -> Option<StacksPublicKey> {
-        let signed_hash = self.signature_hash().ok()?;
+        let signed_hash = self.miner_signature_hash();
         let recovered_pk =
             StacksPublicKey::recover_to_pubkey(signed_hash.bits(), &self.miner_signature).ok()?;
 
@@ -436,7 +470,7 @@ impl NakamotoBlockHeader {
 
     /// Sign the block header by the miner
     pub fn sign_miner(&mut self, privk: &StacksPrivateKey) -> Result<(), ChainstateError> {
-        let sighash = self.signature_hash()?.0;
+        let sighash = self.miner_signature_hash().0;
         let sig = privk
             .sign(&sighash)
             .map_err(|se| net_error::SigningError(se.to_string()))?;
@@ -461,7 +495,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -476,7 +511,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 
@@ -491,7 +527,8 @@ impl NakamotoBlockHeader {
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             miner_signature: MessageSignature::empty(),
-            signer_signature: ThresholdSignature::mock(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).expect("BUG: bitvec of length-1 failed to construct"),
         }
     }
 }
@@ -576,13 +613,9 @@ impl NakamotoBlock {
 
         // there is one coinbase.
         // go find it.
-        self.txs.iter().find(|tx| {
-            if let TransactionPayload::Coinbase(..) = &tx.payload {
-                true
-            } else {
-                false
-            }
-        })
+        self.txs
+            .iter()
+            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)))
     }
 
     /// Get the VRF proof from this block.
@@ -1050,7 +1083,7 @@ impl NakamotoBlock {
             .map_err(|e| {
                 warn!(
                     "Leader key did not contain a hash160 of the miner signing public key";
-                    "leader_key" => format!("{:?}", &leader_key),
+                    "leader_key" => ?leader_key,
                 );
                 e
             })?;
@@ -1567,7 +1600,7 @@ impl NakamotoChainState {
                 "Invalid Nakamoto block, could not validate on burnchain";
                 "consensus_hash" => %consensus_hash,
                 "block_hash" => %block_hash,
-                "error" => format!("{:?}", &e)
+                "error" => ?e
             );
 
             return Err(e);
@@ -1699,7 +1732,7 @@ impl NakamotoChainState {
         ) {
             warn!("Unacceptable Nakamoto block; will not store";
                   "block_id" => %block.block_id(),
-                  "error" => format!("{:?}", &e)
+                  "error" => ?e
             );
             return Ok(false);
         };
@@ -1708,7 +1741,7 @@ impl NakamotoChainState {
         if !db_handle.expects_signer_signature(
             &block.header.consensus_hash,
             schnorr_signature,
-            &block.header.signer_signature_hash()?.0,
+            &block.header.signer_signature_hash().0,
             aggregate_public_key,
         )? {
             let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
@@ -1793,6 +1826,274 @@ impl NakamotoChainState {
                     })
             }
         }
+    }
+
+    fn get_reward_slots(
+        clarity: &mut ClarityTransactionConnection,
+        reward_cycle: u64,
+        pox_contract: &str,
+    ) -> Result<Vec<RawRewardSetEntry>, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        if !matches!(
+            PoxVersions::lookup_by_name(pox_contract),
+            Some(PoxVersions::Pox4)
+        ) {
+            error!("Invoked Nakamoto reward-set fetch on non-pox-4 contract");
+            return Err(ChainstateError::DefunctPoxContract);
+        }
+        let pox_contract = &boot_code_id(pox_contract, is_mainnet);
+
+        let list_length = clarity
+            .eval_method_read_only(
+                pox_contract,
+                "get-reward-set-size",
+                &[SymbolicExpression::atom_value(Value::UInt(
+                    reward_cycle.into(),
+                ))],
+            )?
+            .expect_u128();
+
+        let mut slots = vec![];
+        for index in 0..list_length {
+            let entry = clarity
+                .eval_method_read_only(
+                    pox_contract,
+                    "get-reward-set-pox-address",
+                    &[
+                        SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
+                        SymbolicExpression::atom_value(Value::UInt(index)),
+                    ],
+                )?
+                .expect_optional()
+                .expect(&format!(
+                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                    index, list_length, reward_cycle
+                ))
+                .expect_tuple();
+
+            let pox_addr_tuple = entry
+                .get("pox-addr")
+                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
+                .to_owned();
+
+            let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
+                .expect(&format!(
+                    "FATAL: not a valid PoX address: {:?}",
+                    &pox_addr_tuple
+                ));
+
+            let total_ustx = entry
+                .get("total-ustx")
+                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
+                .to_owned()
+                .expect_u128();
+
+            let stacker = entry
+                .get("stacker")
+                .expect(&format!(
+                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, index
+                ))
+                .to_owned()
+                .expect_optional()
+                .map(|value| value.expect_principal());
+
+            let signer = entry
+                .get("signer")
+                .expect(&format!(
+                    "FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, index
+                ))
+                .to_owned()
+                .expect_buff(SIGNERS_PK_LEN);
+            // (buff 33) only enforces max size, not min size, so we need to do a len check
+            let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
+                let mut bytes = [0; SIGNERS_PK_LEN];
+                bytes.copy_from_slice(signer.as_slice());
+                bytes
+            } else {
+                [0; SIGNERS_PK_LEN]
+            };
+
+            slots.push(RawRewardSetEntry {
+                reward_address,
+                amount_stacked: total_ustx,
+                stacker,
+                signer: Some(pk_bytes),
+            })
+        }
+
+        Ok(slots)
+    }
+
+    pub fn handle_signer_stackerdb_update(
+        clarity: &mut ClarityTransactionConnection,
+        pox_constants: &PoxConstants,
+        reward_cycle: u64,
+        pox_contract: &str,
+    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
+        let is_mainnet = clarity.is_mainnet();
+        let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
+        let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
+
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx());
+        let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
+        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
+            &pox_constants,
+            &reward_slots[..],
+            liquid_ustx,
+        );
+        let reward_set =
+            StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
+
+        let signers_list = if participation == 0 {
+            vec![]
+        } else {
+            reward_set
+                .signers
+                .ok_or(ChainstateError::PoxNoRewardCycle)?
+                .iter()
+                .map(|signer| {
+                    let signer_hash = Hash160::from_data(&signer.signing_key);
+                    let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
+                    Value::Tuple(
+                        TupleData::from_data(vec![
+                            (
+                                "signer".into(),
+                                Value::Principal(PrincipalData::from(signing_address)),
+                            ),
+                            ("num-slots".into(), Value::UInt(signer.slots.into())),
+                        ])
+                            .expect(
+                                "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
+                            ),
+                    )
+                })
+                .collect()
+        };
+        if signers_list.len() > SIGNERS_MAX_LIST_SIZE {
+            panic!(
+                "FATAL: signers list returned by reward set calculations longer than maximum ({} > {})",
+                signers_list.len(),
+                SIGNERS_MAX_LIST_SIZE,
+            );
+        }
+
+        let args = [
+            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).expect(
+                "BUG: Failed to construct `(list 4000 { signer: principal, num-slots: u64 })` list",
+            )),
+            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
+        ];
+
+        let (value, _, events, _) = clarity
+            .with_abort_callback(
+                |vm_env| {
+                    vm_env.execute_in_env(sender_addr.clone(), None, None, |env| {
+                        env.execute_contract_allow_private(
+                            &signers_contract,
+                            "stackerdb-set-signer-slots",
+                            &args,
+                            false,
+                        )
+                    })
+                },
+                |_, _| false,
+            )
+            .expect("FATAL: failed to update signer stackerdb");
+
+        if let Value::Response(ref data) = value {
+            if !data.committed {
+                error!(
+                    "Error while updating .signers contract";
+                    "reward_cycle" => reward_cycle,
+                    "cc_response" => %value,
+                );
+                panic!();
+            }
+        }
+
+        Ok(events)
+    }
+
+    pub fn check_and_handle_prepare_phase_start(
+        clarity_tx: &mut ClarityTx,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+        burn_tip_height: u64,
+    ) -> Result<Vec<StacksTransactionEvent>, ChainstateError> {
+        let current_epoch = clarity_tx.get_epoch();
+        if current_epoch < StacksEpochId::Epoch25 {
+            // before Epoch-2.5, no need for special handling
+            return Ok(vec![]);
+        }
+        // now, determine if we are in a prepare phase, and we are the first
+        //  block in this prepare phase in our fork
+        if !pox_constants.is_in_prepare_phase(first_block_height, burn_tip_height) {
+            // if we're not in a prepare phase, don't need to do anything
+            return Ok(vec![]);
+        }
+
+        let Some(cycle_of_prepare_phase) =
+            pox_constants.reward_cycle_of_prepare_phase(first_block_height, burn_tip_height)
+        else {
+            // if we're not in a prepare phase, don't need to do anything
+            return Ok(vec![]);
+        };
+
+        let active_pox_contract = pox_constants.active_pox_contract(burn_tip_height);
+        if !matches!(
+            PoxVersions::lookup_by_name(active_pox_contract),
+            Some(PoxVersions::Pox4)
+        ) {
+            debug!(
+                "Active PoX contract is not PoX-4, skipping .signers updates until PoX-4 is active"
+            );
+            return Ok(vec![]);
+        }
+
+        let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
+
+        // are we the first block in the prepare phase in our fork?
+        let needs_update = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
+            if !clarity_db.has_contract(signers_contract) {
+                // if there's no signers contract, no need to update anything.
+                return false
+            }
+            let Ok(value) = clarity_db.lookup_variable_unknown_descriptor(
+                signers_contract,
+                SIGNERS_UPDATE_STATE,
+                &current_epoch,
+            ) else {
+                error!("FATAL: Failed to read `{SIGNERS_UPDATE_STATE}` variable from .signers contract");
+                panic!();
+            };
+            let cycle_number = value.expect_u128();
+            // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
+            //  the .signers state.
+            cycle_number < cycle_of_prepare_phase.into()
+        });
+
+        if !needs_update {
+            debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
+            return Ok(vec![]);
+        }
+
+        info!(
+            "Performing .signers state update";
+            "burn_height" => burn_tip_height,
+            "for_cycle" => cycle_of_prepare_phase,
+            "signers_contract" => %signers_contract,
+        );
+
+        clarity_tx.connection().as_free_transaction(|clarity| {
+            Self::handle_signer_stackerdb_update(
+                clarity,
+                &pox_constants,
+                cycle_of_prepare_phase,
+                active_pox_contract,
+            )
+        })
     }
 
     /// Get the aggregate public key for a block.
@@ -2164,8 +2465,9 @@ impl NakamotoChainState {
             total_tenure_cost,
             &tenure_tx_fees.to_string(),
             &header.parent_block_id,
-            if tenure_changed { &1i64 } else { &0 },
+            if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
+            &header.signer_bitvec,
         ];
 
         chainstate_tx.execute(
@@ -2185,8 +2487,10 @@ impl NakamotoChainState {
                      tenure_tx_fees,
                      parent_block_id,
                      tenure_changed,
-                     vrf_proof)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                     vrf_proof,
+                     signer_bitvec
+                    )
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             args
         )?;
 
@@ -2382,7 +2686,7 @@ impl NakamotoChainState {
         pox_constants: &PoxConstants,
         parent_consensus_hash: ConsensusHash,
         parent_header_hash: BlockHeaderHash,
-        parent_stacks_height: u64,
+        _parent_stacks_height: u64,
         parent_burn_height: u32,
         burn_header_hash: BurnchainHeaderHash,
         burn_header_height: u32,
@@ -2435,7 +2739,7 @@ impl NakamotoChainState {
                 Self::calculate_matured_miner_rewards(
                     &mut clarity_tx,
                     sortition_dbconn.sqlite_conn(),
-                    parent_stacks_height,
+                    coinbase_height,
                     matured_rewards_schedule,
                 )
             })
@@ -2532,6 +2836,16 @@ impl NakamotoChainState {
                 pox_constants,
                 burn_header_height.into(),
             );
+        }
+
+        // Handle signer stackerdb updates
+        if evaluated_epoch >= StacksEpochId::Epoch25 {
+            let _events = Self::check_and_handle_prepare_phase_start(
+                &mut clarity_tx,
+                first_block_height,
+                &pox_constants,
+                burn_header_height.into(),
+            )?;
         }
 
         debug!(
@@ -3049,6 +3363,123 @@ impl NakamotoChainState {
         NakamotoChainState::set_block_processed(&chainstate_tx, &new_block_id)?;
 
         Ok((epoch_receipt, clarity_commit))
+    }
+
+    /// Create a StackerDB config for the .miners contract.
+    /// It has two slots -- one for the past two sortition winners.
+    pub fn make_miners_stackerdb_config(
+        sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
+    ) -> Result<StackerDBConfig, ChainstateError> {
+        let ih = sortdb.index_handle(&tip.sortition_id);
+        let last_winner_snapshot = ih.get_last_snapshot_with_sortition(tip.block_height)?;
+        let parent_winner_snapshot = ih.get_last_snapshot_with_sortition(
+            last_winner_snapshot.block_height.saturating_sub(1),
+        )?;
+
+        let mut miner_key_hash160s = vec![];
+
+        // go get their corresponding leader keys, but preserve the miner's relative position in
+        // the stackerdb signer list -- if a miner was in slot 0, then it should stay in slot 0
+        // after a sortition (and vice versa for 1)
+        let sns = if last_winner_snapshot.num_sortitions % 2 == 0 {
+            [last_winner_snapshot, parent_winner_snapshot]
+        } else {
+            [parent_winner_snapshot, last_winner_snapshot]
+        };
+
+        for sn in sns {
+            // find the commit
+            let Some(block_commit) =
+                ih.get_block_commit_by_txid(&sn.sortition_id, &sn.winning_block_txid)?
+            else {
+                warn!(
+                    "No block commit for {} in sortition for {}",
+                    &sn.winning_block_txid, &sn.consensus_hash
+                );
+                return Err(ChainstateError::InvalidStacksBlock(
+                    "No block-commit in sortition for block's consensus hash".into(),
+                ));
+            };
+
+            // key register of the winning miner
+            let leader_key = ih
+                .get_leader_key_at(
+                    u64::from(block_commit.key_block_ptr),
+                    u32::from(block_commit.key_vtxindex),
+                )?
+                .expect("FATAL: have block commit but no leader key");
+
+            // the leader key should always be valid (i.e. the unwrap_or() should be unreachable),
+            // but be defensive and just use the "null" address
+            miner_key_hash160s.push(
+                leader_key
+                    .interpret_nakamoto_signing_key()
+                    .unwrap_or(Hash160([0x00; 20])),
+            );
+        }
+
+        let signers = miner_key_hash160s
+            .into_iter()
+            .map(|hash160|
+                // each miner gets one slot
+                (
+                    StacksAddress {
+                        version: 1, // NOTE: the version is ignored in stackerdb; we only care about the hashbytes
+                        bytes: hash160
+                    },
+                    1
+                ))
+            .collect();
+
+        Ok(StackerDBConfig {
+            chunk_size: MAX_PAYLOAD_LEN.into(),
+            signers,
+            write_freq: 5,
+            max_writes: u32::MAX,  // no limit on number of writes
+            max_neighbors: 200, // TODO: const -- just has to be equal to or greater than the number of signers
+            hint_replicas: vec![], // TODO: is there a way to get the IP addresses of stackers' preferred nodes?
+        })
+    }
+
+    /// Get the slot number for the given miner's public key.
+    /// Returns Some(u32) if the miner is in the StackerDB config.
+    /// Returns None if the miner is not in the StackerDB config.
+    /// Returns an error if the miner is in the StackerDB config but the slot number is invalid.
+    pub fn get_miner_slot(
+        sortdb: &SortitionDB,
+        tip: &BlockSnapshot,
+        miner_pubkey: &StacksPublicKey,
+    ) -> Result<Option<u32>, ChainstateError> {
+        let miner_hash160 = Hash160::from_node_public_key(&miner_pubkey);
+        let stackerdb_config = Self::make_miners_stackerdb_config(sortdb, &tip)?;
+
+        // find out which slot we're in
+        let Some(slot_id_res) =
+            stackerdb_config
+                .signers
+                .iter()
+                .enumerate()
+                .find_map(|(i, (addr, _))| {
+                    if addr.bytes == miner_hash160 {
+                        Some(u32::try_from(i).map_err(|_| {
+                            CodecError::OverflowError(
+                                "stackerdb config slot ID cannot fit into u32".into(),
+                            )
+                        }))
+                    } else {
+                        None
+                    }
+                })
+        else {
+            // miner key does not match any slot
+            warn!("Miner is not in the miners StackerDB config";
+                  "miner" => %miner_hash160,
+                  "stackerdb_slots" => format!("{:?}", &stackerdb_config.signers));
+
+            return Ok(None);
+        };
+        Ok(Some(slot_id_res?))
     }
 
     /// Boot code instantiation for the aggregate public key.
