@@ -1502,7 +1502,7 @@ fn make_fork_run_with_arrivals(
 #[test]
 pub fn test_get_highest_nakamoto_tenure() {
     let test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None);
+    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None, None);
 
     // extract chainstate and sortdb -- we don't need the peer anymore
     let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
@@ -1644,7 +1644,7 @@ pub fn test_get_highest_nakamoto_tenure() {
 #[test]
 fn test_make_miners_stackerdb_config() {
     let test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None);
+    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None, None);
 
     let naka_miner_hash160 = peer.miner.nakamoto_miner_hash160();
     let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::new()).collect();

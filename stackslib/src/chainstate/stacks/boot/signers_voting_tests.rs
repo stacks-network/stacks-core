@@ -17,6 +17,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
+use clarity::boot_util::boot_code_addr;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::contracts::Contract;
@@ -47,9 +48,13 @@ use wsts::curve::point::{Compressed, Point};
 use super::test::*;
 use super::RawRewardSetEntry;
 use crate::burnchains::{Burnchain, PoxConstants};
-use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::db::sortdb::{self, SortitionDB};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
+use crate::chainstate::nakamoto::tests::get_account;
+use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
     check_pox_print_event, generate_pox_clarity_value, get_reward_set_entries_at,
@@ -59,8 +64,9 @@ use crate::chainstate::stacks::boot::pox_2_tests::{
 use crate::chainstate::stacks::boot::pox_4_tests::{
     assert_latest_was_burn, get_last_block_sender_transactions, get_tip, make_test_epochs_pox,
 };
+use crate::chainstate::stacks::boot::signers_tests::prepare_signers_test;
 use crate::chainstate::stacks::boot::{
-    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET, SIGNERS_NAME,
     SIGNERS_VOTING_NAME,
 };
 use crate::chainstate::stacks::db::{
@@ -70,7 +76,7 @@ use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOri
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::tests::make_coinbase;
-use crate::chainstate::stacks::*;
+use crate::chainstate::{self, stacks::*};
 use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::HeadersDBConn;
@@ -131,10 +137,18 @@ pub fn prepare_pox4_test<'a>(
 
 #[test]
 fn vote_for_aggregate_public_key() {
+    let stacker_1 = TestStacker::from_seed(&[3, 4]);
+    let stacker_2 = TestStacker::from_seed(&[5, 6]);
     let observer = TestEventObserver::new();
 
-    let (burnchain, mut peer, keys, latest_block_id, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), Some(&observer));
+    let signer = key_to_stacks_addr(&stacker_1.signer_private_key).to_account_principal();
+
+    let (mut peer, mut test_signers, latest_block_id) = prepare_signers_test(
+        function_name!(),
+        vec![(signer, 1000)],
+        Some(vec![&stacker_1, &stacker_2]),
+        Some(&observer),
+    );
 
     let current_reward_cycle = readonly_call(
         &mut peer,
@@ -145,76 +159,206 @@ fn vote_for_aggregate_public_key() {
     )
     .expect_u128();
 
-    assert_eq!(current_reward_cycle, 22);
+    assert_eq!(current_reward_cycle, 7);
 
-    let mut signer_nonce = 0;
-    let signer_key = &keys[0];
+    let last_set_cycle = readonly_call(
+        &mut peer,
+        &latest_block_id,
+        SIGNERS_NAME.into(),
+        "stackerdb-get-last-set-cycle".into(),
+        vec![],
+    )
+    .expect_result_ok()
+    .expect_u128();
+
+    assert_eq!(last_set_cycle, 7);
+
+    let signer_nonce = 0;
+    let signer_key = &stacker_1.signer_private_key;
     let signer_address = key_to_stacks_addr(signer_key);
     let signer_principal = PrincipalData::from(signer_address);
     let cycle_id = current_reward_cycle;
+
+    let signers = readonly_call(
+        &mut peer,
+        &latest_block_id,
+        "signers".into(),
+        "stackerdb-get-signer-slots".into(),
+        vec![],
+    )
+    .expect_result_ok()
+    .expect_list();
+
+    let signer_index = signers
+        .iter()
+        .position(|value| {
+            value
+                .clone()
+                .expect_tuple()
+                .get("signer")
+                .unwrap()
+                .clone()
+                .expect_principal()
+                == signer_address.to_account_principal()
+        })
+        .expect("signer not found") as u128;
+
     let aggregated_public_key: Point = Point::new();
 
-    // cast a vote for the aggregate public key
-    let txs = vec![make_signers_vote_for_aggregate_public_key(
-        signer_key,
-        signer_nonce,
-        &aggregated_public_key,
-        cycle_id,
-        0,
-    )];
+    let mut stacker_1_nonce: u64 = 1;
+    let dummy_tx_1 = make_dummy_tx(
+        &mut peer,
+        &stacker_1.stacker_private_key,
+        &mut stacker_1_nonce,
+    );
+    let dummy_tx_2 = make_dummy_tx(
+        &mut peer,
+        &stacker_1.stacker_private_key,
+        &mut stacker_1_nonce,
+    );
+    let dummy_tx_3 = make_dummy_tx(
+        &mut peer,
+        &stacker_1.stacker_private_key,
+        &mut stacker_1_nonce,
+    );
+    let dummy_tx_4 = make_dummy_tx(
+        &mut peer,
+        &stacker_1.stacker_private_key,
+        &mut stacker_1_nonce,
+    );
+    let dummy_tx_5 = make_dummy_tx(
+        &mut peer,
+        &stacker_1.stacker_private_key,
+        &mut stacker_1_nonce,
+    );
+    let dummy_tx_6 = make_dummy_tx(
+        &mut peer,
+        &stacker_1.stacker_private_key,
+        &mut stacker_1_nonce,
+    );
 
-    let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
-    let tx_receipts = get_last_block_sender_transactions(&observer, signer_address);
-    assert_eq!(tx_receipts.len(), 1);
+    let txs = vec![
+        // cast a vote for the aggregate public key
+        make_signers_vote_for_aggregate_public_key(
+            signer_key,
+            signer_nonce,
+            signer_index,
+            &aggregated_public_key,
+            0,
+        ),
+        // cast the vote twice
+        make_signers_vote_for_aggregate_public_key(
+            signer_key,
+            signer_nonce + 1,
+            signer_index,
+            &aggregated_public_key,
+            0,
+        ),
+    ];
+
+    let txids: Vec<Txid> = txs.clone().iter().map(|t| t.txid()).collect();
+    dbg!(txids);
+
+    //
+    // vote in the last burn block of prepare phase
+    //
+
+    nakamoto_tenure(
+        &mut peer,
+        &mut test_signers,
+        vec![vec![dummy_tx_1]],
+        signer_key,
+    );
+
+    nakamoto_tenure(
+        &mut peer,
+        &mut test_signers,
+        vec![vec![dummy_tx_2]],
+        signer_key,
+    );
+
+    // vote now
+    let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs], signer_key);
+    let block = observer.get_blocks().last().unwrap().clone();
+    let receipts = block.receipts.as_slice();
+    assert_eq!(receipts.len(), 2);
+    // ignore tenure change tx
+    // ignore coinbase tx
+    let tx1 = &receipts[receipts.len() - 2];
     assert_eq!(
-        tx_receipts[0].result,
+        tx1.result,
         Value::Response(ResponseData {
             committed: true,
             data: Box::new(Value::Bool(true))
         })
     );
 
-    signer_nonce += 1;
-
-    // cast same vote twice
-    let txs = vec![make_signers_vote_for_aggregate_public_key(
-        signer_key,
-        signer_nonce,
-        &aggregated_public_key,
-        cycle_id,
-        0,
-    )];
-
-    let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
-    let tx_receipts = get_last_block_sender_transactions(&observer, signer_address);
-    assert_eq!(tx_receipts.len(), 1);
+    let tx2 = &receipts[receipts.len() - 1];
     assert_eq!(
-        tx_receipts[0].result,
+        tx2.result,
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::UInt(10005)) // err-duplicate-vote
+            data: Box::new(Value::UInt(10006)) // err-duplicate-vote
         })
     );
+}
 
-    signer_nonce += 1;
+fn nakamoto_tenure(
+    peer: &mut TestPeer,
+    test_signers: &mut TestSigners,
+    txs_of_blocks: Vec<Vec<StacksTransaction>>,
+    stacker_private_key: &StacksPrivateKey,
+) -> Vec<(NakamotoBlock, u64, ExecutionCost)> {
+    let current_height = peer.get_burnchain_view().unwrap().burn_block_height;
 
-    // cast vote too late
-    let txs = vec![make_signers_vote_for_aggregate_public_key(
-        signer_key,
-        signer_nonce,
-        &aggregated_public_key,
-        cycle_id - 1,
-        0,
-    )];
+    info!("current height: {}", current_height);
 
-    let latest_block_id = peer.tenure_with_txs(&txs, &mut coinbase_nonce);
-    let tx_receipts = get_last_block_sender_transactions(&observer, signer_address);
-    assert_eq!(tx_receipts.len(), 1);
-    assert_eq!(
-        tx_receipts[0].result,
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::UInt(10001)) // err-incorrect-reward-cycle
-        })
+    let (burn_ops, mut tenure_change, miner_key) =
+        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+
+    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
+
+    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+
+    tenure_change.tenure_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+    let tenure_change_tx = peer
+        .miner
+        .make_nakamoto_tenure_change(tenure_change.clone());
+    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+    let recipient_addr = boot_code_addr(false);
+    let mut mutable_txs_of_blocks = txs_of_blocks.clone();
+    mutable_txs_of_blocks.reverse();
+    let blocks_and_sizes = peer.make_nakamoto_tenure(
+        tenure_change_tx,
+        coinbase_tx.clone(),
+        test_signers,
+        |miner, chainstate, sortdb, blocks| mutable_txs_of_blocks.pop().unwrap_or(vec![]),
     );
+    info!("tenure length {}", blocks_and_sizes.len());
+    blocks_and_sizes
+}
+
+fn make_dummy_tx(
+    peer: &mut TestPeer,
+    private_key: &StacksPrivateKey,
+    nonce: &mut u64,
+) -> StacksTransaction {
+    peer.with_db_state(|sortdb, chainstate, _, _| {
+        let addr = key_to_stacks_addr(&private_key);
+        let account = get_account(chainstate, sortdb, &addr);
+        let recipient_addr = boot_code_addr(false);
+        let stx_transfer = make_token_transfer(
+            chainstate,
+            sortdb,
+            &private_key,
+            *nonce,
+            1,
+            1,
+            &recipient_addr,
+        );
+        *nonce += 1;
+        Ok(stx_transfer)
+    })
+    .unwrap()
 }

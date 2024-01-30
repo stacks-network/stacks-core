@@ -197,8 +197,12 @@ fn signers_get_signer_keys_from_stackerdb() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
     let stacker_2 = TestStacker::from_seed(&[5, 6]);
 
-    let (mut peer, test_signers, latest_block_id) =
-        prepare_signers_test(function_name!(), Some(vec![&stacker_1, &stacker_2]));
+    let (mut peer, test_signers, latest_block_id) = prepare_signers_test(
+        function_name!(),
+        vec![],
+        Some(vec![&stacker_1, &stacker_2]),
+        None,
+    );
 
     let private_key = peer.config.private_key.clone();
 
@@ -239,13 +243,21 @@ fn signers_get_signer_keys_from_stackerdb() {
     assert_eq!(signers, expected_stackerdb_slots);
 }
 
-fn prepare_signers_test<'a>(
+pub fn prepare_signers_test<'a>(
     test_name: &str,
+    initial_balances: Vec<(PrincipalData, u64)>,
     stackers: Option<Vec<&TestStacker>>,
+    observer: Option<&'a TestEventObserver>,
 ) -> (TestPeer<'a>, TestSigners, StacksBlockId) {
     let mut test_signers = TestSigners::default();
 
-    let mut peer = boot_nakamoto(test_name, vec![], &test_signers, stackers);
+    let mut peer = boot_nakamoto(
+        test_name,
+        initial_balances,
+        &test_signers,
+        stackers,
+        observer,
+    );
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);

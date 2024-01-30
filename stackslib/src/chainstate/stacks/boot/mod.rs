@@ -1884,8 +1884,8 @@ pub mod test {
     pub fn make_signers_vote_for_aggregate_public_key(
         key: &StacksPrivateKey,
         nonce: u64,
+        signer_index: u128,
         aggregate_public_key: &Point,
-        reward_cycle: u128,
         round: u128,
     ) -> StacksTransaction {
         let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
@@ -1895,13 +1895,14 @@ pub mod test {
             SIGNERS_VOTING_NAME,
             "vote-for-aggregate-public-key",
             vec![
+                Value::UInt(signer_index),
                 aggregate_public_key,
-                Value::UInt(reward_cycle),
                 Value::UInt(round),
             ],
         )
         .unwrap();
-        make_tx(key, nonce, 0, payload)
+        // TODO set tx_fee back to 0 once these txs are free
+        make_tx(key, nonce, 1, payload)
     }
 
     pub fn make_pox_2_increase(

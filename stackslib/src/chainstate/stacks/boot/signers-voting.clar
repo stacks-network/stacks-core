@@ -67,17 +67,23 @@
 (define-read-only (is-valid-aggregated-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
     (is-eq (default-to dkg-id (map-get? used-aggregate-public-keys key)) dkg-id))
 
+(define-read-only (is-in-prepare-phase (height uint))
+    (< (mod (+ (- height (get first-burnchain-block-height pox-info))
+                (get prepare-cycle-length pox-info))
+             (get reward-cycle-length pox-info)
+            )
+        (get prepare-cycle-length pox-info)))
+
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers stackerdb-get-last-set-cycle))))
         (and (is-eq last-cycle reward-cycle)
-            (< (mod (- height (get first-burnchain-block-height pox-info)) (get reward-cycle-length pox-info))
-                (get prepare-cycle-length pox-info)))))
+            (is-in-prepare-phase height))))
 
 (define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint))
-    (let ((reward-cycle (burn-height-to-reward-cycle burn-block-height))
+    (let ((reward-cycle (+ u1 (burn-height-to-reward-cycle burn-block-height)))
             (tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; one slot, one vote
-            (num-slots (try! (try! (get-signer-slots signer-index reward-cycle))))
+            (num-slots (try! (get-current-signer-slots signer-index)))
             (new-total (+ num-slots (default-to u0 (map-get? tally tally-key)))))
         (asserts! (is-in-voting-window burn-block-height reward-cycle) err-out-of-voting-window)
         (asserts! (>= round (default-to u0 (map-get? rounds reward-cycle))) err-old-round)

@@ -105,6 +105,7 @@ pub fn boot_nakamoto<'a>(
     mut initial_balances: Vec<(PrincipalData, u64)>,
     test_signers: &TestSigners,
     test_stackers: Option<Vec<&TestStacker>>,
+    observer: Option<&'a TestEventObserver>,
 ) -> TestPeer<'a> {
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
     let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
@@ -151,7 +152,7 @@ pub fn boot_nakamoto<'a>(
         .map(|test_stacker| {
             (
                 PrincipalData::from(key_to_stacks_addr(&test_stacker.stacker_private_key)),
-                u64::try_from(test_stacker.amount).expect("Stacking amount too large"),
+                u64::try_from(test_stacker.amount + 10000).expect("Stacking amount too large"),
             )
         })
         .collect();
@@ -163,7 +164,7 @@ pub fn boot_nakamoto<'a>(
     peer_config.burnchain.pox_constants.v3_unlock_height = 27;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
     peer_config.test_stackers = Some(test_stackers.clone());
-    let mut peer = TestPeer::new(peer_config);
+    let mut peer = TestPeer::new_with_observer(peer_config, observer);
 
     advance_to_nakamoto(&mut peer, &test_signers, test_stackers);
 
@@ -296,7 +297,7 @@ fn replay_reward_cycle(
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
     let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None);
+    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None, None);
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -356,6 +357,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
+        None,
         None,
     );
 
@@ -478,6 +480,7 @@ fn test_nakamoto_chainstate_getters() {
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
+        None,
         None,
     );
 
@@ -969,6 +972,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
         vec![(addr.into(), 100_000_000)],
         &test_signers,
         None,
+        None,
     );
 
     let mut all_blocks = vec![];
@@ -1289,6 +1293,7 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
+        None,
         None,
     );
 
@@ -1618,6 +1623,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
+        None,
         None,
     );
 
