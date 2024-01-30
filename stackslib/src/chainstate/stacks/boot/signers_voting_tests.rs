@@ -139,7 +139,7 @@ fn vote_for_aggregate_public_key() {
     let current_reward_cycle = readonly_call(
         &mut peer,
         &latest_block_id,
-        POX_4_VOTE_NAME.into(),
+        SIGNERS_VOTING_NAME.into(),
         "current-reward-cycle".into(),
         vec![],
     )
@@ -155,7 +155,7 @@ fn vote_for_aggregate_public_key() {
     let aggregated_public_key: Point = Point::new();
 
     // cast a vote for the aggregate public key
-    let txs = vec![make_pox_4_vote_for_aggregate_public_key(
+    let txs = vec![make_signers_vote_for_aggregate_public_key(
         signer_key,
         signer_nonce,
         &aggregated_public_key,
@@ -177,7 +177,7 @@ fn vote_for_aggregate_public_key() {
     signer_nonce += 1;
 
     // cast same vote twice
-    let txs = vec![make_pox_4_vote_for_aggregate_public_key(
+    let txs = vec![make_signers_vote_for_aggregate_public_key(
         signer_key,
         signer_nonce,
         &aggregated_public_key,
@@ -199,7 +199,7 @@ fn vote_for_aggregate_public_key() {
     signer_nonce += 1;
 
     // cast vote too late
-    let txs = vec![make_pox_4_vote_for_aggregate_public_key(
+    let txs = vec![make_signers_vote_for_aggregate_public_key(
         signer_key,
         signer_nonce,
         &aggregated_public_key,

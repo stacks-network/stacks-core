@@ -1437,7 +1437,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &boot_code_account,
                     ASTRules::PrecheckSize,
                 )
-                .expect("FATAL: Failed to process .miners contract initialization");
+                .expect("FATAL: Failed to process .signers contract initialization");
                 receipt
             });
 
