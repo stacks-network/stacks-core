@@ -66,11 +66,7 @@ impl SelfSigner {
 
     pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
         let mut rng = rand::rngs::OsRng::default();
-        let msg = block
-            .header
-            .signer_signature_hash()
-            .expect("Failed to determine the block header signature hash for signers.")
-            .0;
+        let msg = block.header.signer_signature_hash().0;
         let (nonces, sig_shares, key_ids) =
             wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
 
