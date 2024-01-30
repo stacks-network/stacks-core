@@ -522,7 +522,7 @@ fn stackerdb_dkg_sign() {
 ///
 /// Test Assertion:
 /// Signers return an operation result containing a valid signature across the miner's Nakamoto block's signature hash.
-/// Signers broadcasted a signed NakamotoBlock back to the .signers contract.
+/// Signers broadcasted a signature across the miner's proposed block back to the .signers contract.
 /// TODO: update test to check miner received the signed block and appended it to the chain
 fn stackerdb_block_proposal() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {

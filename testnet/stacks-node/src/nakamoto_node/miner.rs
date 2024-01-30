@@ -20,8 +20,9 @@ use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
+use hashbrown::HashSet;
 use libsigner::{
-    BlockResponse, SignerMessage, SignerSession, StackerDBSession, BLOCK_SLOT_ID,
+    BlockResponse, RejectCode, SignerMessage, SignerSession, StackerDBSession, BLOCK_SLOT_ID,
     SIGNER_SLOTS_PER_USER,
 };
 use stacks::burnchains::{Burnchain, BurnchainParameters};
@@ -33,8 +34,8 @@ use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
-    TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload,
-    TransactionVersion,
+    TenureChangeCause, TenureChangePayload, ThresholdSignature, TransactionAnchorMode,
+    TransactionPayload, TransactionVersion,
 };
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::net::stackerdb::StackerDBs;
@@ -188,11 +189,8 @@ impl BlockMinerThread {
             .expect("FATAL: could not open sortition DB");
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
                 .expect("FATAL: could not retrieve chain tip");
-            if let Some(new_block) = new_block {
-                let signer_signature_hash = new_block
-                    .header
-                    .signer_signature_hash()
-                    .expect("FATAL: failed to mine a block with a valid signer signature hash");
+            if let Some(mut new_block) = new_block {
+                let signer_signature_hash = new_block.header.signer_signature_hash();
 
                 match NakamotoBlockBuilder::make_stackerdb_block_proposal(
                     &sort_db,
@@ -232,12 +230,13 @@ impl BlockMinerThread {
                     &sort_db.index_handle_at_tip(),
                     &new_block,
                 ) {
-                    if let Some(_signed_block) = self.wait_for_signed_block(
+                    if let Some(signature) = self.wait_for_signature(
                         &stackerdbs,
                         &aggregate_public_key,
                         &signer_signature_hash,
                     ) {
-                        // TODO: append the signed block instead of the self signed block
+                        // TODO remove self signing once casting aggregate vote is done
+                        new_block.header.signer_signature = signature;
                     } else {
                         debug!("Failed to get a signed block from signers");
                     }
@@ -270,12 +269,12 @@ impl BlockMinerThread {
         }
     }
 
-    fn wait_for_signed_block(
+    fn wait_for_signature(
         &self,
         stackerdbs: &StackerDBs,
         aggregate_public_key: &Point,
         signer_signature_hash: &Sha512Trunc256Sum,
-    ) -> Option<NakamotoBlock> {
+    ) -> Option<ThresholdSignature> {
         let stackerdb_contracts = stackerdbs
             .get_stackerdb_contract_ids()
             .expect("FATAL: could not get the stacker DB contract ids");
@@ -296,51 +295,66 @@ impl BlockMinerThread {
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
         let rejection_threshold =
             slot_ids.len() / 100 * self.config.miner.signer_rejection_threshold;
-        let mut num_rejections = 0;
+        let mut rejections = HashSet::new();
         let now = Instant::now();
         while now.elapsed() < self.config.miner.wait_on_signers {
             // Get the block responses from the signers for the block we just proposed
-            let signer_messages: Vec<SignerMessage> = stackerdbs
+            let signer_chunks = stackerdbs
                 .get_latest_chunks(&signers_contract_id, &slot_ids)
-                .expect("FATAL: could not get latest chunks from stacker DB")
-                .into_iter()
-                .filter_map(|chunk| {
-                    chunk.and_then(|chunk| bincode::deserialize::<SignerMessage>(&chunk).ok())
+                .expect("FATAL: could not get latest chunks from stacker DB");
+            let signer_messages: Vec<(u32, SignerMessage)> = slot_ids
+                .iter()
+                .zip(signer_chunks.into_iter())
+                .filter_map(|(slot_id, chunk)| {
+                    chunk.and_then(|chunk| {
+                        bincode::deserialize::<SignerMessage>(&chunk)
+                            .ok()
+                            .map(|msg| (*slot_id, msg))
+                    })
                 })
                 .collect();
-            for signer_message in signer_messages {
+            for (signer_id, signer_message) in signer_messages {
                 match signer_message {
-                    SignerMessage::BlockResponse(BlockResponse::Accepted(block)) => {
-                        if block.header.signer_signature_hash().ok()? == *signer_signature_hash
-                            && block
-                                .header
-                                .signer_signature
+                    SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) => {
+                        // First check that this signature is for the block we proposed and that it is valid
+                        if hash == *signer_signature_hash
+                            && signature
+                                .0
                                 .verify(aggregate_public_key, &signer_signature_hash.0)
                         {
-                            // We verified that the returned block contains a valid signature across the signer signature hash of our original block request
-                            // Let's just immediately attempt to append the block without waiting for more signer messages
-                            return Some(block);
+                            // The signature is valid across the signer signature hash of the original proposed block
+                            // Immediately return and update the block with this new signature before appending it to the chain
+                            return Some(signature);
                         }
+                        // We received an accepted block for some unknown block hash...Useless! Ignore it.
+                        // Keep waiting for a threshold number of signers to either reject the proposed block
+                        // or return valid signature to show up across the proposed block
                     }
                     SignerMessage::BlockResponse(BlockResponse::Rejected(block_rejection)) => {
                         // First check that this block rejection is for the block we proposed
-                        if block_rejection.block.header.signer_signature_hash().ok()?
-                            == *signer_signature_hash
+                        if block_rejection.signer_signature_hash != *signer_signature_hash {
+                            // This rejection is not for the block we proposed, so we can ignore it
+                            continue;
+                        }
+                        if let RejectCode::SignedRejection(signature) = block_rejection.reason_code
                         {
-                            let signature = block_rejection.block.header.signer_signature;
                             let mut message = signer_signature_hash.0.to_vec();
                             message.push(b'n');
-                            if signature.verify(aggregate_public_key, &message) {
-                                // We received a verified rejection. We will NEVER get a signed block from the signers for this particular block
+                            if signature.0.verify(aggregate_public_key, &message) {
+                                // A threshold number of signers signed a denial of the proposed block
+                                // Miner will NEVER get a signed block from the signers for this particular block
+                                // Immediately return and attempt to mine a new block
                                 return None;
-                            } else if signature
-                                .verify(aggregate_public_key, &signer_signature_hash.0)
-                            {
-                                // We received an unverified rejection. We will keep waiting for a threshold number of rejections
-                                num_rejections += 1;
-                                if num_rejections > rejection_threshold {
-                                    return None;
-                                }
+                            }
+                        } else {
+                            // We received a rejection that is not signed. We will keep waiting for a threshold number of rejections.
+                            // Ensure that we do not double count a rejection from the same signer.
+                            rejections.insert(signer_id);
+                            if rejections.len() > rejection_threshold {
+                                // A threshold number of signers rejected the proposed block.
+                                // Miner will likely never get a signed block from the signers for this particular block
+                                // Return and attempt to mine a new block
+                                return None;
                             }
                         }
                     }
