@@ -114,11 +114,11 @@ impl Debug for Pong {
 }
 
 impl Packet {
-    // convoluted but respects interfaces.
-    // 1. Single [SignerMessage::slot_id] implementation.
-    // 2. [Pongs] can't be instantiated without consuming a ping.
-    // 3. [SignerMessage::slot_id] does not depend on state thus, use a cheap new Packet with 0 payload.
-    fn slot_id(&self, signer_id: u32) -> u32 {
+    /// convoluted but respects interfaces.
+    /// 1. Single [SignerMessage::slot_id] implementation.
+    /// 2. [Pongs] can't be instantiated without consuming a ping.
+    /// 3. [SignerMessage::slot_id] does not depend on state thus, use a cheap new Packet with 0 payload.
+    pub fn slot_id(&self, signer_id: u32) -> u32 {
         let dummy_msg: SignerMessage = match self {
             Packet::Ping(_) => Ping::new(0).into(),
             Packet::Pong(_) => Ping::new(0).pong().into(),

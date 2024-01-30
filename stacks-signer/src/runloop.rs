@@ -144,6 +144,8 @@ pub struct RunLoop<C> {
     ping_entries: HashMap<u64, Instant>,
     /// Send RTT results back to the pinger thread.
     ping_send: Option<Sender<(u64, Duration)>>,
+    /// Set of processed RTT entries. pong.id() and slot_id.
+    ping_tickets: HashSet<(u64, u32)>,
 }
 
 impl<C: Coordinator> RunLoop<C> {
@@ -719,15 +721,16 @@ impl<C: Coordinator> RunLoop<C> {
                 // Signer won't react to Pongs from Pings not initiated by it.
                 self.ping_entries.get(&id).map(|tick| {
                     let variate = tick.elapsed();
-                    info!("New RTT for id {id}: {:?}", variate);
-                    self.ping_send.as_ref().map(|tx| tx.send((id, variate)));
+                    if self.ping_tickets.insert((id, packet_slot_id)) {
+                        info!("New RTT for id {id}: {:?}", variate);
+                        self.ping_send.as_ref().map(|tx| tx.send((id, variate)));
+                    }
                 });
             }
             LatencyPacket::Ping(ping) => {
                 let _ = self
                     .stackerdb
                     .send_message_with_retry(signer_id, ping.pong().into())
-                    .map(|ack| debug!("ACK: {:?}", ack))
                     .map_err(|e| warn!("Sending RTT probe failed! noop with error: {e}"));
             }
         }
@@ -814,6 +817,7 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             transactions: Vec::new(),
             ping_entries: HashMap::new(),
             ping_send: None,
+            ping_tickets: HashSet::new(),
         }
     }
 }
@@ -926,11 +930,22 @@ mod tests {
     use std::net::TcpListener;
     use std::thread::{sleep, spawn};
 
+    use libstackerdb::StackerDBChunkData;
     use rand::distributions::Standard;
     use rand::Rng;
 
     use super::*;
     use crate::client::stacks_client::tests::{write_response, TestConfig};
+
+    use std::{
+        io::{BufReader, Read, Write},
+        sync::{atomic::AtomicBool, Arc},
+        thread,
+    };
+
+    use assert_matches::assert_matches;
+    use libsigner::PING_SLOT_ID;
+    use libsigner::{ping::is_ping_slot, SignerStopSignaler};
 
     fn generate_random_consensus_hash() -> String {
         let rng = rand::thread_rng();
@@ -1025,29 +1040,6 @@ mod tests {
             "All coordinator public keys should be the same"
         );
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        io::{BufReader, Read, Write},
-        sync::{atomic::AtomicBool, Arc},
-        thread,
-    };
-
-    use assert_matches::assert_matches;
-    use libsigner::SignerStopSignaler;
-    use stacks_common::util::secp256k1::MessageSignature;
-
-    use crate::{
-        client::{
-            tests::{write_response, TestConfig},
-            PING_SLOT_ID,
-        },
-        ping::is_ping_slot,
-    };
-
-    use super::*;
 
     #[test]
     fn ping_command_sent() {
@@ -1115,50 +1107,21 @@ mod tests {
     }
 
     #[test]
-    fn filter_and_process_ping_chunks_skip_signer_message() {
-        let cfg = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let mut run_loop = RunLoop::from(&cfg);
-
-        let slot_id = 0;
-        assert!(!is_ping_slot(slot_id));
-
-        let chunks = vec![StackerDBChunkData {
-            data: bincode::serialize(&[0u8; 0]).unwrap(),
-            slot_id,
-            slot_version: slot_id,
-            sig: MessageSignature::empty(),
-        }];
-
-        // propagate, dont consume chunk
-        assert!(!run_loop.filter_and_process_ping_chunks(&chunks).is_empty());
-    }
-
-    #[test]
-    fn filter_and_process_ping_chunks_filter_own_events() {
+    fn process_ping_packet_filters_own_events() {
         let cfg = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let mut run_loop = RunLoop::from(&cfg);
 
         let slot_id = PING_SLOT_ID;
         assert!(is_ping_slot(slot_id));
 
-        let chunks = {
-            let msg: SignerMessage = Ping::new(0).into();
+        let msg = Ping::new(0).into();
 
-            vec![StackerDBChunkData {
-                data: bincode::serialize(&msg).unwrap(),
-                slot_id,
-                slot_version: 0,
-                sig: MessageSignature::empty(),
-            }]
-        };
-
-        // consume chunk, no side effects
         // doesnt block
-        assert!(run_loop.filter_and_process_ping_chunks(&chunks).is_empty());
+        run_loop.process_ping_packet(msg, slot_id);
     }
 
     #[test]
-    fn filter_and_process_ping_pings() {
+    fn process_ping_packet_pings() {
         let ctx = TestConfig::new();
         let mut cfg = Config::load_from_file("./src/tests/conf/signer-1.toml").unwrap();
         cfg.node_host = ctx.host().trim_start_matches("http://").parse().unwrap();
@@ -1170,22 +1133,13 @@ mod tests {
         let ping = Ping::new(0);
         let ping_id = ping.id();
 
-        let msg = SignerMessage::from(ping);
+        let packet = LatencyPacket::from(ping);
         //The incoming Ping does not belong to you.
-        assert_ne!(msg.slot_id(cfg.signer_id), slot_id);
+        assert_ne!(packet.slot_id(cfg.signer_id), slot_id);
 
-        let chunks = {
-            vec![StackerDBChunkData {
-                data: bincode::serialize(&msg).unwrap(),
-                slot_id,
-                slot_version: 0,
-                sig: MessageSignature::empty(),
-            }]
-        };
-
-        // consume chunk; blocks
+        // blocks
         let handle = thread::spawn(move || {
-            assert!(run_loop.filter_and_process_ping_chunks(&chunks).is_empty());
+            run_loop.process_ping_packet(packet, slot_id);
             run_loop
         });
 
@@ -1220,7 +1174,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_and_process_ping_process_pongs() {
+    fn process_ping_packet_pongs() {
         let cfg = Config::load_from_file("./src/tests/conf/signer-1.toml").unwrap();
 
         let mut run_loop = RunLoop::from(&cfg);
@@ -1233,24 +1187,20 @@ mod tests {
         let pong_id = pong.id();
         run_loop.ping_entries.insert(pong_id, Instant::now());
 
-        let msg = SignerMessage::from(pong);
+        let packet = LatencyPacket::from(pong);
         //The incoming Ping does not belong to you.
-        assert_ne!(msg.slot_id(cfg.signer_id), slot_id);
+        assert_ne!(packet.slot_id(cfg.signer_id), slot_id);
 
-        let chunks = {
-            vec![StackerDBChunkData {
-                data: bincode::serialize(&msg).unwrap(),
-                slot_id,
-                slot_version: 0,
-                sig: MessageSignature::empty(),
-            }]
-        };
-
-        // consume chunk, no side effects
         // doesnt block
-        assert!(run_loop.filter_and_process_ping_chunks(&chunks).is_empty());
+        run_loop.process_ping_packet(packet.clone(), slot_id);
 
         // RTT sent
         rx.recv().unwrap();
+
+        // event is processed once
+        run_loop.process_ping_packet(packet, slot_id);
+        drop(run_loop);
+        // empty rx.
+        rx.recv().unwrap_err();
     }
 }
