@@ -1004,7 +1004,7 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            TypeSignature::contract_name_string_ascii_type(),
+            TypeSignature::contract_name_string_ascii_type().unwrap(),
             Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
                 data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
                     .as_bytes()

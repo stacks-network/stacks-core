@@ -409,10 +409,13 @@ fn disable_pox() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {
@@ -1074,10 +1077,13 @@ fn pox_2_unlock_all() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {

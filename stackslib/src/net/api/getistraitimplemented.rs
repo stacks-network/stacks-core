@@ -158,19 +158,24 @@ impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|db| {
-                        let analysis = db.load_contract_analysis(&contract_identifier)?;
+                        let analysis = db
+                            .load_contract_analysis(&contract_identifier)
+                            .ok()
+                            .flatten()?;
                         if analysis.implemented_traits.contains(&trait_id) {
                             Some(GetIsTraitImplementedResponse {
                                 is_implemented: true,
                             })
                         } else {
-                            let trait_defining_contract =
-                                db.load_contract_analysis(&trait_id.contract_identifier)?;
+                            let trait_defining_contract = db
+                                .load_contract_analysis(&trait_id.contract_identifier)
+                                .ok()
+                                .flatten()?;
                             let trait_definition =
                                 trait_defining_contract.get_defined_trait(&trait_id.name)?;
                             let is_implemented = analysis
                                 .check_trait_compliance(
-                                    &db.get_clarity_epoch_version(),
+                                    &db.get_clarity_epoch_version().ok()?,
                                     &trait_id,
                                     trait_definition,
                                 )
