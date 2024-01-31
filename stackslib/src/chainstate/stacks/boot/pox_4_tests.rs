@@ -2325,19 +2325,12 @@ fn delegate_stack_stx_extend_signer_key() {
     .expect("No delegation state, delegate-stx failed")
     .expect_tuple();
 
-    let stacking_state = get_stacking_state_pox_4(
-        &mut peer,
-        &latest_block,
-        &key_to_stacks_addr(alice_stacker_key).into(),
-    )
-    .expect("No stacking state, stack-stx failed")
-    .expect_tuple();
     let delegation_state = get_delegation_state_pox_4(&mut peer, &latest_block, &alice_principal)
         .expect("No delegation state, delegate-stx failed")
         .expect_tuple();
 
     let stacking_state = get_stacking_state_pox_4(&mut peer, &latest_block, &alice_principal)
-        .expect("No stacking state, stack-stx failed")
+        .expect("No stacking state, bob called delegate-stack-stx that failed here")
         .expect_tuple();
 
     let reward_cycle = burnchain
