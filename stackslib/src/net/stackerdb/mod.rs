@@ -143,6 +143,7 @@ use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// maximum chunk inventory size
 pub const STACKERDB_INV_MAX: u32 = STACKERDB_PAGE_MAX * 2;
+/// maximum size of a single inventory page
 pub const STACKERDB_PAGE_MAX: u32 = 4096;
 
 pub const STACKERDB_PAGE_COUNT_FUNCTION: &str = "stackerdb-get-page-count";

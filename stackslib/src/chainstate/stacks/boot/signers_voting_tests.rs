@@ -162,12 +162,9 @@ fn vote_for_aggregate_public_key_in_first_block() {
     let signer_principal = PrincipalData::from(signer_address);
     let cycle_id = current_reward_cycle;
 
-    let signer_index = get_signer_index(&mut peer, latest_block_id, signer_address);
+    let signer_index = get_signer_index(&mut peer, latest_block_id, signer_address, cycle_id);
 
     let aggregate_public_key: Point = Point::new();
-    let aggreagte_public_key_value =
-        Value::buff_from(aggregate_public_key.compress().data.to_vec())
-            .expect("Failed to serialize aggregate public key");
 
     let txs = vec![
         // cast a vote for the aggregate public key
@@ -266,7 +263,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let signer_1_key = &stacker_1.signer_private_key;
     let signer_1_address = key_to_stacks_addr(signer_1_key);
     let signer_1_principal = PrincipalData::from(signer_1_address);
-    let signer_1_index = get_signer_index(&mut peer, latest_block_id, signer_1_address);
+    let signer_1_index = get_signer_index(&mut peer, latest_block_id, signer_1_address, cycle_id);
 
     let txs_1 = vec![
         // cast a vote for the aggregate public key
@@ -292,7 +289,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let signer_2_key = &stacker_2.signer_private_key;
     let signer_2_address = key_to_stacks_addr(signer_2_key);
     let signer_2_principal = PrincipalData::from(signer_2_address);
-    let signer_2_index = get_signer_index(&mut peer, latest_block_id, signer_2_address);
+    let signer_2_index = get_signer_index(&mut peer, latest_block_id, signer_2_address, cycle_id);
 
     let txs_2 = vec![
         // cast a vote for the aggregate public key
@@ -364,13 +361,14 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let receipts = block.receipts.as_slice();
     assert_eq!(receipts.len(), 1);
 
-    // vote should succeed
+    // vote fails because the reward cycle has changed
+    //  and the signer set hasn't been set yet.
     let tx1 = &receipts[receipts.len() - 1];
     assert_eq!(
         tx1.result,
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::UInt(10002)) // err-out-of-voting-window
+            data: Box::new(Value::UInt(2)) // err-out-of-voting-window
         })
     );
 }

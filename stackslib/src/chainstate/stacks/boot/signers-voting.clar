@@ -55,16 +55,14 @@
 (define-read-only (get-tally (reward-cycle uint) (round uint) (aggregate-public-key (buff 33)))
     (map-get? tally {reward-cycle: reward-cycle, round: round, aggregate-public-key: aggregate-public-key}))
 
-(define-read-only (get-signer-slots (signer-index uint) (reward-cycle uint))
-    (let ((height (reward-cycle-to-burn-height reward-cycle)))
-            (ok (at-block
-                (unwrap! (get-block-info? id-header-hash height) err-invalid-burn-block-height)
-                    (get-current-signer-slots signer-index)))))
-
 (define-read-only (get-current-signer-slots (signer-index uint))
-    (let ((details (unwrap! (unwrap-panic (contract-call? .signers stackerdb-get-signer-by-index signer-index)) err-invalid-signer-index)))
+    (let ((cycle (+ u1 (burn-height-to-reward-cycle burn-block-height))))
+      (get-signer-slots signer-index cycle)))
+
+(define-read-only (get-signer-slots (signer-index uint) (reward-cycle uint))
+    (let ((details (unwrap! (try! (contract-call? .signers stackerdb-get-signer-by-index reward-cycle signer-index)) err-invalid-signer-index)))
         (asserts! (is-eq (get signer details) tx-sender) err-signer-index-mismatch)
-        (ok (get num-slots details))))
+        (ok (get weight details))))
 
 ;; aggregate public key must be unique and can be used only in a single cycle-round pair
 (define-read-only (is-valid-aggregated-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))

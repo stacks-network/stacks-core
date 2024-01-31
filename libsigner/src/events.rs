@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
 };
+pub use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
@@ -42,11 +43,6 @@ use wsts::net::{Message, Packet};
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
-
-/// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
-/// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
-/// Is equal to the number of message types
-pub const SIGNER_SLOTS_PER_USER: u32 = 11;
 
 // The slot IDS for each message type
 const DKG_BEGIN_SLOT_ID: u32 = 0;
