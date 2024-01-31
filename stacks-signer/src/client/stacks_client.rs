@@ -690,6 +690,7 @@ pub(crate) mod tests {
         assert!(h.join().unwrap().is_err());
     }
 
+    #[test]
     fn contract_source_response() {
         let config = TestConfig::new();
         let h = spawn(move || {
