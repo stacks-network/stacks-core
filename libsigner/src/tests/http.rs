@@ -150,7 +150,7 @@ fn test_decode_http_response_err() {
 
 #[test]
 fn test_decode_http_body() {
-    let tests = vec![
+    let tests = [
         (true, ""),
         (true, "this is the song that never ends"),
         (false, ""),

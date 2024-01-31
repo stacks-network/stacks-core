@@ -28,179 +28,26 @@ use blockstack_lib::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, ValidateRejectCode,
 };
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::QualifiedContractIdentifier;
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{
-    read_next, read_next_at_most, write_next, Error as CodecError, StacksMessageCodec,
+    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
+    StacksMessageCodec,
 };
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
 use wsts::common::Signature;
-use wsts::net::{Message, Packet};
+use wsts::net::{
+    DkgBegin, DkgEnd, DkgEndBegin, DkgPrivateBegin, DkgPrivateShares, DkgPublicShares, DkgStatus,
+    Message, NonceRequest, NonceResponse, Packet, SignatureShareRequest, SignatureShareResponse,
+};
+use wsts::state_machine::signer;
 
 use crate::http::{decode_http_body, decode_http_request};
-use crate::EventError;
-
-/// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
-/// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
-/// Is equal to the number of message types
-pub const SIGNER_SLOTS_PER_USER: u32 = 11;
-
-// The slot IDS for each message type
-const DKG_BEGIN_SLOT_ID: u32 = 0;
-const DKG_PRIVATE_BEGIN_SLOT_ID: u32 = 1;
-const DKG_END_BEGIN_SLOT_ID: u32 = 2;
-const DKG_END_SLOT_ID: u32 = 3;
-const DKG_PUBLIC_SHARES_SLOT_ID: u32 = 4;
-const DKG_PRIVATE_SHARES_SLOT_ID: u32 = 5;
-const NONCE_REQUEST_SLOT_ID: u32 = 6;
-const NONCE_RESPONSE_SLOT_ID: u32 = 7;
-const SIGNATURE_SHARE_REQUEST_SLOT_ID: u32 = 8;
-const SIGNATURE_SHARE_RESPONSE_SLOT_ID: u32 = 9;
-/// The slot ID for the block response for miners to observe
-pub const BLOCK_SLOT_ID: u32 = 10;
-
-/// The messages being sent through the stacker db contracts
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum SignerMessage {
-    /// The signed/validated Nakamoto block for miners to observe
-    BlockResponse(BlockResponse),
-    /// DKG and Signing round data for other signers to observe
-    Packet(Packet),
-}
-
-/// The response that a signer sends back to observing miners
-/// either accepting or rejecting a Nakamoto block with the corresponding reason
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum BlockResponse {
-    /// The Nakamoto block was accepted and therefore signed
-    Accepted((Sha512Trunc256Sum, ThresholdSignature)),
-    /// The Nakamoto block was rejected and therefore not signed
-    Rejected(BlockRejection),
-}
-
-impl BlockResponse {
-    /// Create a new accepted BlockResponse for the provided block signer signature hash and signature
-    pub fn accepted(hash: Sha512Trunc256Sum, sig: Signature) -> Self {
-        Self::Accepted((hash, ThresholdSignature(sig)))
-    }
-
-    /// Create a new rejected BlockResponse for the provided block signer signature hash and signature
-    pub fn rejected(hash: Sha512Trunc256Sum, sig: Signature) -> Self {
-        Self::Rejected(BlockRejection::new(
-            hash,
-            RejectCode::SignedRejection(ThresholdSignature(sig)),
-        ))
-    }
-}
-
-/// A rejection response from a signer for a proposed block
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BlockRejection {
-    /// The reason for the rejection
-    pub reason: String,
-    /// The reason code for the rejection
-    pub reason_code: RejectCode,
-    /// The signer signature hash of the block that was rejected
-    pub signer_signature_hash: Sha512Trunc256Sum,
-}
-
-impl BlockRejection {
-    /// Create a new BlockRejection for the provided block and reason code
-    pub fn new(signer_signature_hash: Sha512Trunc256Sum, reason_code: RejectCode) -> Self {
-        Self {
-            reason: reason_code.to_string(),
-            reason_code,
-            signer_signature_hash,
-        }
-    }
-}
-
-impl From<BlockValidateReject> for BlockRejection {
-    fn from(reject: BlockValidateReject) -> Self {
-        Self {
-            reason: reject.reason,
-            reason_code: RejectCode::ValidationFailed(reject.reason_code),
-            signer_signature_hash: reject.signer_signature_hash,
-        }
-    }
-}
-
-/// This enum is used to supply a `reason_code` for block rejections
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum RejectCode {
-    /// RPC endpoint Validation failed
-    ValidationFailed(ValidateRejectCode),
-    /// Signers signed a block rejection
-    SignedRejection(ThresholdSignature),
-    /// Insufficient signers agreed to sign the block
-    InsufficientSigners(Vec<u32>),
-}
-
-impl std::fmt::Display for RejectCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            RejectCode::ValidationFailed(code) => write!(f, "Validation failed: {:?}", code),
-            RejectCode::SignedRejection(sig) => {
-                write!(f, "A threshold number of signers rejected the block with the following signature: {:?}.", sig)
-            }
-            RejectCode::InsufficientSigners(malicious_signers) => write!(
-                f,
-                "Insufficient signers agreed to sign the block. The following signers are malicious: {:?}",
-                malicious_signers
-            ),
-        }
-    }
-}
-
-impl From<Packet> for SignerMessage {
-    fn from(packet: Packet) -> Self {
-        Self::Packet(packet)
-    }
-}
-
-impl From<BlockResponse> for SignerMessage {
-    fn from(block_response: BlockResponse) -> Self {
-        Self::BlockResponse(block_response)
-    }
-}
-
-impl From<BlockRejection> for SignerMessage {
-    fn from(block_rejection: BlockRejection) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(block_rejection))
-    }
-}
-
-impl From<BlockValidateReject> for SignerMessage {
-    fn from(rejection: BlockValidateReject) -> Self {
-        Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
-    }
-}
-
-impl SignerMessage {
-    /// Helper function to determine the slot ID for the provided stacker-db writer id
-    pub fn slot_id(&self, id: u32) -> u32 {
-        let slot_id = match self {
-            Self::Packet(packet) => match packet.msg {
-                Message::DkgBegin(_) => DKG_BEGIN_SLOT_ID,
-                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_SLOT_ID,
-                Message::DkgEndBegin(_) => DKG_END_BEGIN_SLOT_ID,
-                Message::DkgEnd(_) => DKG_END_SLOT_ID,
-                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_SLOT_ID,
-                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_SLOT_ID,
-                Message::NonceRequest(_) => NONCE_REQUEST_SLOT_ID,
-                Message::NonceResponse(_) => NONCE_RESPONSE_SLOT_ID,
-                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_SLOT_ID,
-                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_SLOT_ID,
-            },
-            Self::BlockResponse(_) => BLOCK_SLOT_ID,
-        };
-        SIGNER_SLOTS_PER_USER * id + slot_id
-    }
-}
+use crate::{EventError, SignerMessage};
 
 /// Event enum for newly-arrived signer subscribed events
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -503,7 +350,7 @@ fn process_stackerdb_event(
         let signer_messages: Vec<SignerMessage> = event
             .modified_slots
             .iter()
-            .filter_map(|chunk| bincode::deserialize::<SignerMessage>(&chunk.data).ok())
+            .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
             .collect();
         SignerEvent::SignerMessages(signer_messages)
     } else {

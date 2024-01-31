@@ -31,7 +31,6 @@ wsts = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
 hashbrown = "0.14"
-bincode = "1.3.3"
 
 [dev-dependencies]
 ring = "0.16.19"

@@ -18,6 +18,7 @@ use hashbrown::HashMap;
 use libsigner::{SignerMessage, SignerSession, StackerDBSession};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::{debug, warn};
 
@@ -55,7 +56,7 @@ impl StackerDB {
         id: u32,
         message: SignerMessage,
     ) -> Result<StackerDBChunkAckData, ClientError> {
-        let message_bytes = bincode::serialize(&message).unwrap();
+        let message_bytes = message.serialize_to_vec();
         let slot_id = message.slot_id(id);
 
         loop {
