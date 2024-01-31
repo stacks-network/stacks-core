@@ -114,7 +114,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
 
     gb.as_transaction(|tx| {
         tx.with_clarity_db(|db| {
-            db.set_clarity_epoch_version(epoch);
+            db.set_clarity_epoch_version(epoch).unwrap();
             Ok(())
         })
         .unwrap();
@@ -506,7 +506,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         let mut env = owned_env.get_exec_environment(
-            Some(p2.clone().expect_principal()),
+            Some(p2.clone().expect_principal().unwrap()),
             None,
             &mut placeholder_context,
         );
@@ -525,7 +525,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
 
     {
         let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal()),
+            Some(p1.clone().expect_principal().unwrap()),
             None,
             &mut placeholder_context,
         );
@@ -553,7 +553,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     {
         // shouldn't be able to register a name you didn't preorder!
         let mut env = owned_env.get_exec_environment(
-            Some(p2.clone().expect_principal()),
+            Some(p2.clone().expect_principal().unwrap()),
             None,
             &mut placeholder_context,
         );
@@ -572,7 +572,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     {
         // should work!
         let mut env = owned_env.get_exec_environment(
-            Some(p1.clone().expect_principal()),
+            Some(p1.clone().expect_principal().unwrap()),
             None,
             &mut placeholder_context,
         );
@@ -590,7 +590,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
     {
         // try to underpay!
         let mut env = owned_env.get_exec_environment(
-            Some(p2.clone().expect_principal()),
+            Some(p2.clone().expect_principal().unwrap()),
             None,
             &mut placeholder_context,
         );

@@ -359,8 +359,14 @@ impl StacksClient {
         debug!("Calling read-only function {}...", function_name);
         let args = function_args
             .iter()
-            .map(|arg| arg.serialize_to_hex())
+            .filter_map(|arg| arg.serialize_to_hex().ok())
             .collect::<Vec<String>>();
+        if args.len() != function_args.len() {
+            return Err(ClientError::ReadOnlyFailure(
+                "Failed to serialize Clarity function arguments".into(),
+            ));
+        }
+
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);

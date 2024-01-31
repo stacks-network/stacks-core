@@ -4801,12 +4801,14 @@ impl StacksNode {
             tx.commit().unwrap();
         }
 
-        // update services to indicate we can support mempool sync
+        // update services to indicate we can support mempool sync and stackerdb
         {
             let mut tx = peerdb.tx_begin().unwrap();
             PeerDB::set_local_services(
                 &mut tx,
-                (ServiceFlags::RPC as u16) | (ServiceFlags::RELAY as u16),
+                (ServiceFlags::RPC as u16)
+                    | (ServiceFlags::RELAY as u16)
+                    | (ServiceFlags::STACKERDB as u16),
             )
             .unwrap();
             tx.commit().unwrap();
@@ -4893,21 +4895,12 @@ impl StacksNode {
                     }
                 }
             }
-            let stacker_db_sync = match StackerDBSync::new(
+            let stacker_db_sync = StackerDBSync::new(
                 stackerdb_contract_id.clone(),
                 &stacker_db_config,
                 PeerNetworkComms::new(),
                 stackerdbs,
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!(
-                        "Failed to instantiate StackerDB sync machine for {}: {:?}",
-                        stackerdb_contract_id, &e
-                    );
-                    continue;
-                }
-            };
+            );
 
             stackerdb_machines.insert(
                 stackerdb_contract_id.clone(),

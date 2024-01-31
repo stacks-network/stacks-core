@@ -209,12 +209,14 @@ impl PeerAddress {
     /// Is this a private IP address?
     pub fn is_in_private_range(&self) -> bool {
         if self.is_ipv4() {
-            // 10.0.0.0/8, 172.16.0.0/12, or 192.168.0.0/16
+            // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, or 127.0.0.0/8
             self.0[12] == 10
                 || (self.0[12] == 172 && self.0[13] >= 16 && self.0[13] <= 31)
                 || (self.0[12] == 192 && self.0[13] == 168)
+                || self.0[12] == 127
         } else {
-            self.0[0] >= 0xfc
+            // private address (fc00::/7) or localhost (::1)
+            self.0[0] >= 0xfc || (self.0[0..15] == [0u8; 15] && self.0[15] == 1)
         }
     }
 

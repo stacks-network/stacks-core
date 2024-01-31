@@ -24,6 +24,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
+use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 use stacks_common::util::pipe::Pipe;
 
@@ -38,6 +39,7 @@ use crate::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use crate::core::MemPoolDB;
+use crate::net::db::PeerDB;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
@@ -68,6 +70,7 @@ mod getstackerdbchunk;
 mod getstackerdbmetadata;
 mod getstxtransfercost;
 mod gettransaction_unconfirmed;
+mod liststackerdbreplicas;
 mod postblock;
 mod postfeerate;
 mod postmempoolquery;
@@ -237,6 +240,9 @@ impl<'a> TestRPC<'a> {
         let mut peer_1_config = TestPeerConfig::new(&format!("{}-peer1", test_name), 0, 0);
         let mut peer_2_config = TestPeerConfig::new(&format!("{}-peer2", test_name), 0, 0);
 
+        peer_1_config.private_key = privk1.clone();
+        peer_2_config.private_key = privk2.clone();
+
         peer_1_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
             write_count: 0,
@@ -369,6 +375,31 @@ impl<'a> TestRPC<'a> {
                 .unwrap();
             bytes.len() as u64
         };
+
+        // force peer 2 to know about peer 1
+        {
+            let tx = peer_2.network.peerdb.tx_begin().unwrap();
+            let mut neighbor = peer_1.config.to_neighbor();
+            neighbor.last_contact_time = get_epoch_time_secs();
+            PeerDB::try_insert_peer(
+                &tx,
+                &neighbor,
+                &[QualifiedContractIdentifier::new(
+                    addr1.clone().into(),
+                    "hello-world".into(),
+                )],
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+        // force peer 1 to know about peer 2
+        {
+            let tx = peer_1.network.peerdb.tx_begin().unwrap();
+            let mut neighbor = peer_2.config.to_neighbor();
+            neighbor.last_contact_time = get_epoch_time_secs();
+            PeerDB::try_insert_peer(&tx, &neighbor, &[]).unwrap();
+            tx.commit().unwrap();
+        }
 
         let tip =
             SortitionDB::get_canonical_burn_chain_tip(&peer_1.sortdb.as_ref().unwrap().conn())
