@@ -63,31 +63,22 @@ use crate::net::{
 };
 use crate::util_lib::db::Error as DBError;
 
-/// This enum is used to supply a `reason_code` for validation
-///  rejection responses. This is serialized as an enum with string
-///  type (in jsonschema terminology).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum ValidateRejectCode {
-    BadBlockHash,
-    BadTransaction,
-    InvalidBlock,
-    ChainstateError,
-    UnknownParent,
-}
+// This enum is used to supply a `reason_code` for validation
+//  rejection responses. This is serialized as an enum with string
+//  type (in jsonschema terminology).
+define_u8_enum![ValidateRejectCode {
+    BadBlockHash = 0,
+    BadTransaction = 1,
+    InvalidBlock = 2,
+    ChainstateError = 3,
+    UnknownParent = 4
+}];
 
 impl TryFrom<u8> for ValidateRejectCode {
-    type Error = String;
-
+    type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(ValidateRejectCode::BadBlockHash),
-            1 => Ok(ValidateRejectCode::BadTransaction),
-            2 => Ok(ValidateRejectCode::InvalidBlock),
-            3 => Ok(ValidateRejectCode::ChainstateError),
-            4 => Ok(ValidateRejectCode::UnknownParent),
-            _ => Err(format!("Invalid value for ValidateRejectCode: {value}")),
-        }
+        Self::from_u8(value)
+            .ok_or_else(|| CodecError::DeserializeError(format!("Unknown type prefix: {value}")))
     }
 }
 

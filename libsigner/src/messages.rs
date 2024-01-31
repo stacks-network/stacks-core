@@ -92,26 +92,8 @@ define_u8_enum!(TypePrefix {
 impl TryFrom<u8> for TypePrefix {
     type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(TypePrefix::BlockResponse),
-            1 => Ok(TypePrefix::Packet),
-            2 => Ok(TypePrefix::DkgBegin),
-            3 => Ok(TypePrefix::DkgPrivateBegin),
-            4 => Ok(TypePrefix::DkgEndBegin),
-            5 => Ok(TypePrefix::DkgEnd),
-            6 => Ok(TypePrefix::DkgPublicShares),
-            7 => Ok(TypePrefix::DkgPrivateShares),
-            8 => Ok(TypePrefix::NonceRequest),
-            9 => Ok(TypePrefix::NonceResponse),
-            10 => Ok(TypePrefix::SignatureShareRequest),
-            11 => Ok(TypePrefix::SignatureShareResponse),
-            12 => Ok(TypePrefix::DkgStatusSuccess),
-            13 => Ok(TypePrefix::DkgStatusFailure),
-            _ => Err(CodecError::DeserializeError(format!(
-                "Unknown type prefix: {}",
-                value
-            ))),
-        }
+        Self::from_u8(value)
+            .ok_or_else(|| CodecError::DeserializeError(format!("Unknown type prefix: {value}")))
     }
 }
 
