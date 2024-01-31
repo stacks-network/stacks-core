@@ -211,6 +211,8 @@ pub enum SignerEvent {
     SignerMessages(Vec<SignerMessage>),
     /// A new block proposal validation response from the node
     BlockValidationResponse(BlockValidateResponse),
+    /// Status endpoint request
+    StatusCheck,
 }
 
 /// Trait to implement a stop-signaler for the event receiver thread.
@@ -381,6 +383,14 @@ impl EventReceiver for SignerEventReceiver {
                 return Err(EventError::Terminated);
             }
             let request = http_server.recv()?;
+
+            if request.url() == "/status" {
+                request
+                .respond(HttpResponse::from_string("OK"))
+                .expect("response failed");
+                return Ok(SignerEvent::StatusCheck);
+            }
+
             if request.method() != &HttpMethod::Post {
                 return Err(EventError::MalformedRequest(format!(
                     "Unrecognized method '{}'",

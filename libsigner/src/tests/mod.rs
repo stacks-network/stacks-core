@@ -16,7 +16,7 @@
 
 mod http;
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
@@ -96,10 +96,11 @@ fn test_simple_signer() {
     let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
-    let mut signer = Signer::new(SimpleRunLoop::new(5), ev, cmd_recv, res_send);
+    let max_events = 5;
+    let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, cmd_recv, res_send);
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
     let mut chunks = vec![];
-    for i in 0..5 {
+    for i in 0..max_events {
         let privk = Secp256k1PrivateKey::new();
         let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
         let message = SignerMessage::Packet(Packet { msg, sig: vec![] });
@@ -159,6 +160,49 @@ fn test_simple_signer() {
             SignerEvent::SignerMessages(vec![signer_message])
         })
         .collect();
+
+    assert_eq!(sent_events, accepted_events);
+    mock_stacks_node.join().unwrap();
+}
+
+#[test]
+fn test_status_endpoint() {
+    let contract_id =
+        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.signers")
+            .unwrap(); // TODO: change to boot_code_id(SIGNERS_NAME, false) when .signers is deployed
+    let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
+    let (_cmd_send, cmd_recv) = channel();
+    let (res_send, _res_recv) = channel();
+    let max_events = 1;
+    let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, cmd_recv, res_send);
+    let endpoint: SocketAddr = "127.0.0.1:31000".parse().unwrap();
+
+    // simulate a node that's trying to push data
+    let mock_stacks_node = thread::spawn(move || {
+        let mut sock = match TcpStream::connect(endpoint) {
+            Ok(sock) => sock,
+            Err(e) => {
+                eprint!("Error connecting to {}: {}", endpoint, e);
+                sleep_ms(100);
+                return;
+            }
+        };
+        let req = "GET /status HTTP/1.0\r\nConnection: close\r\n\r\n";
+
+        sock.write_all(req.as_bytes()).unwrap();
+        let mut buf = [0; 128];
+        sock.read(&mut buf).unwrap();
+        let res_str = std::str::from_utf8(&buf).unwrap();
+        let expected_status_res = "HTTP/1.0 200 OK\r\n";
+        assert_eq!(expected_status_res, &res_str[..expected_status_res.len()]);
+        sock.flush().unwrap();
+    });
+
+    let running_signer = signer.spawn(endpoint).unwrap();
+    sleep_ms(3000);
+    let accepted_events = running_signer.stop().unwrap();
+
+    let sent_events: Vec<SignerEvent> = vec![SignerEvent::StatusCheck];
 
     assert_eq!(sent_events, accepted_events);
     mock_stacks_node.join().unwrap();
