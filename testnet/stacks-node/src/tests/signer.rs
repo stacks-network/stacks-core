@@ -15,6 +15,7 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks_common::bitvec::BitVec;
+use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
 };
@@ -674,7 +675,7 @@ fn stackerdb_block_proposal() {
         thread::sleep(Duration::from_secs(1));
     }
     let chunk = chunk.unwrap();
-    let signer_message = bincode::deserialize::<SignerMessage>(&chunk).unwrap();
+    let signer_message = read_next::<SignerMessage, _>(&mut &chunk[..]).unwrap();
     if let SignerMessage::BlockResponse(BlockResponse::Accepted((
         block_signer_signature_hash,
         block_signature,

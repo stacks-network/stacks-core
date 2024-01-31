@@ -39,6 +39,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::net::stackerdb::StackerDBs;
+use stacks_common::codec::read_next;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
@@ -307,7 +308,7 @@ impl BlockMinerThread {
                 .zip(signer_chunks.into_iter())
                 .filter_map(|(slot_id, chunk)| {
                     chunk.and_then(|chunk| {
-                        bincode::deserialize::<SignerMessage>(&chunk)
+                        read_next::<SignerMessage, _>(&mut &chunk[..])
                             .ok()
                             .map(|msg| (*slot_id, msg))
                     })

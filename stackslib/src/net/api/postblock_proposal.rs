@@ -67,12 +67,28 @@ use crate::util_lib::db::Error as DBError;
 ///  rejection responses. This is serialized as an enum with string
 ///  type (in jsonschema terminology).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum ValidateRejectCode {
     BadBlockHash,
     BadTransaction,
     InvalidBlock,
     ChainstateError,
     UnknownParent,
+}
+
+impl TryFrom<u8> for ValidateRejectCode {
+    type Error = String;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(ValidateRejectCode::BadBlockHash),
+            1 => Ok(ValidateRejectCode::BadTransaction),
+            2 => Ok(ValidateRejectCode::InvalidBlock),
+            3 => Ok(ValidateRejectCode::ChainstateError),
+            4 => Ok(ValidateRejectCode::UnknownParent),
+            _ => Err(format!("Invalid value for ValidateRejectCode: {value}")),
+        }
+    }
 }
 
 fn hex_ser_block<S: serde::Serializer>(b: &NakamotoBlock, s: S) -> Result<S::Ok, S::Error> {
