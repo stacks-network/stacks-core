@@ -79,6 +79,7 @@ pub const POX_2_NAME: &'static str = "pox-2";
 pub const POX_3_NAME: &'static str = "pox-3";
 pub const POX_4_NAME: &'static str = "pox-4";
 pub const SIGNERS_NAME: &'static str = "signers";
+pub const SIGNERS_VOTING_NAME: &'static str = "signers-voting";
 /// This is the name of a variable in the `.signers` contract which tracks the most recently updated
 /// reward cycle number.
 pub const SIGNERS_UPDATE_STATE: &'static str = "last-set-cycle";
@@ -89,6 +90,7 @@ const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
+const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
 pub const COSTS_2_NAME: &'static str = "costs-2";
@@ -117,6 +119,7 @@ lazy_static! {
     pub static ref POX_3_TESTNET_CODE: String =
         format!("{}\n{}", BOOT_CODE_POX_TESTNET_CONSTS, POX_3_BODY);
     pub static ref POX_4_CODE: String = format!("{}", POX_4_BODY);
+    pub static ref SIGNER_VOTING_CODE: String = format!("{}", SIGNERS_VOTING_BODY);
     pub static ref BOOT_CODE_COST_VOTING_TESTNET: String = make_testnet_cost_voting();
     pub static ref STACKS_BOOT_CODE_MAINNET: [(&'static str, &'static str); 6] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
@@ -1307,6 +1310,8 @@ pub mod pox_3_tests;
 pub mod pox_4_tests;
 #[cfg(test)]
 mod signers_tests;
+#[cfg(test)]
+pub mod signers_voting_tests;
 
 #[cfg(test)]
 pub mod test {
@@ -1314,7 +1319,9 @@ pub mod test {
     use std::convert::From;
     use std::fs;
 
+    use clarity::boot_util::boot_code_addr;
     use clarity::vm::contracts::Contract;
+    use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
     use stacks_common::util::hash::to_hex;
     use stacks_common::util::*;
@@ -1872,6 +1879,30 @@ pub mod test {
         )
         .unwrap();
         make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_signers_vote_for_aggregate_public_key(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        signer_index: u128,
+        aggregate_public_key: &Point,
+        round: u128,
+    ) -> StacksTransaction {
+        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            SIGNERS_VOTING_NAME,
+            "vote-for-aggregate-public-key",
+            vec![
+                Value::UInt(signer_index),
+                aggregate_public_key,
+                Value::UInt(round),
+            ],
+        )
+        .unwrap();
+        // TODO set tx_fee back to 0 once these txs are free
+        make_tx(key, nonce, 1, payload)
     }
 
     pub fn make_pox_2_increase(

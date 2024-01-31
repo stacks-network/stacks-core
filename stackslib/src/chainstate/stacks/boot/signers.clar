@@ -13,6 +13,10 @@
 (define-read-only (stackerdb-get-signer-slots)
 	(ok (var-get stackerdb-signer-slots)))
 
+(define-read-only (stackerdb-get-signer-by-index (signer-index uint))
+	(ok (element-at (var-get stackerdb-signer-slots) signer-index))
+)
+
 (define-read-only (stackerdb-get-config)
 	(ok
 		{ chunk-size: CHUNK_SIZE,
@@ -21,3 +25,6 @@
 		  max-neighbors: u32,
 		  hint-replicas: (list) }
 	))
+
+(define-read-only (stackerdb-get-last-set-cycle)
+	(ok (var-get last-set-cycle)))
