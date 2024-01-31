@@ -76,7 +76,8 @@ use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOri
 use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::index::MarfTrieId;
 use crate::chainstate::stacks::tests::make_coinbase;
-use crate::chainstate::{self, stacks::*};
+use crate::chainstate::stacks::*;
+use crate::chainstate::{self};
 use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::clarity_vm::database::HeadersDBConn;

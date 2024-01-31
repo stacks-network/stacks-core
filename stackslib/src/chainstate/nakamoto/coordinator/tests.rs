@@ -291,7 +291,13 @@ fn replay_reward_cycle(
 fn test_simple_nakamoto_coordinator_bootup() {
     let mut test_signers = TestSigners::default();
     let test_stackers = TestStacker::common_signing_set(&test_signers);
-    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, &test_stackers, None);
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &test_signers,
+        &test_stackers,
+        None,
+    );
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -477,7 +483,7 @@ fn test_nakamoto_chainstate_getters() {
         vec![(addr.into(), 100_000_000)],
         &test_signers,
         &test_stackers,
-        None
+        None,
     );
 
     let sort_tip = {
