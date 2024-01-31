@@ -32,7 +32,7 @@ use stacks_common::codec::{
     MAX_PAYLOAD_LEN,
 };
 use stacks_common::consts::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
+    self, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, MINER_REWARD_MATURITY,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
@@ -227,6 +227,33 @@ impl NakamotoSigners {
         let reward_set =
             StacksChainState::make_reward_set(threshold, reward_slots, StacksEpochId::Epoch30);
 
+        let stackerdb_list = if participation == 0 {
+            vec![]
+        } else {
+            reward_set
+                .signers
+                .as_ref()
+                .ok_or(ChainstateError::PoxNoRewardCycle)?
+                .iter()
+                .map(|signer| {
+                    let signer_hash = Hash160::from_data(&signer.signing_key);
+                    let signing_address = StacksAddress::p2pkh_from_hash(is_mainnet, signer_hash);
+                    Value::Tuple(
+                        TupleData::from_data(vec![
+                            (
+                                "signer".into(),
+                                Value::Principal(PrincipalData::from(signing_address)),
+                            ),
+                            ("num-slots".into(), Value::UInt(consts::SIGNER_SLOTS_PER_USER.into())),
+                        ])
+                            .expect(
+                                "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
+                            ),
+                    )
+                })
+                .collect()
+        };
+
         let signers_list = if participation == 0 {
             vec![]
         } else {
@@ -244,7 +271,7 @@ impl NakamotoSigners {
                                 "signer".into(),
                                 Value::Principal(PrincipalData::from(signing_address)),
                             ),
-                            ("num-slots".into(), Value::UInt(signer.slots.into())),
+                            ("weight".into(), Value::UInt(signer.slots.into())),
                         ])
                             .expect(
                                 "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
@@ -253,6 +280,7 @@ impl NakamotoSigners {
                 })
                 .collect()
         };
+
         if signers_list.len() > SIGNERS_MAX_LIST_SIZE {
             panic!(
                 "FATAL: signers list returned by reward set calculations longer than maximum ({} > {})",
@@ -261,12 +289,19 @@ impl NakamotoSigners {
             );
         }
 
-        let args = [
-            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).expect(
+        let set_stackerdb_args = [
+            SymbolicExpression::atom_value(Value::cons_list_unsanitized(stackerdb_list).expect(
                 "BUG: Failed to construct `(list 4000 { signer: principal, num-slots: u64 })` list",
             )),
             SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
             SymbolicExpression::atom_value(Value::UInt(coinbase_height.into())),
+        ];
+
+        let set_signers_args = [
+            SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
+            SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).expect(
+                "BUG: Failed to construct `(list 4000 { signer: principal, weight: u64 })` list",
+            )),
         ];
 
         let (value, _, events, _) = clarity
@@ -276,7 +311,13 @@ impl NakamotoSigners {
                         env.execute_contract_allow_private(
                             &signers_contract,
                             "stackerdb-set-signer-slots",
-                            &args,
+                            &set_stackerdb_args,
+                            false,
+                        )?;
+                        env.execute_contract_allow_private(
+                            &signers_contract,
+                            "stackerdb-set-signers",
+                            &set_signers_args,
                             false,
                         )
                     })

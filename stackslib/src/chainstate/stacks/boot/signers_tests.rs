@@ -24,6 +24,7 @@ use clarity::vm::types::{
 use clarity::vm::Value::Principal;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use stacks_common::address::AddressHashMode;
+use stacks_common::consts;
 use stacks_common::types::chainstate::{
     BurnchainHeaderHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
@@ -55,6 +56,9 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity_vm::database::HeadersDBConn;
 use crate::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
+use crate::net::stackerdb::{
+    STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX, STACKERDB_SLOTS_FUNCTION,
+};
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::util_lib::boot::{boot_code_addr, boot_code_id, boot_code_test_addr};
 
@@ -174,7 +178,7 @@ fn signers_get_config() {
             &mut peer,
             &latest_block,
             "signers".into(),
-            "stackerdb-get-config".into(),
+            STACKERDB_CONFIG_FUNCTION.into(),
             vec![],
         ),
         Value::okay(Value::Tuple(
@@ -217,7 +221,10 @@ fn signers_get_signer_keys_from_stackerdb() {
                 let signer_addr = StacksAddress::p2pkh(false, &pk);
                 let stackerdb_entry = TupleData::from_data(vec![
                     ("signer".into(), PrincipalData::from(signer_addr).into()),
-                    ("num-slots".into(), Value::UInt(2)),
+                    (
+                        "num-slots".into(),
+                        Value::UInt(consts::SIGNER_SLOTS_PER_USER.into()),
+                    ),
                 ])
                 .unwrap();
                 (pk_bytes, stackerdb_entry)
@@ -237,8 +244,8 @@ fn signers_get_signer_keys_from_stackerdb() {
         &mut peer,
         &latest_block_id,
         "signers".into(),
-        "stackerdb-get-signer-slots".into(),
-        vec![],
+        STACKERDB_SLOTS_FUNCTION.into(),
+        vec![Value::UInt(1)],
     )
     .expect_result_ok()
     .unwrap();
@@ -401,13 +408,15 @@ pub fn get_signer_index(
     peer: &mut TestPeer<'_>,
     latest_block_id: StacksBlockId,
     signer_address: StacksAddress,
+    cycle_index: u128,
 ) -> u128 {
+    let cycle_mod = cycle_index % 2;
     let signers = readonly_call(
         peer,
         &latest_block_id,
         "signers".into(),
         "stackerdb-get-signer-slots".into(),
-        vec![],
+        vec![Value::UInt(cycle_mod)],
     )
     .expect_result_ok()
     .unwrap()
