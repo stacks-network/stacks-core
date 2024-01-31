@@ -135,6 +135,9 @@ pub fn prepare_pox4_test<'a>(
     )
 }
 
+/// In this test case, Alice votes in the first block of the first tenure of the prepare phase.
+/// Alice can vote successfully.
+/// A second vote on the same key and round fails with "duplicate vote" error
 #[test]
 fn vote_for_aggregate_public_key_in_first_block() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
@@ -160,7 +163,10 @@ fn vote_for_aggregate_public_key_in_first_block() {
 
     let signer_index = get_signer_index(&mut peer, latest_block_id, signer_address);
 
-    let aggregated_public_key: Point = Point::new();
+    let aggregate_public_key: Point = Point::new();
+    let aggreagte_public_key_value =
+        Value::buff_from(aggregate_public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
 
     let txs = vec![
         // cast a vote for the aggregate public key
@@ -168,7 +174,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_key,
             signer_nonce,
             signer_index,
-            &aggregated_public_key,
+            &aggregate_public_key,
             0,
         ),
         // cast the vote twice
@@ -176,13 +182,10 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_key,
             signer_nonce + 1,
             signer_index,
-            &aggregated_public_key,
+            &aggregate_public_key,
             0,
         ),
     ];
-
-    let txids: Vec<Txid> = txs.clone().iter().map(|t| t.txid()).collect();
-    dbg!(txids);
 
     //
     // vote in the first burn block of prepare phase
@@ -193,7 +196,6 @@ fn vote_for_aggregate_public_key_in_first_block() {
     let block = observer.get_blocks().last().unwrap().clone();
     let receipts = block.receipts.as_slice();
     assert_eq!(receipts.len(), 4);
-
     // ignore tenure change tx
     // ignore tenure coinbase tx
 

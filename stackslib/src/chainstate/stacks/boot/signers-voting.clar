@@ -35,7 +35,7 @@
 
 ;; get current voting info
 (define-read-only (get-current-info)
-    (if (is-eq u0 (mod (current-reward-cycle) u2)) (var-get state-1) (var-get state-2)))
+    (var-get state-1))
 
 (define-read-only (burn-height-to-reward-cycle (height uint))
     (/ (- height (get first-burnchain-block-height pox-info)) (get reward-cycle-length pox-info)))
@@ -51,6 +51,9 @@
 
 (define-read-only (get-vote (reward-cycle uint) (round uint) (signer principal))
     (map-get? votes {reward-cycle: reward-cycle, round: round, signer: signer}))
+
+(define-read-only (get-tally (reward-cycle uint) (round uint) (aggregate-public-key (buff 33)))
+    (map-get? tally {reward-cycle: reward-cycle, round: round, aggregate-public-key: aggregate-public-key}))
 
 (define-read-only (get-signer-slots (signer-index uint) (reward-cycle uint))
     (let ((height (reward-cycle-to-burn-height reward-cycle)))

@@ -136,7 +136,7 @@ pub fn boot_nakamoto<'a>(
         (0..test_signers.num_keys)
             .map(|index| {
                 let stacker_private_key = StacksPrivateKey::from_seed(&index.to_be_bytes());
-                let signer_private_key = StacksPrivateKey::from_seed(&(index + 1000).to_be_bytes());
+                let signer_private_key = StacksPrivateKey::from_seed(&index.to_be_bytes());
                 TestStacker {
                     stacker_private_key,
                     signer_private_key,

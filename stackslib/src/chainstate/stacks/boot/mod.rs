@@ -2217,38 +2217,6 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    pub fn readonly_call(
-        peer: &mut TestPeer,
-        tip: &StacksBlockId,
-        boot_contract: ContractName,
-        function_name: ClarityName,
-        args: Vec<Value>,
-    ) -> Value {
-        with_sortdb(peer, |chainstate, sortdb| {
-            chainstate.with_read_only_clarity_tx(&sortdb.index_conn(), tip, |connection| {
-                connection
-                    .with_readonly_clarity_env(
-                        false,
-                        0x80000000,
-                        ClarityVersion::Clarity2,
-                        PrincipalData::from(boot_code_addr(false)),
-                        None,
-                        LimitedCostTracker::new_free(),
-                        |env| {
-                            env.execute_contract_allow_private(
-                                &boot_code_id(&boot_contract, false),
-                                &function_name,
-                                &symbols_from_values(args),
-                                true,
-                            )
-                        },
-                    )
-                    .unwrap()
-            })
-        })
-        .unwrap()
-    }
-
     // make a stream of invalid pox-lockup transactions
     fn make_invalid_pox_lockups(key: &StacksPrivateKey, mut nonce: u64) -> Vec<StacksTransaction> {
         let mut ret = vec![];
