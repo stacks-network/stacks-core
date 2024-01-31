@@ -1731,7 +1731,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         assert!(last_block.header.consensus_hash == sort_tip.consensus_hash);
         assert_eq!(highest_tenure.coinbase_height, 12 + i);
         assert_eq!(highest_tenure.cause, TenureChangeCause::Extended);
-        assert_eq!(highest_tenure.tenure_index, 8 * (i + 1));
+        assert_eq!(highest_tenure.tenure_index, 10 * (i + 1));
         assert_eq!(
             highest_tenure.num_blocks_confirmed,
             (blocks.len() as u32) - 1
