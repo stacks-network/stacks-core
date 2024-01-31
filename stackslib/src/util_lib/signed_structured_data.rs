@@ -82,6 +82,8 @@ pub mod pox4 {
         make_structured_data_domain, structured_data_message_hash, MessageSignature, PoxAddress,
         PrivateKey, Sha256Sum, StacksPrivateKey, TupleData, Value,
     };
+
+    #[derive(Clone, Debug)]
     pub enum Pox4SignatureTopic {
         StackStx,
         AggregationCommit,
