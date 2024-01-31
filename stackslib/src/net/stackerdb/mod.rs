@@ -142,7 +142,12 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// maximum chunk inventory size
-pub const STACKERDB_INV_MAX: u32 = 4096;
+pub const STACKERDB_INV_MAX: u32 = STACKERDB_PAGE_MAX * 2;
+pub const STACKERDB_PAGE_MAX: u32 = 4096;
+
+pub const STACKERDB_PAGE_COUNT_FUNCTION: &str = "stackerdb-get-page-count";
+pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
+pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
