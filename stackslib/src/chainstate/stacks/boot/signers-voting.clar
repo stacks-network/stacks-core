@@ -13,7 +13,7 @@
 (define-constant err-invalid-signer-index (err u10001))
 (define-constant err-out-of-voting-window (err u10002))
 (define-constant err-old-round (err u10003))
-(define-constant err-invalid-aggregate-public-key (err u10004))
+(define-constant err-ill-formed-aggregate-public-key (err u10004))
 (define-constant err-duplicate-aggregate-public-key (err u10005))
 (define-constant err-duplicate-vote (err u10006))
 (define-constant err-invalid-burn-block-height (err u10007))
@@ -35,7 +35,7 @@
 
 ;; get current voting info
 (define-read-only (get-current-info)
-    (if (is-eq (mod (current-reward-cycle) u2)) (var-get state-1) (var-get state-2)))
+    (if (is-eq u0 (mod (current-reward-cycle) u2)) (var-get state-1) (var-get state-2)))
 
 (define-read-only (burn-height-to-reward-cycle (height uint))
     (/ (- height (get first-burnchain-block-height pox-info)) (get reward-cycle-length pox-info)))
@@ -87,7 +87,7 @@
             (new-total (+ num-slots (default-to u0 (map-get? tally tally-key)))))
         (asserts! (is-in-voting-window burn-block-height reward-cycle) err-out-of-voting-window)
         (asserts! (>= round (default-to u0 (map-get? rounds reward-cycle))) err-old-round)
-        (asserts! (is-eq (len key) u33) err-invalid-aggregate-public-key)
+        (asserts! (is-eq (len key) u33) err-ill-formed-aggregate-public-key)
         (asserts! (is-valid-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) err-duplicate-aggregate-public-key)
         (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-slots}) err-duplicate-vote)
         (map-set tally tally-key new-total)

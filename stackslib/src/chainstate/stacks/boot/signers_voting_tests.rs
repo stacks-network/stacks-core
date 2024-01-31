@@ -218,17 +218,22 @@ fn vote_for_aggregate_public_key_in_first_block() {
     );
 }
 
+/// In this test case, Alice votes in the first block of the last tenure of the prepare phase.
+/// Bob votes in the second block of that tenure.
+/// Alice can vote successfully.
+/// Bob is out of the voting window.
 #[test]
 fn vote_for_aggregate_public_key_in_last_block() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
     let stacker_2 = TestStacker::from_seed(&[5, 6]);
     let observer = TestEventObserver::new();
 
-    let signer = key_to_stacks_addr(&stacker_1.signer_private_key).to_account_principal();
+    let signer_1 = key_to_stacks_addr(&stacker_1.signer_private_key).to_account_principal();
+    let signer_2 = key_to_stacks_addr(&stacker_2.signer_private_key).to_account_principal();
 
     let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
         function_name!(),
-        vec![(signer, 1000)],
+        vec![(signer_1, 1000), (signer_2, 1000)],
         Some(vec![&stacker_1, &stacker_2]),
         Some(&observer),
     );
@@ -250,36 +255,52 @@ fn vote_for_aggregate_public_key_in_last_block() {
         &mut stacker_1_nonce,
     );
 
-    // create vote txs
-    let signer_nonce = 0;
-    let signer_key = &stacker_1.signer_private_key;
-    let signer_address = key_to_stacks_addr(signer_key);
-    let signer_principal = PrincipalData::from(signer_address);
-    let cycle_id = current_reward_cycle;
-    let signer_index = get_signer_index(&mut peer, latest_block_id, signer_address);
+    let cycle_id: u128 = current_reward_cycle;
     let aggregated_public_key: Point = Point::new();
 
-    let txs = vec![
+    // create vote txs for alice
+    let signer_1_nonce = 0;
+    let signer_1_key = &stacker_1.signer_private_key;
+    let signer_1_address = key_to_stacks_addr(signer_1_key);
+    let signer_1_principal = PrincipalData::from(signer_1_address);
+    let signer_1_index = get_signer_index(&mut peer, latest_block_id, signer_1_address);
+
+    let txs_1 = vec![
         // cast a vote for the aggregate public key
         make_signers_vote_for_aggregate_public_key(
-            signer_key,
-            signer_nonce,
-            signer_index,
+            signer_1_key,
+            signer_1_nonce,
+            signer_1_index,
             &aggregated_public_key,
             0,
         ),
         // cast the vote twice
         make_signers_vote_for_aggregate_public_key(
-            signer_key,
-            signer_nonce + 1,
-            signer_index,
+            signer_1_key,
+            signer_1_nonce + 1,
+            signer_1_index,
             &aggregated_public_key,
             0,
         ),
     ];
 
-    let txids: Vec<Txid> = txs.clone().iter().map(|t| t.txid()).collect();
-    dbg!(txids);
+    // create vote txs for bob
+    let signer_2_nonce = 0;
+    let signer_2_key = &stacker_2.signer_private_key;
+    let signer_2_address = key_to_stacks_addr(signer_2_key);
+    let signer_2_principal = PrincipalData::from(signer_2_address);
+    let signer_2_index = get_signer_index(&mut peer, latest_block_id, signer_2_address);
+
+    let txs_2 = vec![
+        // cast a vote for the aggregate public key
+        make_signers_vote_for_aggregate_public_key(
+            signer_2_key,
+            signer_2_nonce,
+            signer_2_index,
+            &aggregated_public_key,
+            0,
+        ),
+    ];
 
     //
     // vote in the last burn block of prepare phase
@@ -289,22 +310,30 @@ fn vote_for_aggregate_public_key_in_last_block() {
         &mut peer,
         &mut test_signers,
         vec![vec![dummy_tx_1]],
-        signer_key,
+        signer_1_key,
     );
 
     nakamoto_tenure(
         &mut peer,
         &mut test_signers,
         vec![vec![dummy_tx_2]],
-        signer_key,
+        signer_1_key,
     );
 
-    // vote in second block of tenure
-    let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs], signer_key);
+    // alice votes in first block of tenure
+    // bob votes in second block of tenure
+    let blocks_and_sizes = nakamoto_tenure(
+        &mut peer,
+        &mut test_signers,
+        vec![txs_1, txs_2],
+        signer_1_key,
+    );
 
-    // check the last two txs in the last block
-    let block = observer.get_blocks().last().unwrap().clone();
-    let receipts = block.receipts.as_slice();
+    // check alice's and bob's txs
+    let blocks = observer.get_blocks();
+    // alice's block
+    let block = &blocks[blocks.len() - 2].clone();
+    let receipts = &block.receipts;
     assert_eq!(receipts.len(), 4);
 
     // first vote should succeed
@@ -324,6 +353,21 @@ fn vote_for_aggregate_public_key_in_last_block() {
         Value::Response(ResponseData {
             committed: false,
             data: Box::new(Value::UInt(10006)) // err-duplicate-vote
+        })
+    );
+
+    // bob's block
+    let block = blocks.last().unwrap().clone();
+    let receipts = block.receipts.as_slice();
+    assert_eq!(receipts.len(), 1);
+
+    // vote should succeed
+    let tx1 = &receipts[receipts.len() - 1];
+    assert_eq!(
+        tx1.result,
+        Value::Response(ResponseData {
+            committed: false,
+            data: Box::new(Value::UInt(10002)) // err-out-of-voting-window
         })
     );
 }
