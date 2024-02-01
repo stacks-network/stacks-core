@@ -1082,13 +1082,10 @@ impl<'a> ClarityDatabase<'a> {
         let value = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    ClarityName::try_from("reporter").expect("BUG: valid string representation"),
+                    ClarityName::from("reporter"),
                     Value::Principal(PrincipalData::Standard(reporter.clone())),
                 ),
-                (
-                    ClarityName::try_from("sequence").expect("BUG: valid string representation"),
-                    Value::UInt(seq as u128),
-                ),
+                (ClarityName::from("sequence"), Value::UInt(seq as u128)),
             ])
             .expect("BUG: valid tuple representation"),
         );

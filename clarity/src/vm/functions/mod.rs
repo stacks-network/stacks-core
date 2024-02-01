@@ -609,7 +609,7 @@ fn special_print(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    let arg = args.get(0).ok_or_else(|| {
+    let arg = args.first().ok_or_else(|| {
         InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
     let input = eval(arg, env, context)?;
