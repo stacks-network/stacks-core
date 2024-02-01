@@ -711,6 +711,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             atlas_db: Some(atlas_db),
             config: ChainsCoordinatorConfig::new(),
             burnchain_indexer,
+            refresh_stacker_db: Arc::new(AtomicBool::new(false)),
         }
     }
 }

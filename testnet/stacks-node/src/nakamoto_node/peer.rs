@@ -202,7 +202,10 @@ impl PeerThread {
         }
     }
 
-    fn check_stackerdb_reload(&mut self) {
+    /// Check if the StackerDB config needs to be updated (by looking
+    ///  at the signal in `self.globals`), and if so, refresh the
+    ///  StackerDB config
+    fn refresh_stackerdb(&mut self) {
         if !self.globals.coord_comms.need_stackerdb_update() {
             return;
         }
@@ -243,7 +246,7 @@ impl PeerThread {
             self.poll_timeout
         };
 
-        self.check_stackerdb_reload();
+        self.refresh_stackerdb();
 
         // do one pass
         let p2p_res = {
