@@ -130,7 +130,6 @@ fn disable_pox() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
@@ -412,10 +411,13 @@ fn disable_pox() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {
@@ -662,7 +664,6 @@ fn pox_2_unlock_all() {
     conf.node.wait_time_for_blocks = 1_000;
     conf.miner.wait_for_block_download = false;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
@@ -1080,10 +1081,13 @@ fn pox_2_unlock_all() {
             )
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_tuple()
+            .unwrap()
             .get_owned("addrs")
             .unwrap()
-            .expect_list();
+            .expect_list()
+            .unwrap();
 
         debug!("Test burnchain height {}", height);
         if !burnchain_config.is_in_prepare_phase(height) {

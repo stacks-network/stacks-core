@@ -185,6 +185,21 @@ impl LocalPeer {
             )),
         }
     }
+
+    /// Best-effort attempt to calculate a publicly-routable neighbor address for local peer
+    pub fn to_public_neighbor_addr(&self) -> NeighborAddress {
+        if let Some((peer_addr, peer_port)) = self.public_ip_address.as_ref() {
+            NeighborAddress {
+                addrbytes: peer_addr.clone(),
+                port: *peer_port,
+                public_key_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(
+                    &self.private_key,
+                )),
+            }
+        } else {
+            self.to_neighbor_addr()
+        }
+    }
 }
 
 impl FromRow<LocalPeer> for LocalPeer {
@@ -1770,29 +1785,27 @@ impl PeerDB {
     }
 
     /// Find out which peers replicate a particular stacker DB.
-    /// Return a randomized list of up to the given size.
+    /// Return a randomized list of up to the given size, where all
+    /// peers returned have a last-contact time greater than the given minimum age.
     pub fn find_stacker_db_replicas(
         conn: &DBConn,
         network_id: u32,
         smart_contract: &QualifiedContractIdentifier,
+        min_age: u64,
         max_count: usize,
     ) -> Result<Vec<Neighbor>, db_error> {
         if max_count == 0 {
             return Ok(vec![]);
         }
-        let mut slots = PeerDB::get_stacker_db_slots(conn, smart_contract)?;
-        slots.shuffle(&mut thread_rng());
-
-        let mut ret = vec![];
-        for slot in slots {
-            if let Some(neighbor) = PeerDB::get_peer_at(conn, network_id, slot)? {
-                ret.push(neighbor);
-                if ret.len() >= max_count {
-                    break;
-                }
-            }
-        }
-        Ok(ret)
+        let qry = "SELECT DISTINCT frontier.* FROM frontier JOIN stackerdb_peers ON stackerdb_peers.peer_slot = frontier.slot WHERE stackerdb_peers.smart_contract_id = ?1 AND frontier.network_id = ?2 AND frontier.last_contact_time >= ?3 ORDER BY RANDOM() LIMIT ?4";
+        let max_count_u32 = u32::try_from(max_count).unwrap_or(u32::MAX);
+        let args: &[&dyn ToSql] = &[
+            &smart_contract.to_string(),
+            &network_id,
+            &u64_to_sql(min_age)?,
+            &max_count_u32,
+        ];
+        query_rows(conn, qry, args)
     }
 }
 
@@ -2479,21 +2492,21 @@ mod test {
         }
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 1).unwrap();
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 0, 1).unwrap();
         assert_eq!(replicas.len(), 1);
         assert_eq!(replicas[0], neighbor);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 2).unwrap();
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 0, 2).unwrap();
         assert_eq!(replicas.len(), 1);
         assert_eq!(replicas[0], neighbor);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 0).unwrap();
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 0, 0).unwrap();
         assert_eq!(replicas.len(), 0);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef1, &stackerdbs[0], 1).unwrap();
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef1, &stackerdbs[0], 0, 1).unwrap();
         assert_eq!(replicas.len(), 0);
 
         // insert new stacker DBs -- keep one the same, and add a different one
@@ -2523,16 +2536,49 @@ mod test {
         assert_eq!(neighbor_stackerdbs, changed_stackerdbs);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 1)
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 0, 1)
                 .unwrap();
         assert_eq!(replicas.len(), 1);
         assert_eq!(replicas[0], neighbor);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 1)
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 0, 1)
                 .unwrap();
         assert_eq!(replicas.len(), 1);
         assert_eq!(replicas[0], neighbor);
+
+        // query stacker DBs filtering by last-contact time
+        let replicas = PeerDB::find_stacker_db_replicas(
+            &db.conn,
+            0x9abcdef0,
+            &changed_stackerdbs[1],
+            1552509641,
+            1,
+        )
+        .unwrap();
+        assert_eq!(replicas.len(), 1);
+        assert_eq!(replicas[0], neighbor);
+
+        let replicas = PeerDB::find_stacker_db_replicas(
+            &db.conn,
+            0x9abcdef0,
+            &changed_stackerdbs[1],
+            1552509642,
+            1,
+        )
+        .unwrap();
+        assert_eq!(replicas.len(), 1);
+        assert_eq!(replicas[0], neighbor);
+
+        let replicas = PeerDB::find_stacker_db_replicas(
+            &db.conn,
+            0x9abcdef0,
+            &changed_stackerdbs[1],
+            1552509643,
+            1,
+        )
+        .unwrap();
+        assert_eq!(replicas.len(), 0);
 
         // clear stacker DBs
         {
@@ -2549,12 +2595,12 @@ mod test {
         assert_eq!(neighbor_stackerdbs, []);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 1)
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 0, 1)
                 .unwrap();
         assert_eq!(replicas.len(), 0);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 1)
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 0, 1)
                 .unwrap();
         assert_eq!(replicas.len(), 0);
 
@@ -2587,32 +2633,54 @@ mod test {
             assert_eq!(neighbor_stackerdbs, replace_stackerdbs);
 
             let replicas =
-                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdee0, &stackerdbs[0], 1).unwrap();
-            assert_eq!(replicas.len(), 0);
-
-            let replicas =
-                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdee0, &stackerdbs[1], 1).unwrap();
-            assert_eq!(replicas.len(), 0);
-
-            let replicas =
-                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 1)
+                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdee0, &stackerdbs[0], 0, 1)
                     .unwrap();
             assert_eq!(replicas.len(), 0);
 
             let replicas =
-                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 1)
+                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdee0, &stackerdbs[1], 0, 1)
                     .unwrap();
             assert_eq!(replicas.len(), 0);
 
-            let replicas =
-                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[0], 1)
-                    .unwrap();
+            let replicas = PeerDB::find_stacker_db_replicas(
+                &db.conn,
+                0x9abcdef0,
+                &changed_stackerdbs[0],
+                0,
+                1,
+            )
+            .unwrap();
+            assert_eq!(replicas.len(), 0);
+
+            let replicas = PeerDB::find_stacker_db_replicas(
+                &db.conn,
+                0x9abcdef0,
+                &changed_stackerdbs[1],
+                0,
+                1,
+            )
+            .unwrap();
+            assert_eq!(replicas.len(), 0);
+
+            let replicas = PeerDB::find_stacker_db_replicas(
+                &db.conn,
+                0x9abcdef0,
+                &replace_stackerdbs[0],
+                0,
+                1,
+            )
+            .unwrap();
             assert_eq!(replicas.len(), 1);
             assert_eq!(replicas[0], neighbor);
 
-            let replicas =
-                PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[1], 1)
-                    .unwrap();
+            let replicas = PeerDB::find_stacker_db_replicas(
+                &db.conn,
+                0x9abcdef0,
+                &replace_stackerdbs[1],
+                0,
+                1,
+            )
+            .unwrap();
             assert_eq!(replicas.len(), 1);
             assert_eq!(replicas[0], neighbor);
         }
@@ -2631,30 +2699,30 @@ mod test {
         }
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 1).unwrap();
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[0], 0, 1).unwrap();
         assert_eq!(replicas.len(), 0);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[1], 1).unwrap();
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &stackerdbs[1], 0, 1).unwrap();
         assert_eq!(replicas.len(), 0);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 1)
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[0], 0, 1)
                 .unwrap();
         assert_eq!(replicas.len(), 0);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 1)
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &changed_stackerdbs[1], 0, 1)
                 .unwrap();
         assert_eq!(replicas.len(), 0);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[0], 1)
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[0], 0, 1)
                 .unwrap();
         assert_eq!(replicas.len(), 0);
 
         let replicas =
-            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[1], 1)
+            PeerDB::find_stacker_db_replicas(&db.conn, 0x9abcdef0, &replace_stackerdbs[1], 0, 1)
                 .unwrap();
         assert_eq!(replicas.len(), 0);
     }

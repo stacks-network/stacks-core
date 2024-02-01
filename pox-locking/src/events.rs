@@ -412,8 +412,7 @@ pub fn synthesize_pox_event_info(
 
     let pox_contract = global_context
         .database
-        .get_contract(contract_id)
-        .expect("FATAL: could not load PoX contract metadata");
+        .get_contract(contract_id)?;
 
     let event_info = global_context
         .special_cc_handler_execute_read_only(
@@ -442,8 +441,12 @@ pub fn synthesize_pox_event_info(
                     })?;
 
                 // merge them
-                let base_event_tuple = base_event_info.expect_tuple();
-                let data_tuple = data_event_info.expect_tuple();
+                let base_event_tuple = base_event_info
+                    .expect_tuple()
+                    .expect("FATAL: unexpected clarity value");
+                let data_tuple = data_event_info
+                    .expect_tuple()
+                    .expect("FATAL: unexpected clarity value");
                 let event_tuple =
                     TupleData::shallow_merge(base_event_tuple, data_tuple).map_err(|e| {
                         error!("Failed to merge data-info and event-info: {:?}", &e);
