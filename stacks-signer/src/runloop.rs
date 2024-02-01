@@ -39,7 +39,9 @@ use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys, SignError};
 use wsts::v2;
 
-use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
+use crate::client::{
+    retry_with_exponential_backoff, ClientError, EpochId, StackerDB, StacksClient,
+};
 use crate::config::{Config, Network};
 
 /// Which operation to perform
@@ -495,11 +497,13 @@ impl<C: Coordinator> RunLoop<C> {
     /// Verify the transactions in a block are as expected
     fn verify_transactions(&mut self, block: &NakamotoBlock) -> bool {
         if let Ok(expected_transactions) = self.get_expected_transactions() {
+            //It might be worth building a hashset of the blocks' txids and checking that against the expected transaction's txid.
+            let block_tx_hashset = block.txs.iter().map(|tx| tx.txid()).collect::<HashSet<_>>();
             // Ensure the block contains the transactions we expect
             let missing_transactions = expected_transactions
                 .into_iter()
                 .filter_map(|tx| {
-                    if !block.txs.contains(&tx) {
+                    if !block_tx_hashset.contains(&tx.txid()) {
                         Some(tx)
                     } else {
                         None
@@ -540,6 +544,31 @@ impl<C: Coordinator> RunLoop<C> {
         }
     }
 
+    /// Filter out invalid transactions from the list of transactions
+    fn filter_out_invalid_transactions(
+        &self,
+        proposed_transactions: Vec<StacksTransaction>,
+    ) -> Vec<StacksTransaction> {
+        let mut expected_transactions = vec![];
+        for transaction in proposed_transactions {
+            // TODO: Filter out transactions that are not special cased transactions (cast votes, etc.)
+            // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
+            let origin_address = transaction.origin_address();
+            let origin_nonce = transaction.get_origin_nonce();
+            let Ok(account_nonce) = self.stacks_client.get_account_nonce(&origin_address) else {
+                warn!("Unable to get account for address: {origin_address}. Ignoring it for this block...");
+                continue;
+            };
+            if !self.signer_addresses.contains(&origin_address) || origin_nonce < account_nonce {
+                debug!("Received a transaction for signer id that is either not valid or has already been confirmed. Ignoring it.");
+                continue;
+            } else {
+                expected_transactions.push(transaction);
+            }
+        }
+        expected_transactions
+    }
+
     /// Get the transactions we expect to see in the next block
     fn get_expected_transactions(&mut self) -> Result<Vec<StacksTransaction>, ClientError> {
         let signer_ids = self
@@ -552,30 +581,7 @@ impl<C: Coordinator> RunLoop<C> {
         let transactions = self
             .stackerdb
             .get_signer_transactions_with_retry(&signer_ids)?;
-        let mut expected_transactions = vec![];
-        for (signer_id, signer_transactions) in transactions {
-            let Some(stacks_address) = self.signer_addresses.get(signer_id as usize) else {
-                // Received a transaction for a signer we do not know about. Ignore it.
-                continue;
-            };
-            let Ok(account_nonce) = self.stacks_client.get_account_nonce(stacks_address) else {
-                warn!("Unable to get account nonce for signer id {signer_id}. Ignoring their transactions.");
-                continue;
-            };
-            for signer_transaction in signer_transactions {
-                // TODO: Filter out transactions that are not special cased transactions (cast votes, etc.)
-                // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
-                if signer_transaction.origin_address() != *stacks_address
-                    || signer_transaction.get_origin_nonce() < account_nonce
-                {
-                    debug!("Received a transaction for signer id {signer_id} that is either not valid or has already been confirmed. Ignoring it.");
-                    continue;
-                } else {
-                    expected_transactions.push(signer_transaction);
-                }
-            }
-        }
-        Ok(expected_transactions)
+        Ok(self.filter_out_invalid_transactions(transactions))
     }
 
     /// Determine the vote for a block and update the block info and nonce request accordingly
@@ -644,13 +650,26 @@ impl<C: Coordinator> RunLoop<C> {
                 OperationResult::Dkg(_point) => {
                     // TODO: cast the aggregate public key for the latest round here
                     // Broadcast via traditional methods to the stacks node if we are pre nakamoto or we cannot determine our Epoch
-                    if self.stacks_client.is_pre_nakamoto().unwrap_or(false) {
-                        // We are in the pre-nakamoto phase. Broadcast the aggregate public key stx transaction to the stacks node via the mempool
-                    }
-                    // Always broadcast the transactions to stackerdb so miners and signers can observe it when building and validating the block, respectively.
-                    let signer_message = SignerMessage::Transactions(self.transactions.clone());
-                    if let Err(e) = self.stackerdb.send_message_with_retry(signer_message) {
-                        warn!("Failed to update transactions in stacker-db: {:?}", e);
+                    let epoch = self
+                        .stacks_client
+                        .get_node_epoch()
+                        .unwrap_or(EpochId::UnsupportedEpoch);
+                    match epoch {
+                        EpochId::UnsupportedEpoch => {
+                            debug!("Received a DKG result, but are in an unsupported epoch. Do not broadcast the result.");
+                        }
+                        EpochId::Epoch25 => {
+                            debug!("Received a DKG result, but are in epoch 2.5. Broadcast the transaction to the mempool.");
+                            //TODO: Cast the aggregate public key vote here
+                        }
+                        EpochId::Epoch30 => {
+                            debug!("Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.");
+                            let signer_message =
+                                SignerMessage::Transactions(self.transactions.clone());
+                            if let Err(e) = self.stackerdb.send_message_with_retry(signer_message) {
+                                warn!("Failed to update transactions in stacker-db: {:?}", e);
+                            }
+                        }
                     }
                 }
                 OperationResult::SignError(e) => {
@@ -978,8 +997,18 @@ mod tests {
     use std::net::TcpListener;
     use std::thread::{sleep, spawn};
 
+    use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
+    use blockstack_lib::chainstate::stacks::TransactionVersion;
+    use blockstack_lib::util_lib::boot::boot_code_addr;
+    use clarity::vm::types::{ResponseData, TupleData};
+    use clarity::vm::{ClarityName, Value as ClarityValue};
+    use libsigner::SIGNER_SLOTS_PER_USER;
     use rand::distributions::Standard;
     use rand::Rng;
+    use stacks_common::types::chainstate::StacksPrivateKey;
+    use stacks_common::util::hash::Hash160;
+    use wsts::curve::point::Point;
+    use wsts::curve::scalar::Scalar;
 
     use super::*;
     use crate::client::tests::{write_response, TestConfig};
@@ -1082,5 +1111,174 @@ mod tests {
             all_keys_same,
             "All coordinator public keys should be the same"
         );
+    }
+
+    fn build_get_signer_slots_response(config: &Config) -> String {
+        let mut signers_public_keys = config
+            .signer_ids_public_keys
+            .signers
+            .iter()
+            .map(|(signer_id, signer_public_key)| {
+                let bytes = signer_public_key.to_bytes();
+                let signer_hash = Hash160::from_data(&bytes);
+                let signing_address = StacksAddress::p2pkh_from_hash(false, signer_hash);
+                (signer_id, signing_address)
+            })
+            .collect::<Vec<_>>();
+        signers_public_keys.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        let mut list_data = vec![];
+        for (_, signers_public_key) in signers_public_keys {
+            let tuple_data = vec![
+                (
+                    ClarityName::from("signer"),
+                    ClarityValue::Principal(signers_public_key.into()),
+                ),
+                (
+                    ClarityName::from("num-slots"),
+                    ClarityValue::UInt(SIGNER_SLOTS_PER_USER as u128),
+                ),
+            ];
+            let tuple = ClarityValue::Tuple(
+                TupleData::from_data(tuple_data).expect("Failed to create tuple data"),
+            );
+            list_data.push(tuple);
+        }
+
+        let result_data =
+            ClarityValue::cons_list_unsanitized(list_data).expect("Failed to construct list data");
+        let response_clarity = ClarityValue::Response(ResponseData {
+            committed: true,
+            data: Box::new(result_data),
+        });
+        let hex = response_clarity
+            .serialize_to_hex()
+            .expect("Failed to serialize clarity value");
+        format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
+    }
+
+    fn build_get_aggregate_public_key_response_some() -> (String, String) {
+        let current_reward_cycle_response = "HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}".to_string();
+        let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        let clarity_value = ClarityValue::some(
+            ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
+                .expect("BUG: Failed to create clarity value from point"),
+        )
+        .expect("BUG: Failed to create clarity value from point");
+        let hex = clarity_value
+            .serialize_to_hex()
+            .expect("Failed to serialize clarity value");
+        let point_response = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}");
+
+        (current_reward_cycle_response, point_response)
+    }
+
+    fn simulate_initialize_response(config: Config) {
+        let (current_reward_cycle_response, aggregate_key_response) =
+            build_get_aggregate_public_key_response_some();
+        let signer_slots_response = build_get_signer_slots_response(&config);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(
+            test_config.mock_server,
+            current_reward_cycle_response.as_bytes(),
+        );
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, aggregate_key_response.as_bytes());
+
+        let test_config = TestConfig::from_config(config);
+        write_response(test_config.mock_server, signer_slots_response.as_bytes());
+    }
+
+    #[allow(dead_code)]
+    fn simulate_get_transactions_response(config: Config) {
+        let (current_reward_cycle_response, aggregate_key_response) =
+            build_get_aggregate_public_key_response_some();
+        let signer_slots_response = build_get_signer_slots_response(&config);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(
+            test_config.mock_server,
+            current_reward_cycle_response.as_bytes(),
+        );
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, aggregate_key_response.as_bytes());
+
+        let test_config = TestConfig::from_config(config);
+        write_response(test_config.mock_server, signer_slots_response.as_bytes());
+    }
+
+    fn simulate_get_account_nonce_response(config: Config, num_responses: usize) {
+        for _ in 0..num_responses {
+            let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
+            let test_config = TestConfig::from_config(config.clone());
+            write_response(test_config.mock_server, nonce_response);
+        }
+    }
+
+    #[test]
+    fn filter_out_invalid_transactions() {
+        // Create a runloop of a valid signer
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let mut valid_signer_runloop: RunLoop<FireCoordinator<v2::Aggregator>> =
+            RunLoop::from(&config);
+
+        let signer_private_key = config.stacks_private_key;
+        let non_signer_private_key = StacksPrivateKey::new();
+        let signers_contract_addr = boot_code_addr(false);
+        // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
+        // TODO use cast_aggregate_vote_tx fn to create a valid transaction when it is implmented and update this test
+        let valid_tx = StacksClient::build_signed_contract_call_transaction(
+            &signers_contract_addr,
+            SIGNERS_VOTING_NAME.into(),
+            "fake-function".into(),
+            &[],
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            1,
+            10,
+        )
+        .unwrap();
+        let invalid_tx_bad_signer = StacksClient::build_signed_contract_call_transaction(
+            &signers_contract_addr,
+            SIGNERS_VOTING_NAME.into(),
+            "fake-function".into(),
+            &[],
+            &non_signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            0,
+            10,
+        )
+        .unwrap();
+        let invalid_tx_outdated_nonce = StacksClient::build_signed_contract_call_transaction(
+            &signers_contract_addr,
+            SIGNERS_VOTING_NAME.into(),
+            "fake-function".into(),
+            &[],
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            0,
+            5,
+        )
+        .unwrap();
+
+        let transactions = vec![
+            valid_tx.clone(),
+            invalid_tx_outdated_nonce,
+            invalid_tx_bad_signer,
+        ];
+        let num_transactions = transactions.len();
+        let h = spawn(move || {
+            valid_signer_runloop.initialize().unwrap();
+            valid_signer_runloop.filter_out_invalid_transactions(transactions)
+        });
+
+        // Must initialize the signers before attempting to retrieve their transactions
+        simulate_initialize_response(config.clone());
+        simulate_get_account_nonce_response(config, num_transactions);
+
+        let filtered_txs = h.join().unwrap();
+        assert_eq!(filtered_txs, vec![valid_tx]);
     }
 }

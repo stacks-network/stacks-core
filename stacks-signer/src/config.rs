@@ -115,6 +115,7 @@ impl Network {
 }
 
 /// The parsed configuration for the signer
+#[derive(Clone, Debug)]
 pub struct Config {
     /// endpoint to the stacks node
     pub node_host: SocketAddr,

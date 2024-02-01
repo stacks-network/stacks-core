@@ -122,6 +122,7 @@ pub(crate) mod tests {
         pub(crate) mock_server: TcpListener,
         pub(crate) client: StacksClient,
         pub(crate) stackerdb: StackerDB,
+        pub(crate) config: Config,
     }
 
     impl TestConfig {
@@ -142,6 +143,20 @@ pub(crate) mod tests {
                 mock_server,
                 client,
                 stackerdb,
+                config,
+            }
+        }
+
+        pub(crate) fn from_config(config: Config) -> Self {
+            let mock_server = TcpListener::bind(config.node_host).unwrap();
+
+            let client = StacksClient::from(&config);
+            let stackerdb = StackerDB::from(&config);
+            Self {
+                mock_server,
+                client,
+                stackerdb,
+                config,
             }
         }
     }
