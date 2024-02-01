@@ -544,31 +544,6 @@ impl<C: Coordinator> RunLoop<C> {
         }
     }
 
-    /// Filter out invalid transactions from the list of transactions
-    fn filter_out_invalid_transactions(
-        &self,
-        proposed_transactions: Vec<StacksTransaction>,
-    ) -> Vec<StacksTransaction> {
-        let mut expected_transactions = vec![];
-        for transaction in proposed_transactions {
-            // TODO: Filter out transactions that are not special cased transactions (cast votes, etc.)
-            // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
-            let origin_address = transaction.origin_address();
-            let origin_nonce = transaction.get_origin_nonce();
-            let Ok(account_nonce) = self.stacks_client.get_account_nonce(&origin_address) else {
-                warn!("Unable to get account for address: {origin_address}. Ignoring it for this block...");
-                continue;
-            };
-            if !self.signer_addresses.contains(&origin_address) || origin_nonce < account_nonce {
-                debug!("Received a transaction for signer id that is either not valid or has already been confirmed. Ignoring it.");
-                continue;
-            } else {
-                expected_transactions.push(transaction);
-            }
-        }
-        expected_transactions
-    }
-
     /// Get the transactions we expect to see in the next block
     fn get_expected_transactions(&mut self) -> Result<Vec<StacksTransaction>, ClientError> {
         let signer_ids = self
@@ -580,8 +555,22 @@ impl<C: Coordinator> RunLoop<C> {
             .collect::<Vec<_>>();
         let transactions = self
             .stackerdb
-            .get_signer_transactions_with_retry(&signer_ids)?;
-        Ok(self.filter_out_invalid_transactions(transactions))
+            .get_signer_transactions_with_retry(&signer_ids)?.into_iter().filter_map(|transaction| {
+                // TODO: Filter out transactions that are not special cased transactions (cast votes, etc.)
+                // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
+                let origin_address = transaction.origin_address();
+                let origin_nonce = transaction.get_origin_nonce();
+                let Ok(account_nonce) = self.stacks_client.get_account_nonce(&origin_address) else {
+                    warn!("Unable to get account for address: {origin_address}. Ignoring it for this block...");
+                    return None;
+                };
+                if !self.signer_addresses.contains(&origin_address) || origin_nonce < account_nonce {
+                    debug!("Received a transaction for signer id that is either not valid or has already been confirmed. Ignoring it.");
+                    return None;
+                }
+                Some(transaction)
+            }).collect();
+        Ok(transactions)
     }
 
     /// Determine the vote for a block and update the block info and nonce request accordingly
@@ -1189,25 +1178,8 @@ mod tests {
         write_response(test_config.mock_server, signer_slots_response.as_bytes());
     }
 
-    #[allow(dead_code)]
-    fn simulate_get_transactions_response(config: Config) {
-        let (current_reward_cycle_response, aggregate_key_response) =
-            build_get_aggregate_public_key_response_some();
-        let signer_slots_response = build_get_signer_slots_response(&config);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(
-            test_config.mock_server,
-            current_reward_cycle_response.as_bytes(),
-        );
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, aggregate_key_response.as_bytes());
-
-        let test_config = TestConfig::from_config(config);
-        write_response(test_config.mock_server, signer_slots_response.as_bytes());
-    }
-
-    fn simulate_get_account_nonce_response(config: Config, num_responses: usize) {
-        for _ in 0..num_responses {
+    fn simulate_nonce_response(config: &Config, num_transactions: usize) {
+        for _ in 0..num_transactions {
             let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
             let test_config = TestConfig::from_config(config.clone());
             write_response(test_config.mock_server, nonce_response);
@@ -1215,7 +1187,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_out_invalid_transactions() {
+    fn get_expected_transactions_should_filter_invalid_transactions() {
         // Create a runloop of a valid signer
         let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let mut valid_signer_runloop: RunLoop<FireCoordinator<v2::Aggregator>> =
@@ -1269,14 +1241,52 @@ mod tests {
             invalid_tx_bad_signer,
         ];
         let num_transactions = transactions.len();
+
         let h = spawn(move || {
             valid_signer_runloop.initialize().unwrap();
-            valid_signer_runloop.filter_out_invalid_transactions(transactions)
+            valid_signer_runloop.get_expected_transactions().unwrap()
         });
 
         // Must initialize the signers before attempting to retrieve their transactions
         simulate_initialize_response(config.clone());
-        simulate_get_account_nonce_response(config, num_transactions);
+
+        // Simulate the response to the request for transactions
+        let signer_message = SignerMessage::Transactions(transactions);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        simulate_nonce_response(&config, num_transactions);
 
         let filtered_txs = h.join().unwrap();
         assert_eq!(filtered_txs, vec![valid_tx]);
