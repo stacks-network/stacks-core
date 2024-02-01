@@ -202,7 +202,7 @@ mod tests {
         let signer_message = SignerMessage::Transactions(vec![tx.clone()]);
         let message = signer_message.serialize_to_vec();
 
-        let signer_ids = vec![0];
+        let signer_ids = vec![0, 1];
         let h = spawn(move || {
             config
                 .stackerdb
@@ -211,6 +211,14 @@ mod tests {
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         write_response(config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let test_config = TestConfig::from_config(config.config);
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
         let transactions = h.join().unwrap().unwrap();
         assert_eq!(transactions, vec![tx]);
     }
