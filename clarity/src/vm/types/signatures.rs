@@ -810,13 +810,13 @@ impl TypeSignature {
 
 impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
     type Error = CheckErrors;
-    fn try_from(mut type_data: Vec<(ClarityName, TypeSignature)>) -> Result<TupleTypeSignature> {
+    fn try_from(type_data: Vec<(ClarityName, TypeSignature)>) -> Result<TupleTypeSignature> {
         if type_data.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
 
         let mut type_map = BTreeMap::new();
-        for (name, type_info) in type_data.drain(..) {
+        for (name, type_info) in type_data.into_iter() {
             if let Entry::Vacant(e) = type_map.entry(name.clone()) {
                 e.insert(type_info);
             } else {

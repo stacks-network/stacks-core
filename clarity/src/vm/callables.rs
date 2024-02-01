@@ -123,13 +123,13 @@ impl fmt::Display for FunctionIdentifier {
 
 impl DefinedFunction {
     pub fn new(
-        mut arguments: Vec<(ClarityName, TypeSignature)>,
+        arguments: Vec<(ClarityName, TypeSignature)>,
         body: SymbolicExpression,
         define_type: DefineType,
         name: &ClarityName,
         context_name: &str,
     ) -> DefinedFunction {
-        let (argument_names, types) = arguments.drain(..).unzip();
+        let (argument_names, types) = arguments.into_iter().unzip();
 
         DefinedFunction {
             identifier: FunctionIdentifier::new_user_function(name, context_name),
@@ -164,14 +164,14 @@ impl DefinedFunction {
             ))?
         }
 
-        let mut arg_iterator: Vec<_> = self
+        let arg_iterator: Vec<_> = self
             .arguments
             .iter()
             .zip(self.arg_types.iter())
             .zip(args.iter())
             .collect();
 
-        for arg in arg_iterator.drain(..) {
+        for arg in arg_iterator.into_iter() {
             let ((name, type_sig), value) = arg;
 
             // Clarity 1 behavior

@@ -349,8 +349,8 @@ impl AssetMap {
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
         let mut to_add = Vec::new();
-        let mut stx_to_add = Vec::new();
-        let mut stx_burn_to_add = Vec::new();
+        let mut stx_to_add = Vec::with_capacity(other.stx_map.len());
+        let mut stx_burn_to_add = Vec::with_capacity(other.burn_map.len());
 
         for (principal, mut principal_map) in other.token_map.drain() {
             for (asset, amount) in principal_map.drain() {
@@ -386,15 +386,15 @@ impl AssetMap {
             }
         }
 
-        for (principal, stx_amount) in stx_to_add.drain(..) {
+        for (principal, stx_amount) in stx_to_add.into_iter() {
             self.stx_map.insert(principal, stx_amount);
         }
 
-        for (principal, stx_burn_amount) in stx_burn_to_add.drain(..) {
+        for (principal, stx_burn_amount) in stx_burn_to_add.into_iter() {
             self.burn_map.insert(principal, stx_burn_amount);
         }
 
-        for (principal, asset, amount) in to_add.drain(..) {
+        for (principal, asset, amount) in to_add.into_iter() {
             if !self.token_map.contains_key(&principal) {
                 self.token_map.insert(principal.clone(), HashMap::new());
             }
