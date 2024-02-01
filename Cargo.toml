@@ -14,7 +14,7 @@ members = [
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]  
-wsts = "7.0"
+wsts = "8.0"
 rand_core = "0.6"
 rand = "0.8"
 
