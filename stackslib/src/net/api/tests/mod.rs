@@ -250,18 +250,18 @@ impl<'a> TestRPC<'a> {
         peer_1_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
             write_count: 0,
-            read_length: 1500,
+            read_length: 2000,
             read_count: 3,
-            runtime: 1500000,
+            runtime: 2000000,
         };
         peer_1_config.connection_opts.maximum_call_argument_size = 4096;
 
         peer_2_config.connection_opts.read_only_call_limit = ExecutionCost {
             write_length: 0,
             write_count: 0,
-            read_length: 1500,
+            read_length: 2000,
             read_count: 3,
-            runtime: 1500000,
+            runtime: 2000000,
         };
         peer_2_config.connection_opts.maximum_call_argument_size = 4096;
 
