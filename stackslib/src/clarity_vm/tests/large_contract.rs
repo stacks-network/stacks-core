@@ -688,7 +688,7 @@ pub fn rollback_log_memory_test(
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
             let cur_size = format!("{}", 2u32.pow(i));
-            contract.push_str("\n");
+            contract.push('\n');
             contract.push_str(&format!(
                 "(var-set XZ (concat (unwrap-panic (as-max-len? (var-get XZ) u{}))
                                              (unwrap-panic (as-max-len? (var-get XZ) u{}))))",
@@ -697,7 +697,7 @@ pub fn rollback_log_memory_test(
         }
         for i in 0..EXPLODE_N {
             let exploder = format!("(define-data-var var-{} (buff 1048576) (var-get XZ))", i);
-            contract.push_str("\n");
+            contract.push('\n');
             contract.push_str(&exploder);
         }
 
@@ -757,7 +757,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
-            contract.push_str("\n");
+            contract.push('\n');
             contract.push_str(&format!(
                 "(define-constant buff-{} (concat buff-{} buff-{}))",
                 i + 1,
@@ -766,7 +766,7 @@ pub fn let_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_id
             ));
         }
 
-        contract.push_str("\n");
+        contract.push('\n');
         contract.push_str("(let (");
 
         for i in 0..EXPLODE_N {
@@ -835,7 +835,7 @@ pub fn argument_memory_test(
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
-            contract.push_str("\n");
+            contract.push('\n');
             contract.push_str(&format!(
                 "(define-constant buff-{} (concat buff-{} buff-{}))",
                 i + 1,
@@ -844,7 +844,7 @@ pub fn argument_memory_test(
             ));
         }
 
-        contract.push_str("\n");
+        contract.push('\n');
         contract.push_str("(is-eq ");
 
         for _i in 0..EXPLODE_N {
@@ -852,7 +852,7 @@ pub fn argument_memory_test(
             contract.push_str(exploder);
         }
 
-        contract.push_str(")");
+        contract.push(')');
 
         conn.as_transaction(|conn| {
             let (ct_ast, _ct_analysis) = conn
@@ -911,7 +911,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
 
         let mut contract = define_data_var.to_string();
         for i in 0..20 {
-            contract.push_str("\n");
+            contract.push('\n');
             contract.push_str(&format!(
                 "(define-constant buff-{} (concat buff-{} buff-{}))",
                 i + 1,
@@ -920,7 +920,7 @@ pub fn fcall_memory_test(#[case] clarity_version: ClarityVersion, #[case] epoch_
             ));
         }
 
-        contract.push_str("\n");
+        contract.push('\n');
 
         for i in 0..FUNCS {
             contract.push_str(&format!("(define-private (call-{})\n", i));

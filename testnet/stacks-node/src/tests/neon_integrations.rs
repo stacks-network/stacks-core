@@ -3571,7 +3571,7 @@ fn size_check_integration_test() {
 
     let mut giant_contract = "(define-public (f) (ok 1))".to_string();
     for _i in 0..(1024 * 1024 + 500) {
-        giant_contract.push_str(" ");
+        giant_contract.push(' ');
     }
 
     let spender_sks: Vec<_> = (0..10)
@@ -3734,13 +3734,13 @@ fn size_overflow_unconfirmed_microblocks_integration_test() {
     // stuff a gigantic contract into the anchored block
     let mut giant_contract = "(define-public (f) (ok 1))".to_string();
     for _i in 0..(1024 * 1024 + 500) {
-        giant_contract.push_str(" ");
+        giant_contract.push(' ');
     }
 
     // small-sized contracts for microblocks
     let mut small_contract = "(define-public (f) (ok 1))".to_string();
     for _i in 0..(1024 * 1024 + 500) {
-        small_contract.push_str(" ");
+        small_contract.push(' ');
     }
 
     let spender_sks: Vec<_> = (0..5)
@@ -3951,7 +3951,7 @@ fn size_overflow_unconfirmed_stream_microblocks_integration_test() {
 
     let mut small_contract = "(define-public (f) (ok 1))".to_string();
     for _i in 0..((1024 * 1024 + 500) / 3) {
-        small_contract.push_str(" ");
+        small_contract.push(' ');
     }
 
     let spender_sks: Vec<_> = (0..20)
@@ -4142,7 +4142,7 @@ fn size_overflow_unconfirmed_invalid_stream_microblocks_integration_test() {
 
     let mut small_contract = "(define-public (f) (ok 1))".to_string();
     for _i in 0..((1024 * 1024 + 500) / 8) {
-        small_contract.push_str(" ");
+        small_contract.push(' ');
     }
 
     let spender_sks: Vec<_> = (0..25)

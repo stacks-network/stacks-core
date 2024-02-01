@@ -672,7 +672,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -711,7 +711,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -748,7 +748,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -787,7 +787,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
@@ -826,7 +826,7 @@ fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<S
             for buf in debug_cursor.log().iter() {
                 ret.push_str(&format!("   {}\n", to_hex(buf)));
             }
-            ret.push_str("\n");
+            ret.push('\n');
             Ok(ret)
         }
     }
