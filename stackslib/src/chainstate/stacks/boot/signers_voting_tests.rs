@@ -17,6 +17,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
+use ::secp256k1::Scalar;
 use clarity::boot_util::boot_code_addr;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -255,7 +256,8 @@ fn vote_for_aggregate_public_key_in_last_block() {
     );
 
     let cycle_id: u128 = current_reward_cycle;
-    let aggregated_public_key: Point = Point::new();
+    let aggregate_public_key: Point = Point::new();
+    let aggregate_public_key_1: Point = Point::G();
 
     // create vote txs for alice
     let signer_1_nonce = 0;
@@ -270,15 +272,23 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_key,
             signer_1_nonce,
             signer_1_index,
-            &aggregated_public_key,
-            0,
+            &aggregate_public_key,
+            1,
         ),
         // cast the vote twice
         make_signers_vote_for_aggregate_public_key(
             signer_1_key,
             signer_1_nonce + 1,
             signer_1_index,
-            &aggregated_public_key,
+            &aggregate_public_key,
+            1,
+        ),
+        // cast a vote for old round
+        make_signers_vote_for_aggregate_public_key(
+            signer_1_key,
+            signer_1_nonce + 2,
+            signer_1_index,
+            &aggregate_public_key_1,
             0,
         ),
     ];
@@ -296,7 +306,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_2_key,
             signer_2_nonce,
             signer_2_index,
-            &aggregated_public_key,
+            &aggregate_public_key,
             0,
         ),
     ];
@@ -333,10 +343,10 @@ fn vote_for_aggregate_public_key_in_last_block() {
     // alice's block
     let block = &blocks[blocks.len() - 2].clone();
     let receipts = &block.receipts;
-    assert_eq!(receipts.len(), 4);
+    assert_eq!(receipts.len(), 5);
 
     // first vote should succeed
-    let tx1 = &receipts[receipts.len() - 2];
+    let tx1 = &receipts[receipts.len() - 3];
     assert_eq!(
         tx1.result,
         Value::Response(ResponseData {
@@ -346,12 +356,22 @@ fn vote_for_aggregate_public_key_in_last_block() {
     );
 
     // second vote should fail with duplicate vote error
-    let tx2 = &receipts[receipts.len() - 1];
+    let tx2 = &receipts[receipts.len() - 2];
     assert_eq!(
         tx2.result,
         Value::Response(ResponseData {
             committed: false,
             data: Box::new(Value::UInt(7)) // ERR_DUPLICATE_VOTE
+        })
+    );
+
+    // third vote should succeed even though it is on an old round
+    let tx3 = &receipts[receipts.len() - 1];
+    assert_eq!(
+        tx3.result,
+        Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(Value::Bool(true))
         })
     );
 
@@ -362,9 +382,9 @@ fn vote_for_aggregate_public_key_in_last_block() {
 
     // vote fails because the reward cycle has changed
     //  and the signer set hasn't been set yet.
-    let tx1 = &receipts[receipts.len() - 1];
+    let tx1_bob = &receipts[receipts.len() - 1];
     assert_eq!(
-        tx1.result,
+        tx1_bob.result,
         Value::Response(ResponseData {
             committed: false,
             data: Box::new(Value::UInt(2)) // ERR_INVALID_SIGNER_INDEX

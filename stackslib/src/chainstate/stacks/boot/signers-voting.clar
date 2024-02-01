@@ -12,7 +12,6 @@
 (define-constant ERR_SIGNER_INDEX_MISMATCH 1)
 (define-constant ERR_INVALID_SIGNER_INDEX 2)
 (define-constant ERR_OUT_OF_VOTING_WINDOW 3)
-(define-constant ERR_OLD_ROUND 4)
 (define-constant ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY 5)
 (define-constant ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY 6)
 (define-constant ERR_DUPLICATE_VOTE 7)
@@ -80,8 +79,6 @@
             (new-total (+ num-weight (default-to u0 (map-get? tally tally-key)))))
         ;; Check we're in the prepare phase
         (asserts! (is-in-voting-window burn-block-height reward-cycle) (err (to-uint ERR_OUT_OF_VOTING_WINDOW)))
-        ;; Check that vote is for latest round in reward cycle
-        (asserts! (>= round (default-to u0 (map-get? rounds reward-cycle))) (err (to-uint ERR_OLD_ROUND)))
         ;; Check that the aggregate public key is correct length
         (asserts! (is-eq (len key) u33) (err (to-uint ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY)))
         ;; Check that aggregate public key has not been used before
