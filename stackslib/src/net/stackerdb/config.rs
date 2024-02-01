@@ -56,14 +56,18 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
-use super::{STACKERDB_PAGE_COUNT_FUNCTION, STACKERDB_PAGE_MAX, STACKERDB_SLOTS_FUNCTION};
+use super::{
+    STACKERDB_MAX_PAGE_COUNT, STACKERDB_PAGE_COUNT_FUNCTION, STACKERDB_PAGE_LIST_MAX,
+    STACKERDB_SLOTS_FUNCTION,
+};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
 use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
 use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
+    StackerDBConfig, StackerDBs, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX,
+    STACKERDB_MAX_CHUNK_SIZE,
 };
 use crate::net::{Error as NetError, NeighborAddress};
 
@@ -72,7 +76,7 @@ const MAX_HINT_REPLICAS: u32 = 128;
 lazy_static! {
     pub static ref REQUIRED_FUNCTIONS: [(ClarityName, Vec<TypeSignature>, TypeSignature); 3] = [
         (
-            super::STACKERDB_PAGE_COUNT_FUNCTION.into(),
+            STACKERDB_PAGE_COUNT_FUNCTION.into(),
             vec![],
             TypeSignature::new_response(
                 TypeSignature::UIntType,
@@ -80,7 +84,7 @@ lazy_static! {
             ).expect("FATAL: failed to construct (response int int)")
         ),
         (
-            super::STACKERDB_SLOTS_FUNCTION.into(),
+            STACKERDB_SLOTS_FUNCTION.into(),
             vec![
                 TypeSignature::UIntType
             ],
@@ -92,7 +96,7 @@ lazy_static! {
                     ])
                     .expect("FATAL: failed to construct signer list type")
                     .into(),
-                    super::STACKERDB_PAGE_MAX
+                    STACKERDB_PAGE_LIST_MAX
                 )
                 .expect("FATAL: could not construct signer list type")
                 .into(),
@@ -100,7 +104,7 @@ lazy_static! {
             ).expect("FATAL: failed to construct response with signer slots"),
         ),
         (
-            super::STACKERDB_CONFIG_FUNCTION.into(),
+            STACKERDB_CONFIG_FUNCTION.into(),
             vec![],
             TypeSignature::new_response(
                 TypeSignature::TupleType(
@@ -261,9 +265,9 @@ impl StackerDBConfig {
         };
 
         let num_slots = u32::try_from(*num_slots)
-            .map_err(|_| format!("Contract `{contract_id}` set too many slots for one signer (max = {STACKERDB_PAGE_MAX})"))?;
-        if num_slots > STACKERDB_PAGE_MAX {
-            return Err(format!("Contract `{contract_id}` set too many slots for one signer (max = {STACKERDB_PAGE_MAX})"));
+            .map_err(|_| format!("Contract `{contract_id}` set too many slots for one signer (max = {STACKERDB_INV_MAX})"))?;
+        if num_slots > STACKERDB_INV_MAX {
+            return Err(format!("Contract `{contract_id}` set too many slots for one signer (max = {STACKERDB_INV_MAX})"));
         }
 
         let PrincipalData::Standard(standard_principal) = signer_principal else {
@@ -286,6 +290,15 @@ impl StackerDBConfig {
             debug!("StackerDB contract {contract_id} specified zero pages");
             return Ok(vec![]);
         }
+        if page_count > STACKERDB_MAX_PAGE_COUNT {
+            let reason = format!("Contract {contract_id} set more than maximum number of pages (max = {STACKERDB_MAX_PAGE_COUNT}");
+            warn!("{reason}");
+            return Err(NetError::InvalidStackerDBContract(
+                contract_id.clone(),
+                reason,
+            ));
+        }
+
         let mut return_set: Option<Vec<(StacksAddress, u32)>> = None;
         let mut total_num_slots = 0u32;
         for page in 0..page_count {
@@ -300,7 +313,7 @@ impl StackerDBConfig {
                 })?;
             if total_num_slots > STACKERDB_INV_MAX {
                 let reason =
-                    format!("Contract {contract_id} set more than the maximum number of slots in a page (max = {STACKERDB_PAGE_MAX})",);
+                    format!("Contract {contract_id} set more than the maximum number of slots in a page (max = {STACKERDB_INV_MAX})",);
                 warn!("{reason}");
                 return Err(NetError::InvalidStackerDBContract(
                     contract_id.clone(),
@@ -362,6 +375,15 @@ impl StackerDBConfig {
             ));
         };
 
+        if slot_list.len() > usize::try_from(STACKERDB_PAGE_LIST_MAX).unwrap() {
+            let reason = format!("StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` returned too long list (max len={STACKERDB_PAGE_LIST_MAX})");
+            warn!("{reason}");
+            return Err(NetError::InvalidStackerDBContract(
+                contract_id.clone(),
+                reason,
+            ));
+        }
+
         let mut total_num_slots = 0u32;
         let mut ret = vec![];
         for slot_value in slot_list.into_iter() {
@@ -379,7 +401,7 @@ impl StackerDBConfig {
                         &contract_id
                     )))?;
 
-            if total_num_slots > STACKERDB_PAGE_MAX.into() {
+            if total_num_slots > STACKERDB_INV_MAX.into() {
                 let reason = format!(
                     "Contract {} set more than the maximum number of slots",
                     contract_id
