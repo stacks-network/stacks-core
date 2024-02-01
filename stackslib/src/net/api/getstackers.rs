@@ -80,7 +80,7 @@ impl GetStackersResponse {
             burnchain,
             sortdb,
             tip,
-            false,
+            true,
         ).map_err(
             |e| format!("Could not read reward set. Prepare phase may not have started for this cycle yet. Cycle = {cycle_number}, Err = {e:?}")
         )?;

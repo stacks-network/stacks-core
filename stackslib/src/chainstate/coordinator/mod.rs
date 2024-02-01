@@ -327,7 +327,9 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
         //
         //  Data **cannot** be read from `.signers` in epoch 2.5 because the write occurs
         //   in the first block of the prepare phase, but the PoX anchor block is *before*
-        //   the prepare phase. Therefore
+        //   the prepare phase. Therefore, we fetch the reward set in the 2.x style, and then
+        //   apply the necessary nakamoto assertions if the reward set is going to be
+        //   active in Nakamoto (i.e., check for signer set existence).
 
         let is_nakamoto_reward_set = match SortitionDB::get_stacks_epoch_by_epoch_id(
             sortdb.conn(),
