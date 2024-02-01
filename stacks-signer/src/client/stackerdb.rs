@@ -120,7 +120,7 @@ impl StackerDB {
     pub fn get_signer_transactions_with_retry(
         &mut self,
         signer_ids: &[u32],
-    ) -> Result<Vec<(u32, Vec<StacksTransaction>)>, ClientError> {
+    ) -> Result<Vec<StacksTransaction>, ClientError> {
         let slot_ids: Vec<_> = signer_ids
             .iter()
             .map(|id| id * SIGNER_SLOTS_PER_USER + TRANSACTIONS_SLOT_ID)
@@ -148,7 +148,7 @@ impl StackerDB {
                             chunk_transactions.len(),
                             signer_id
                         );
-                        transactions.push((signer_id, chunk_transactions));
+                        transactions.extend(chunk_transactions);
                     } else {
                         warn!("Signer wrote an unexpected type to the transactions slot");
                     }
@@ -212,7 +212,6 @@ mod tests {
         response_bytes.extend(message);
         write_response(config.mock_server, response_bytes.as_slice());
         let transactions = h.join().unwrap().unwrap();
-        assert_eq!(transactions.len(), 1);
-        assert_eq!(transactions[0], (0, vec![tx]));
+        assert_eq!(transactions, vec![tx]);
     }
 }
