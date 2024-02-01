@@ -96,7 +96,7 @@
         (map-set tally tally-key new-total)
         (map-set used-aggregate-public-keys key {reward-cycle: reward-cycle, round: round})
         (update-last-round reward-cycle round)
-        (print "voted")
+        (print new-total)
         (ok true)))
 
 (define-private (update-last-round (reward-cycle uint) (round uint))
