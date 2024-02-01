@@ -597,7 +597,7 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
 }}",
         sk.to_hex(),
         pk.to_hex(),
-        address.to_string()
+        address
     ))
 }
 

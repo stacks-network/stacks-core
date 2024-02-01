@@ -156,10 +156,12 @@ impl BurnchainStateTransition {
 
         // what epoch are we in?
         let epoch_id = SortitionDB::get_stacks_epoch(sort_tx, parent_snapshot.block_height + 1)?
-            .expect(&format!(
-                "FATAL: no epoch defined at burn height {}",
-                parent_snapshot.block_height + 1
-            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch defined at burn height {}",
+                    parent_snapshot.block_height + 1
+                )
+            })
             .epoch_id;
 
         if !burnchain.is_in_prepare_phase(parent_snapshot.block_height + 1)
@@ -547,8 +549,7 @@ impl Burnchain {
     }
 
     pub fn regtest(working_dir: &str) -> Burnchain {
-        let ret =
-            Burnchain::new(working_dir, &"bitcoin".to_string(), &"regtest".to_string()).unwrap();
+        let ret = Burnchain::new(working_dir, "bitcoin", "regtest").unwrap();
         ret
     }
 
@@ -565,8 +566,7 @@ impl Burnchain {
         rng.fill_bytes(&mut byte_tail);
 
         let tmp_path = format!("/tmp/stacks-node-tests/unit-tests-{}", &to_hex(&byte_tail));
-        let mut ret =
-            Burnchain::new(&tmp_path, &"bitcoin".to_string(), &"mainnet".to_string()).unwrap();
+        let mut ret = Burnchain::new(&tmp_path, "bitcoin", "mainnet").unwrap();
         ret.first_block_height = first_block_height;
         ret.initial_reward_start_block = first_block_height;
         ret.first_block_hash = first_block_hash.clone();
@@ -1001,11 +1001,13 @@ impl Burnchain {
             &block.block_hash()
         );
 
-        let cur_epoch =
-            SortitionDB::get_stacks_epoch(db.conn(), block.block_height())?.expect(&format!(
-                "FATAL: no epoch for burn block height {}",
-                block.block_height()
-            ));
+        let cur_epoch = SortitionDB::get_stacks_epoch(db.conn(), block.block_height())?
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch for burn block height {}",
+                    block.block_height()
+                )
+            });
 
         let header = block.header();
         let blockstack_txs = burnchain_db.store_new_burnchain_block(
@@ -1206,10 +1208,9 @@ impl Burnchain {
 
                     let cur_epoch =
                         SortitionDB::get_stacks_epoch(parser_sortdb.conn(), ipc_block.height())?
-                            .expect(&format!(
-                                "FATAL: no stacks epoch defined for {}",
-                                ipc_block.height()
-                            ));
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no stacks epoch defined for {}", ipc_block.height())
+                            });
 
                     let parse_start = get_epoch_time_ms();
                     let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
@@ -1541,9 +1542,10 @@ impl Burnchain {
                     debug!("Try recv next block");
 
                     let cur_epoch =
-                        SortitionDB::get_stacks_epoch(sortdb.conn(), ipc_block.height())?.expect(
-                            &format!("FATAL: no stacks epoch defined for {}", ipc_block.height()),
-                        );
+                        SortitionDB::get_stacks_epoch(sortdb.conn(), ipc_block.height())?
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no stacks epoch defined for {}", ipc_block.height())
+                            });
 
                     let parse_start = get_epoch_time_ms();
                     let burnchain_block = parser.parse(&ipc_block, cur_epoch.epoch_id)?;
@@ -1580,9 +1582,10 @@ impl Burnchain {
                             continue;
                         }
 
-                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height).expect(
-                            &format!("FATAL: no epoch defined for height {}", block_height),
-                        );
+                        let epoch_index = StacksEpoch::find_epoch(&epochs, block_height)
+                            .unwrap_or_else(|| {
+                                panic!("FATAL: no epoch defined for height {}", block_height)
+                            });
 
                         let epoch_id = epochs[epoch_index].epoch_id;
 

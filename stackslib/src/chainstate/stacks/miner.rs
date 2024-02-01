@@ -1845,7 +1845,7 @@ impl StacksBlockBuilder {
                               "parent_index_hash" => %parent_index_hash,
                               "parent_consensus_hash" => %self.parent_consensus_hash,
                               "parent_microblock_hash" => match self.parent_microblock_hash.as_ref() {
-                                  Some(x) => format!("Some({})", x.to_string()),
+                                  Some(x) => format!("Some({x})"),
                                   None => "None".to_string(),
                               },
                               "error" => ?e);

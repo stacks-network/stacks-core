@@ -715,10 +715,8 @@ impl ConversationP2P {
 
     /// Get the current epoch
     fn get_current_epoch(&self, cur_burn_height: u64) -> StacksEpoch {
-        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height).expect(&format!(
-            "BUG: block {} is not in a known epoch",
-            cur_burn_height
-        ));
+        let epoch_index = StacksEpoch::find_epoch(&self.epochs, cur_burn_height)
+            .unwrap_or_else(|| panic!("BUG: block {} is not in a known epoch", cur_burn_height));
         let epoch = self.epochs[epoch_index].clone();
         epoch
     }

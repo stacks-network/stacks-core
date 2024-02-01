@@ -390,12 +390,9 @@ impl BurnSamplePoint {
     pub fn get_total_burns(burn_dist: &[BurnSamplePoint]) -> Option<u64> {
         burn_dist
             .iter()
-            .fold(Some(0), |burns_so_far, sample_point| {
-                if let Some(burns_so_far) = burns_so_far {
-                    burns_so_far.checked_add(sample_point.burns.try_into().ok()?)
-                } else {
-                    None
-                }
+            .try_fold(0u64, |burns_so_far, sample_point| {
+                let n = u64::try_from(sample_point.burns).ok()?;
+                burns_so_far.checked_add(n)
             })
     }
 }

@@ -70,7 +70,7 @@ impl UserBurnSupportOp {
 
         let consensus_hash = ConsensusHash::from_vec(&consensus_hash_trunc)
             .expect("FATAL: invalid data slice for consensus hash");
-        let pubkey = match VRFPublicKey::from_bytes(&data[19..51].to_vec()) {
+        let pubkey = match VRFPublicKey::from_bytes(&data[19..51]) {
             Some(pubk) => pubk,
             None => {
                 warn!("Invalid VRF public key");

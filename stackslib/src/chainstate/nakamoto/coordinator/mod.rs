@@ -79,10 +79,12 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
         );
 
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_burn_height)?
-            .expect(&format!(
-                "FATAL: no epoch defined for burn height {}",
-                cycle_start_burn_height
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: no epoch defined for burn height {}",
+                    cycle_start_burn_height
+                )
+            });
 
         // This method should only ever called if the current reward cycle is a nakamoto reward cycle
         //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
@@ -168,10 +170,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
     provider: &U,
 ) -> Result<Option<RewardCycleInfo>, Error> {
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), burn_height)?
-        .expect(&format!(
-            "FATAL: no epoch defined for burn height {}",
-            burn_height
-        ))
+        .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {}", burn_height))
         .epoch_id;
 
     assert!(
@@ -387,10 +386,12 @@ impl<
         // what epoch are we in?
         let cur_epoch =
             SortitionDB::get_stacks_epoch(self.sortition_db.conn(), canonical_sn.block_height)?
-                .expect(&format!(
-                    "BUG: no epoch defined at height {}",
-                    canonical_sn.block_height
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: no epoch defined at height {}",
+                        canonical_sn.block_height
+                    )
+                });
 
         if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
             return Ok(false);
@@ -584,10 +585,12 @@ impl<
                 &self.sortition_db.conn(),
                 &canonical_stacks_consensus_hash,
             )?
-            .expect(&format!(
-                "FATAL: unreachable: consensus hash {} has no snapshot",
-                &canonical_stacks_consensus_hash
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "FATAL: unreachable: consensus hash {} has no snapshot",
+                    &canonical_stacks_consensus_hash
+                )
+            });
 
             // are we in the prepare phase?
             if !self.burnchain.is_in_prepare_phase(stacks_sn.block_height) {
@@ -599,9 +602,9 @@ impl<
             let current_reward_cycle = self
                 .burnchain
                 .block_height_to_reward_cycle(stacks_sn.block_height)
-                .expect(&format!(
-                    "FATAL: unreachable: burnchain block height has no reward cycle"
-                ));
+                .unwrap_or_else(|| {
+                    panic!("FATAL: unreachable: burnchain block height has no reward cycle")
+                });
 
             let last_processed_reward_cycle = {
                 let ic = self.sortition_db.index_handle(&canonical_sortition_tip);

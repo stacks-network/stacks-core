@@ -270,10 +270,7 @@ pub struct MaturedMinerRewards {
 impl MaturedMinerRewards {
     /// Get the list of miner rewards this struct represents
     pub fn consolidate(&self) -> Vec<MinerReward> {
-        let mut ret = vec![];
-        ret.push(self.recipient.clone());
-        ret.push(self.parent_reward.clone());
-        ret
+        vec![self.recipient.clone(), self.parent_reward.clone()]
     }
 }
 
@@ -1329,11 +1326,13 @@ impl NakamotoChainState {
             sort_tx,
             &next_ready_block.header.consensus_hash,
         )?
-        .expect(&format!(
-            "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
-            &next_ready_block.header.consensus_hash,
-            &next_ready_block.header.block_hash()
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
+                &next_ready_block.header.consensus_hash,
+                &next_ready_block.header.block_hash()
+            )
+        });
 
         debug!("Process staging Nakamoto block";
                "consensus_hash" => %next_ready_block.header.consensus_hash,
@@ -1865,45 +1864,40 @@ impl NakamotoChainState {
                     ],
                 )?
                 .expect_optional()
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    index, list_length, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        index, list_length, reward_cycle
+                    )
+                })
                 .expect_tuple();
 
             let pox_addr_tuple = entry
                 .get("pox-addr")
-                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
+                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
 
             let total_ustx = entry
                 .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
                 .to_owned()
                 .expect_u128();
 
             let stacker = entry
                 .get("stacker")
-                .expect(&format!(
-                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, index
-                ))
+                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, index))
                 .to_owned()
                 .expect_optional()
                 .map(|value| value.expect_principal());
 
             let signer = entry
                 .get("signer")
-                .expect(&format!(
-                    "FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, index
-                ))
+                .unwrap_or_else(|_| panic!("FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, index))
                 .to_owned()
                 .expect_buff(SIGNERS_PK_LEN);
             // (buff 33) only enforces max size, not min size, so we need to do a len check
@@ -2939,7 +2933,7 @@ impl NakamotoChainState {
                     vm_env.execute_contract_allow_private(
                         &boot_code_id(POX_4_NAME, mainnet),
                         "get-aggregate-public-key",
-                        &vec![SymbolicExpression::atom_value(Value::UInt(u128::from(
+                        &[SymbolicExpression::atom_value(Value::UInt(u128::from(
                             parent_reward_cycle,
                         )))],
                         true,
