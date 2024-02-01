@@ -17,6 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -240,6 +241,9 @@ pub struct ChainsCoordinator<
     pub atlas_config: AtlasConfig,
     config: ChainsCoordinatorConfig,
     burnchain_indexer: B,
+    /// Used to tell the P2P thread that the stackerdb
+    ///  needs to be refreshed.
+    pub refresh_stacker_db: Arc<AtomicBool>,
 }
 
 #[derive(Debug)]
@@ -546,6 +550,7 @@ impl<
             atlas_db: Some(atlas_db),
             config,
             burnchain_indexer,
+            refresh_stacker_db: comms.refresh_stacker_db.clone(),
         };
 
         let mut nakamoto_available = false;
@@ -3214,6 +3219,12 @@ impl<
                 )?;
 
                 if in_sortition_set {
+                    // if .signers was updated, notify the p2p thread
+                    if block_receipt.signers_updated {
+                        self.refresh_stacker_db
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                    }
+
                     let new_canonical_block_snapshot = SortitionDB::get_block_snapshot(
                         self.sortition_db.conn(),
                         &canonical_sortition_tip,
