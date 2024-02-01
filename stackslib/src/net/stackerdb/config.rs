@@ -473,7 +473,7 @@ impl StackerDBConfig {
                     // contract must exist or this errors out
                     let analysis = db
                         .load_contract_analysis(contract_id)?
-                        .ok_or(net_error::NoSuchStackerDB(contract_id.clone()))?;
+                        .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
 
                     // contract must be consistent with StackerDB control interface
                     if let Err(invalid_reason) =

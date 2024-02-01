@@ -492,12 +492,13 @@ impl StacksChainState {
     ) -> Result<u64, Error> {
         let (cur_burn_block_height, v1_unlock_ht, v2_unlock_ht, v3_unlock_ht) = clarity_tx
             .with_clarity_db_readonly(|ref mut db| {
-                (
+                let res: Result<_, Error> = Ok((
                     db.get_current_burnchain_block_height()?,
                     db.get_v1_unlock_height(),
                     db.get_v2_unlock_height()?,
                     db.get_v3_unlock_height()?,
-                )
+                ));
+                res
             })?;
 
         let consolidated_balance = payer_account
@@ -876,11 +877,11 @@ impl StacksChainState {
             .get_microblock_poison_report(mblock_pubk_height)?
         {
             // account for report loaded
-            env.add_memory(
-                u64:from(TypeSignature::PrincipalType
+            env.add_memory(u64::from(
+                TypeSignature::PrincipalType
                     .size()
-                    .map_err(InterpreterError::from)?),
-            )
+                    .map_err(InterpreterError::from)?,
+            ))
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), &env.global_context))?;
 
             // u128 sequence

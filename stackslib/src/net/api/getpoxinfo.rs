@@ -229,13 +229,13 @@ impl RPCPoxInfoData {
                 .get("rejection-fraction")
                 .expect(&format!("FATAL: no 'rejection-fraction'"))
                 .to_owned()
-                .expect_u128() as u64;
+                .expect_u128()? as u64;
 
             let current_rejection_votes = res
                 .get("current-rejection-votes")
                 .expect(&format!("FATAL: no 'current-rejection-votes'"))
                 .to_owned()
-                .expect_u128() as u64;
+                .expect_u128()? as u64;
 
             let total_required = (total_liquid_supply_ustx as u128 / 100)
                 .checked_mul(rejection_fraction as u128)

@@ -41,6 +41,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use stacks::chainstate::stacks::db::StacksChainState;
 
 pub use self::burnchains::{
@@ -52,11 +53,10 @@ pub use self::keychain::Keychain;
 pub use self::node::{ChainTip, Node};
 pub use self::run_loop::{helium, neon};
 pub use self::tenure::Tenure;
-use crate::mockamoto::MockamotoNode;
-use crate::run_loop::boot_nakamoto;
-
 use crate::chain_data::MinerStats;
+use crate::mockamoto::MockamotoNode;
 use crate::neon_node::{BlockMinerThread, TipCandidate};
+use crate::run_loop::boot_nakamoto;
 
 /// Implmentation of `pick_best_tip` CLI option
 fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCandidate {
@@ -132,12 +132,13 @@ fn cli_get_miner_spend(
         SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap()
     };
 
+    let no_dispatcher: Option<&DummyEventDispatcher> = None;
     let recipients = get_next_recipients(
         &tip,
         &mut chainstate,
         &mut sortdb,
         &burnchain,
-        &OnChainRewardSetProvider(),
+        &OnChainRewardSetProvider(no_dispatcher),
         config.node.always_use_affirmation_maps,
     )
     .unwrap();
@@ -318,7 +319,7 @@ fn main() {
             ConfigFile::mainnet()
         }
         "mockamoto" => {
-            args.finish().unwrap();
+            args.finish();
             ConfigFile::mockamoto()
         }
         "check-config" => {

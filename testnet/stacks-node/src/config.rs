@@ -40,8 +40,8 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::mockamoto::signer::SelfSigner;
 use crate::chain_data::MinerStats;
+use crate::mockamoto::signer::SelfSigner;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
@@ -506,17 +506,6 @@ impl Config {
         self.miner.self_signing_key.clone()
     }
 
-    /// get the up-to-date burnchain from the config
-    pub fn get_burnchain_config(&self) -> Result<BurnchainConfig, String> {
-        if let Some(path) = &self.config_path {
-            let config_file = ConfigFile::from_path(path.as_str())?;
-            let config = Config::from_config_file(config_file)?;
-            Ok(config.burnchain)
-        } else {
-            Ok(self.burnchain.clone())
-        }
-    }
- 
     /// get the up-to-date burnchain options from the config.
     /// If the config file can't be loaded, then return the existing config
     pub fn get_burnchain_config(&self) -> BurnchainConfig {
@@ -1959,7 +1948,7 @@ impl NodeConfig {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MinerConfig {
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
@@ -2362,7 +2351,6 @@ pub struct MinerConfigFile {
 impl MinerConfigFile {
     fn into_config_default(self, miner_default_config: MinerConfig) -> Result<MinerConfig, String> {
         Ok(MinerConfig {
-            min_tx_fee: self.min_tx_fee.unwrap_or(miner_default_config.min_tx_fee),
             first_attempt_time_ms: self
                 .first_attempt_time_ms
                 .unwrap_or(miner_default_config.first_attempt_time_ms),
@@ -2410,25 +2398,28 @@ impl MinerConfigFile {
                 .wait_on_interim_blocks_ms
                 .map(Duration::from_millis)
                 .unwrap_or(miner_default_config.wait_on_interim_blocks),
-            min_tx_count: miner_default_config.min_tx_count.unwrap_or(0),
-            only_increase_tx_count: miner_default_config.only_increase_tx_count.unwrap_or(false),
-            unconfirmed_commits_helper: miner_default_config.unconfirmed_commits_helper.clone(),
-            target_win_probability: miner_default_config.target_win_probability.unwrap_or(0.0),
-            activated_vrf_key_path: miner_default_config.activated_vrf_key_path.clone(),
-            fast_rampup: miner_default_config.fast_rampup.unwrap_or(true),
-            underperform_stop_threshold: miner_default_config.underperform_stop_threshold,
+            min_tx_count: self
+                .min_tx_count
+                .unwrap_or(miner_default_config.min_tx_count),
+            only_increase_tx_count: self
+                .only_increase_tx_count
+                .unwrap_or(miner_default_config.only_increase_tx_count),
+            unconfirmed_commits_helper: self.unconfirmed_commits_helper.clone(),
+            target_win_probability: self
+                .target_win_probability
+                .unwrap_or(miner_default_config.target_win_probability),
+            activated_vrf_key_path: self.activated_vrf_key_path.clone(),
+            fast_rampup: self.fast_rampup.unwrap_or(miner_default_config.fast_rampup),
+            underperform_stop_threshold: self.underperform_stop_threshold,
             txs_to_consider: {
-                if let Some(txs_to_consider) = &miner_default_config.txs_to_consider {
+                if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider
                         .split(",")
                         .map(
                             |txs_to_consider_str| match str::parse(txs_to_consider_str) {
                                 Ok(txtype) => txtype,
                                 Err(e) => {
-                                    panic!(
-                                        "could not parse '{}': {}",
-                                        &txs_to_consider_str, &e
-                                    );
+                                    panic!("could not parse '{}': {}", &txs_to_consider_str, &e);
                                 }
                             },
                         )
@@ -2438,16 +2429,13 @@ impl MinerConfigFile {
                 }
             },
             filter_origins: {
-                if let Some(filter_origins) = &miner_default_config.filter_origins {
+                if let Some(filter_origins) = &self.filter_origins {
                     filter_origins
                         .split(",")
                         .map(|origin_str| match StacksAddress::from_string(origin_str) {
                             Some(addr) => addr,
                             None => {
-                                panic!(
-                                    "could not parse '{}' into a Stacks address",
-                                    origin_str
-                                );
+                                panic!("could not parse '{}' into a Stacks address", origin_str);
                             }
                         })
                         .collect()
@@ -2455,7 +2443,9 @@ impl MinerConfigFile {
                     HashSet::new()
                 }
             },
-            max_reorg_depth: miner_default_config.max_reorg_depth.unwrap_or(3),
+            max_reorg_depth: self
+                .max_reorg_depth
+                .unwrap_or(miner_default_config.max_reorg_depth),
         })
     }
 }

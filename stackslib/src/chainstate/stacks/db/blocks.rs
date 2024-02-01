@@ -6491,17 +6491,18 @@ impl StacksChainState {
             return Err(MemPoolRejection::BadAddressVersionByte);
         }
 
-        let (block_height, v1_unlock_height, v2_unlock_height) = clarity_connection
-            .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(
-                |ref mut db| {
-                    Ok((
-                        db.get_current_burnchain_block_height()? as u64,
-                        db.get_v1_unlock_height(),
-                        db.get_v2_unlock_height()?,
-                        db.get_v3_unlock_height()?
-                    ))
-                },
-            )?;
+        let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
+            clarity_connection
+                .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(
+                    |ref mut db| {
+                        Ok((
+                            db.get_current_burnchain_block_height()? as u64,
+                            db.get_v1_unlock_height(),
+                            db.get_v2_unlock_height()?,
+                            db.get_v3_unlock_height()?,
+                        ))
+                    },
+                )?;
 
         // 5: the paying account must have enough funds
         if !payer.stx_balance.can_transfer_at_burn_block(

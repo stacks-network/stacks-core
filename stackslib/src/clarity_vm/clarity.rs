@@ -795,8 +795,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Get the boot code account
     fn get_boot_code_account(&mut self) -> Result<StacksAccount, Error> {
         let boot_code_address = boot_code_addr(self.mainnet);
-        let boot_code_nonce = self
-            .with_clarity_db_readonly(|db| db.get_account_nonce(&boot_code_address.clone().into()));
+        let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+            db.get_account_nonce(&boot_code_address.clone().into())
+        })?;
 
         let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
         Ok(boot_code_account)
@@ -819,13 +820,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 TransactionVersion::Testnet
             };
 
-            let boot_code_address = boot_code_addr(mainnet);
-            let boot_code_auth = boot_code_tx_auth(boot_code_address);
-            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
-                db.get_account_nonce(&boot_code_address.clone().into())
-                    .expect("FATAL: Failed to boot account nonce")
-            });
-            let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
+            let boot_code_account = self
+                .get_boot_code_account()
+                .expect("FATAL: failed to get boot code account");
 
             // instantiate costs 2 contract...
             let cost_2_code = if mainnet {
@@ -845,7 +842,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             );
 
             let boot_code_address = boot_code_addr(self.mainnet);
-
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let costs_2_contract_tx =
@@ -1279,7 +1275,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch25);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch25)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1309,10 +1305,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 TransactionVersion::Testnet
             };
 
-            let boot_code_address = boot_code_addr(mainnet);
-
-            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
-
             let boot_code_account = self
                 .get_boot_code_account()
                 .expect("FATAL: did not get boot account");
@@ -1330,31 +1322,40 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 Some(ClarityVersion::Clarity2),
             );
 
+            let boot_code_address = boot_code_addr(mainnet);
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+
             let pox_4_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
             let initialized_agg_key = if !mainnet {
-                self.with_readonly_clarity_env(
-                    false,
-                    self.chain_id,
-                    ClarityVersion::Clarity2,
-                    StacksAddress::burn_address(false).into(),
-                    None,
-                    LimitedCostTracker::Free,
-                    |vm_env| {
-                        vm_env.execute_contract_allow_private(
-                            &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
-                            BOOT_TEST_POX_4_AGG_KEY_FNAME,
-                            &[],
-                            true,
+                let agg_key_value_opt = self
+                    .with_readonly_clarity_env(
+                        false,
+                        self.chain_id,
+                        ClarityVersion::Clarity2,
+                        StacksAddress::burn_address(false).into(),
+                        None,
+                        LimitedCostTracker::Free,
+                        |vm_env| {
+                            vm_env.execute_contract_allow_private(
+                                &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
+                                BOOT_TEST_POX_4_AGG_KEY_FNAME,
+                                &[],
+                                true,
+                            )
+                        },
+                    )
+                    .map(|agg_key_value| {
+                        Ok::<_, InterpreterError>(
+                            Value::buff_from(agg_key_value.expect_buff(33)?)
+                                .expect("failed to reconstruct buffer"),
                         )
-                    },
-                )
-                .ok()
-                .map(|agg_key_value| {
-                    Value::buff_from(agg_key_value.expect_buff(33))
-                        .expect("failed to reconstruct buffer")
-                })
+                    })
+                    .ok()
+                    .transpose()
+                    .expect("FATAL: failed to load aggregate public key");
+                agg_key_value_opt
             } else {
                 None
             };
@@ -1533,7 +1534,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch30);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch30)?;
                         Ok(())
                     })
                     .unwrap();

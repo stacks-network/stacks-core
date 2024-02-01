@@ -3232,43 +3232,50 @@ fn test_stx_transfer_btc_ops() {
 
             if ix > 2 {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    )
-                    .unwrap(),
+                    sender_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
+                        )
+                        .unwrap(),
                     (balance as u128) - transfer_amt,
                     "Transfer should have decremented balance"
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    ).unwrap(),
+                    recipient_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
+                        )
+                        .unwrap(),
                     transfer_amt,
                     "Recipient should have incremented balance"
                 );
             } else {
                 assert_eq!(
-                    sender_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    ).unwrap(),
+                    sender_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
+                        )
+                        .unwrap(),
                     balance as u128,
                 );
                 assert_eq!(
-                    recipient_balance.get_available_balance_at_burn_block(
-                        burn_height as u64,
-                        pox_v1_unlock_ht,
-                        pox_v2_unlock_ht,
-                        pox_v3_unlock_ht,
-                    ).unwrap(),
+                    recipient_balance
+                        .get_available_balance_at_burn_block(
+                            burn_height as u64,
+                            pox_v1_unlock_ht,
+                            pox_v2_unlock_ht,
+                            pox_v3_unlock_ht,
+                        )
+                        .unwrap(),
                     0,
                 );
             }

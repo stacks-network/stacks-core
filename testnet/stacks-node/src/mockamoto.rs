@@ -453,6 +453,7 @@ impl MockamotoNode {
             counters,
             sync_comms,
             should_keep_running,
+            0,
         );
 
         let mut event_dispatcher = EventDispatcher::new();
@@ -954,10 +955,12 @@ impl MockamotoNode {
 
         let state_index_root = clarity_tx.seal();
         let tx_merkle_tree: MerkleTree<Sha512Trunc256Sum> = builder.txs.iter().collect();
-        clarity_tx.commit_mined_block(&StacksBlockId::new(
-            &MINER_BLOCK_CONSENSUS_HASH,
-            &MINER_BLOCK_HEADER_HASH,
-        ));
+        clarity_tx
+            .commit_mined_block(&StacksBlockId::new(
+                &MINER_BLOCK_CONSENSUS_HASH,
+                &MINER_BLOCK_HEADER_HASH,
+            ))
+            .unwrap();
         chainstate_tx.commit().unwrap();
 
         let mut block = NakamotoBlock {

@@ -354,6 +354,7 @@ fn create_event_info_data_code(
                         .map(|boxed_value| *boxed_value)
                         .unwrap()
                         .expect_tuple()
+                        .expect("FATAL: unexpected clarity value")
                         .get("delegated-to")
                         .unwrap()
                 )
@@ -410,9 +411,7 @@ pub fn synthesize_pox_event_info(
     test_debug!("Evaluate snippet:\n{}", &code_snippet);
     test_debug!("Evaluate data code:\n{}", &data_snippet);
 
-    let pox_contract = global_context
-        .database
-        .get_contract(contract_id)?;
+    let pox_contract = global_context.database.get_contract(contract_id)?;
 
     let event_info = global_context
         .special_cc_handler_execute_read_only(

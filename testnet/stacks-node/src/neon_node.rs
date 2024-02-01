@@ -167,11 +167,9 @@ use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvi
 use stacks::chainstate::nakamoto::NakamotoChainState;
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::blocks::StagingBlock;
-use stacks::chainstate::stacks::db::unconfirmed::UnconfirmedTxMap;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo, MINER_REWARD_MATURITY};
 use stacks::chainstate::stacks::miner::{
-    signal_mining_blocked, signal_mining_ready, BlockBuilderSettings, MinerStatus,
-    StacksMicroblockBuilder,
+    signal_mining_blocked, signal_mining_ready, BlockBuilderSettings, StacksMicroblockBuilder,
 };
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksBlockHeader,
@@ -211,11 +209,9 @@ use crate::burnchains::bitcoin_regtest_controller::{
     addr2str, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::make_bitcoin_indexer;
+use crate::chain_data::MinerStats;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
 use crate::run_loop::neon::RunLoop;
-use crate::chain_data::MinerStats;
-use crate::config::MinerConfig;
-use crate::run_loop::neon::{Counters, RunLoop};
 use crate::run_loop::RegisteredKey;
 use crate::ChainTip;
 
@@ -2434,7 +2430,8 @@ impl BlockMinerThread {
                 &chain_state,
                 miner_config.unprocessed_block_deadline_secs,
             );
-            if stacks_tip.anchored_header.block_hash() != anchored_block.header.parent_block
+
+            if stacks_tip.anchored_block_hash != anchored_block.header.parent_block
                 || parent_block_info.parent_consensus_hash != stacks_tip.consensus_hash
                 || cur_burn_chain_tip.burn_header_hash != self.burn_block.burn_header_hash
                 || is_miner_blocked
@@ -2453,7 +2450,7 @@ impl BlockMinerThread {
                     "old_tip_burn_block_height" => self.burn_block.block_height,
                     "old_tip_burn_block_sortition_id" => %self.burn_block.sortition_id,
                     "attempt" => attempt,
-                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_header.block_hash(),
+                    "new_stacks_tip_block_hash" => %stacks_tip.anchored_block_hash,
                     "new_stacks_tip_consensus_hash" => %stacks_tip.consensus_hash,
                     "new_tip_burn_block_height" => cur_burn_chain_tip.block_height,
                     "new_tip_burn_block_sortition_id" => %cur_burn_chain_tip.sortition_id,
@@ -4518,21 +4515,12 @@ impl StacksNode {
             stackerdb_configs.keys().cloned().collect();
         for (contract_id, stackerdb_config) in stackerdb_configs {
             let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true).unwrap();
-            let stacker_db_sync = match StackerDBSync::new(
+            let stacker_db_sync = StackerDBSync::new(
                 contract_id.clone(),
                 &stackerdb_config,
                 PeerNetworkComms::new(),
                 stackerdbs,
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!(
-                        "Failed to instantiate StackerDB sync machine for {contract_id}: {:?}",
-                        &e
-                    );
-                    continue;
-                }
-            };
+            );
             stackerdb_machines.insert(contract_id, (stackerdb_config, stacker_db_sync));
         }
         let peerdb = Self::setup_peer_db(config, &burnchain, &stackerdb_contract_ids);
@@ -4916,14 +4904,18 @@ impl StacksNode {
         let Some(activated_key) = activated_key_opt else {
             return ret;
         };
+
         let Some(path) = config.miner.activated_vrf_key_path.as_ref() else {
             return ret;
         };
+
         info!("Activated VRF key; saving to {}", &path);
+
         let Ok(key_json) = serde_json::to_string(&activated_key) else {
             warn!("Failed to serialize VRF key");
             return ret;
         };
+
         let mut f = match fs::File::create(&path) {
             Ok(f) => f,
             Err(e) => {

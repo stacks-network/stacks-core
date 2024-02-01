@@ -254,9 +254,11 @@ pub fn special_stx_account(
             "unlock-height"
                 .try_into()
                 .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
-            Value::UInt(u128::from(
-                stx_balance.effective_unlock_height(v1_unlock_ht, v2_unlock_ht, v3_unlock_ht),
-            )),
+            Value::UInt(u128::from(stx_balance.effective_unlock_height(
+                v1_unlock_ht,
+                v2_unlock_ht,
+                v3_unlock_ht,
+            ))),
         ),
     ])
     .map(Value::Tuple)

@@ -1171,7 +1171,7 @@ impl StacksChainState {
                 POX_4_NAME,
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
-            .expect_u128();
+            .expect_u128()?;
 
         debug!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
@@ -1194,12 +1194,12 @@ impl StacksChainState {
                     POX_4_NAME,
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
-                .expect_optional()
+                .expect_optional()?
                 .expect(&format!(
                     "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                     i, num_addrs, reward_cycle
                 ))
-                .expect_tuple();
+                .expect_tuple()?;
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
@@ -1216,17 +1216,21 @@ impl StacksChainState {
                 .get("total-ustx")
                 .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()?;
 
-            let stacker = tuple
+            let stacker_opt = tuple
                 .get("stacker")
                 .expect(&format!(
                     "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
                     reward_cycle, i
                 ))
                 .to_owned()
-                .expect_optional()
-                .map(|value| value.expect_principal());
+                .expect_optional()?;
+
+            let stacker = match stacker_opt {
+                Some(stacker_value) => Some(stacker_value.expect_principal()?),
+                None => None,
+            };
 
             let signer = tuple
                 .get("signer")
@@ -1235,7 +1239,7 @@ impl StacksChainState {
                     reward_cycle, i
                 ))
                 .to_owned()
-                .expect_buff(SIGNERS_PK_LEN);
+                .expect_buff(SIGNERS_PK_LEN)?;
             // (buff 33) only enforces max size, not min size, so we need to do a len check
             let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
                 let mut bytes = [0; SIGNERS_PK_LEN];
@@ -1330,21 +1334,25 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Option<Point>, Error> {
-        let aggregate_public_key = self
+        let aggregate_public_key_opt = self
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
                 POX_4_NAME,
                 &format!("(get-aggregate-public-key u{})", reward_cycle),
             )?
-            .expect_optional()
-            .map(|value| {
+            .expect_optional()?;
+
+        let aggregate_public_key = match aggregate_public_key_opt {
+            Some(value) => {
                 // A point should have 33 bytes exactly.
-                let data = value.expect_buff(33);
+                let data = value.expect_buff(33)?;
                 let msg = "Pox-4 get-aggregate-public-key returned a corrupted value.";
                 let compressed_data = Compressed::try_from(data.as_slice()).expect(msg);
-                Point::try_from(&compressed_data).expect(msg)
-            });
+                Some(Point::try_from(&compressed_data).expect(msg))
+            }
+            None => None,
+        };
         Ok(aggregate_public_key)
     }
 }
