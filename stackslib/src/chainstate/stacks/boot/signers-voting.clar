@@ -101,7 +101,7 @@
             signer: tx-sender, 
             reward-cycle: reward-cycle, 
             round: round, 
-            key: key 
+            key: key, 
             new-total: new-total })
         (ok true)))
 
