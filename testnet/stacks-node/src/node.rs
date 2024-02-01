@@ -413,18 +413,17 @@ impl Node {
 
         println!("BOOTSTRAP WITH {:?}", initial_neighbors);
 
-        let rpc_sock: SocketAddr = self.config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &self.config.node.rpc_bind
-        ));
-        let p2p_sock: SocketAddr = self.config.node.p2p_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &self.config.node.p2p_bind
-        ));
-        let p2p_addr: SocketAddr = self.config.node.p2p_address.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &self.config.node.p2p_address
-        ));
+        let rpc_sock: SocketAddr =
+            self.config.node.rpc_bind.parse().unwrap_or_else(|_| {
+                panic!("Failed to parse socket: {}", &self.config.node.rpc_bind)
+            });
+        let p2p_sock: SocketAddr =
+            self.config.node.p2p_bind.parse().unwrap_or_else(|_| {
+                panic!("Failed to parse socket: {}", &self.config.node.p2p_bind)
+            });
+        let p2p_addr: SocketAddr = self.config.node.p2p_address.parse().unwrap_or_else(|_| {
+            panic!("Failed to parse socket: {}", &self.config.node.p2p_address)
+        });
         let node_privkey = {
             let mut re_hashed_seed = self.config.node.local_peer_seed.clone();
             let my_private_key = loop {
@@ -774,16 +773,20 @@ impl Node {
                 &anchored_block.header.parent_block,
                 consensus_hash,
             )
-            .expect(&format!(
-                "BUG: could not query chainstate to find parent consensus hash of {}/{}",
-                consensus_hash,
-                &anchored_block.block_hash()
-            ))
-            .expect(&format!(
-                "BUG: no such parent of block {}/{}",
-                consensus_hash,
-                &anchored_block.block_hash()
-            ));
+            .unwrap_or_else(|_| {
+                panic!(
+                    "BUG: could not query chainstate to find parent consensus hash of {}/{}",
+                    consensus_hash,
+                    &anchored_block.block_hash()
+                )
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: no such parent of block {}/{}",
+                    consensus_hash,
+                    &anchored_block.block_hash()
+                )
+            });
 
             // Preprocess the anchored block
             self.chain_state

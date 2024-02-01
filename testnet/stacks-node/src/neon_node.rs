@@ -3280,10 +3280,12 @@ impl ParentStacksBlockInfo {
                     &StacksBlockHeader::make_index_block_hash(mine_tip_ch, mine_tip_bh),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )
-                .expect(&format!(
-                    "BUG: stacks tip block {}/{} no longer exists after we queried it",
-                    mine_tip_ch, mine_tip_bh
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: stacks tip block {}/{} no longer exists after we queried it",
+                        mine_tip_ch, mine_tip_bh
+                    )
+                });
             account.nonce
         };
 
@@ -3384,14 +3386,16 @@ impl PeerThread {
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: could not open chainstate DB");
 
-        let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.p2p_bind
-        ));
-        let rpc_sock = config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.rpc_bind
-        ));
+        let p2p_sock: SocketAddr = config
+            .node
+            .p2p_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.p2p_bind));
+        let rpc_sock = config
+            .node
+            .rpc_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.rpc_bind));
 
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
@@ -3689,14 +3693,16 @@ impl StacksNode {
             warn!("Without a peer to bootstrap from, the node will start mining a new chain");
         }
 
-        let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.p2p_bind
-        ));
-        let p2p_addr: SocketAddr = config.node.p2p_address.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.p2p_address
-        ));
+        let p2p_sock: SocketAddr = config
+            .node
+            .p2p_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.p2p_bind));
+        let p2p_addr: SocketAddr = config
+            .node
+            .p2p_address
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.p2p_address));
         let node_privkey = Secp256k1PrivateKey::from_seed(&config.node.local_peer_seed);
 
         let mut peerdb = PeerDB::connect(

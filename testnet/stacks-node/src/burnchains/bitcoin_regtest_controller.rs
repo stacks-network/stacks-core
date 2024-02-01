@@ -2122,7 +2122,7 @@ impl ParsedUTXO {
     }
 
     pub fn serialized_btc_to_sat(amount: &str) -> Option<u64> {
-        let comps: Vec<&str> = amount.split(".").collect();
+        let comps: Vec<&str> = amount.split('.').collect();
         match comps[..] {
             [lhs, rhs] => {
                 if rhs.len() > 8 {
@@ -2198,7 +2198,7 @@ impl BitcoinRPCRequest {
                 _ => None,
             };
             let url = config.burnchain.get_rpc_url(wallet_id);
-            Url::parse(&url).expect(&format!("Unable to parse {} as a URL", url))
+            Url::parse(&url).unwrap_or_else(|_| panic!("Unable to parse {} as a URL", url))
         };
         debug!(
             "BitcoinRPC builder '{}': {:?}:{:?}@{}",

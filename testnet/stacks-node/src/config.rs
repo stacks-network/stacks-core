@@ -868,7 +868,7 @@ impl Config {
             None => default_burnchain_config,
         };
 
-        let supported_modes = vec![
+        let supported_modes = [
             "mocknet",
             "helium",
             "neon",
@@ -1057,10 +1057,12 @@ impl Config {
     pub fn get_estimates_path(&self) -> PathBuf {
         let mut path = self.get_chainstate_path();
         path.push("estimates");
-        fs::create_dir_all(&path).expect(&format!(
-            "Failed to create `estimates` directory at {}",
-            path.to_string_lossy()
-        ));
+        fs::create_dir_all(&path).unwrap_or_else(|_| {
+            panic!(
+                "Failed to create `estimates` directory at {}",
+                path.to_string_lossy()
+            )
+        });
         path
     }
 
@@ -1846,7 +1848,7 @@ impl NodeConfig {
     }
 
     pub fn add_bootstrap_node(&mut self, bootstrap_node: &str, chain_id: u32, peer_version: u32) {
-        let parts: Vec<&str> = bootstrap_node.split("@").collect();
+        let parts: Vec<&str> = bootstrap_node.split('@').collect();
         if parts.len() != 2 {
             panic!(
                 "Invalid bootstrap node '{}': expected PUBKEY@IP:PORT",
@@ -1855,7 +1857,7 @@ impl NodeConfig {
         }
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
-            .expect(&format!("Invalid public key '{}'", pubkey_str));
+            .unwrap_or_else(|_| panic!("Invalid public key '{}'", pubkey_str));
         info!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
@@ -1868,7 +1870,7 @@ impl NodeConfig {
         chain_id: u32,
         peer_version: u32,
     ) {
-        let parts: Vec<&str> = bootstrap_nodes.split(",").collect();
+        let parts: Vec<&str> = bootstrap_nodes.split(',').collect();
         for part in parts.into_iter() {
             if part.len() > 0 {
                 self.add_bootstrap_node(&part, chain_id, peer_version);
@@ -1888,7 +1890,7 @@ impl NodeConfig {
     }
 
     pub fn set_deny_nodes(&mut self, deny_nodes: String, chain_id: u32, peer_version: u32) {
-        let parts: Vec<&str> = deny_nodes.split(",").collect();
+        let parts: Vec<&str> = deny_nodes.split(',').collect();
         for part in parts.into_iter() {
             if part.len() > 0 {
                 self.add_deny_node(&part, chain_id, peer_version);
@@ -2415,7 +2417,7 @@ impl EventKeyType {
 
         let comps: Vec<_> = raw_key.split("::").collect();
         if comps.len() == 1 {
-            let split: Vec<_> = comps[0].split(".").collect();
+            let split: Vec<_> = comps[0].split('.').collect();
             if split.len() != 3 {
                 return None;
             }

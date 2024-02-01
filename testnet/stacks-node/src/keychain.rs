@@ -120,10 +120,10 @@ impl Keychain {
     /// `block_height` must be the _same_ block height called to make_vrf_keypair()
     pub fn generate_proof(&self, block_height: u64, bytes: &[u8; 32]) -> VRFProof {
         let (pk, sk) = self.make_vrf_keypair(block_height);
-        let proof = VRF::prove(&sk, &bytes.to_vec());
+        let proof = VRF::prove(&sk, bytes.as_ref());
 
         // Ensure that the proof is valid by verifying
-        let is_valid = match VRF::verify(&pk, &proof, &bytes.to_vec()) {
+        let is_valid = match VRF::verify(&pk, &proof, bytes.as_ref()) {
             Ok(v) => v,
             Err(_) => false,
         };

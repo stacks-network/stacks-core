@@ -188,10 +188,9 @@ impl BlockMinerThread {
                 ) {
                     Ok(Some(chunk)) => {
                         // Propose the block to the observing signers through the .miners stackerdb instance
-                        let rpc_sock = self.config.node.rpc_bind.parse().expect(&format!(
-                            "Failed to parse socket: {}",
-                            &self.config.node.rpc_bind
-                        ));
+                        let rpc_sock = self.config.node.rpc_bind.parse().unwrap_or_else(|_| {
+                            panic!("Failed to parse socket: {}", &self.config.node.rpc_bind)
+                        });
 
                         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
                         let mut miners_stackerdb =
@@ -716,10 +715,12 @@ impl ParentStacksBlockInfo {
                     &stacks_tip_header.index_block_hash(),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )
-                .expect(&format!(
-                    "BUG: stacks tip block {} no longer exists after we queried it",
-                    &stacks_tip_header.index_block_hash(),
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: stacks tip block {} no longer exists after we queried it",
+                        &stacks_tip_header.index_block_hash()
+                    )
+                });
             account.nonce
         };
 
