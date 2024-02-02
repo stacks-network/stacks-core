@@ -82,7 +82,7 @@ const ERR_REUSED_SIGNER_KEY: i128 = 33;
 
 /// Return the BlockSnapshot for the latest sortition in the provided
 ///  SortitionDB option-reference. Panics on any errors.
-fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
+pub fn get_tip(sortdb: Option<&SortitionDB>) -> BlockSnapshot {
     SortitionDB::get_canonical_burn_chain_tip(&sortdb.unwrap().conn()).unwrap()
 }
 
