@@ -637,7 +637,7 @@ impl Node {
         let sortdb = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
             true,
-            burnchain.pox_constants.clone(),
+            burnchain.pox_constants,
         )
         .expect("Error while opening sortition db");
         let tip = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())
@@ -733,7 +733,7 @@ impl Node {
             let sortdb = SortitionDB::open(
                 &self.config.get_burn_db_file_path(),
                 true,
-                burnchain.pox_constants.clone(),
+                burnchain.pox_constants,
             )
             .expect("Error while opening sortition db");
 

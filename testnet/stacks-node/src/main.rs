@@ -78,8 +78,7 @@ fn cli_pick_best_tip(config_path: &str, at_stacks_height: Option<u64>) -> TipCan
         Some(config.node.get_marf_opts()),
     )
     .unwrap();
-    let mut sortdb =
-        SortitionDB::open(&burn_db_path, false, burnchain.pox_constants.clone()).unwrap();
+    let mut sortdb = SortitionDB::open(&burn_db_path, false, burnchain.pox_constants).unwrap();
 
     let max_depth = config.miner.max_reorg_depth;
 

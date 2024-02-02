@@ -580,7 +580,7 @@ impl MicroblockMinerThread {
 
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
-        let sortdb = SortitionDB::open(&burn_db_path, true, burnchain.pox_constants.clone())
+        let sortdb = SortitionDB::open(&burn_db_path, true, burnchain.pox_constants)
             .map_err(|e| {
                 error!(
                     "Relayer: Could not open sortdb '{}' ({:?}); skipping tenure",
@@ -1032,7 +1032,7 @@ impl BlockMinerThread {
             warn!("Coinbase pay-to-contract is not supported in the current epoch");
             None
         } else {
-            miner_config.block_reward_recipient.clone()
+            miner_config.block_reward_recipient
         }
     }
 
@@ -4688,7 +4688,7 @@ impl StacksNode {
 
         let _ = Self::setup_mempool_db(&config);
 
-        let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain.clone());
+        let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain);
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");

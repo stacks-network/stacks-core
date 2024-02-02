@@ -170,7 +170,7 @@ fn test_status_endpoint() {
     let contract_id =
         QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.signers")
             .unwrap(); // TODO: change to boot_code_id(SIGNERS_NAME, false) when .signers is deployed
-    let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
+    let ev = SignerEventReceiver::new(vec![contract_id], false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
     let max_events = 1;

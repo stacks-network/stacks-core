@@ -214,7 +214,6 @@ impl TryFrom<RawConfigFile> for Config {
     fn try_from(raw_data: RawConfigFile) -> Result<Self, Self::Error> {
         let node_host = raw_data
             .node_host
-            .clone()
             .to_socket_addrs()
             .map_err(|_| {
                 ConfigError::BadField("node_host".to_string(), raw_data.node_host.clone())
@@ -227,7 +226,6 @@ impl TryFrom<RawConfigFile> for Config {
 
         let endpoint = raw_data
             .endpoint
-            .clone()
             .to_socket_addrs()
             .map_err(|_| ConfigError::BadField("endpoint".to_string(), raw_data.endpoint.clone()))?
             .next()
