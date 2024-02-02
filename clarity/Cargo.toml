@@ -17,6 +17,10 @@ resolver = "2"
 name = "clarity"
 path = "./src/libclarity.rs"
 
+[[bench]]
+name = "benchmark"
+harness = false
+
 [dependencies]
 rand = "0.7.3"
 rand_chacha = "=0.2.2"
@@ -45,9 +49,16 @@ features = ["std"]
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
-# a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
-#  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
-# criterion = "0.3"
+# for benchmarks
+criterion = "0.5.1"
+sha2 = "0.10.7"
+chrono = "0.4.20"
+pprof = { version = "0.13", features = [
+  "flamegraph",
+  "protobuf-codec",
+  "criterion",
+  "frame-pointer",
+] }
 
 [features]
 default = []
