@@ -208,6 +208,18 @@ impl BlockEventDispatcher for DummyEventDispatcher {
             "We should never try to announce to the dummy dispatcher"
         );
     }
+
+    fn announce_reward_set(
+        &self,
+        _reward_set: &RewardSet,
+        _block_id: &StacksBlockId,
+        _cycle_number: u64,
+    ) {
+        assert!(
+            false,
+            "We should never try to announce to the dummy dispatcher"
+        );
+    }
 }
 
 impl MemPoolRejection {
@@ -317,6 +329,12 @@ impl MemPoolRejection {
 impl From<db_error> for MemPoolRejection {
     fn from(e: db_error) -> MemPoolRejection {
         MemPoolRejection::DBError(e)
+    }
+}
+
+impl From<clarity::vm::errors::Error> for MemPoolRejection {
+    fn from(e: clarity::vm::errors::Error) -> MemPoolRejection {
+        MemPoolRejection::Other(e.to_string())
     }
 }
 
@@ -4129,12 +4147,13 @@ impl StacksChainState {
         chain_tip_burn_header_height: u32,
     ) -> Result<(bool, Vec<StacksTransactionReceipt>), Error> {
         // is this stacks block the first of a new epoch?
-        let (stacks_parent_epoch, sortition_epoch) = clarity_tx.with_clarity_db_readonly(|db| {
-            (
-                db.get_clarity_epoch_version(),
-                db.get_stacks_epoch(chain_tip_burn_header_height),
-            )
-        });
+        let (stacks_parent_epoch, sortition_epoch) = clarity_tx
+            .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(|db| {
+                Ok((
+                    db.get_clarity_epoch_version()?,
+                    db.get_stacks_epoch(chain_tip_burn_header_height),
+                ))
+            })?;
 
         let mut receipts = vec![];
         let mut applied = false;
@@ -4507,16 +4526,16 @@ impl StacksChainState {
                             ))
                         };
 
-                    let mut snapshot = db.get_stx_balance_snapshot(&recipient_principal);
-                    snapshot.credit(miner_reward_total);
+                    let mut snapshot = db.get_stx_balance_snapshot(&recipient_principal)?;
+                    snapshot.credit(miner_reward_total)?;
 
                     debug!(
                         "Balance available for {} is {} uSTX (earned {} uSTX)",
                         &recipient_principal,
-                        snapshot.get_available_balance(),
+                        snapshot.get_available_balance()?,
                         miner_reward_total
                     );
-                    snapshot.save();
+                    snapshot.save()?;
 
                     Ok(())
                 })
@@ -4569,7 +4588,7 @@ impl StacksChainState {
                 })?;
 
                 let entries = match result {
-                    Value::Optional(_) => match result.expect_optional() {
+                    Value::Optional(_) => match result.expect_optional()? {
                         Some(Value::Sequence(SequenceData::List(entries))) => entries.data,
                         _ => return Ok((0, vec![])),
                     },
@@ -4579,17 +4598,17 @@ impl StacksChainState {
                 let mut total_minted = 0;
                 let mut events = vec![];
                 for entry in entries.into_iter() {
-                    let schedule: TupleData = entry.expect_tuple();
+                    let schedule: TupleData = entry.expect_tuple()?;
                     let amount = schedule
                         .get("amount")
                         .expect("Lockup malformed")
                         .to_owned()
-                        .expect_u128();
+                        .expect_u128()?;
                     let recipient = schedule
                         .get("recipient")
                         .expect("Lockup malformed")
                         .to_owned()
-                        .expect_principal();
+                        .expect_principal()?;
                     total_minted += amount;
                     StacksChainState::account_credit(
                         tx_connection,
@@ -5126,6 +5145,17 @@ impl StacksChainState {
                 &chain_tip.consensus_hash,
                 &chain_tip.anchored_header.block_hash()
             );
+        }
+
+        // Handle signer stackerdb updates
+        let first_block_height = burn_dbconn.get_burn_start_height();
+        if evaluated_epoch >= StacksEpochId::Epoch25 {
+            let _events = NakamotoChainState::check_and_handle_prepare_phase_start(
+                &mut clarity_tx,
+                first_block_height.into(),
+                &pox_constants,
+                burn_tip_height.into(),
+            )?;
         }
 
         debug!(
@@ -6263,6 +6293,43 @@ impl StacksChainState {
         }
     }
 
+    /// Get the highest processed block on the canonical burn chain.
+    /// Break ties on lexigraphical ordering of the block hash
+    /// (i.e. arbitrarily).  The staging block will be returned, but no block data will be filled
+    /// in.
+    pub fn get_stacks_chain_tip(
+        &self,
+        sortdb: &SortitionDB,
+    ) -> Result<Option<StagingBlock>, Error> {
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
+        let args: &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
+        query_row(&self.db(), sql, args).map_err(Error::DBError)
+    }
+
+    /// Get all possible canonical chain tips
+    pub fn get_stacks_chain_tips(&self, sortdb: &SortitionDB) -> Result<Vec<StagingBlock>, Error> {
+        let (consensus_hash, block_bhh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
+        let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
+        let args: &[&dyn ToSql] = &[&consensus_hash, &block_bhh];
+        let Some(staging_block): Option<StagingBlock> =
+            query_row(&self.db(), sql, args).map_err(Error::DBError)?
+        else {
+            return Ok(vec![]);
+        };
+        self.get_stacks_chain_tips_at_height(staging_block.height)
+    }
+
+    /// Get all Stacks blocks at a given height
+    pub fn get_stacks_chain_tips_at_height(&self, height: u64) -> Result<Vec<StagingBlock>, Error> {
+        let sql =
+            "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND height = ?1";
+        let args: &[&dyn ToSql] = &[&u64_to_sql(height)?];
+        query_rows(&self.db(), sql, args).map_err(Error::DBError)
+    }
+
     /// Get the parent block of `staging_block`.
     pub fn get_stacks_block_parent(
         &self,
@@ -6425,14 +6492,17 @@ impl StacksChainState {
         }
 
         let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
-            clarity_connection.with_clarity_db_readonly(|ref mut db| {
-                (
-                    u64::from(db.get_current_burnchain_block_height()),
-                    db.get_v1_unlock_height(),
-                    db.get_v2_unlock_height(),
-                    db.get_v3_unlock_height(),
-                )
-            });
+            clarity_connection
+                .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(
+                    |ref mut db| {
+                        Ok((
+                            db.get_current_burnchain_block_height()? as u64,
+                            db.get_v1_unlock_height(),
+                            db.get_v2_unlock_height()?,
+                            db.get_v3_unlock_height()?,
+                        ))
+                    },
+                )?;
 
         // 5: the paying account must have enough funds
         if !payer.stx_balance.can_transfer_at_burn_block(
@@ -6441,7 +6511,7 @@ impl StacksChainState {
             v1_unlock_height,
             v2_unlock_height,
             v3_unlock_height,
-        ) {
+        )? {
             match &tx.payload {
                 TransactionPayload::TokenTransfer(..) => {
                     // pass: we'll return a total_spent failure below.
@@ -6454,7 +6524,7 @@ impl StacksChainState {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
-                        ),
+                        )?,
                     ));
                 }
             }
@@ -6480,7 +6550,7 @@ impl StacksChainState {
                     v1_unlock_height,
                     v2_unlock_height,
                     v3_unlock_height,
-                ) {
+                )? {
                     return Err(MemPoolRejection::NotEnoughFunds(
                         total_spent,
                         origin.stx_balance.get_available_balance_at_burn_block(
@@ -6488,7 +6558,7 @@ impl StacksChainState {
                             v1_unlock_height,
                             v2_unlock_height,
                             v3_unlock_height,
-                        ),
+                        )?,
                     ));
                 }
 
@@ -6500,7 +6570,7 @@ impl StacksChainState {
                         v1_unlock_height,
                         v2_unlock_height,
                         v3_unlock_height,
-                    ) {
+                    )? {
                         return Err(MemPoolRejection::NotEnoughFunds(
                             u128::from(fee),
                             payer.stx_balance.get_available_balance_at_burn_block(
@@ -6508,7 +6578,7 @@ impl StacksChainState {
                                 v1_unlock_height,
                                 v2_unlock_height,
                                 v3_unlock_height,
-                            ),
+                            )?,
                         ));
                     }
                 }
@@ -10947,7 +11017,7 @@ pub mod test {
         peer.sortdb.replace(sortdb);
 
         assert_eq!(
-            account.stx_balance.get_total_balance(),
+            account.stx_balance.get_total_balance().unwrap(),
             1000000000 - (1000 + 2000 + 3000 + 4000 + 5000 + 6000 + 7000 + 8000 + 9000)
         );
 
@@ -10959,8 +11029,19 @@ pub mod test {
                 &format!("(get-delegation-info '{})", &del_addr),
             );
 
-            let data = result.expect_optional().unwrap().expect_tuple().data_map;
-            let delegation_amt = data.get("amount-ustx").cloned().unwrap().expect_u128();
+            let data = result
+                .expect_optional()
+                .unwrap()
+                .unwrap()
+                .expect_tuple()
+                .unwrap()
+                .data_map;
+            let delegation_amt = data
+                .get("amount-ustx")
+                .cloned()
+                .unwrap()
+                .expect_u128()
+                .unwrap();
 
             assert_eq!(delegation_amt, 1000 * (i as u128 + 1));
         }
@@ -11618,7 +11699,7 @@ pub mod test {
 
         // skipped tenure 6's TransferSTX
         assert_eq!(
-            account.stx_balance.get_total_balance(),
+            account.stx_balance.get_total_balance().unwrap(),
             1000000000
                 - (1000
                     + 2000
@@ -11656,8 +11737,19 @@ pub mod test {
                 ),
             );
 
-            let data = result.expect_optional().unwrap().expect_tuple().data_map;
-            let delegation_amt = data.get("amount-ustx").cloned().unwrap().expect_u128();
+            let data = result
+                .expect_optional()
+                .unwrap()
+                .unwrap()
+                .expect_tuple()
+                .unwrap()
+                .data_map;
+            let delegation_amt = data
+                .get("amount-ustx")
+                .cloned()
+                .unwrap()
+                .expect_u128()
+                .unwrap();
 
             assert_eq!(delegation_amt, 1000 * (i as u128 + 1));
         }

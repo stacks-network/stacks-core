@@ -55,10 +55,16 @@ lazy_static! {
     pub static ref CLARITY_NAME_REGEX_STRING: String =
         "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$".into();
     pub static ref CLARITY_NAME_REGEX: Regex =
-        Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap();
+    {
+        #[allow(clippy::unwrap_used)]
+        Regex::new(CLARITY_NAME_REGEX_STRING.as_str()).unwrap()
+    };
     pub static ref CONTRACT_NAME_REGEX: Regex =
+    {
+        #[allow(clippy::unwrap_used)]
         Regex::new(format!("^{}$|^__transient$", CONTRACT_NAME_REGEX_STRING.as_str()).as_str())
-            .unwrap();
+            .unwrap()
+    };
 }
 
 guarded_string!(
@@ -120,8 +126,8 @@ impl StacksMessageCodec for ClarityName {
 
 impl StacksMessageCodec for ContractName {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH
-            || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH
+        if self.as_bytes().len() < CONTRACT_MIN_NAME_LENGTH as usize
+            || self.as_bytes().len() > CONTRACT_MAX_NAME_LENGTH as usize
         {
             return Err(codec_error::SerializeError(format!(
                 "Failed to serialize contract name: too short or too long: {}",
@@ -419,7 +425,7 @@ pub enum TraitDefinition {
     Imported(TraitIdentifier),
 }
 
-pub fn depth_traverse<F, T, E>(expr: &SymbolicExpression, mut visit: F) -> Result<T, E>
+pub fn depth_traverse<F, T, E>(expr: &SymbolicExpression, mut visit: F) -> Result<Option<T>, E>
 where
     F: FnMut(&SymbolicExpression) -> Result<T, E>,
 {
@@ -435,7 +441,7 @@ where
         }
     }
 
-    Ok(last.unwrap())
+    Ok(last)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

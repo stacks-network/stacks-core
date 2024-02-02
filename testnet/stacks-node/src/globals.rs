@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
@@ -12,10 +13,12 @@ use stacks::chainstate::stacks::miner::MinerStatus;
 use stacks::net::NetworkResult;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash};
 
+use crate::config::MinerConfig;
 use crate::neon::Counters;
 use crate::neon_node::LeaderKeyRegistrationState;
 use crate::run_loop::RegisteredKey;
 use crate::syncctl::PoxSyncWatchdogComms;
+use crate::TipCandidate;
 
 pub type NeonGlobals = Globals<RelayerDirective>;
 
@@ -57,6 +60,15 @@ pub struct Globals<T> {
     pub should_keep_running: Arc<AtomicBool>,
     /// Status of our VRF key registration state (shared between the main thread and the relayer)
     leader_key_registration_state: Arc<Mutex<LeaderKeyRegistrationState>>,
+    /// Last miner config loaded
+    last_miner_config: Arc<Mutex<Option<MinerConfig>>>,
+    /// burnchain height at which we start mining
+    start_mining_height: Arc<Mutex<u64>>,
+    /// estimated winning probability at given bitcoin block heights
+    estimated_winning_probs: Arc<Mutex<HashMap<u64, f64>>>,
+    /// previously-selected best tips
+    /// maps stacks height to tip candidate
+    previous_best_tips: Arc<Mutex<BTreeMap<u64, TipCandidate>>>,
 }
 
 // Need to manually implement Clone, because [derive(Clone)] requires
@@ -74,6 +86,10 @@ impl<T> Clone for Globals<T> {
             sync_comms: self.sync_comms.clone(),
             should_keep_running: self.should_keep_running.clone(),
             leader_key_registration_state: self.leader_key_registration_state.clone(),
+            last_miner_config: self.last_miner_config.clone(),
+            start_mining_height: self.start_mining_height.clone(),
+            estimated_winning_probs: self.estimated_winning_probs.clone(),
+            previous_best_tips: self.previous_best_tips.clone(),
         }
     }
 }
@@ -86,6 +102,7 @@ impl<T> Globals<T> {
         counters: Counters,
         sync_comms: PoxSyncWatchdogComms,
         should_keep_running: Arc<AtomicBool>,
+        start_mining_height: u64,
     ) -> Globals<T> {
         Globals {
             last_sortition: Arc::new(Mutex::new(None)),
@@ -99,6 +116,10 @@ impl<T> Globals<T> {
             leader_key_registration_state: Arc::new(Mutex::new(
                 LeaderKeyRegistrationState::Inactive,
             )),
+            last_miner_config: Arc::new(Mutex::new(None)),
+            start_mining_height: Arc::new(Mutex::new(start_mining_height)),
+            estimated_winning_probs: Arc::new(Mutex::new(HashMap::new())),
+            previous_best_tips: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -246,44 +267,163 @@ impl<T> Globals<T> {
         &self,
         burn_block_height: u64,
         key_registers: Vec<LeaderKeyRegisterOp>,
-    ) -> bool {
-        let mut activated = false;
-        let mut key_state = self
-            .leader_key_registration_state
-            .lock()
-            .unwrap_or_else(|e| {
-                // can only happen due to a thread panic in the relayer
-                error!("FATAL: leader key registration mutex is poisoned: {e:?}");
-                panic!();
-            });
-        // if key_state is anything but pending, then we don't activate
-        let LeaderKeyRegistrationState::Pending(target_block_height, txid) = *key_state else {
-            return false;
-        };
-        for op in key_registers.into_iter() {
-            info!(
-                "Processing burnchain block with key_register_op";
-                "burn_block_height" => burn_block_height,
-                "txid" => %op.txid,
-                "checking_txid" => %txid,
-            );
+    ) -> Option<RegisteredKey> {
+        let mut activated_key = None;
+        match self.leader_key_registration_state.lock() {
+            Ok(ref mut leader_key_registration_state) => {
+                for op in key_registers.into_iter() {
+                    if let LeaderKeyRegistrationState::Pending(target_block_height, txid) =
+                        **leader_key_registration_state
+                    {
+                        info!(
+                            "Received burnchain block #{} including key_register_op - {}",
+                            burn_block_height, txid
+                        );
+                        if txid == op.txid {
+                            let active_key = RegisteredKey {
+                                target_block_height,
+                                vrf_public_key: op.public_key,
+                                block_height: op.block_height as u64,
+                                op_vtxindex: op.vtxindex as u32,
+                            };
 
-            if txid == op.txid {
-                *key_state = LeaderKeyRegistrationState::Active(RegisteredKey {
-                    target_block_height,
-                    vrf_public_key: op.public_key,
-                    block_height: u64::from(op.block_height),
-                    op_vtxindex: u32::from(op.vtxindex),
-                });
-                activated = true;
-            } else {
-                debug!(
-                    "key_register_op {} does not match our pending op {}",
-                    txid, &op.txid
-                );
+                            **leader_key_registration_state =
+                                LeaderKeyRegistrationState::Active(active_key.clone());
+
+                            activated_key = Some(active_key);
+                        } else {
+                            debug!(
+                                "key_register_op {} does not match our pending op {}",
+                                txid, &op.txid
+                            );
+                        }
+                    }
+                }
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock leader key registration state mutex");
+                panic!();
             }
         }
+        activated_key
+    }
 
-        activated
+    /// Directly set the leader key activation state from a saved key
+    pub fn resume_leader_key(&self, registered_key: RegisteredKey) {
+        match self.leader_key_registration_state.lock() {
+            Ok(ref mut leader_key_registration_state) => {
+                **leader_key_registration_state = LeaderKeyRegistrationState::Active(registered_key)
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock leader key registration state mutex");
+                panic!();
+            }
+        }
+    }
+
+    /// Get the last miner config loaded
+    pub fn get_last_miner_config(&self) -> Option<MinerConfig> {
+        match self.last_miner_config.lock() {
+            Ok(last_miner_config) => (*last_miner_config).clone(),
+            Err(_e) => {
+                error!("FATAL; failed to lock last miner config");
+                panic!();
+            }
+        }
+    }
+
+    /// Set the last miner config loaded
+    pub fn set_last_miner_config(&self, miner_config: MinerConfig) {
+        match self.last_miner_config.lock() {
+            Ok(ref mut last_miner_config) => **last_miner_config = Some(miner_config),
+            Err(_e) => {
+                error!("FATAL; failed to lock last miner config");
+                panic!();
+            }
+        }
+    }
+
+    /// Get the height at which we should start mining
+    pub fn get_start_mining_height(&self) -> u64 {
+        match self.start_mining_height.lock() {
+            Ok(ht) => *ht,
+            Err(_e) => {
+                error!("FATAL: failed to lock start_mining_height");
+                panic!();
+            }
+        }
+    }
+
+    /// Set the height at which we started mining.
+    /// Only takes effect if the current start mining height is 0.
+    pub fn set_start_mining_height_if_zero(&self, value: u64) {
+        match self.start_mining_height.lock() {
+            Ok(ref mut ht) => {
+                if **ht == 0 {
+                    **ht = value;
+                }
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock start_mining_height");
+                panic!();
+            }
+        }
+    }
+
+    /// Record an estimated winning probability
+    pub fn add_estimated_win_prob(&self, burn_height: u64, win_prob: f64) {
+        match self.estimated_winning_probs.lock() {
+            Ok(mut probs) => {
+                probs.insert(burn_height, win_prob);
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock estimated_winning_probs");
+                panic!();
+            }
+        }
+    }
+
+    /// Get the estimated winning probability, if we have one
+    pub fn get_estimated_win_prob(&self, burn_height: u64) -> Option<f64> {
+        match self.estimated_winning_probs.lock() {
+            Ok(probs) => probs.get(&burn_height).cloned(),
+            Err(_e) => {
+                error!("FATAL: failed to lock estimated_winning_probs");
+                panic!();
+            }
+        }
+    }
+
+    /// Record a best-tip
+    pub fn add_best_tip(&self, stacks_height: u64, tip_candidate: TipCandidate, max_depth: u64) {
+        match self.previous_best_tips.lock() {
+            Ok(mut tips) => {
+                tips.insert(stacks_height, tip_candidate);
+                let mut stale = vec![];
+                for (prev_height, _) in tips.iter() {
+                    if *prev_height + max_depth < stacks_height {
+                        stale.push(*prev_height);
+                    }
+                }
+                for height in stale.into_iter() {
+                    tips.remove(&height);
+                }
+            }
+            Err(_e) => {
+                error!("FATAL: failed to lock previous_best_tips");
+                panic!();
+            }
+        }
+    }
+
+    /// Get a best-tip at a previous height
+    pub fn get_best_tip(&self, stacks_height: u64) -> Option<TipCandidate> {
+        match self.previous_best_tips.lock() {
+            Ok(tips) => tips.get(&stacks_height).cloned(),
+            Err(_e) => {
+                error!("FATAL: failed to lock previous_best_tips");
+                panic!();
+            }
+        }
     }
 }

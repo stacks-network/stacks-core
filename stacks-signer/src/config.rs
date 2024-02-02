@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
+use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::QualifiedContractIdentifier;
 use hashbrown::HashMap;
 use serde::Deserialize;
@@ -91,6 +92,14 @@ impl Network {
             Self::Testnet | Self::Mocknet => TransactionVersion::Testnet,
         }
     }
+
+    /// Check if the network is Mainnet or not
+    pub fn is_mainnet(&self) -> bool {
+        match self {
+            Self::Mainnet => true,
+            Self::Testnet | Self::Mocknet => false,
+        }
+    }
 }
 
 /// The parsed configuration for the signer
@@ -143,9 +152,8 @@ struct RawConfigFile {
     pub node_host: String,
     /// endpoint to event receiver
     pub endpoint: String,
-    // FIXME: this should go away once .signers contract exists at pox-4 instantiation
     /// Signers' Stacker db contract identifier
-    pub stackerdb_contract_id: String,
+    pub stackerdb_contract_id: Option<String>,
 
     /// the 32 byte ECDSA private key used to sign blocks, chunks, transactions, and WSTS messages
     pub message_private_key: String,
@@ -228,13 +236,12 @@ impl TryFrom<RawConfigFile> for Config {
                 raw_data.endpoint.clone(),
             ))?;
 
-        let stackerdb_contract_id =
-            QualifiedContractIdentifier::parse(&raw_data.stackerdb_contract_id).map_err(|_| {
-                ConfigError::BadField(
-                    "stackerdb_contract_id".to_string(),
-                    raw_data.stackerdb_contract_id,
-                )
-            })?;
+        let stackerdb_contract_id = match raw_data.stackerdb_contract_id {
+            Some(id) => QualifiedContractIdentifier::parse(&id).map_err(|_| {
+                ConfigError::BadField("stackerdb_contract_id".to_string(), id.clone())
+            })?,
+            None => boot_code_id("signers", raw_data.network == Network::Mainnet),
+        };
 
         let message_private_key =
             Scalar::try_from(raw_data.message_private_key.as_str()).map_err(|_| {
@@ -328,5 +335,47 @@ impl Config {
     #[allow(dead_code)]
     pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
         Self::try_from(&PathBuf::from(path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use blockstack_lib::util_lib::boot::boot_code_id;
+
+    use super::{Config, Network, RawConfigFile};
+
+    fn create_raw_config(overrides: impl FnOnce(&mut RawConfigFile)) -> RawConfigFile {
+        let mut config = RawConfigFile {
+            node_host: "127.0.0.1:20443".to_string(),
+            endpoint: "127.0.0.1:30000".to_string(),
+            stackerdb_contract_id: None,
+            message_private_key: "2ZCxUV9BAKJrGnTPaamKHb4HVgj9ArQgEhowuTe7uRt3".to_string(),
+            stacks_private_key:
+                "69be0e68947fa7128702761151dc8d9b39ee1401e547781bb2ec3e5b4eb1b36f01".to_string(),
+            network: Network::Testnet,
+            signers: vec![],
+            signer_id: 0,
+            event_timeout_ms: None,
+            dkg_end_timeout_ms: None,
+            dkg_public_timeout_ms: None,
+            dkg_private_timeout_ms: None,
+            nonce_timeout_ms: None,
+            sign_timeout_ms: None,
+        };
+        overrides(&mut config);
+        config
+    }
+
+    #[test]
+    fn test_config_default_signerdb() {
+        let testnet_config = create_raw_config(|_| {});
+
+        let config = Config::try_from(testnet_config).expect("Failed to parse config");
+        assert_eq!(config.stackerdb_contract_id, boot_code_id("signers", false));
+
+        let mainnet_config = create_raw_config(|c| c.network = Network::Mainnet);
+
+        let config = Config::try_from(mainnet_config).expect("Failed to parse config");
+        assert_eq!(config.stackerdb_contract_id, boot_code_id("signers", true));
     }
 }

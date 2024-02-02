@@ -987,7 +987,8 @@ impl ConversationP2P {
         let _seq = msg.request_id();
 
         let mut handle = self.connection.make_relay_handle(self.conn_id)?;
-        msg.consensus_serialize(&mut handle)?;
+        let buf = msg.serialize_to_vec();
+        handle.write_all(&buf).map_err(net_error::WriteError)?;
 
         self.stats.msgs_tx += 1;
 
@@ -1012,7 +1013,8 @@ impl ConversationP2P {
         let mut handle =
             self.connection
                 .make_request_handle(msg.request_id(), ttl, self.conn_id)?;
-        msg.consensus_serialize(&mut handle)?;
+        let buf = msg.serialize_to_vec();
+        handle.write_all(&buf).map_err(net_error::WriteError)?;
 
         self.stats.msgs_tx += 1;
 
@@ -2611,7 +2613,7 @@ impl ConversationP2P {
                 Ok(None)
             }
             _ => {
-                test_debug!(
+                debug!(
                     "{:?}: Got unauthenticated message (type {}), will NACK",
                     &self,
                     msg.payload.get_message_name()
@@ -5516,14 +5518,14 @@ mod test {
             test_debug!("send handshake");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 has a handshakeaccept
             test_debug!("send handshake-accept");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5598,14 +5600,14 @@ mod test {
             test_debug!("send getnakamotoinv");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 gets back a nakamotoinv message
             test_debug!("send nakamotoinv");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();
@@ -5648,14 +5650,14 @@ mod test {
             test_debug!("send getnakamotoinv (diverged)");
             convo_send_recv(&mut convo_1, vec![&mut rh_1], &mut convo_2);
             let unhandled_2 = convo_2
-                .chat(&mut net_2, &sortdb_2, &mut chainstate_2)
+                .chat(&mut net_2, &sortdb_2, &mut chainstate_2, false)
                 .unwrap();
 
             // convo_1 gets back a nack message
             test_debug!("send nack (diverged)");
             convo_send_recv(&mut convo_2, vec![&mut rh_1], &mut convo_1);
             let unhandled_1 = convo_1
-                .chat(&mut net_1, &sortdb_1, &mut chainstate_1)
+                .chat(&mut net_1, &sortdb_1, &mut chainstate_1, false)
                 .unwrap();
 
             let reply_1 = rh_1.recv(0).unwrap();

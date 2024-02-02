@@ -46,7 +46,8 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::STACKS_EPOCH_MAX;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
-use stacks_common::util::hash::to_hex;
+use stacks_common::types::PrivateKey;
+use stacks_common::util::hash::{to_hex, Sha512Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -195,7 +196,6 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
@@ -814,7 +814,7 @@ fn correct_burn_outs() {
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::AnyEvent],
+        events_keys: vec![EventKeyType::AnyEvent, EventKeyType::StackerSet],
     });
 
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
@@ -901,6 +901,12 @@ fn correct_burn_outs() {
                 tests::to_addr(&account.0).bytes.to_hex(),
                 AddressHashMode::SerializeP2PKH as u8,
             ));
+            // create a new SK, mixing in the nonce, because signing keys cannot (currently)
+            //  be reused.
+            let mut seed_inputs = account.0.to_bytes();
+            seed_inputs.extend_from_slice(&account.2.nonce.to_be_bytes());
+            let new_sk = StacksPrivateKey::from_seed(Sha512Sum::from_data(&seed_inputs).as_bytes());
+            let pk_bytes = StacksPublicKey::from_private(&new_sk).to_bytes_compressed();
 
             let stacking_tx = tests::make_contract_call(
                 &account.0,
@@ -914,6 +920,7 @@ fn correct_burn_outs() {
                     pox_addr_tuple,
                     clarity::vm::Value::UInt(pox_info.current_burnchain_block_height.into()),
                     clarity::vm::Value::UInt(1),
+                    clarity::vm::Value::buff_from(pk_bytes).unwrap(),
                 ],
             );
             let txid = submit_tx(&http_origin, &stacking_tx);
@@ -952,6 +959,9 @@ fn correct_burn_outs() {
 
     // Mine nakamoto tenures
     for _i in 0..30 {
+        let prior_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+            .unwrap()
+            .block_height;
         if let Err(e) = next_block_and_mine_commit(
             &mut btc_regtest_controller,
             30,
@@ -961,12 +971,17 @@ fn correct_burn_outs() {
             warn!(
                 "Error while minting a bitcoin block and waiting for stacks-node activity: {e:?}"
             );
+            panic!();
         }
 
         let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         assert!(
             tip_sn.sortition,
             "The new chain tip must have had a sortition"
+        );
+        assert!(
+            tip_sn.block_height > prior_tip,
+            "The new burnchain tip must have been processed"
         );
     }
 
@@ -975,6 +990,34 @@ fn correct_burn_outs() {
         .expect("Mutex poisoned")
         .stop_chains_coordinator();
     run_loop_stopper.store(false, Ordering::SeqCst);
+
+    let stacker_sets = test_observer::get_stacker_sets();
+    info!("Stacker sets announced {:#?}", stacker_sets);
+    let mut sorted_stacker_sets = stacker_sets.clone();
+    sorted_stacker_sets.sort_by_key(|(_block_id, cycle_num, _reward_set)| *cycle_num);
+    assert_eq!(
+        sorted_stacker_sets, stacker_sets,
+        "Stacker set should be sorted by cycle number already"
+    );
+
+    let first_epoch_3_cycle = burnchain
+        .block_height_to_reward_cycle(epoch_3.start_height)
+        .unwrap();
+    for (_, cycle_number, reward_set) in stacker_sets.iter() {
+        if *cycle_number < first_epoch_3_cycle {
+            assert!(reward_set.signers.is_none());
+            // nothing else to check for < first_epoch_3_cycle
+            continue;
+        }
+        let Some(signers) = reward_set.signers.clone() else {
+            panic!("Signers should be set in any epoch-3 cycles. First epoch-3 cycle: {first_epoch_3_cycle}. Checked cycle number: {cycle_number}");
+        };
+        // there should be 1 stacker signer, and 1 reward address
+        assert_eq!(reward_set.rewarded_addresses.len(), 1);
+        assert_eq!(signers.len(), 1);
+        // the signer should have 1 "slot", because they stacked the minimum stacking amount
+        assert_eq!(signers[0].slots, 1);
+    }
 
     run_loop_thread.join().unwrap();
 }
@@ -1420,7 +1463,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
 
     let mut proposed_zero_block = proposed_block.clone();
     proposed_zero_block.header.miner_signature = MessageSignature::empty();
-    proposed_zero_block.header.signer_signature = ThresholdSignature::mock();
+    proposed_zero_block.header.signer_signature = ThresholdSignature::empty();
     let proposed_zero_block_hash = format!("0x{}", proposed_zero_block.header.block_hash());
 
     coord_channel

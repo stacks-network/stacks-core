@@ -260,6 +260,7 @@ pub fn run_http_request<S: Read + Write>(
     if body_offset >= buf.len() {
         // no body
         debug!("No HTTP body");
+        debug!("Headers: {:?}", &headers);
         return Ok(vec![]);
     }
 

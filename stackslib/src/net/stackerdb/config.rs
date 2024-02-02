@@ -170,10 +170,10 @@ impl StackerDBConfig {
             "(stackerdb-get-signer-slots)",
         )?;
 
-        let result = value.expect_result();
+        let result = value.expect_result()?;
         let slot_list = match result {
             Err(err_val) => {
-                let err_code = err_val.expect_u128();
+                let err_code = err_val.expect_u128()?;
                 let reason = format!(
                     "Contract {} failed to run `stackerdb-get-signer-slots`: error u{}",
                     contract_id, &err_code
@@ -184,23 +184,23 @@ impl StackerDBConfig {
                     reason,
                 ));
             }
-            Ok(ok_val) => ok_val.expect_list(),
+            Ok(ok_val) => ok_val.expect_list()?,
         };
 
         let mut total_num_slots = 0u32;
         let mut ret = vec![];
         for slot_value in slot_list.into_iter() {
-            let slot_data = slot_value.expect_tuple();
+            let slot_data = slot_value.expect_tuple()?;
             let signer_principal = slot_data
                 .get("signer")
                 .expect("FATAL: no 'signer'")
                 .clone()
-                .expect_principal();
+                .expect_principal()?;
             let num_slots_uint = slot_data
                 .get("num-slots")
                 .expect("FATAL: no 'num-slots'")
                 .clone()
-                .expect_u128();
+                .expect_u128()?;
 
             if num_slots_uint > (STACKERDB_INV_MAX as u128) {
                 let reason = format!(
@@ -266,10 +266,10 @@ impl StackerDBConfig {
         let value =
             chainstate.eval_read_only(burn_dbconn, tip, contract_id, "(stackerdb-get-config)")?;
 
-        let result = value.expect_result();
+        let result = value.expect_result()?;
         let config_tuple = match result {
             Err(err_val) => {
-                let err_code = err_val.expect_u128();
+                let err_code = err_val.expect_u128()?;
                 let reason = format!(
                     "Contract {} failed to run `stackerdb-get-config`: err u{}",
                     contract_id, &err_code
@@ -280,14 +280,14 @@ impl StackerDBConfig {
                     reason,
                 ));
             }
-            Ok(ok_val) => ok_val.expect_tuple(),
+            Ok(ok_val) => ok_val.expect_tuple()?,
         };
 
         let chunk_size = config_tuple
             .get("chunk-size")
             .expect("FATAL: missing 'chunk-size'")
             .clone()
-            .expect_u128();
+            .expect_u128()?;
 
         if chunk_size > STACKERDB_MAX_CHUNK_SIZE as u128 {
             let reason = format!(
@@ -305,7 +305,7 @@ impl StackerDBConfig {
             .get("write-freq")
             .expect("FATAL: missing 'write-freq'")
             .clone()
-            .expect_u128();
+            .expect_u128()?;
         if write_freq > u64::MAX as u128 {
             let reason = format!(
                 "Contract {} stipulates a write frequency beyond u64::MAX",
@@ -322,7 +322,7 @@ impl StackerDBConfig {
             .get("max-writes")
             .expect("FATAL: missing 'max-writes'")
             .clone()
-            .expect_u128();
+            .expect_u128()?;
         if max_writes > u32::MAX as u128 {
             let reason = format!(
                 "Contract {} stipulates a max-write bound beyond u32::MAX",
@@ -339,7 +339,7 @@ impl StackerDBConfig {
             .get("max-neighbors")
             .expect("FATAL: missing 'max-neighbors'")
             .clone()
-            .expect_u128();
+            .expect_u128()?;
         if max_neighbors > usize::MAX as u128 {
             let reason = format!(
                 "Contract {} stipulates a maximum number of neighbors beyond usize::MAX",
@@ -356,30 +356,30 @@ impl StackerDBConfig {
             .get("hint-replicas")
             .expect("FATAL: missing 'hint-replicas'")
             .clone()
-            .expect_list();
+            .expect_list()?;
         let mut hint_replicas = vec![];
         for hint_replica_value in hint_replicas_list.into_iter() {
-            let hint_replica_data = hint_replica_value.expect_tuple();
+            let hint_replica_data = hint_replica_value.expect_tuple()?;
 
             let addr_byte_list = hint_replica_data
                 .get("addr")
                 .expect("FATAL: missing 'addr'")
                 .clone()
-                .expect_list();
+                .expect_list()?;
             let port = hint_replica_data
                 .get("port")
                 .expect("FATAL: missing 'port'")
                 .clone()
-                .expect_u128();
+                .expect_u128()?;
             let pubkey_hash_bytes = hint_replica_data
                 .get("public-key-hash")
                 .expect("FATAL: missing 'public-key-hash")
                 .clone()
-                .expect_buff_padded(20, 0);
+                .expect_buff_padded(20, 0)?;
 
             let mut addr_bytes = vec![];
             for byte_val in addr_byte_list.into_iter() {
-                let byte = byte_val.expect_u128();
+                let byte = byte_val.expect_u128()?;
                 if byte > (u8::MAX as u128) {
                     let reason = format!(
                         "Contract {} stipulates an addr byte above u8::MAX",
@@ -472,7 +472,7 @@ impl StackerDBConfig {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     // contract must exist or this errors out
                     let analysis = db
-                        .load_contract_analysis(contract_id)
+                        .load_contract_analysis(contract_id)?
                         .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
 
                     // contract must be consistent with StackerDB control interface

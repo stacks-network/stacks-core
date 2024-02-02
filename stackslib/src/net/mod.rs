@@ -28,6 +28,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
 };
@@ -552,6 +553,12 @@ impl From<burnchain_error> for Error {
 impl From<clarity_error> for Error {
     fn from(e: clarity_error) -> Self {
         Error::ClarityError(e)
+    }
+}
+
+impl From<InterpreterError> for Error {
+    fn from(e: InterpreterError) -> Self {
+        Error::ClarityError(e.into())
     }
 }
 
@@ -1630,7 +1637,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
-    use crate::chainstate::nakamoto::tests::node::TestSigners;
+    use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
@@ -1916,6 +1923,15 @@ pub mod test {
         ) {
             // pass
         }
+
+        fn announce_reward_set(
+            &self,
+            _reward_set: &RewardSet,
+            _block_id: &StacksBlockId,
+            _cycle_number: u64,
+        ) {
+            // pass
+        }
     }
 
     // describes a peer's initial configuration
@@ -1955,6 +1971,7 @@ pub mod test {
         pub services: u16,
         /// aggregate public key to use
         pub aggregate_public_key: Option<Point>,
+        pub test_stackers: Option<Vec<TestStacker>>,
     }
 
     impl TestPeerConfig {
@@ -2019,6 +2036,7 @@ pub mod test {
                     | (ServiceFlags::RPC as u16)
                     | (ServiceFlags::STACKERDB as u16),
                 aggregate_public_key: None,
+                test_stackers: None,
             }
         }
 
@@ -2135,7 +2153,7 @@ pub mod test {
             'a,
             TestEventObserver,
             (),
-            OnChainRewardSetProvider,
+            OnChainRewardSetProvider<'a, TestEventObserver>,
             (),
             (),
             BitcoinIndexer,
@@ -2187,6 +2205,7 @@ pub mod test {
                     peerdb.conn(),
                     local_peer.network_id,
                     &contract_id,
+                    0,
                     10000000,
                 )
                 .unwrap()
@@ -2201,8 +2220,7 @@ pub mod test {
                     &db_config,
                     PeerNetworkComms::new(),
                     stacker_dbs,
-                )
-                .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
+                );
 
                 stacker_db_syncs.insert(contract_id.clone(), (db_config.clone(), stacker_db_sync));
             }
@@ -2375,7 +2393,7 @@ pub mod test {
                 &config.burnchain,
                 config.network_id,
                 &test_path,
-                OnChainRewardSetProvider(),
+                OnChainRewardSetProvider(observer),
                 observer,
                 indexer,
                 None,
@@ -2465,6 +2483,9 @@ pub mod test {
             let stacker_db_syncs =
                 Self::init_stackerdb_syncs(&test_path, &peerdb, &mut stackerdb_configs);
 
+            let stackerdb_contracts: Vec<_> =
+                stacker_db_syncs.keys().map(|cid| cid.clone()).collect();
+
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
@@ -2489,21 +2510,30 @@ pub mod test {
             let p2p_port = peer_network.bound_neighbor_key().port;
             let http_port = peer_network.http.as_ref().unwrap().http_server_addr.port();
 
-            peer_network.local_peer.port = p2p_port;
-            peer_network
-                .peerdb
-                .update_local_peer(
-                    peer_network.local_peer.network_id,
-                    peer_network.local_peer.parent_network_id,
-                    peer_network.local_peer.data_url.clone(),
-                    peer_network.local_peer.port,
-                    &config.stacker_dbs,
-                )
-                .unwrap();
-
             debug!("Bound to (p2p={}, http={})", p2p_port, http_port);
             config.server_port = p2p_port;
             config.http_port = http_port;
+
+            config.data_url =
+                UrlString::try_from(format!("http://127.0.0.1:{}", http_port).as_str()).unwrap();
+
+            peer_network
+                .peerdb
+                .update_local_peer(
+                    config.network_id,
+                    config.burnchain.network_id,
+                    config.data_url.clone(),
+                    p2p_port,
+                    &stackerdb_contracts,
+                )
+                .unwrap();
+
+            let local_peer = PeerDB::get_local_peer(peer_network.peerdb.conn()).unwrap();
+            debug!(
+                "{:?}: initial neighbors: {:?}",
+                &local_peer, &config.initial_neighbors
+            );
+            peer_network.local_peer = local_peer;
 
             TestPeer {
                 config: config,
@@ -3393,7 +3423,7 @@ pub mod test {
                 &mut stacks_node.chainstate,
                 &mut sortdb,
                 &self.config.burnchain,
-                &OnChainRewardSetProvider(),
+                &OnChainRewardSetProvider::new(),
                 true,
             ) {
                 Ok(recipients) => {
@@ -3502,7 +3532,7 @@ pub mod test {
                             parent_microblock_header_opt.as_ref(),
                         );
 
-                    builder.epoch_finish(epoch);
+                    builder.epoch_finish(epoch).unwrap();
                     (stacks_block, microblocks)
                 },
             );

@@ -6,20 +6,22 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, SignerEventReceiver};
+use libsigner::{
+    BlockResponse, RunningSigner, Signer, SignerEventReceiver, SignerMessage, BLOCK_SLOT_ID,
+    SIGNER_SLOTS_PER_USER,
+};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::{StacksPrivateKey, ThresholdSignature};
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
-use stacks::util_lib::boot::boot_code_id;
+use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
 };
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
-use stacks_signer::client::{BlockResponse, SignerMessage, StacksClient, SIGNER_SLOTS_PER_USER};
-use stacks_signer::config::{Config as SignerConfig, Network};
+use stacks_signer::client::StacksClient;
+use stacks_signer::config::Config as SignerConfig;
 use stacks_signer::runloop::{calculate_coordinator, RunLoopCommand};
 use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
 use tracing_subscriber::prelude::*;
@@ -63,7 +65,7 @@ struct SignerTest {
     // The channel for sending commands to the coordinator
     pub coordinator_cmd_sender: Sender<RunLoopCommand>,
     // The channels for sending commands to the signers
-    pub signer_cmd_senders: HashMap<u32, Sender<RunLoopCommand>>,
+    pub _signer_cmd_senders: HashMap<u32, Sender<RunLoopCommand>>,
     // The channels for receiving results from both the coordinator and the signers
     pub result_receivers: Vec<Receiver<Vec<OperationResult>>>,
     // The running coordinator and its threads
@@ -152,7 +154,7 @@ impl SignerTest {
         Self {
             running_nodes: node,
             result_receivers,
-            signer_cmd_senders,
+            _signer_cmd_senders: signer_cmd_senders,
             coordinator_cmd_sender,
             running_coordinator,
             running_signers,
@@ -186,10 +188,8 @@ fn spawn_signer(
     sender: Sender<Vec<OperationResult>>,
 ) -> RunningSigner<SignerEventReceiver, Vec<OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
-    let ev = SignerEventReceiver::new(vec![
-        boot_code_id(MINERS_NAME, config.network == Network::Mainnet),
-        config.stackerdb_contract_id.clone(),
-    ]);
+    let is_mainnet = config.network.is_mainnet();
+    let ev = SignerEventReceiver::new(vec![config.stackerdb_contract_id.clone()], is_mainnet);
     let runloop: stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>> =
         stacks_signer::runloop::RunLoop::from(&config);
     let mut signer: Signer<
@@ -365,7 +365,8 @@ fn stackerdb_dkg_sign() {
         tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
         state_index_root: TrieHash([0x07; 32]),
         miner_signature: MessageSignature::empty(),
-        signer_signature: ThresholdSignature::mock(),
+        signer_signature: ThresholdSignature::empty(),
+        signer_bitvec: BitVec::zeros(1).unwrap(),
     };
     let mut block = NakamotoBlock {
         header,
@@ -383,12 +384,7 @@ fn stackerdb_dkg_sign() {
     block.header.tx_merkle_root = tx_merkle_root;
 
     // The block is invalid so the signers should return a signature across its hash + b'n'
-    let mut msg = block
-        .header
-        .signature_hash()
-        .expect("Failed to get signature hash")
-        .0
-        .to_vec();
+    let mut msg = block.header.signer_signature_hash().0.to_vec();
     msg.push(b'n');
 
     let signer_test = SignerTest::new(10, 400);
@@ -641,16 +637,16 @@ fn stackerdb_block_proposal() {
         thread::sleep(Duration::from_secs(1));
     }
     let validate_responses = test_observer::get_proposal_responses();
-    let mut proposed_block = match validate_responses.first().expect("No block proposal") {
-        BlockValidateResponse::Ok(block_validated) => block_validated.block.clone(),
-        _ => panic!("Unexpected response"),
-    };
-    let signature_hash = proposed_block
-        .header
-        .signature_hash()
-        .expect("Unable to retrieve signature hash from proposed block");
+    let proposed_signer_signature_hash =
+        match validate_responses.first().expect("No block proposal") {
+            BlockValidateResponse::Ok(block_validated) => block_validated.signer_signature_hash,
+            _ => panic!("Unexpected response"),
+        };
     assert!(
-        signature.verify(&aggregate_public_key, signature_hash.0.as_slice()),
+        signature.verify(
+            &aggregate_public_key,
+            proposed_signer_signature_hash.0.as_slice()
+        ),
         "Signature verification failed"
     );
     // Verify that the signers broadcasted a signed NakamotoBlock back to the .signers contract
@@ -666,7 +662,7 @@ fn stackerdb_block_proposal() {
         for event in nakamoto_blocks {
             // The tenth slot is the miners block slot
             for slot in event.modified_slots {
-                if slot.slot_id == 10 {
+                if slot.slot_id == BLOCK_SLOT_ID {
                     chunk = Some(slot.data);
                     break;
                 }
@@ -679,9 +675,13 @@ fn stackerdb_block_proposal() {
     }
     let chunk = chunk.unwrap();
     let signer_message = bincode::deserialize::<SignerMessage>(&chunk).unwrap();
-    if let SignerMessage::BlockResponse(BlockResponse::Accepted(block)) = signer_message {
-        proposed_block.header.signer_signature = ThresholdSignature(signature);
-        assert_eq!(block, proposed_block);
+    if let SignerMessage::BlockResponse(BlockResponse::Accepted((
+        block_signer_signature_hash,
+        block_signature,
+    ))) = signer_message
+    {
+        assert_eq!(block_signer_signature_hash, proposed_signer_signature_hash);
+        assert_eq!(block_signature, ThresholdSignature(signature));
     } else {
         panic!("Received unexpected message");
     }

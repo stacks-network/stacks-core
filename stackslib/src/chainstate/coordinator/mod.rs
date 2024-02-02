@@ -33,6 +33,7 @@ use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
 use super::stacks::boot::RewardSet;
+use super::stacks::db::blocks::DummyEventDispatcher;
 use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::{
@@ -189,6 +190,13 @@ pub trait BlockEventDispatcher {
         burns: u64,
         reward_recipients: Vec<PoxAddress>,
     );
+
+    fn announce_reward_set(
+        &self,
+        reward_set: &RewardSet,
+        block_id: &StacksBlockId,
+        cycle_number: u64,
+    );
 }
 
 pub struct ChainsCoordinatorConfig {
@@ -280,9 +288,15 @@ pub trait RewardSetProvider {
     ) -> Result<RewardSet, Error>;
 }
 
-pub struct OnChainRewardSetProvider();
+pub struct OnChainRewardSetProvider<'a, T: BlockEventDispatcher>(pub Option<&'a T>);
 
-impl RewardSetProvider for OnChainRewardSetProvider {
+impl OnChainRewardSetProvider<'static, DummyEventDispatcher> {
+    pub fn new() -> Self {
+        Self(None)
+    }
+}
+
+impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider<'a, T> {
     fn get_reward_set(
         &self,
         cycle_start_burn_height: u64,
@@ -293,33 +307,54 @@ impl RewardSetProvider for OnChainRewardSetProvider {
     ) -> Result<RewardSet, Error> {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_burn_height)?
             .expect(&format!(
-                "FATAL: no epoch for burn height {}",
-                cycle_start_burn_height
+                "FATAL: no epoch for burn height {cycle_start_burn_height}",
             ));
-        if cur_epoch.epoch_id < StacksEpochId::Epoch30 {
+        let cycle = burnchain
+            .block_height_to_reward_cycle(cycle_start_burn_height)
+            .expect("FATAL: no reward cycle for burn height");
+        let is_nakamoto_reward_set = match SortitionDB::get_stacks_epoch_by_epoch_id(
+            sortdb.conn(),
+            &StacksEpochId::Epoch30,
+        )? {
+            Some(epoch_30) => {
+                let first_nakamoto_cycle = burnchain
+                    .block_height_to_reward_cycle(epoch_30.start_height)
+                    .expect("FATAL: no reward cycle for burn height");
+                first_nakamoto_cycle <= cycle
+            }
+            // if epoch-3.0 isn't defined, then never use a nakamoto reward set.
+            None => false,
+        };
+        let reward_set = if !is_nakamoto_reward_set {
             // Stacks 2.x epoch
-            return self.get_reward_set_epoch2(
+            self.get_reward_set_epoch2(
                 cycle_start_burn_height,
                 chainstate,
                 burnchain,
                 sortdb,
                 block_id,
                 cur_epoch,
-            );
+            )?
         } else {
             // Nakamoto epoch
-            return self.get_reward_set_nakamoto(
+            self.get_reward_set_nakamoto(
                 cycle_start_burn_height,
                 chainstate,
                 burnchain,
                 sortdb,
                 block_id,
-            );
+            )?
+        };
+
+        if let Some(dispatcher) = self.0 {
+            dispatcher.announce_reward_set(&reward_set, block_id, cycle);
         }
+
+        Ok(reward_set)
     }
 }
 
-impl OnChainRewardSetProvider {
+impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
     fn get_reward_set_epoch2(
         &self,
         // Todo: `current_burn_height` is a misleading name: should be the `cycle_start_burn_height`
@@ -417,13 +452,22 @@ impl<
         CE: CostEstimator + ?Sized,
         FE: FeeEstimator + ?Sized,
         B: BurnchainHeaderReader,
-    > ChainsCoordinator<'a, T, ArcCounterCoordinatorNotices, OnChainRewardSetProvider, CE, FE, B>
+    >
+    ChainsCoordinator<
+        'a,
+        T,
+        ArcCounterCoordinatorNotices,
+        OnChainRewardSetProvider<'a, T>,
+        CE,
+        FE,
+        B,
+    >
 {
     pub fn run(
         config: ChainsCoordinatorConfig,
         chain_state_db: StacksChainState,
         burnchain: Burnchain,
-        dispatcher: &'a mut T,
+        dispatcher: &'a T,
         comms: CoordinatorReceivers,
         atlas_config: AtlasConfig,
         cost_estimator: Option<&'a mut CE>,
@@ -462,7 +506,7 @@ impl<
             burnchain,
             dispatcher: Some(dispatcher),
             notifier: arc_notices,
-            reward_set_provider: OnChainRewardSetProvider(),
+            reward_set_provider: OnChainRewardSetProvider(Some(dispatcher)),
             cost_estimator,
             fee_estimator,
             atlas_config,

@@ -172,13 +172,13 @@ impl StacksClient {
         debug!("Parsing aggregate public key: {hex}...");
         // Due to pox 4 definition, the aggregate public key is always an optional clarity value hence the use of expect
         // If this fails, we have bigger problems than the signer crashing...
-        let value_opt = ClarityValue::try_deserialize_hex_untyped(hex)?.expect_optional();
+        let value_opt = ClarityValue::try_deserialize_hex_untyped(hex)?.expect_optional()?;
         let Some(value) = value_opt else {
             return Ok(None);
         };
         // A point should have 33 bytes exactly due to the pox 4 definition hence the use of expect
         // If this fails, we have bigger problems than the signer crashing...
-        let data = value.clone().expect_buff(33);
+        let data = value.clone().expect_buff(33)?;
         // It is possible that the point was invalid though when voted upon and this cannot be prevented by pox 4 definitions...
         // Pass up this error if the conversions fail.
         let compressed_data = Compressed::try_from(data.as_slice())
@@ -288,8 +288,14 @@ impl StacksClient {
         );
         let args = function_args
             .iter()
-            .map(|arg| arg.serialize_to_hex())
+            .filter_map(|arg| arg.serialize_to_hex().ok())
             .collect::<Vec<String>>();
+        if args.len() != function_args.len() {
+            return Err(ClientError::ReadOnlyFailure(
+                "Failed to serialize Clarity function arguments".into(),
+            ));
+        }
+
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);

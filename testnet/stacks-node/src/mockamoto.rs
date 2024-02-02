@@ -70,6 +70,7 @@ use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{
     FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
@@ -452,6 +453,7 @@ impl MockamotoNode {
             counters,
             sync_comms,
             should_keep_running,
+            0,
         );
 
         let mut event_dispatcher = EventDispatcher::new();
@@ -953,10 +955,12 @@ impl MockamotoNode {
 
         let state_index_root = clarity_tx.seal();
         let tx_merkle_tree: MerkleTree<Sha512Trunc256Sum> = builder.txs.iter().collect();
-        clarity_tx.commit_mined_block(&StacksBlockId::new(
-            &MINER_BLOCK_CONSENSUS_HASH,
-            &MINER_BLOCK_HEADER_HASH,
-        ));
+        clarity_tx
+            .commit_mined_block(&StacksBlockId::new(
+                &MINER_BLOCK_CONSENSUS_HASH,
+                &MINER_BLOCK_HEADER_HASH,
+            ))
+            .unwrap();
         chainstate_tx.commit().unwrap();
 
         let mut block = NakamotoBlock {
@@ -966,17 +970,19 @@ impl MockamotoNode {
                 burn_spent: sortition_tip.total_burn,
                 tx_merkle_root: tx_merkle_tree.root(),
                 state_index_root,
-                signer_signature: ThresholdSignature::mock(),
+                signer_signature: ThresholdSignature::empty(),
                 miner_signature: MessageSignature::empty(),
                 consensus_hash: sortition_tip.consensus_hash.clone(),
                 parent_block_id: StacksBlockId::new(&chain_tip_ch, &chain_tip_bh),
+                signer_bitvec: BitVec::zeros(1)
+                    .expect("BUG: bitvec of length-1 failed to construct"),
             },
             txs: builder.txs,
         };
 
         let miner_signature = self
             .miner_key
-            .sign(block.header.signature_hash().unwrap().as_bytes())
+            .sign(block.header.miner_signature_hash().as_bytes())
             .unwrap();
 
         block.header.miner_signature = miner_signature;
