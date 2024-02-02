@@ -222,4 +222,40 @@ mod tests {
         let transactions = h.join().unwrap().unwrap();
         assert_eq!(transactions, vec![tx]);
     }
+
+    #[test]
+    fn send_signer_message_with_retry_should_succeed() {
+        let mut config = TestConfig::new();
+        let sk = StacksPrivateKey::new();
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: 0,
+            auth: TransactionAuth::from_p2pkh(&sk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "test-contract".into(),
+                    code_body: StacksString::from_str("(/ 1 0)").unwrap(),
+                },
+                None,
+            ),
+        };
+
+        let signer_message = SignerMessage::Transactions(vec![tx.clone()]);
+        let ack = StackerDBChunkAckData {
+            accepted: true,
+            reason: None,
+            metadata: None,
+        };
+
+        let h = spawn(move || config.stackerdb.send_message_with_retry(signer_message));
+
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
+        response_bytes.extend(payload.as_bytes());
+        write_response(config.mock_server, response_bytes.as_slice());
+        assert_eq!(ack, h.join().unwrap().unwrap());
+    }
 }
