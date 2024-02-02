@@ -289,7 +289,7 @@ impl<C: Coordinator> RunLoop<C> {
                 block_info.valid = Some(false);
                 // Submit a rejection response to the .signers contract for miners
                 // to observe so they know to send another block and to prove signers are doing work);
-                debug!("Broadcasting a block rejection due to stacks node validation failure...");
+                warn!("Broadcasting a block rejection due to stacks node validation failure...");
                 if let Err(e) = self
                     .stackerdb
                     .send_message_with_retry(block_validate_reject.into())
@@ -1363,35 +1363,35 @@ mod tests {
 
         // Simulate the response to the request for transactions with the expected transaction
         let signer_message = SignerMessage::Transactions(vec![valid_tx]);
-        let message = bincode::serialize(&signer_message).unwrap();
+        let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         let test_config = TestConfig::from_config(config.clone());
         write_response(test_config.mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
-        let message = bincode::serialize(&signer_message).unwrap();
+        let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         let test_config = TestConfig::from_config(config.clone());
         write_response(test_config.mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
-        let message = bincode::serialize(&signer_message).unwrap();
+        let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         let test_config = TestConfig::from_config(config.clone());
         write_response(test_config.mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
-        let message = bincode::serialize(&signer_message).unwrap();
+        let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         let test_config = TestConfig::from_config(config.clone());
         write_response(test_config.mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
-        let message = bincode::serialize(&signer_message).unwrap();
+        let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         let test_config = TestConfig::from_config(config.clone());

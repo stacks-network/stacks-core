@@ -137,25 +137,27 @@ impl StackerDB {
         let chunk_ack = retry_with_exponential_backoff(send_request)?;
         let mut transactions = Vec::new();
         for (i, chunk) in chunk_ack.iter().enumerate() {
-            if let Some(data) = chunk {
-                if let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) {
-                    if let SignerMessage::Transactions(chunk_transactions) = message {
-                        let signer_id = *signer_ids.get(i).expect(
-                            "BUG: retrieved an unequal amount of chunks to requested chunks",
-                        );
-                        debug!(
-                            "Retrieved {} transactions from signer ID {}.",
-                            chunk_transactions.len(),
-                            signer_id
-                        );
-                        transactions.extend(chunk_transactions);
-                    } else {
-                        warn!("Signer wrote an unexpected type to the transactions slot");
-                    }
-                } else {
-                    warn!("Failed to deserialize chunk data into a SignerMessage");
-                }
-            }
+            let signer_id = *signer_ids
+                .get(i)
+                .expect("BUG: retrieved an unequal amount of chunks to requested chunks");
+            let Some(data) = chunk else {
+                continue;
+            };
+            let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) else {
+                warn!("Failed to deserialize chunk data into a SignerMessage");
+                continue;
+            };
+
+            let SignerMessage::Transactions(chunk_transactions) = message else {
+                warn!("Signer wrote an unexpected type to the transactions slot");
+                continue;
+            };
+            debug!(
+                "Retrieved {} transactions from signer ID {}.",
+                chunk_transactions.len(),
+                signer_id
+            );
+            transactions.extend(chunk_transactions);
         }
         Ok(transactions)
     }
@@ -249,12 +251,11 @@ mod tests {
             reason: None,
             metadata: None,
         };
-
-        let h = spawn(move || config.stackerdb.send_message_with_retry(signer_message));
-
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
         response_bytes.extend(payload.as_bytes());
+        let h = spawn(move || config.stackerdb.send_message_with_retry(signer_message));
+        std::thread::sleep(std::time::Duration::from_millis(100));
         write_response(config.mock_server, response_bytes.as_slice());
         assert_eq!(ack, h.join().unwrap().unwrap());
     }
