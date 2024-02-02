@@ -26,7 +26,7 @@ use clarity::vm::errors::{
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use clarity::vm::eval;
-use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
 use clarity::vm::types::Value::Response;
@@ -1993,8 +1993,9 @@ fn balances_from_keys(
 
 #[test]
 fn stack_stx_signer_key() {
+    let observer = TestEventObserver::new();
     let (burnchain, mut peer, keys, latest_block, block_height, mut coinbase_nonce) =
-        prepare_pox4_test(function_name!(), None);
+        prepare_pox4_test(function_name!(), Some(&observer));
 
     let stacker_nonce = 0;
     let stacker_key = &keys[0];
@@ -2036,6 +2037,21 @@ fn stack_stx_signer_key() {
     )
     .expect("No stacking state, stack-stx failed")
     .expect_tuple();
+
+    let stacker_txs =
+        get_last_block_sender_transactions(&observer, key_to_stacks_addr(&stacker_key));
+
+    let stacking_tx = stacker_txs.get(0).unwrap();
+    let events: Vec<&STXLockEventData> = stacking_tx
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(data)) => Some(data),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(events.get(0).unwrap().locked_amount, min_ustx);
 
     let next_reward_cycle = 1 + burnchain
         .block_height_to_reward_cycle(block_height)
