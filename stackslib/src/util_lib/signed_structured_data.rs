@@ -28,7 +28,8 @@ use stacks_common::{
 pub const STRUCTURED_DATA_PREFIX: [u8; 6] = [0x53, 0x49, 0x50, 0x30, 0x31, 0x38];
 
 pub fn structured_data_hash(value: Value) -> Sha256Sum {
-    let bytes = value.serialize_to_vec();
+    let mut bytes = vec![];
+    value.serialize_write(&mut bytes).unwrap();
     Sha256Sum::from_data(&bytes.as_slice())
 }
 
