@@ -253,7 +253,13 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     ));
                 }
 
-                debug!("Wrote {}-byte chunk to {} slot {} version {}", &stackerdb_chunk.data.len(), &contract_identifier, stackerdb_chunk.slot_id, stackerdb_chunk.slot_version);
+                debug!(
+                    "Wrote {}-byte chunk to {} slot {} version {}",
+                    &stackerdb_chunk.data.len(),
+                    &contract_identifier,
+                    stackerdb_chunk.slot_id,
+                    stackerdb_chunk.slot_version
+                );
 
                 // success!
                 let ack = StackerDBChunkAckData {

@@ -154,7 +154,13 @@ impl RPCRequestHandler for RPCGetStackerDBChunkRequestHandler {
 
                 match chunk_res {
                     Ok(Some(chunk)) => {
-                        debug!("Loaded {}-byte chunk for {} slot {} version {:?}", chunk.len(), &contract_identifier, slot_id, &slot_version);
+                        debug!(
+                            "Loaded {}-byte chunk for {} slot {} version {:?}",
+                            chunk.len(),
+                            &contract_identifier,
+                            slot_id,
+                            &slot_version
+                        );
                         Ok(chunk)
                     }
                     Ok(None) | Err(NetError::NoSuchStackerDB(..)) => {
