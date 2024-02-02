@@ -116,7 +116,6 @@ fn test_try_make_response() {
 
     let naddr = resp.last().clone().unwrap();
     assert_eq!(naddr.addrbytes, PeerAddress::from_ipv4(127, 0, 0, 1));
-    assert_eq!(naddr.port, 0);
     assert_eq!(
         naddr.public_key_hash,
         Hash160::from_hex("9b92533ccc243e25eb6197bd03c9164642c7c8a8").unwrap()

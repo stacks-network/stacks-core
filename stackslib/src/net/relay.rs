@@ -2613,7 +2613,7 @@ pub mod test {
     use crate::net::download::*;
     use crate::net::http::{HttpRequestContents, HttpRequestPreamble};
     use crate::net::httpcore::StacksHttpMessage;
-    use crate::net::inv::*;
+    use crate::net::inv::inv2x::*;
     use crate::net::test::*;
     use crate::net::*;
     use crate::util_lib::test::*;
