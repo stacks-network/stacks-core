@@ -986,16 +986,21 @@ mod tests {
     use std::net::TcpListener;
     use std::thread::{sleep, spawn};
 
+    use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
-    use blockstack_lib::chainstate::stacks::TransactionVersion;
+    use blockstack_lib::chainstate::stacks::{ThresholdSignature, TransactionVersion};
     use blockstack_lib::util_lib::boot::boot_code_addr;
     use clarity::vm::types::{ResponseData, TupleData};
     use clarity::vm::{ClarityName, Value as ClarityValue};
     use libsigner::SIGNER_SLOTS_PER_USER;
     use rand::distributions::Standard;
     use rand::Rng;
-    use stacks_common::types::chainstate::StacksPrivateKey;
-    use stacks_common::util::hash::Hash160;
+    use stacks_common::bitvec::BitVec;
+    use stacks_common::types::chainstate::{
+        ConsensusHash, StacksBlockId, StacksPrivateKey, TrieHash,
+    };
+    use stacks_common::util::hash::{Hash160, MerkleTree};
+    use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::point::Point;
     use wsts::curve::scalar::Scalar;
 
@@ -1290,5 +1295,112 @@ mod tests {
 
         let filtered_txs = h.join().unwrap();
         assert_eq!(filtered_txs, vec![valid_tx]);
+    }
+
+    #[test]
+    fn verify_transactions_valid() {
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let mut runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
+
+        let signer_private_key = config.stacks_private_key;
+        let signers_contract_addr = boot_code_addr(false);
+        // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
+        // TODO use cast_aggregate_vote_tx fn to create a valid transaction when it is implmented and update this test
+        let valid_tx = StacksClient::build_signed_contract_call_transaction(
+            &signers_contract_addr,
+            SIGNERS_VOTING_NAME.into(),
+            "fake-function".into(),
+            &[],
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            1,
+            10,
+        )
+        .unwrap();
+
+        // Create a block
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 2,
+            burn_spent: 3,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            parent_block_id: StacksBlockId([0x05; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+            state_index_root: TrieHash([0x07; 32]),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).unwrap(),
+        };
+        let mut block = NakamotoBlock {
+            header,
+            txs: vec![valid_tx.clone()],
+        };
+        let tx_merkle_root = {
+            let txid_vecs = block
+                .txs
+                .iter()
+                .map(|tx| tx.txid().as_bytes().to_vec())
+                .collect();
+
+            MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+        };
+        block.header.tx_merkle_root = tx_merkle_root;
+
+        // Ensure this is a block the signer has seen already
+        runloop.blocks.insert(
+            block.header.signer_signature_hash(),
+            BlockInfo::new(block.clone()),
+        );
+
+        let h = spawn(move || {
+            runloop.initialize().unwrap();
+            runloop.verify_transactions(&block)
+        });
+
+        // Must initialize the signers before attempting to retrieve their transactions
+        simulate_initialize_response(config.clone());
+
+        // Simulate the response to the request for transactions with the expected transaction
+        let signer_message = SignerMessage::Transactions(vec![valid_tx]);
+        let message = bincode::serialize(&signer_message).unwrap();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = bincode::serialize(&signer_message).unwrap();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = bincode::serialize(&signer_message).unwrap();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = bincode::serialize(&signer_message).unwrap();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = bincode::serialize(&signer_message).unwrap();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        simulate_nonce_response(&config, 1);
+        //simulate_send_message_with_retry_response(config.clone());
+
+        let valid = h.join().unwrap();
+        assert!(valid);
     }
 }
