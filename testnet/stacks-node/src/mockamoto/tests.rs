@@ -272,13 +272,12 @@ fn observe_set_aggregate_key() {
             mockamoto.sortdb.first_block_height,
             sortition_tip.block_height,
         )
-        .expect(
-            format!(
+        .unwrap_or_else(|| {
+            panic!(
                 "Failed to determine reward cycle of block height: {}",
                 sortition_tip.block_height
             )
-            .as_str(),
-        );
+        });
 
     let node_thread = thread::Builder::new()
         .name("mockamoto-main".into())

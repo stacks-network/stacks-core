@@ -1891,7 +1891,7 @@ impl NodeConfig {
         }
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
-            .expect(&format!("Invalid public key '{}'", pubkey_str));
+            .unwrap_or_else(|_| panic!("Invalid public key '{pubkey_str}'"));
         debug!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
@@ -2416,7 +2416,7 @@ impl MinerConfigFile {
             txs_to_consider: {
                 if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider
-                        .split(",")
+                        .split(',')
                         .map(
                             |txs_to_consider_str| match str::parse(txs_to_consider_str) {
                                 Ok(txtype) => txtype,
@@ -2433,7 +2433,7 @@ impl MinerConfigFile {
             filter_origins: {
                 if let Some(filter_origins) = &self.filter_origins {
                     filter_origins
-                        .split(",")
+                        .split(',')
                         .map(|origin_str| match StacksAddress::from_string(origin_str) {
                             Some(addr) => addr,
                             None => {

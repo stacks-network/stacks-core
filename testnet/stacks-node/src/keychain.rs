@@ -371,9 +371,9 @@ mod tests {
             };
 
             // Generate the proof
-            let proof = VRF::prove(&vrf_sk, &bytes.to_vec());
+            let proof = VRF::prove(&vrf_sk, bytes.as_ref());
             // Ensure that the proof is valid by verifying
-            let is_valid = match VRF::verify(vrf_pk, &proof, &bytes.to_vec()) {
+            let is_valid = match VRF::verify(vrf_pk, &proof, bytes.as_ref()) {
                 Ok(v) => v,
                 Err(_) => false,
             };

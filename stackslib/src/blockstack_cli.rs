@@ -891,7 +891,7 @@ mod test {
     fn generate_should_work() {
         assert!(main_handler(vec!["generate-sk".into(), "--testnet".into()]).is_ok());
         assert!(main_handler(vec!["generate-sk".into()]).is_ok());
-        assert!(generate_secret_key(&vec!["-h".into()], TransactionVersion::Mainnet).is_err());
+        assert!(generate_secret_key(&["-h".into()], TransactionVersion::Mainnet).is_err());
     }
 
     fn to_string_vec(x: &[&str]) -> Vec<String> {

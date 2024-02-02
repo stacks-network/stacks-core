@@ -820,13 +820,13 @@ impl MicroblockMinerThread {
                     // record this microblock somewhere
                     if !fs::metadata(&path).is_ok() {
                         fs::create_dir_all(&path)
-                            .expect(&format!("FATAL: could not create '{}'", &path));
+                            .unwrap_or_else(|_| panic!("FATAL: could not create '{}'", &path));
                     }
 
                     let path = Path::new(&path);
                     let path = path.join(Path::new(&format!("{}", &mined_microblock.block_hash())));
                     let mut file = fs::File::create(&path)
-                        .expect(&format!("FATAL: could not create '{:?}'", &path));
+                        .unwrap_or_else(|_| panic!("FATAL: could not create '{:?}'", &path));
 
                     let mblock_bits = mined_microblock.serialize_to_vec();
                     let mblock_bits_hex = to_hex(&mblock_bits);
@@ -835,10 +835,9 @@ impl MicroblockMinerThread {
                         r#"{{"microblock":"{}","parent_consensus":"{}","parent_block":"{}"}}"#,
                         &mblock_bits_hex, &self.parent_consensus_hash, &self.parent_block_hash
                     );
-                    file.write_all(&mblock_json.as_bytes()).expect(&format!(
-                        "FATAL: failed to write microblock bits to '{:?}'",
-                        &path
-                    ));
+                    file.write_all(&mblock_json.as_bytes()).unwrap_or_else(|_| {
+                        panic!("FATAL: failed to write microblock bits to '{:?}'", &path)
+                    });
                     info!(
                         "Fault injection: bad microblock {} saved to {}",
                         &mined_microblock.block_hash(),
@@ -2790,13 +2789,13 @@ impl RelayerThread {
                     // record this block somewhere
                     if !fs::metadata(&path).is_ok() {
                         fs::create_dir_all(&path)
-                            .expect(&format!("FATAL: could not create '{}'", &path));
+                            .unwrap_or_else(|_| panic!("FATAL: could not create '{}'", &path));
                     }
 
                     let path = Path::new(&path);
                     let path = path.join(Path::new(&format!("{}", &anchored_block.block_hash())));
                     let mut file = fs::File::create(&path)
-                        .expect(&format!("FATAL: could not create '{:?}'", &path));
+                        .unwrap_or_else(|_| panic!("FATAL: could not create '{:?}'", &path));
 
                     let block_bits = anchored_block.serialize_to_vec();
                     let block_bits_hex = to_hex(&block_bits);
@@ -2804,10 +2803,9 @@ impl RelayerThread {
                         r#"{{"block":"{}","consensus":"{}"}}"#,
                         &block_bits_hex, &consensus_hash
                     );
-                    file.write_all(&block_json.as_bytes()).expect(&format!(
-                        "FATAL: failed to write block bits to '{:?}'",
-                        &path
-                    ));
+                    file.write_all(&block_json.as_bytes()).unwrap_or_else(|_| {
+                        panic!("FATAL: failed to write block bits to '{:?}'", &path)
+                    });
                     info!(
                         "Fault injection: bad block {} saved to {}",
                         &anchored_block.block_hash(),
