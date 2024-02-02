@@ -1447,11 +1447,17 @@ fn miner_writes_proposed_block_to_stackerdb() {
         .clone()
         .parse()
         .expect("Failed to parse socket");
+
+    let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
+    let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .unwrap()
+        .block_height as u32;
+
     let chunk = std::thread::spawn(move || {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
         miners_stackerdb
-            .get_latest_chunk(0)
+            .get_latest_chunk(burn_height % 2)
             .expect("Failed to get latest chunk from the miner slot ID")
             .expect("No chunk found")
     })
