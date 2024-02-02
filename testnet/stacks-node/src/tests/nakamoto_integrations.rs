@@ -357,14 +357,19 @@ pub fn boot_to_epoch_3(
 
     // stack enough to activate pox-4
 
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+
     let pox_addr = PoxAddress::from_legacy(
         AddressHashMode::SerializeP2PKH,
         tests::to_addr(&stacker_sk).bytes,
     );
     let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
-    let reward_cycle = 7 as u128;
     let signer_pubkey = StacksPublicKey::from_private(&signer_sk);
-    let signature = make_signer_key_signature(&pox_addr, &signer_sk, reward_cycle);
+    let signature = make_signer_key_signature(&pox_addr, &signer_sk, reward_cycle.into());
 
     let stacking_tx = tests::make_contract_call(
         &stacker_sk,
