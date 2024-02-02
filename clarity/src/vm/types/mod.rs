@@ -1676,7 +1676,7 @@ mod test {
             Err(CheckErrors::TypeSignatureTooDeep.into())
         );
         assert_eq!(
-            Value::some(inner_value.clone()),
+            Value::some(inner_value),
             Err(CheckErrors::TypeSignatureTooDeep.into())
         );
 
@@ -1764,7 +1764,7 @@ mod test {
         );
         assert_eq!(buff.clone().expect_buff(10).unwrap(), vec![1, 2, 3, 4, 5]);
         assert_eq!(
-            buff.clone().expect_buff_padded(10, 1).unwrap(),
+            buff.expect_buff_padded(10, 1).unwrap(),
             vec![1, 2, 3, 4, 5, 1, 1, 1, 1, 1]
         );
     }

@@ -671,7 +671,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             None,
             |exec_env| {
                 exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
@@ -689,7 +689,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             Some(ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 version,
@@ -710,7 +710,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
-            sponsor.clone(),
+            sponsor,
             Some(ContractContext::new(
                 QualifiedContractIdentifier::transient(),
                 clarity_version,
@@ -1990,11 +1990,11 @@ mod test {
         let p2 = PrincipalData::Contract(b_contract_id.clone());
 
         let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id.clone(),
+            contract_identifier: a_contract_id,
             asset_name: "a".into(),
         };
         let _t2 = AssetIdentifier {
-            contract_identifier: b_contract_id.clone(),
+            contract_identifier: b_contract_id,
             asset_name: "a".into(),
         };
 
@@ -2029,27 +2029,27 @@ mod test {
         let p3 = PrincipalData::Contract(c_contract_id.clone());
         let _p4 = PrincipalData::Contract(d_contract_id.clone());
         let _p5 = PrincipalData::Contract(e_contract_id.clone());
-        let _p6 = PrincipalData::Contract(f_contract_id.clone());
-        let _p7 = PrincipalData::Contract(g_contract_id.clone());
+        let _p6 = PrincipalData::Contract(f_contract_id);
+        let _p7 = PrincipalData::Contract(g_contract_id);
 
         let t1 = AssetIdentifier {
-            contract_identifier: a_contract_id.clone(),
+            contract_identifier: a_contract_id,
             asset_name: "a".into(),
         };
         let t2 = AssetIdentifier {
-            contract_identifier: b_contract_id.clone(),
+            contract_identifier: b_contract_id,
             asset_name: "a".into(),
         };
         let t3 = AssetIdentifier {
-            contract_identifier: c_contract_id.clone(),
+            contract_identifier: c_contract_id,
             asset_name: "a".into(),
         };
         let t4 = AssetIdentifier {
-            contract_identifier: d_contract_id.clone(),
+            contract_identifier: d_contract_id,
             asset_name: "a".into(),
         };
         let t5 = AssetIdentifier {
-            contract_identifier: e_contract_id.clone(),
+            contract_identifier: e_contract_id,
             asset_name: "a".into(),
         };
         let t6 = AssetIdentifier::STX();
@@ -2187,7 +2187,7 @@ mod test {
                 .get("alpha")
                 .unwrap()
                 .args[0],
-            TypeSignature::CallableType(CallableSubtype::Trait(trait_id.clone()))
+            TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
     }
 }
