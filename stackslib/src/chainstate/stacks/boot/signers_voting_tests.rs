@@ -44,7 +44,6 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::Address;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use wsts::curve::point::{Compressed, Point};
 
 use super::test::*;
 use super::RawRewardSetEntry;
@@ -256,8 +255,10 @@ fn vote_for_aggregate_public_key_in_last_block() {
     );
 
     let cycle_id: u128 = current_reward_cycle;
-    let aggregate_public_key: Point = Point::new();
-    let aggregate_public_key_1: Point = Point::G();
+    let private_key = StacksPrivateKey::from_seed(&[3]);
+    let aggregate_public_key = StacksPublicKey::from_private(&private_key);
+    let private_key_1 = StacksPrivateKey::from_seed(&[4]);
+    let aggregate_public_key_1 = StacksPublicKey::from_private(&private_key_1);
 
     // create vote txs for alice
     let signer_1_nonce = 0;

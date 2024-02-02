@@ -51,7 +51,7 @@
         (ok (get weight details))))
 
 ;; aggregate public key must be unique and can be used only in a single cycle-round pair
-(define-read-only (is-valid-aggregated-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
+(define-read-only (is-valid-aggregate-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
     (is-eq (default-to dkg-id (map-get? used-aggregate-public-keys key)) dkg-id))
 
 (define-read-only (is-in-prepare-phase (height uint))
@@ -82,7 +82,7 @@
         ;; Check that the aggregate public key is correct length
         (asserts! (is-eq (len key) u33) (err (to-uint ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY)))
         ;; Check that aggregate public key has not been used before
-        (asserts! (is-valid-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) (err (to-uint ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY)))
+        (asserts! (is-valid-aggregate-public-key key {reward-cycle: reward-cycle, round: round}) (err (to-uint ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY)))
         ;; Check that signer hasn't voted in reward-cycle & round
         (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-weight}) (err (to-uint ERR_DUPLICATE_VOTE)))
         ;; Update tally aggregate public key candidate
