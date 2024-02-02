@@ -129,6 +129,8 @@ fn create_event_info_data_code(
                         ;; equal to args[3]
                         lock-period: {lock_period},
                         ;; equal to args[4]
+                        signer-sig: {signer_sig}
+                        ;; equal to args[5]
                         signer-key: {signer_key}
                     }}
                 }}
@@ -137,7 +139,8 @@ fn create_event_info_data_code(
                 lock_period = &args[3],
                 pox_addr = &args[1],
                 start_burn_height = &args[2],
-                signer_key = &args.get(4).unwrap_or(&Value::none()),
+                signer_sig = &args.get(4).unwrap_or(&Value::none()),
+                signer_key = &args.get(5).unwrap_or(&Value::none()),
             )
         }
         "delegate-stack-stx" => {
@@ -313,13 +316,16 @@ fn create_event_info_data_code(
                         ;; delegator (this is the caller)
                         delegator: tx-sender,
                         ;; equal to args[2]
+                        signer-sig: {signer_sig}
+                        ;; equal to args[3]
                         signer-key: {signer_key}
                     }}
                 }}
                 "#,
                 pox_addr = &args[0],
                 reward_cycle = &args[1],
-                signer_key = &args.get(2).unwrap_or(&Value::none()),
+                signer_sig = &args.get(2).unwrap_or(&Value::none()),
+                signer_key = &args.get(3).unwrap_or(&Value::none()),
             )
         }
         "stack-aggregation-increase" => {
