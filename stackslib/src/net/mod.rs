@@ -2445,13 +2445,8 @@ pub mod test {
             let stacker_db_syncs =
                 Self::init_stackerdb_syncs(&test_path, &peerdb, &mut stackerdb_configs);
 
-            let stacker_dbs = Self::init_stacker_dbs(
-                &test_path,
-                &peerdb,
-                &config.stacker_dbs,
-                &config.stacker_db_configs,
-            );
-            let stackerdb_contracts: Vec<_> = stacker_dbs.keys().map(|cid| cid.clone()).collect();
+            let stackerdb_contracts: Vec<_> =
+                stacker_db_syncs.keys().map(|cid| cid.clone()).collect();
 
             let mut peer_network = PeerNetwork::new(
                 peerdb,

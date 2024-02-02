@@ -1105,7 +1105,8 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
 
         let stx_balance = clarity_instance
             .read_only_connection(&block_id, &chainstate_tx, &sort_db_tx)
-            .with_clarity_db_readonly(|db| db.get_account_stx_balance(&miner.clone().into()));
+            .with_clarity_db_readonly(|db| db.get_account_stx_balance(&miner.clone().into()))
+            .unwrap();
 
         // only count matured rewards (last 3 blocks are not mature)
         let block_fee = if i > 3 {
@@ -1788,7 +1789,8 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
 
         let stx_balance = clarity_instance
             .read_only_connection(&block_id, &chainstate_tx, &sort_db_tx)
-            .with_clarity_db_readonly(|db| db.get_account_stx_balance(&miner.clone().into()));
+            .with_clarity_db_readonly(|db| db.get_account_stx_balance(&miner.clone().into()))
+            .unwrap();
 
         // it's 1 * 10 because it's 1 uSTX per token-transfer, and 10 per tenure
         let expected_total_tx_fees = 1 * 10 * (i as u128).saturating_sub(3);
