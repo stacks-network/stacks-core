@@ -129,9 +129,9 @@ fn create_event_info_data_code(
                         ;; equal to args[3]
                         lock-period: {lock_period},
                         ;; equal to args[4]
-                        signer-sig: {signer_sig}
+                        signer-sig: {signer_sig},
                         ;; equal to args[5]
-                        signer-key: {signer_key}
+                        signer-key: {signer_key},
                     }}
                 }}
                 "#,
@@ -167,7 +167,7 @@ fn create_event_info_data_code(
                         delegator: tx-sender,
                         ;; stacker
                         ;; equal to args[0]
-                        stacker: '{stacker}
+                        stacker: '{stacker},
                     }}
                 }}
                 "#,
@@ -252,13 +252,16 @@ fn create_event_info_data_code(
                         ;; new unlock burnchain block height
                         unlock-burn-height: new-unlock-ht,
                         ;; equal to args[2]
-                        signer-key: {signer_key}
+                        signer-sig: {signer_sig},
+                        ;; equal to args[3]
+                        signer-key: {signer_key},
                     }}
                 }})
                 "#,
                 extend_count = &args[0],
                 pox_addr = &args[1],
-                signer_key = &args.get(2).map_or("none".to_string(), |v| v.to_string()),
+                signer_sig = &args.get(2).unwrap_or(&Value::none()),
+                signer_key = &args.get(3).map_or("none".to_string(), |v| v.to_string()),
             )
         }
         "delegate-stack-extend" => {
