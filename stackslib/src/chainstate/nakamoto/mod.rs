@@ -81,7 +81,7 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::{
-    ClarityInstance, ClarityTransactionConnection, PreCommitClarityBlock,
+    ClarityInstance, ClarityTransactionConnection, Error as ClarityError, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
@@ -1851,7 +1851,7 @@ impl NakamotoChainState {
                     reward_cycle.into(),
                 ))],
             )?
-            .expect_u128();
+            .expect_u128()?;
 
         let mut slots = vec![];
         for index in 0..list_length {
@@ -1864,12 +1864,12 @@ impl NakamotoChainState {
                         SymbolicExpression::atom_value(Value::UInt(index)),
                     ],
                 )?
-                .expect_optional()
+                .expect_optional()?
                 .expect(&format!(
                     "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                     index, list_length, reward_cycle
                 ))
-                .expect_tuple();
+                .expect_tuple()?;
 
             let pox_addr_tuple = entry
                 .get("pox-addr")
@@ -1886,17 +1886,21 @@ impl NakamotoChainState {
                 .get("total-ustx")
                 .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, index))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()?;
 
-            let stacker = entry
+            let stacker_opt = entry
                 .get("stacker")
                 .expect(&format!(
                     "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
                     reward_cycle, index
                 ))
                 .to_owned()
-                .expect_optional()
-                .map(|value| value.expect_principal());
+                .expect_optional()?;
+
+            let stacker = match stacker_opt {
+                Some(stacker_value) => Some(stacker_value.expect_principal()?),
+                None => None,
+            };
 
             let signer = entry
                 .get("signer")
@@ -1905,7 +1909,7 @@ impl NakamotoChainState {
                     reward_cycle, index
                 ))
                 .to_owned()
-                .expect_buff(SIGNERS_PK_LEN);
+                .expect_buff(SIGNERS_PK_LEN)?;
             // (buff 33) only enforces max size, not min size, so we need to do a len check
             let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
                 let mut bytes = [0; SIGNERS_PK_LEN];
@@ -1936,7 +1940,7 @@ impl NakamotoChainState {
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
 
-        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx());
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
         let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
             &pox_constants,
@@ -2058,7 +2062,7 @@ impl NakamotoChainState {
         let needs_update = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
             if !clarity_db.has_contract(signers_contract) {
                 // if there's no signers contract, no need to update anything.
-                return false
+                return Ok::<_, ChainstateError>(false);
             }
             let Ok(value) = clarity_db.lookup_variable_unknown_descriptor(
                 signers_contract,
@@ -2068,11 +2072,11 @@ impl NakamotoChainState {
                 error!("FATAL: Failed to read `{SIGNERS_UPDATE_STATE}` variable from .signers contract");
                 panic!();
             };
-            let cycle_number = value.expect_u128();
+            let cycle_number = value.expect_u128().map_err(|e| ChainstateError::ClarityError(ClarityError::Interpreter(e)))?;
             // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
             //  the .signers state.
-            cycle_number < cycle_of_prepare_phase.into()
-        });
+            Ok::<_, ChainstateError>(cycle_number < cycle_of_prepare_phase.into())
+        })?;
 
         if !needs_update {
             debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
@@ -2948,10 +2952,13 @@ impl NakamotoChainState {
             )
             .ok()
             .map(|agg_key_value| {
-                let agg_key_opt = agg_key_value.expect_optional().map(|agg_key_buff| {
-                    Value::buff_from(agg_key_buff.expect_buff(33))
-                        .expect("failed to reconstruct buffer")
-                });
+                let agg_key_opt = agg_key_value
+                    .expect_optional()
+                    .expect("FATAL: not an optional")
+                    .map(|agg_key_buff| {
+                        Value::buff_from(agg_key_buff.expect_buff(33).expect("FATAL: not a buff"))
+                            .expect("failed to reconstruct buffer")
+                    });
                 agg_key_opt
             })
             .flatten()

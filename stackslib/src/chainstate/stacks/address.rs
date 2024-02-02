@@ -951,7 +951,9 @@ mod test {
             )
             .as_clarity_tuple()
             .unwrap(),
-            make_pox_addr_raw(0x00, vec![0x01; 20]).expect_tuple()
+            make_pox_addr_raw(0x00, vec![0x01; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert_eq!(
             PoxAddress::Standard(
@@ -963,7 +965,9 @@ mod test {
             )
             .as_clarity_tuple()
             .unwrap(),
-            make_pox_addr_raw(0x00, vec![0x02; 20]).expect_tuple()
+            make_pox_addr_raw(0x00, vec![0x02; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert!(PoxAddress::Standard(
             StacksAddress {
@@ -994,7 +998,9 @@ mod test {
             )
             .as_clarity_tuple()
             .unwrap(),
-            make_pox_addr_raw(0x01, vec![0x01; 20]).expect_tuple()
+            make_pox_addr_raw(0x01, vec![0x01; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert_eq!(
             PoxAddress::Standard(
@@ -1006,7 +1012,9 @@ mod test {
             )
             .as_clarity_tuple()
             .unwrap(),
-            make_pox_addr_raw(0x01, vec![0x02; 20]).expect_tuple()
+            make_pox_addr_raw(0x01, vec![0x02; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert!(PoxAddress::Standard(
             StacksAddress {
@@ -1037,7 +1045,9 @@ mod test {
             )
             .as_clarity_tuple()
             .unwrap(),
-            make_pox_addr_raw(0x02, vec![0x01; 20]).expect_tuple()
+            make_pox_addr_raw(0x02, vec![0x01; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert_eq!(
             PoxAddress::Standard(
@@ -1049,7 +1059,9 @@ mod test {
             )
             .as_clarity_tuple()
             .unwrap(),
-            make_pox_addr_raw(0x02, vec![0x02; 20]).expect_tuple()
+            make_pox_addr_raw(0x02, vec![0x02; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert!(PoxAddress::Standard(
             StacksAddress {
@@ -1080,7 +1092,9 @@ mod test {
             )
             .as_clarity_tuple()
             .unwrap(),
-            make_pox_addr_raw(0x03, vec![0x01; 20]).expect_tuple()
+            make_pox_addr_raw(0x03, vec![0x01; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert_eq!(
             PoxAddress::Standard(
@@ -1092,7 +1106,9 @@ mod test {
             )
             .as_clarity_tuple()
             .unwrap(),
-            make_pox_addr_raw(0x03, vec![0x02; 20]).expect_tuple()
+            make_pox_addr_raw(0x03, vec![0x02; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert!(PoxAddress::Standard(
             StacksAddress {
@@ -1117,39 +1133,51 @@ mod test {
             PoxAddress::Addr20(true, PoxAddressType20::P2WPKH, [0x09; 20])
                 .as_clarity_tuple()
                 .unwrap(),
-            make_pox_addr_raw(0x04, vec![0x09; 20]).expect_tuple()
+            make_pox_addr_raw(0x04, vec![0x09; 20])
+                .expect_tuple()
+                .unwrap()
         );
         assert_eq!(
             PoxAddress::Addr20(false, PoxAddressType20::P2WPKH, [0x09; 20])
                 .as_clarity_tuple()
                 .unwrap(),
-            make_pox_addr_raw(0x04, vec![0x09; 20]).expect_tuple()
+            make_pox_addr_raw(0x04, vec![0x09; 20])
+                .expect_tuple()
+                .unwrap()
         );
 
         assert_eq!(
             PoxAddress::Addr32(true, PoxAddressType32::P2WSH, [0x09; 32])
                 .as_clarity_tuple()
                 .unwrap(),
-            make_pox_addr_raw(0x05, vec![0x09; 32]).expect_tuple()
+            make_pox_addr_raw(0x05, vec![0x09; 32])
+                .expect_tuple()
+                .unwrap()
         );
         assert_eq!(
             PoxAddress::Addr32(false, PoxAddressType32::P2WSH, [0x09; 32])
                 .as_clarity_tuple()
                 .unwrap(),
-            make_pox_addr_raw(0x05, vec![0x09; 32]).expect_tuple()
+            make_pox_addr_raw(0x05, vec![0x09; 32])
+                .expect_tuple()
+                .unwrap()
         );
 
         assert_eq!(
             PoxAddress::Addr32(true, PoxAddressType32::P2TR, [0x09; 32])
                 .as_clarity_tuple()
                 .unwrap(),
-            make_pox_addr_raw(0x06, vec![0x09; 32]).expect_tuple()
+            make_pox_addr_raw(0x06, vec![0x09; 32])
+                .expect_tuple()
+                .unwrap()
         );
         assert_eq!(
             PoxAddress::Addr32(false, PoxAddressType32::P2TR, [0x09; 32])
                 .as_clarity_tuple()
                 .unwrap(),
-            make_pox_addr_raw(0x06, vec![0x09; 32]).expect_tuple()
+            make_pox_addr_raw(0x06, vec![0x09; 32])
+                .expect_tuple()
+                .unwrap()
         );
     }
 

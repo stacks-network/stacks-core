@@ -37,6 +37,9 @@ pub enum CheckErrors {
     ExpectedName,
     SupertypeTooLarge,
 
+    // unexpected interpreter behavior
+    Expects(String),
+
     // match errors
     BadMatchOptionSyntax(Box<CheckErrors>),
     BadMatchResponseSyntax(Box<CheckErrors>),
@@ -195,6 +198,17 @@ pub struct CheckError {
     pub diagnostic: Diagnostic,
 }
 
+impl CheckErrors {
+    /// Does this check error indicate that the transaction should be
+    /// rejected?
+    pub fn rejectable(&self) -> bool {
+        match &self {
+            CheckErrors::SupertypeTooLarge | CheckErrors::Expects(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl CheckError {
     pub fn new(err: CheckErrors) -> CheckError {
         let diagnostic = Diagnostic::err(&err);
@@ -254,6 +268,10 @@ impl From<CostErrors> for CheckErrors {
             CostErrors::CostContractLoadFailure => {
                 CheckErrors::CostComputationFailed("Failed to load cost contract".into())
             }
+            CostErrors::InterpreterFailure => {
+                CheckErrors::Expects("Unexpected interpreter failure in cost computation".into())
+            }
+            CostErrors::Expect(s) => CheckErrors::Expects(s),
         }
     }
 }
@@ -320,6 +338,7 @@ impl DiagnosableError for CheckErrors {
         match &self {
             CheckErrors::ExpectedLiteral => "expected a literal argument".into(),
             CheckErrors::SupertypeTooLarge => "supertype of two types is too large".into(),
+            CheckErrors::Expects(s) => format!("unexpected interpreter behavior: {s}"),
             CheckErrors::BadMatchOptionSyntax(source) =>
                 format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
                         source.message()),

@@ -251,12 +251,16 @@ impl EventObserver {
         };
 
         let raw_result = {
-            let bytes = receipt.result.serialize_to_vec();
+            let bytes = receipt
+                .result
+                .serialize_to_vec()
+                .expect("FATAL: failed to serialize transaction receipt");
             bytes_to_hex(&bytes)
         };
         let contract_interface_json = {
             match &receipt.contract_analysis {
-                Some(analysis) => json!(build_contract_interface(analysis)),
+                Some(analysis) => json!(build_contract_interface(analysis)
+                    .expect("FATAL: failed to serialize contract publish receipt")),
                 None => json!(null),
             }
         };
@@ -329,7 +333,9 @@ impl EventObserver {
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
             .map(|(event_index, (committed, txid, event))| {
-                event.json_serialize(*event_index, txid, *committed)
+                event
+                    .json_serialize(*event_index, txid, *committed)
+                    .unwrap()
             })
             .collect();
 
@@ -389,7 +395,9 @@ impl EventObserver {
         let serialized_events: Vec<serde_json::Value> = filtered_events
             .iter()
             .map(|(event_index, (committed, txid, event))| {
-                event.json_serialize(*event_index, txid, *committed)
+                event
+                    .json_serialize(*event_index, txid, *committed)
+                    .unwrap()
             })
             .collect();
 
