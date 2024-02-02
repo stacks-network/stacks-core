@@ -66,7 +66,7 @@
         (ok (get num-slots details))))
 
 ;; aggregate public key must be unique and can be used only in a single cycle-round pair
-(define-read-only (is-valid-aggregated-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
+(define-read-only (is-valid-aggregate-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
     (is-eq (default-to dkg-id (map-get? used-aggregate-public-keys key)) dkg-id))
 
 (define-read-only (is-in-prepare-phase (height uint))
@@ -89,7 +89,7 @@
             (new-total (+ num-slots (default-to u0 (map-get? tally tally-key)))))
         (asserts! (is-in-voting-window burn-block-height reward-cycle) err-out-of-voting-window)
         (asserts! (is-eq (len key) u33) err-ill-formed-aggregate-public-key)
-        (asserts! (is-valid-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) err-duplicate-aggregate-public-key)
+        (asserts! (is-valid-aggregate-public-key key {reward-cycle: reward-cycle, round: round}) err-duplicate-aggregate-public-key)
         (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-slots}) err-duplicate-vote)
         (map-set tally tally-key new-total)
         (map-set used-aggregate-public-keys key {reward-cycle: reward-cycle, round: round})

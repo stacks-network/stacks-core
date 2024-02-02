@@ -1381,6 +1381,7 @@ pub mod test {
     use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
     use stacks_common::util::hash::to_hex;
+    use stacks_common::util::secp256k1::Secp256k1PublicKey;
     use stacks_common::util::*;
 
     use super::*;
@@ -1959,10 +1960,10 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         signer_index: u128,
-        aggregate_public_key: &Point,
+        aggregate_public_key: &Secp256k1PublicKey,
         round: u128,
     ) -> StacksTransaction {
-        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
+        let aggregate_public_key = Value::buff_from(aggregate_public_key.to_bytes_compressed())
             .expect("Failed to serialize aggregate public key");
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
