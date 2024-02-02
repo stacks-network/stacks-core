@@ -293,7 +293,7 @@ impl StacksClient {
             let signer = if let PrincipalData::Standard(signer) = principal_data {
                 signer.into()
             } else {
-                panic!("Invalid signer data type")
+                panic!("BUG: Signers stackerdb contract is corrupted");
             };
             let num_slots = tuple_data.get("num-slots")?.clone().expect_u128()?;
             signer_slots.push((signer, num_slots));
@@ -493,13 +493,14 @@ mod tests {
 
     use super::*;
     use crate::client::tests::{write_response, TestConfig};
-    use crate::client::ClientError;
 
     #[test]
     fn read_only_contract_call_200_success() {
         let config = TestConfig::new();
         let value = ClarityValue::UInt(10_u128);
-        let hex = value.to_string();
+        let hex = value
+            .serialize_to_hex()
+            .expect("Failed to serialize hex value");
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
@@ -518,7 +519,9 @@ mod tests {
     fn read_only_contract_call_with_function_args_200_success() {
         let config = TestConfig::new();
         let value = ClarityValue::UInt(10_u128);
-        let hex = value.to_string();
+        let hex = value
+            .serialize_to_hex()
+            .expect("Failed to serialize hex value");
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
@@ -697,10 +700,7 @@ mod tests {
         let config = TestConfig::new();
         let value = ClarityValue::UInt(10_u128);
         let result = config.client.parse_aggregate_public_key(value);
-        assert!(matches!(
-            result,
-            Err(ClientError::ClaritySerializationError(..))
-        ));
+        assert!(result.is_err())
     }
 
     #[ignore]

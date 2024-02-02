@@ -16,9 +16,6 @@
 use std::time::Duration;
 
 use slog::slog_debug;
-use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
 use stacks_common::debug;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
@@ -146,15 +143,8 @@ pub fn build_stackerdb_contract(
 
 /// Helper function to convert a private key to a Stacks address
 pub fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
-    let version = match network {
-        Network::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        Network::Testnet | Network::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-    StacksAddress::from_public_keys(
-        version,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(stacks_private_key)],
+    StacksAddress::p2pkh(
+        network.is_mainnet(),
+        &StacksPublicKey::from_private(stacks_private_key),
     )
-    .expect("BUG: failed to generate address from private key")
 }
