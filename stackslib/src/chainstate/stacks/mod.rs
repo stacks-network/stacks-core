@@ -79,7 +79,7 @@ pub use stacks_common::address::{
 };
 pub use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 
-pub const STACKS_BLOCK_VERSION: u8 = 6;
+pub const STACKS_BLOCK_VERSION: u8 = 7;
 pub const STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE: u8 = 1;
 
 pub const MAX_BLOCK_LEN: u32 = 2 * 1024 * 1024;
@@ -768,10 +768,25 @@ impl TransactionPayload {
         match self {
             TransactionPayload::TokenTransfer(..) => "TokenTransfer",
             TransactionPayload::ContractCall(..) => "ContractCall",
-            TransactionPayload::SmartContract(..) => "SmartContract",
+            TransactionPayload::SmartContract(_, version_opt) => {
+                if version_opt.is_some() {
+                    "SmartContract(Versioned)"
+                } else {
+                    "SmartContract"
+                }
+            }
             TransactionPayload::PoisonMicroblock(..) => "PoisonMicroblock",
-            TransactionPayload::Coinbase(..) => "Coinbase",
-            TransactionPayload::TenureChange(..) => "TenureChange",
+            TransactionPayload::Coinbase(_, _, vrf_opt) => {
+                if vrf_opt.is_some() {
+                    "Coinbase(Nakamoto)"
+                } else {
+                    "Coinbase"
+                }
+            }
+            TransactionPayload::TenureChange(payload) => match payload.cause {
+                TenureChangeCause::BlockFound => "TenureChange(BlockFound)",
+                TenureChangeCause::Extended => "TenureChange(Extension)",
+            },
         }
     }
 }

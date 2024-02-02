@@ -28,6 +28,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
 };
@@ -555,6 +556,12 @@ impl From<clarity_error> for Error {
     }
 }
 
+impl From<InterpreterError> for Error {
+    fn from(e: InterpreterError) -> Self {
+        Error::ClarityError(e.into())
+    }
+}
+
 #[cfg(test)]
 impl PartialEq for Error {
     /// (make I/O errors comparable for testing purposes)
@@ -836,19 +843,49 @@ pub struct Preamble {
 
 /// Request for a block inventory or a list of blocks.
 /// Aligned to a PoX reward cycle.
+/// This struct is used only in Stacks 2.x for Stacks 2.x inventories
 #[derive(Debug, Clone, PartialEq)]
 pub struct GetBlocksInv {
-    pub consensus_hash: ConsensusHash, // consensus hash at the start of the reward cycle
-    pub num_blocks: u16,               // number of blocks to ask for
+    /// Consensus hash at thestart of the reward cycle
+    pub consensus_hash: ConsensusHash,
+    /// Number of sortitions to ask for. Can be up to the reward cycle length.
+    pub num_blocks: u16,
 }
 
 /// A bit vector that describes which block and microblock data node has data for in a given burn
-/// chain block range.  Sent in reply to a GetBlocksInv.
+/// chain block range.  Sent in reply to a GetBlocksInv for Stacks 2.x block data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlocksInvData {
-    pub bitlen: u16, // number of bits represented in bitvec (not to exceed PoX reward cycle length).  Bits correspond to sortitions on the canonical burn chain fork.
-    pub block_bitvec: Vec<u8>, // bitmap of which blocks the peer has, in sortition order.  block_bitvec[i] & (1 << j) != 0 means that this peer has the block for sortition 8*i + j
-    pub microblocks_bitvec: Vec<u8>, // bitmap of which confirmed micrblocks the peer has, in sortition order.  microblocks_bitvec[i] & (1 << j) != 0 means that this peer has the microblocks produced by sortition 8*i + j
+    /// Number of bits in the block bit vector (not to exceed the reward cycle length)
+    pub bitlen: u16,
+    /// The block bitvector. block_bitvec[i] & (1 << j) != 0 means that this peer has the block for
+    /// sortition 8*i + j.
+    pub block_bitvec: Vec<u8>,
+    /// The microblock bitvector. microblocks_bitvec[i] & (1 << j) != 0 means that this peer has
+    /// the microblocks for sortition 8*i + j
+    pub microblocks_bitvec: Vec<u8>,
+}
+
+/// Request for a tenure inventroy.
+/// Aligned to a PoX reward cycle.
+/// This struct is used only in Nakamoto, for Nakamoto inventories
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetNakamotoInvData {
+    /// Consensus hash at the start of the reward cycle
+    pub consensus_hash: ConsensusHash,
+}
+
+/// A bit vector that describes Nakamoto tenure availability.  Sent in reply for GetBlocksInv for
+/// Nakamoto block data.  The ith bit in `tenures` will be set if (1) there is a sortition in the
+/// ith burnchain block in the requested reward cycle (note that 0 <= i < 2100 in production), and
+/// (2) the remote node not only has the tenure blocks, but has processed them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NakamotoInvData {
+    /// Number of bits this tenure bit vector has (not to exceed the reward cycle length).
+    pub bitlen: u16,
+    /// The tenure bitvector.  tenures[i] & (1 << j) != 0 means that this peer has all the blocks
+    /// for the tenure which began in sortition 8*i + j.
+    pub tenures: Vec<u8>,
 }
 
 /// Request for a PoX bitvector range.
@@ -1088,6 +1125,9 @@ pub enum StacksMessageType {
     StackerDBGetChunk(StackerDBGetChunkData),
     StackerDBChunk(StackerDBChunkData),
     StackerDBPushChunk(StackerDBPushChunkData),
+    // Nakamoto-specific
+    GetNakamotoInv(GetNakamotoInvData),
+    NakamotoInv(NakamotoInvData),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1119,6 +1159,9 @@ pub enum StacksMessageID {
     StackerDBGetChunk = 23,
     StackerDBChunk = 24,
     StackerDBPushChunk = 25,
+    // nakamoto
+    GetNakamotoInv = 26,
+    NakamotoInv = 27,
     // reserved
     Reserved = 255,
 }
@@ -1564,7 +1607,7 @@ pub mod test {
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
     use clarity::vm::ClarityVersion;
-    use rand::RngCore;
+    use rand::{Rng, RngCore};
     use stacks_common::address::*;
     use stacks_common::codec::StacksMessageCodec;
     use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
@@ -2123,9 +2166,11 @@ pub mod test {
         }
 
         pub fn test_path(config: &TestPeerConfig) -> String {
+            let random = thread_rng().gen::<u64>();
+            let random_bytes = to_hex(&random.to_be_bytes());
             format!(
                 "/tmp/stacks-node-tests/units-test-peer/{}-{}",
-                &config.test_name, config.server_port
+                &config.test_name, random_bytes
             )
         }
 
@@ -2160,6 +2205,7 @@ pub mod test {
                     peerdb.conn(),
                     local_peer.network_id,
                     &contract_id,
+                    0,
                     10000000,
                 )
                 .unwrap()
@@ -2174,8 +2220,7 @@ pub mod test {
                     &db_config,
                     PeerNetworkComms::new(),
                     stacker_dbs,
-                )
-                .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
+                );
 
                 stacker_db_syncs.insert(contract_id.clone(), (db_config.clone(), stacker_db_sync));
             }
@@ -2438,6 +2483,9 @@ pub mod test {
             let stacker_db_syncs =
                 Self::init_stackerdb_syncs(&test_path, &peerdb, &mut stackerdb_configs);
 
+            let stackerdb_contracts: Vec<_> =
+                stacker_db_syncs.keys().map(|cid| cid.clone()).collect();
+
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
@@ -2458,12 +2506,34 @@ pub mod test {
             let indexer = BitcoinIndexer::new_unit_test(&config.burnchain.working_dir);
 
             // extract bound ports (which may be different from what's in the config file, if e.g.
-            // they were 0
+            // they were 0)
             let p2p_port = peer_network.bound_neighbor_key().port;
             let http_port = peer_network.http.as_ref().unwrap().http_server_addr.port();
 
+            debug!("Bound to (p2p={}, http={})", p2p_port, http_port);
             config.server_port = p2p_port;
             config.http_port = http_port;
+
+            config.data_url =
+                UrlString::try_from(format!("http://127.0.0.1:{}", http_port).as_str()).unwrap();
+
+            peer_network
+                .peerdb
+                .update_local_peer(
+                    config.network_id,
+                    config.burnchain.network_id,
+                    config.data_url.clone(),
+                    p2p_port,
+                    &stackerdb_contracts,
+                )
+                .unwrap();
+
+            let local_peer = PeerDB::get_local_peer(peer_network.peerdb.conn()).unwrap();
+            debug!(
+                "{:?}: initial neighbors: {:?}",
+                &local_peer, &config.initial_neighbors
+            );
+            peer_network.local_peer = local_peer;
 
             TestPeer {
                 config: config,
@@ -3462,7 +3532,7 @@ pub mod test {
                             parent_microblock_header_opt.as_ref(),
                         );
 
-                    builder.epoch_finish(epoch);
+                    builder.epoch_finish(epoch).unwrap();
                     (stacks_block, microblocks)
                 },
             );
@@ -3519,6 +3589,49 @@ pub mod test {
             debug!("--- BEGIN ALL PEERS ({}) ---", peers.len());
             debug!("{:#?}", &peers);
             debug!("--- END ALL PEERS ({}) -----", peers.len());
+        }
+
+        pub fn p2p_socketaddr(&self) -> SocketAddr {
+            SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                self.config.server_port,
+            )
+        }
+
+        pub fn make_client_convo(&self) -> ConversationP2P {
+            ConversationP2P::new(
+                self.config.network_id,
+                self.config.peer_version,
+                &self.config.burnchain,
+                &SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    self.config.server_port,
+                ),
+                &self.config.connection_opts,
+                false,
+                0,
+                self.config
+                    .epochs
+                    .clone()
+                    .unwrap_or(StacksEpoch::unit_test_3_0(0)),
+            )
+        }
+
+        pub fn make_client_local_peer(&self, privk: StacksPrivateKey) -> LocalPeer {
+            LocalPeer::new(
+                self.config.network_id,
+                self.network.local_peer.parent_network_id,
+                PeerAddress::from_socketaddr(&SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+                    self.config.server_port,
+                )),
+                self.config.server_port,
+                Some(privk),
+                u64::MAX,
+                UrlString::try_from(format!("http://127.0.0.1:{}", self.config.http_port).as_str())
+                    .unwrap(),
+                vec![],
+            )
         }
     }
 

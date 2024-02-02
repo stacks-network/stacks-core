@@ -58,7 +58,8 @@ use crate::net::db::{LocalPeer, PeerDB};
 use crate::net::download::BlockDownloader;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::StacksHttpRequest;
-use crate::net::inv::*;
+use crate::net::inv::inv2x::*;
+use crate::net::inv::nakamoto::InvGenerator;
 use crate::net::neighbors::*;
 use crate::net::poll::{NetworkPollState, NetworkState};
 use crate::net::prune::*;
@@ -350,6 +351,10 @@ pub struct PeerNetwork {
     // fault injection -- force disconnects
     fault_last_disconnect: u64,
 
+    /// Nakamoto-specific cache for sortition and tenure data, for the purposes of generating
+    /// tenure inventories
+    pub nakamoto_inv_generator: InvGenerator,
+
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
 }
@@ -498,6 +503,8 @@ impl PeerNetwork {
             pending_messages: HashMap::new(),
 
             fault_last_disconnect: 0,
+
+            nakamoto_inv_generator: InvGenerator::new(),
 
             block_proposal_thread: None,
         };
@@ -1016,9 +1023,9 @@ impl PeerNetwork {
         let num_allowed_peers = allowed_peers.len();
         let mut count = 0;
         for allowed in allowed_peers {
-            if self.events.contains_key(&allowed.addr) {
-                count += 1;
-            }
+            let pubkh = Hash160::from_node_public_key(&allowed.public_key);
+            let events = self.get_pubkey_events(&pubkh);
+            count += events.len() as u64;
         }
         Ok((count, num_allowed_peers as u64))
     }
@@ -1534,6 +1541,15 @@ impl PeerNetwork {
                 event_id
             );
             return Err(net_error::AlreadyConnected(event_id, neighbor_key.clone()));
+        }
+
+        // unroutable?
+        if !self.connection_opts.private_neighbors && neighbor_key.addrbytes.is_in_private_range() {
+            debug!("{:?}: Peer {:?} is in private range and we are configured to drop private neighbors",
+                  &self.local_peer,
+                  &neighbor_key
+            );
+            return Err(net_error::Denied);
         }
 
         // consider rate-limits on in-bound peers

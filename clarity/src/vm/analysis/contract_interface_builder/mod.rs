@@ -19,13 +19,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::types::ContractAnalysis;
+use crate::vm::analysis::CheckResult;
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
 };
-use crate::vm::{ClarityName, ClarityVersion};
+use crate::vm::{CheckErrors, ClarityName, ClarityVersion};
 
-pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> ContractInterface {
+pub fn build_contract_interface(
+    contract_analysis: &ContractAnalysis,
+) -> CheckResult<ContractInterface> {
     let mut contract_interface =
         ContractInterface::new(contract_analysis.epoch, contract_analysis.clarity_version);
 
@@ -55,21 +58,21 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
         .append(&mut ContractInterfaceFunction::from_map(
             private_function_types,
             ContractInterfaceFunctionAccess::private,
-        ));
+        )?);
 
     contract_interface
         .functions
         .append(&mut ContractInterfaceFunction::from_map(
             public_function_types,
             ContractInterfaceFunctionAccess::public,
-        ));
+        )?);
 
     contract_interface
         .functions
         .append(&mut ContractInterfaceFunction::from_map(
             read_only_function_types,
             ContractInterfaceFunctionAccess::read_only,
-        ));
+        )?);
 
     contract_interface
         .variables
@@ -99,7 +102,7 @@ pub fn build_contract_interface(contract_analysis: &ContractAnalysis) -> Contrac
             fungible_tokens,
         ));
 
-    contract_interface
+    Ok(contract_interface)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -260,30 +263,40 @@ pub struct ContractInterfaceFunction {
 }
 
 impl ContractInterfaceFunction {
-    pub fn from_map(
+    fn from_map(
         map: &BTreeMap<ClarityName, FunctionType>,
         access: ContractInterfaceFunctionAccess,
-    ) -> Vec<ContractInterfaceFunction> {
+    ) -> CheckResult<Vec<ContractInterfaceFunction>> {
         map.iter()
-            .map(|(name, function_type)| ContractInterfaceFunction {
-                name: name.clone().into(),
-                access: access.to_owned(),
-                outputs: ContractInterfaceFunctionOutput {
-                    type_f: match function_type {
-                        FunctionType::Fixed(FixedFunction { returns, .. }) => {
-                            ContractInterfaceAtomType::from_type_signature(returns)
-                        }
-                        _ => panic!(
-                            "Contract functions should only have fixed function return types!"
-                        ),
+            .map(|(name, function_type)| {
+                Ok(ContractInterfaceFunction {
+                    name: name.clone().into(),
+                    access: access.to_owned(),
+                    outputs: ContractInterfaceFunctionOutput {
+                        type_f: match function_type {
+                            FunctionType::Fixed(FixedFunction { returns, .. }) => {
+                                ContractInterfaceAtomType::from_type_signature(&returns)
+                            }
+                            _ => return Err(CheckErrors::Expects(
+                                "Contract functions should only have fixed function return types!"
+                                    .into(),
+                            )
+                            .into()),
+                        },
                     },
-                },
-                args: match function_type {
-                    FunctionType::Fixed(FixedFunction { args, .. }) => {
-                        ContractInterfaceFunctionArg::from_function_args(args)
-                    }
-                    _ => panic!("Contract functions should only have fixed function arguments!"),
-                },
+                    args: match function_type {
+                        FunctionType::Fixed(FixedFunction { args, .. }) => {
+                            ContractInterfaceFunctionArg::from_function_args(&args)
+                        }
+                        _ => {
+                            return Err(CheckErrors::Expects(
+                                "Contract functions should only have fixed function arguments!"
+                                    .into(),
+                            )
+                            .into())
+                        }
+                    },
+                })
             })
             .collect()
     }
@@ -315,7 +328,7 @@ impl ContractInterfaceFungibleTokens {
 }
 
 impl ContractInterfaceNonFungibleTokens {
-    pub fn from_map(assets: &BTreeMap<ClarityName, TypeSignature>) -> Vec<Self> {
+    fn from_map(assets: &BTreeMap<ClarityName, TypeSignature>) -> Vec<Self> {
         assets
             .iter()
             .map(|(name, type_sig)| Self {
@@ -327,7 +340,7 @@ impl ContractInterfaceNonFungibleTokens {
 }
 
 impl ContractInterfaceVariable {
-    pub fn from_map(
+    fn from_map(
         map: &BTreeMap<ClarityName, TypeSignature>,
         access: ContractInterfaceVariableAccess,
     ) -> Vec<ContractInterfaceVariable> {
@@ -349,7 +362,7 @@ pub struct ContractInterfaceMap {
 }
 
 impl ContractInterfaceMap {
-    pub fn from_map(
+    fn from_map(
         map: &BTreeMap<ClarityName, (TypeSignature, TypeSignature)>,
     ) -> Vec<ContractInterfaceMap> {
         map.iter()
@@ -386,8 +399,10 @@ impl ContractInterface {
         }
     }
 
-    pub fn serialize(&self) -> String {
-        serde_json::to_string(self).expect("Failed to serialize contract interface")
+    pub fn serialize(&self) -> CheckResult<String> {
+        serde_json::to_string(self).map_err(|_| {
+            CheckErrors::Expects("Failed to serialize contract interface".into()).into()
+        })
     }
 }
 

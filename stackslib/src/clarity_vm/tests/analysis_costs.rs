@@ -114,7 +114,7 @@ fn setup_tracked_cost_test(
         );
 
         assert_eq!(
-            conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version()),
+            conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version().unwrap()),
             epoch
         );
 

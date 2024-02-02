@@ -146,18 +146,22 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         let key = ClarityDatabase::make_key_for_account_balance(&account);
                         let burn_block_height =
-                            clarity_db.get_current_burnchain_block_height() as u64;
+                            clarity_db.get_current_burnchain_block_height().ok()? as u64;
                         let v1_unlock_height = clarity_db.get_v1_unlock_height();
-                        let v2_unlock_height = clarity_db.get_v2_unlock_height();
-                        let v3_unlock_height = clarity_db.get_v3_unlock_height();
+                        let v2_unlock_height = clarity_db.get_v2_unlock_height().ok()?;
+                        let v3_unlock_height = clarity_db.get_v3_unlock_height().ok()?;
                         let (balance, balance_proof) = if with_proof {
                             clarity_db
                                 .get_with_proof::<STXBalance>(&key)
+                                .ok()
+                                .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                                 .unwrap_or_else(|| (STXBalance::zero(), Some("".into())))
                         } else {
                             clarity_db
                                 .get::<STXBalance>(&key)
+                                .ok()
+                                .flatten()
                                 .map(|a| (a, None))
                                 .unwrap_or_else(|| (STXBalance::zero(), None))
                         };
@@ -166,21 +170,28 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                         let (nonce, nonce_proof) = if with_proof {
                             clarity_db
                                 .get_with_proof(&key)
+                                .ok()
+                                .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))
                                 .unwrap_or_else(|| (0, Some("".into())))
                         } else {
                             clarity_db
                                 .get(&key)
+                                .ok()
+                                .flatten()
                                 .map(|a| (a, None))
                                 .unwrap_or_else(|| (0, None))
                         };
 
-                        let unlocked = balance.get_available_balance_at_burn_block(
-                            burn_block_height,
-                            v1_unlock_height,
-                            v2_unlock_height,
-                            v3_unlock_height,
-                        );
+                        let unlocked = balance
+                            .get_available_balance_at_burn_block(
+                                burn_block_height,
+                                v1_unlock_height,
+                                v2_unlock_height,
+                                v3_unlock_height,
+                            )
+                            .ok()?;
+
                         let (locked, unlock_height) = balance.get_locked_balance_at_burn_block(
                             burn_block_height,
                             v1_unlock_height,
@@ -191,14 +202,14 @@ impl RPCRequestHandler for RPCGetAccountRequestHandler {
                         let balance = format!("0x{}", to_hex(&unlocked.to_be_bytes()));
                         let locked = format!("0x{}", to_hex(&locked.to_be_bytes()));
 
-                        AccountEntryResponse {
+                        Some(AccountEntryResponse {
                             balance,
                             locked,
                             unlock_height,
                             nonce,
                             balance_proof,
                             nonce_proof,
-                        }
+                        })
                     })
                 })
             });
