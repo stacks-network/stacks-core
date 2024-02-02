@@ -544,6 +544,7 @@ impl TestStacksNode {
     pub fn get_miner_balance(clarity_tx: &mut ClarityTx, addr: &StacksAddress) -> u128 {
         clarity_tx.with_clarity_db_readonly(|db| {
             db.get_account_stx_balance(&StandardPrincipalData::from(addr.clone()).into())
+                .unwrap()
                 .amount_unlocked()
         })
     }
@@ -875,6 +876,7 @@ pub fn check_mining_reward(
     // what was the miner's total spend?
     let miner_nonce = clarity_tx.with_clarity_db_readonly(|db| {
         db.get_account_nonce(&StandardPrincipalData::from(miner.origin_address().unwrap()).into())
+            .unwrap()
     });
 
     let mut spent_total = 0;

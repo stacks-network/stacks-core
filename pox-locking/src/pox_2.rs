@@ -62,33 +62,40 @@ pub fn is_read_only(func_name: &str) -> bool {
 pub fn parse_pox_stacking_result(
     result: &Value,
 ) -> std::result::Result<(PrincipalData, u128, u64), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok { stacker: principal, lock-amount: uint, unlock-burn-height: uint .. } .. })))
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
                 .expect("FATAL: no 'stacker'")
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let lock_amount = tuple_data
                 .get("lock-amount")
                 .expect("FATAL: no 'lock-amount'")
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .expect("FATAL: unexpected clarity value");
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
                 .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
+                .expect("FATAL: unexpected clarity value")
                 .try_into()
                 .expect("FATAL: 'unlock-burn-height' overflow");
 
             Ok((stacker, lock_amount, unlock_burn_height))
         }
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -96,28 +103,34 @@ pub fn parse_pox_stacking_result(
 ///  into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
 pub fn parse_pox_extend_result(result: &Value) -> std::result::Result<(PrincipalData, u64), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok { stacker: principal, unlock-burn-height: uint .. } .. })
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
                 .expect("FATAL: no 'stacker'")
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let unlock_burn_height = tuple_data
                 .get("unlock-burn-height")
                 .expect("FATAL: no 'unlock-burn-height'")
                 .to_owned()
                 .expect_u128()
+                .expect("FATAL: unexpected clarity value")
                 .try_into()
                 .expect("FATAL: 'unlock-burn-height' overflow");
 
             Ok((stacker, unlock_burn_height))
         }
         // in the error case, the function should have returned `int` error code
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -125,26 +138,32 @@ pub fn parse_pox_extend_result(result: &Value) -> std::result::Result<(Principal
 ///  into a format more readily digestible in rust.
 /// Panics if the supplied value doesn't match the expected tuple structure
 pub fn parse_pox_increase(result: &Value) -> std::result::Result<(PrincipalData, u128), i128> {
-    match result.clone().expect_result() {
+    match result
+        .clone()
+        .expect_result()
+        .expect("FATAL: unexpected clarity value")
+    {
         Ok(res) => {
             // should have gotten back (ok { stacker: principal, total-locked: uint .. } .. })
-            let tuple_data = res.expect_tuple();
+            let tuple_data = res.expect_tuple().expect("FATAL: unexpected clarity value");
             let stacker = tuple_data
                 .get("stacker")
                 .expect("FATAL: no 'stacker'")
                 .to_owned()
-                .expect_principal();
+                .expect_principal()
+                .expect("FATAL: unexpected clarity value");
 
             let total_locked = tuple_data
                 .get("total-locked")
                 .expect("FATAL: no 'total-locked'")
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .expect("FATAL: unexpected clarity value");
 
             Ok((stacker, total_locked))
         }
         // in the error case, the function should have returned `int` error code
-        Err(e) => Err(e.expect_i128()),
+        Err(e) => Err(e.expect_i128().expect("FATAL: unexpected clarity value")),
     }
 }
 
@@ -164,17 +183,17 @@ pub fn pox_lock_increase_v2(
 ) -> Result<STXBalance, LockingError> {
     assert!(new_total_locked > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if !snapshot.has_locked_tokens() {
+    if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    if !snapshot.is_v2_locked() {
+    if !snapshot.is_v2_locked()? {
         return Err(LockingError::PoxIncreaseOnV1);
     }
 
-    let bal = snapshot.canonical_balance_repr();
+    let bal = snapshot.canonical_balance_repr()?;
     let total_amount = bal
         .amount_unlocked()
         .checked_add(bal.amount_locked())
@@ -187,9 +206,9 @@ pub fn pox_lock_increase_v2(
         return Err(LockingError::PoxInvalidIncrease);
     }
 
-    snapshot.increase_lock_v2(new_total_locked);
+    snapshot.increase_lock_v2(new_total_locked)?;
 
-    let out_balance = snapshot.canonical_balance_repr();
+    let out_balance = snapshot.canonical_balance_repr()?;
 
     debug!(
         "PoX v2 lock increased";
@@ -199,7 +218,7 @@ pub fn pox_lock_increase_v2(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(out_balance)
 }
 
@@ -217,13 +236,13 @@ pub fn pox_lock_extend_v2(
 ) -> Result<u128, LockingError> {
     assert!(unlock_burn_height > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if !snapshot.has_locked_tokens() {
+    if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    snapshot.extend_lock_v2(unlock_burn_height);
+    snapshot.extend_lock_v2(unlock_burn_height)?;
 
     let amount_locked = snapshot.balance().amount_locked();
 
@@ -235,7 +254,7 @@ pub fn pox_lock_extend_v2(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(amount_locked)
 }
 
@@ -249,15 +268,15 @@ fn pox_lock_v2(
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if snapshot.has_locked_tokens() {
+    if snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxAlreadyLocked);
     }
-    if !snapshot.can_transfer(lock_amount) {
+    if !snapshot.can_transfer(lock_amount)? {
         return Err(LockingError::PoxInsufficientBalance);
     }
-    snapshot.lock_tokens_v2(lock_amount, unlock_burn_height);
+    snapshot.lock_tokens_v2(lock_amount, unlock_burn_height)?;
 
     debug!(
         "PoX v2 lock applied";
@@ -267,7 +286,7 @@ fn pox_lock_v2(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(())
 }
 

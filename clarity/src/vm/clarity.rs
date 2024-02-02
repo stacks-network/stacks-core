@@ -113,7 +113,6 @@ pub trait ClarityConnection {
         self.with_clarity_db_readonly_owned(|mut db| (to_do(&mut db), db))
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn with_readonly_clarity_env<F, R>(
         &mut self,
         mainnet: bool,
@@ -137,9 +136,14 @@ pub trait ClarityConnection {
             let result = vm_env
                 .execute_in_env(sender, sponsor, Some(initial_context), to_do)
                 .map(|(result, _, _)| result);
-            let (db, _) = vm_env
-                .destruct()
-                .expect("Failed to recover database reference after executing transaction");
+            // this expect is allowed, if the database has escaped this context, then it is no longer sane
+            //  and we must crash
+            #[allow(clippy::expect_used)]
+            let (db, _) = {
+                vm_env
+                    .destruct()
+                    .expect("Failed to recover database reference after executing transaction")
+            };
             (result, db)
         })
     }
@@ -161,7 +165,8 @@ pub trait TransactionConnection: ClarityConnection {
     ) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>, bool), E>
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
-        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>;
+        F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        E: From<InterpreterError>;
 
     /// Do something with the analysis database and cost tracker
     ///  instance of this transaction connection. This is a low-level
@@ -230,12 +235,20 @@ pub trait TransactionConnection: ClarityConnection {
             let result = db.insert_contract(identifier, contract_analysis);
             match result {
                 Ok(_) => {
-                    db.commit();
-                    (cost_tracker, Ok(()))
+                    let result = db
+                        .commit()
+                        .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into());
+                    (cost_tracker, result)
                 }
                 Err(e) => {
-                    db.roll_back();
-                    (cost_tracker, Err(e))
+                    let result = db
+                        .roll_back()
+                        .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into());
+                    if result.is_err() {
+                        (cost_tracker, result)
+                    } else {
+                        (cost_tracker, Err(e))
+                    }
                 }
             }
         })
@@ -258,7 +271,7 @@ pub trait TransactionConnection: ClarityConnection {
             },
             |_, _| false,
         )
-        .map(|(value, assets, events, _)| (value, assets, events))
+        .and_then(|(value, assets, events, _)| Ok((value, assets, events)))
     }
 
     /// Execute a contract call in the current block.

@@ -9,7 +9,7 @@ use wsts::traits::Aggregator;
 ///  signing its own aggregate public key.
 /// This is used in `mockamoto` and `nakamoto-neon` operation
 ///  by the miner in order to self-sign blocks.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SelfSigner {
     /// The parties that will sign the blocks
     pub signer_parties: Vec<wsts::v2::Party>,

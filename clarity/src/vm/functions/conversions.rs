@@ -21,7 +21,9 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterResult as Result};
+use crate::vm::errors::{
+    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
+};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::SequenceSubtype::{BufferType, StringType};
 use crate::vm::types::StringSubtype::ASCII;
@@ -53,12 +55,17 @@ pub fn buff_to_int_generic(
 ) -> Result<Value> {
     match value {
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
-            if sequence_data.len() > BufferLength::try_from(16_u32).unwrap() {
-                Err(CheckErrors::TypeValueError(
-                    SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
+            if sequence_data.len()?
+                > BufferLength::try_from(16_u32)
+                    .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?
+            {
+                return Err(CheckErrors::TypeValueError(
+                    SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
+                        |_| InterpreterError::Expect("Failed to construct".into()),
+                    )?)),
                     value,
                 )
-                .into())
+                .into());
             } else {
                 let mut transfer_buffer = [0u8; 16];
                 let original_slice = sequence_data.as_slice();
@@ -77,11 +84,15 @@ pub fn buff_to_int_generic(
                 Ok(value)
             }
         }
-        _ => Err(CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-            value,
-        )
-        .into()),
+        _ => {
+            return Err(CheckErrors::TypeValueError(
+                SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
+                    |_| InterpreterError::Expect("Failed to construct".into()),
+                )?)),
+                value,
+            )
+            .into())
+        }
     }
 }
 
@@ -142,8 +153,8 @@ pub fn native_string_to_int_generic(
         }
         _ => Err(CheckErrors::UnionTypeValueError(
             vec![
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
+                TypeSignature::max_string_ascii()?,
+                TypeSignature::max_string_utf8()?,
             ],
             value,
         )
@@ -186,13 +197,15 @@ pub fn native_int_to_string_generic(
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
-            Ok(bytes_to_value_fn(as_string.into())
-                .expect("Unexpected error converting Int to string."))
+            Ok(bytes_to_value_fn(as_string.into()).map_err(|_| {
+                InterpreterError::Expect("Unexpected error converting Int to string.".into())
+            })?)
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();
-            Ok(bytes_to_value_fn(as_string.into())
-                .expect("Unexpected error converting UInt to string."))
+            Ok(bytes_to_value_fn(as_string.into()).map_err(|_| {
+                InterpreterError::Expect("Unexpected error converting UInt to string.".into())
+            })?)
         }
         _ => Err(CheckErrors::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
@@ -219,7 +232,7 @@ pub fn to_consensus_buff(value: Value) -> Result<Value> {
     let mut clar_buff_serialized = vec![];
     value
         .serialize_write(&mut clar_buff_serialized)
-        .expect("FATAL: failed to serialize to vec");
+        .map_err(|_| InterpreterError::Expect("FATAL: failed to serialize to vec".into()))?;
 
     let clar_buff_serialized = match Value::buff_from(clar_buff_serialized) {
         Ok(x) => x,
@@ -251,7 +264,7 @@ pub fn from_consensus_buff(
         Ok(buff_data.data)
     } else {
         Err(CheckErrors::TypeValueError(
-            TypeSignature::max_buffer(),
+            TypeSignature::max_buffer()?,
             value,
         ))
     }?;

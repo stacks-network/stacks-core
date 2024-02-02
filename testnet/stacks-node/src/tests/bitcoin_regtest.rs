@@ -142,7 +142,6 @@ fn bitcoind_integration(segwit_flag: bool) {
     conf.burnchain.password = Some("secret".to_string());
     conf.burnchain.local_mining_public_key = Some("04ee0b1602eb18fef7986887a7e8769a30c9df981d33c8380d255edef003abdcd243a0eb74afdf6740e6c423e62aec631519a24cf5b1d62bf8a3e06ddc695dcb77".to_string());
 
-    conf.miner.min_tx_fee = 0;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
     conf.miner.segwit = segwit_flag;

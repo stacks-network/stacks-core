@@ -107,15 +107,15 @@ fn test_index_of() {
     let bad_expected = [
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeValueError(
-            TypeSignature::min_buffer(),
+            TypeSignature::min_buffer().unwrap(),
             execute("\"a\"").unwrap().unwrap(),
         ),
         CheckErrors::TypeValueError(
-            TypeSignature::min_string_utf8(),
+            TypeSignature::min_string_utf8().unwrap(),
             execute("\"a\"").unwrap().unwrap(),
         ),
         CheckErrors::TypeValueError(
-            TypeSignature::min_string_ascii(),
+            TypeSignature::min_string_ascii().unwrap(),
             execute("u\"a\"").unwrap().unwrap(),
         ),
     ];
@@ -1094,10 +1094,10 @@ fn test_list_tuple_admission() {
                (tuple (value 0x3031))
                (tuple (value 0x3032)))";
 
-    let result_type = TypeSignature::type_of(&execute(test).unwrap().unwrap());
-    let expected_type = TypeSignature::type_of(&execute(expected_type).unwrap().unwrap());
+    let result_type = TypeSignature::type_of(&execute(test).unwrap().unwrap()).unwrap();
+    let expected_type = TypeSignature::type_of(&execute(expected_type).unwrap().unwrap()).unwrap();
     let testing_value = &execute(not_expected_type).unwrap().unwrap();
-    let not_expected_type = TypeSignature::type_of(testing_value);
+    let not_expected_type = TypeSignature::type_of(testing_value).unwrap();
 
     assert_eq!(expected_type, result_type);
     assert!(not_expected_type != result_type);

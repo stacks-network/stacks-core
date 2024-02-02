@@ -746,14 +746,17 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
     })
     .unwrap()
     .expect_optional()
-    .expect("FATAL: expected list")
-    .expect_tuple();
+    .unwrap()
+    .unwrap()
+    .expect_tuple()
+    .unwrap();
 
     let addrs = addrs_and_payout
         .get("addrs")
         .unwrap()
         .to_owned()
         .expect_list()
+        .unwrap()
         .into_iter()
         .map(|tuple| PoxAddress::try_from_pox_tuple(false, &tuple).unwrap())
         .collect();
@@ -762,7 +765,8 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
         .get("payout")
         .unwrap()
         .to_owned()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     (addrs, payout)
 }
 
@@ -1016,7 +1020,13 @@ fn pox_3_defunct() {
 
     assert_eq!(receipts.len(), txs.len());
     for r in receipts.iter() {
-        let err = r.result.clone().expect_result_err().expect_optional();
+        let err = r
+            .result
+            .clone()
+            .expect_result_err()
+            .unwrap()
+            .expect_optional()
+            .unwrap();
         assert!(err.is_none());
     }
 
@@ -2104,7 +2114,7 @@ pub fn get_stacking_state_pox_4(
         let lookup_tuple = Value::Tuple(
             TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
         );
-        let epoch = db.get_clarity_epoch_version();
+        let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(boot::POX_4_NAME, false),
             "stacking-state",
@@ -2113,6 +2123,7 @@ pub fn get_stacking_state_pox_4(
         )
         .unwrap()
         .expect_optional()
+        .unwrap()
     })
 }
 
@@ -2134,7 +2145,7 @@ pub fn get_partially_stacked_state_pox_4(
         ])
         .unwrap()
         .into();
-        let epoch = db.get_clarity_epoch_version();
+        let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(boot::POX_4_NAME, false),
             "partial-stacked-by-cycle",
@@ -2143,11 +2154,14 @@ pub fn get_partially_stacked_state_pox_4(
         )
         .unwrap()
         .expect_optional()
+        .unwrap()
         .map(|v| {
             v.expect_tuple()
+                .unwrap()
                 .get_owned("stacked-amount")
                 .unwrap()
                 .expect_u128()
+                .unwrap()
         })
     })
 }
@@ -2161,7 +2175,7 @@ pub fn get_delegation_state_pox_4(
         let lookup_tuple = Value::Tuple(
             TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
         );
-        let epoch = db.get_clarity_epoch_version();
+        let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(boot::POX_4_NAME, false),
             "delegation-state",
@@ -2170,6 +2184,7 @@ pub fn get_delegation_state_pox_4(
         )
         .unwrap()
         .expect_optional()
+        .unwrap()
     })
 }
 
