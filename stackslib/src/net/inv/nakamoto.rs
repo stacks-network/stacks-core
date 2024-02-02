@@ -153,6 +153,28 @@ impl InvGenerator {
 
         let mut cur_tenure_opt = self.get_processed_tenure(chainstate, &cur_consensus_hash)?;
 
+        // loop variables and invariants:
+        //
+        // * `cur_height` is a "cursor" that gets used to populate the bitmap. It corresponds
+        // to a burnchain block height (since inventory bitvectors correspond to sortitions).
+        // It gets decremented once per loop pass.  The loop terminates once the reward cycle
+        // for `cur_height` is less than the given `reward_cycle`.
+        //
+        // * `cur_consensus_hash` refers to the consensus hash of the sortition at `cur_height`. It
+        // is updated once per loop pass.
+        //
+        // * `tenure_status` is the bit vector itself.  On each pass of this loop, `true` or
+        // `false` is pushed to it.  When the loop exits, `tenure_status` will have a `true` or
+        // `false` value for each sortition in the given reward cycle.
+        //
+        // `cur_tenure_opt` refers to the tenure that is active as of `cur_height`, if there is one.
+        // If there is an active tenure in `cur_height`, then if the sortition at `cur_height`
+        // matches the `tenure_id_consensus_hash` of `cur_tenure_opt`, `cur_tenure_opt` is
+        // set to its parent tenure, and we push `true` to `tenure_status`.  This is the only
+        // time we do this, since since `cur_tenure_opt`'s `tenure_id_consensus_hash` only
+        // ever matches `cur_consensus_hash` if a tenure began at `cur_height`.  If a tenure did _not_
+        // begin at `cur_height`, or if there is no active tenure at `cur_height`, then `tenure_status`.
+        // will have `false` for `cur_height`'s bit.
         loop {
             let cur_reward_cycle = sortdb
                 .pox_constants
