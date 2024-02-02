@@ -191,8 +191,6 @@ impl BlockMinerThread {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn())
                 .expect("FATAL: could not retrieve chain tip");
             if let Some(new_block) = new_block {
-                let signer_signature_hash = new_block.header.signer_signature_hash();
-
                 match NakamotoBlockBuilder::make_stackerdb_block_proposal(
                     &sort_db,
                     &tip,
@@ -283,8 +281,7 @@ impl BlockMinerThread {
             .map(|(id, _)| id as u32 * SIGNER_SLOTS_PER_USER + BLOCK_SLOT_ID)
             .collect::<Vec<u32>>();
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
-        let rejection_threshold =
-            slot_ids.len() / 100 * self.config.miner.signer_rejection_threshold;
+        let rejection_threshold = slot_ids.len() / 10 * 7;
         let mut rejections = HashSet::new();
         let now = Instant::now();
         while now.elapsed() < self.config.miner.wait_on_signers {

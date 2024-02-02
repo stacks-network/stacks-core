@@ -1996,8 +1996,6 @@ pub struct MinerConfig {
     pub max_reorg_depth: u64,
     /// Amount of time while mining in nakamoto to wait for signers to respond to a proposed block
     pub wait_on_signers: Duration,
-    /// The number of rejections as a percentage for a block to receive from signers before proposing a new block
-    pub signer_rejection_threshold: usize,
 }
 
 impl Default for MinerConfig {
@@ -2028,7 +2026,6 @@ impl Default for MinerConfig {
             max_reorg_depth: 3,
             // TODO: update to a sane value based on stackerdb benchmarking
             wait_on_signers: Duration::from_millis(10_000),
-            signer_rejection_threshold: 30,
         }
     }
 }
@@ -2354,7 +2351,6 @@ pub struct MinerConfigFile {
     pub filter_origins: Option<String>,
     pub max_reorg_depth: Option<u64>,
     pub wait_on_signers_ms: Option<u64>,
-    pub signer_rection_threshold: Option<usize>,
 }
 
 impl MinerConfigFile {
@@ -2459,10 +2455,6 @@ impl MinerConfigFile {
                 .wait_on_signers_ms
                 .map(Duration::from_millis)
                 .unwrap_or(miner_default_config.wait_on_signers),
-            signer_rejection_threshold: self
-                .signer_rection_threshold
-                .map(|threshold| std::cmp::min(threshold, 100))
-                .unwrap_or(miner_default_config.signer_rejection_threshold),
         })
     }
 }

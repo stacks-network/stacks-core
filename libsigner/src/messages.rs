@@ -137,7 +137,7 @@ impl StacksMessageCodec for SignerMessage {
         write_next(fd, &(TypePrefix::from(self) as u8))?;
         match self {
             SignerMessage::Packet(packet) => {
-                consensus_serialize_packet(fd, packet)?;
+                packet.inner_consensus_serialize(fd)?;
             }
             SignerMessage::BlockResponse(block_response) => {
                 write_next(fd, block_response)?;
@@ -151,7 +151,7 @@ impl StacksMessageCodec for SignerMessage {
         let type_prefix = TypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
             TypePrefix::Packet => {
-                let packet = consensus_deserialize_packet(fd)?;
+                let packet = Packet::inner_consensus_deserialize(fd)?;
                 SignerMessage::Packet(packet)
             }
             TypePrefix::BlockResponse => {
@@ -169,479 +169,510 @@ impl StacksMessageCodec for SignerMessage {
     }
 }
 
-fn consensus_serialize_scalar<W: Write>(fd: &mut W, scalar: &Scalar) -> Result<(), CodecError> {
-    write_next(fd, &scalar.to_bytes())
+/// Work around for the fact that a lot of the structs being desierialized are not defined in messages.rs
+pub trait StacksMessageCodecExtensions: Sized {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError>;
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError>;
 }
 
-fn consensus_deserialize_scalar<R: Read>(fd: &mut R) -> Result<Scalar, CodecError> {
-    let scalar_bytes = read_next::<[u8; 32], _>(fd)?;
-    Ok(Scalar::from(scalar_bytes))
-}
-
-fn consensus_serialize_point<W: Write>(fd: &mut W, point: &Point) -> Result<(), CodecError> {
-    write_next(fd, &point.compress().as_bytes().to_vec())
-}
-
-fn consensus_deserialize_point<R: Read>(fd: &mut R) -> Result<Point, CodecError> {
-    let compressed_bytes: Vec<u8> = read_next(fd)?;
-    let compressed = Compressed::try_from(compressed_bytes.as_slice())
-        .map_err(|e| CodecError::DeserializeError(e.to_string()))?;
-    Point::try_from(&compressed).map_err(|e| CodecError::DeserializeError(e.to_string()))
-}
-
-fn consensus_serialize_dkg_begin<W: Write>(
-    fd: &mut W,
-    dkg_begin: &DkgBegin,
-) -> Result<(), CodecError> {
-    write_next(fd, &dkg_begin.dkg_id)
-}
-
-fn consensus_deserialize_dkg_begin<R: Read>(fd: &mut R) -> Result<DkgBegin, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    Ok(DkgBegin { dkg_id })
-}
-
-fn consensus_serialize_dkg_private_begin<W: Write>(
-    fd: &mut W,
-    dkg_private_begin: &DkgPrivateBegin,
-) -> Result<(), CodecError> {
-    write_next(fd, &dkg_private_begin.dkg_id)?;
-    write_next(fd, &dkg_private_begin.signer_ids)?;
-    write_next(fd, &dkg_private_begin.key_ids)
-}
-
-fn consensus_deserialize_dkg_private_begin<R: Read>(
-    fd: &mut R,
-) -> Result<DkgPrivateBegin, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let signer_ids = read_next::<Vec<u32>, _>(fd)?;
-    let key_ids = read_next::<Vec<u32>, _>(fd)?;
-    Ok(DkgPrivateBegin {
-        dkg_id,
-        signer_ids,
-        key_ids,
-    })
-}
-
-fn consensus_serialize_dkg_end_begin<W: Write>(
-    fd: &mut W,
-    dkg_end_begin: &DkgEndBegin,
-) -> Result<(), CodecError> {
-    write_next(fd, &dkg_end_begin.dkg_id)?;
-    write_next(fd, &dkg_end_begin.signer_ids)?;
-    write_next(fd, &dkg_end_begin.key_ids)
-}
-
-fn consensus_deserialize_dkg_end_begin<R: Read>(fd: &mut R) -> Result<DkgEndBegin, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let signer_ids = read_next::<Vec<u32>, _>(fd)?;
-    let key_ids = read_next::<Vec<u32>, _>(fd)?;
-    Ok(DkgEndBegin {
-        dkg_id,
-        signer_ids,
-        key_ids,
-    })
-}
-
-fn consensus_serialize_dkg_end<W: Write>(fd: &mut W, dkg_end: &DkgEnd) -> Result<(), CodecError> {
-    write_next(fd, &dkg_end.dkg_id)?;
-    write_next(fd, &dkg_end.signer_id)?;
-    match &dkg_end.status {
-        DkgStatus::Success => write_next(fd, &0u8),
-        DkgStatus::Failure(failure) => {
-            write_next(fd, &1u8)?;
-            write_next(fd, &failure.as_bytes().to_vec())
-        }
+impl StacksMessageCodecExtensions for Scalar {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.to_bytes())
+    }
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let scalar_bytes = read_next::<[u8; 32], _>(fd)?;
+        Ok(Scalar::from(scalar_bytes))
     }
 }
 
-fn consensus_deserialize_dkg_end<R: Read>(fd: &mut R) -> Result<DkgEnd, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let signer_id = read_next::<u32, _>(fd)?;
-    let status_type_prefix = read_next::<u8, _>(fd)?;
-    let status = match status_type_prefix {
-        0 => DkgStatus::Success,
-        1 => {
-            let failure_bytes: Vec<u8> = read_next(fd)?;
-            let failure = String::from_utf8(failure_bytes)
-                .map_err(|e| CodecError::DeserializeError(e.to_string()))?;
-            DkgStatus::Failure(failure)
-        }
-        _ => {
-            return Err(CodecError::DeserializeError(format!(
-                "Unknown DKG status type prefix: {}",
-                status_type_prefix
-            )))
-        }
-    };
-    Ok(DkgEnd {
-        dkg_id,
-        signer_id,
-        status,
-    })
-}
-
-fn consensus_serialize_dkg_public_shares<W: Write>(
-    fd: &mut W,
-    dkg_public_shares: &DkgPublicShares,
-) -> Result<(), CodecError> {
-    write_next(fd, &dkg_public_shares.dkg_id)?;
-    write_next(fd, &dkg_public_shares.signer_id)?;
-    write_next(fd, &(dkg_public_shares.comms.len() as u32))?;
-    for (id, comm) in &dkg_public_shares.comms {
-        write_next(fd, id)?;
-        consensus_serialize_scalar(fd, &comm.id.id)?;
-        consensus_serialize_point(fd, &comm.id.kG)?;
-        consensus_serialize_scalar(fd, &comm.id.kca)?;
-        write_next(fd, &(comm.poly.len() as u32))?;
-        for poly in comm.poly.iter() {
-            consensus_serialize_point(fd, poly)?
-        }
+impl StacksMessageCodecExtensions for Point {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.compress().as_bytes().to_vec())
     }
-    Ok(())
-}
-
-#[allow(non_snake_case)]
-fn consensus_deserialize_dkg_public_shares<R: Read>(
-    fd: &mut R,
-) -> Result<DkgPublicShares, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let signer_id = read_next::<u32, _>(fd)?;
-    let num_shares = read_next::<u32, _>(fd)?;
-    let mut comms = Vec::new();
-    for _ in 0..num_shares {
-        let id = read_next::<u32, _>(fd)?;
-        let scalar_id = consensus_deserialize_scalar(fd)?;
-        let kG = consensus_deserialize_point(fd)?;
-        let kca = consensus_deserialize_scalar(fd)?;
-        let num_poly_coeffs = read_next::<u32, _>(fd)?;
-        let mut poly = Vec::new();
-        for _ in 0..num_poly_coeffs {
-            poly.push(consensus_deserialize_point(fd)?);
-        }
-        comms.push((
-            id,
-            PolyCommitment {
-                id: ID {
-                    id: scalar_id,
-                    kG,
-                    kca,
-                },
-                poly,
-            },
-        ));
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let compressed_bytes: Vec<u8> = read_next(fd)?;
+        let compressed = Compressed::try_from(compressed_bytes.as_slice())
+            .map_err(|e| CodecError::DeserializeError(e.to_string()))?;
+        Ok(
+            Point::try_from(&compressed)
+                .map_err(|e| CodecError::DeserializeError(e.to_string()))?,
+        )
     }
-    Ok(DkgPublicShares {
-        dkg_id,
-        signer_id,
-        comms,
-    })
 }
 
-fn consensus_serialize_dkg_private_shares<W: Write>(
-    fd: &mut W,
-    dkg_private_shares: &DkgPrivateShares,
-) -> Result<(), CodecError> {
-    write_next(fd, &dkg_private_shares.dkg_id)?;
-    write_next(fd, &dkg_private_shares.signer_id)?;
-    write_next(fd, &(dkg_private_shares.shares.len() as u32))?;
-    for (id, share_map) in &dkg_private_shares.shares {
-        write_next(fd, id)?;
-        write_next(fd, &(share_map.len() as u32))?;
-        for (id, share) in share_map {
-            write_next(fd, id)?;
-            write_next(fd, share)?;
-        }
+impl StacksMessageCodecExtensions for DkgBegin {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)
     }
-    Ok(())
-}
-
-fn consensus_deserialize_dkg_private_shares<R: Read>(
-    fd: &mut R,
-) -> Result<DkgPrivateShares, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let signer_id = read_next::<u32, _>(fd)?;
-    let num_shares = read_next::<u32, _>(fd)?;
-    let mut shares = Vec::new();
-    for _ in 0..num_shares {
-        let id = read_next::<u32, _>(fd)?;
-        let num_share_map = read_next::<u32, _>(fd)?;
-        let mut share_map = HashMap::new();
-        for _ in 0..num_share_map {
-            let id = read_next::<u32, _>(fd)?;
-            let share: Vec<u8> = read_next(fd)?;
-            share_map.insert(id, share);
-        }
-        shares.push((id, share_map));
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        Ok(DkgBegin { dkg_id })
     }
-    Ok(DkgPrivateShares {
-        dkg_id,
-        signer_id,
-        shares,
-    })
 }
 
-fn consensus_serialize_nonce_request<W: Write>(
-    fd: &mut W,
-    nonce_request: &NonceRequest,
-) -> Result<(), CodecError> {
-    write_next(fd, &nonce_request.dkg_id)?;
-    write_next(fd, &nonce_request.sign_id)?;
-    write_next(fd, &nonce_request.sign_iter_id)?;
-    write_next(fd, &nonce_request.message)?;
-    write_next(fd, &(nonce_request.is_taproot as u8))?;
-    write_next(fd, &(nonce_request.merkle_root.is_some() as u8))?;
-    if let Some(merkle_root) = nonce_request.merkle_root {
-        write_next(fd, &merkle_root)?;
+impl StacksMessageCodecExtensions for DkgPrivateBegin {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.signer_ids)?;
+        write_next(fd, &self.key_ids)
     }
-    Ok(())
-}
-
-fn consensus_deserialize_nonce_request<R: Read>(fd: &mut R) -> Result<NonceRequest, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let sign_id = read_next::<u64, _>(fd)?;
-    let sign_iter_id = read_next::<u64, _>(fd)?;
-    let message = read_next::<Vec<u8>, _>(fd)?;
-    let is_taproot = read_next::<u8, _>(fd)? != 0;
-    let has_merkle_root = read_next::<u8, _>(fd)? != 0;
-    let merkle_root = if has_merkle_root {
-        Some(read_next::<[u8; 32], _>(fd)?)
-    } else {
-        None
-    };
-
-    Ok(NonceRequest {
-        dkg_id,
-        sign_id,
-        sign_iter_id,
-        message,
-        is_taproot,
-        merkle_root,
-    })
-}
-
-fn consensus_serialize_nonce_response<W: Write>(
-    fd: &mut W,
-    nonce_response: &NonceResponse,
-) -> Result<(), CodecError> {
-    write_next(fd, &nonce_response.dkg_id)?;
-    write_next(fd, &nonce_response.sign_id)?;
-    write_next(fd, &nonce_response.sign_iter_id)?;
-    write_next(fd, &nonce_response.signer_id)?;
-    write_next(fd, &nonce_response.key_ids)?;
-    write_next(fd, &(nonce_response.nonces.len() as u32))?;
-    for nonce in &nonce_response.nonces {
-        consensus_serialize_point(fd, &nonce.D)?;
-        consensus_serialize_point(fd, &nonce.E)?;
-    }
-
-    write_next(fd, &nonce_response.message)?;
-    Ok(())
-}
-
-#[allow(non_snake_case)]
-fn consensus_deserialize_nonce_response<R: Read>(fd: &mut R) -> Result<NonceResponse, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let sign_id = read_next::<u64, _>(fd)?;
-    let sign_iter_id = read_next::<u64, _>(fd)?;
-    let signer_id = read_next::<u32, _>(fd)?;
-    let key_ids = read_next::<Vec<u32>, _>(fd)?;
-    let num_nonces = read_next::<u32, _>(fd)?;
-    let mut nonces = Vec::new();
-    for _ in 0..num_nonces {
-        let D = consensus_deserialize_point(fd)?;
-        let E = consensus_deserialize_point(fd)?;
-        nonces.push(PublicNonce { D, E });
-    }
-    let message = read_next::<Vec<u8>, _>(fd)?;
-
-    Ok(NonceResponse {
-        dkg_id,
-        sign_id,
-        sign_iter_id,
-        signer_id,
-        key_ids,
-        nonces,
-        message,
-    })
-}
-
-fn consensus_serialize_signature_share_request<W: Write>(
-    fd: &mut W,
-    signature_share_request: &SignatureShareRequest,
-) -> Result<(), CodecError> {
-    write_next(fd, &signature_share_request.dkg_id)?;
-    write_next(fd, &signature_share_request.sign_id)?;
-    write_next(fd, &signature_share_request.sign_iter_id)?;
-    write_next(fd, &(signature_share_request.nonce_responses.len() as u32))?;
-    for nonce_response in &signature_share_request.nonce_responses {
-        consensus_serialize_nonce_response(fd, nonce_response)?;
-    }
-    write_next(fd, &signature_share_request.message)?;
-    write_next(fd, &(signature_share_request.is_taproot as u8))?;
-    write_next(fd, &(signature_share_request.merkle_root.is_some() as u8))?;
-    if let Some(merkle_root) = signature_share_request.merkle_root {
-        write_next(fd, &merkle_root)?;
-    }
-    Ok(())
-}
-
-fn consensus_deserialize_signature_share_request<R: Read>(
-    fd: &mut R,
-) -> Result<SignatureShareRequest, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let sign_id = read_next::<u64, _>(fd)?;
-    let sign_iter_id = read_next::<u64, _>(fd)?;
-    let num_nonce_responses = read_next::<u32, _>(fd)?;
-    let mut nonce_responses = Vec::new();
-    for _ in 0..num_nonce_responses {
-        nonce_responses.push(consensus_deserialize_nonce_response(fd)?);
-    }
-    let message = read_next::<Vec<u8>, _>(fd)?;
-    let is_taproot = read_next::<u8, _>(fd)? != 0;
-    let has_merkle_root = read_next::<u8, _>(fd)? != 0;
-    let merkle_root = if has_merkle_root {
-        Some(read_next::<[u8; 32], _>(fd)?)
-    } else {
-        None
-    };
-
-    Ok(SignatureShareRequest {
-        dkg_id,
-        sign_id,
-        sign_iter_id,
-        nonce_responses,
-        message,
-        is_taproot,
-        merkle_root,
-    })
-}
-
-fn consensus_serialize_signature_share_response<W: Write>(
-    fd: &mut W,
-    signature_share_response: &SignatureShareResponse,
-) -> Result<(), CodecError> {
-    write_next(fd, &signature_share_response.dkg_id)?;
-    write_next(fd, &signature_share_response.sign_id)?;
-    write_next(fd, &signature_share_response.sign_iter_id)?;
-    write_next(fd, &signature_share_response.signer_id)?;
-    write_next(
-        fd,
-        &(signature_share_response.signature_shares.len() as u32),
-    )?;
-    for share in &signature_share_response.signature_shares {
-        write_next(fd, &share.id)?;
-        consensus_serialize_scalar(fd, &share.z_i)?;
-        write_next(fd, &share.key_ids)?;
-    }
-    Ok(())
-}
-
-fn consensus_deserialize_signature_share_response<R: Read>(
-    fd: &mut R,
-) -> Result<SignatureShareResponse, CodecError> {
-    let dkg_id = read_next::<u64, _>(fd)?;
-    let sign_id = read_next::<u64, _>(fd)?;
-    let sign_iter_id = read_next::<u64, _>(fd)?;
-    let signer_id = read_next::<u32, _>(fd)?;
-    let num_shares = read_next::<u32, _>(fd)?;
-    let mut signature_shares = Vec::new();
-    for _ in 0..num_shares {
-        let id = read_next::<u32, _>(fd)?;
-        let z_i = consensus_deserialize_scalar(fd)?;
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let signer_ids = read_next::<Vec<u32>, _>(fd)?;
         let key_ids = read_next::<Vec<u32>, _>(fd)?;
-        signature_shares.push(SignatureShare { id, z_i, key_ids });
+        Ok(DkgPrivateBegin {
+            dkg_id,
+            signer_ids,
+            key_ids,
+        })
     }
-    Ok(SignatureShareResponse {
-        dkg_id,
-        sign_id,
-        sign_iter_id,
-        signer_id,
-        signature_shares,
-    })
 }
 
-pub fn consensus_serialize_message<W: Write>(
-    fd: &mut W,
-    message: &Message,
-) -> Result<(), CodecError> {
-    match message {
-        Message::DkgBegin(dkg_begin) => {
-            consensus_serialize_dkg_begin(fd, dkg_begin)?;
-        }
-        Message::DkgPrivateBegin(dkg_private_begin) => {
-            consensus_serialize_dkg_private_begin(fd, dkg_private_begin)?;
-        }
-        Message::DkgEndBegin(dkg_end_begin) => {
-            consensus_serialize_dkg_end_begin(fd, dkg_end_begin)?;
-        }
-        Message::DkgEnd(dkg_end) => {
-            consensus_serialize_dkg_end(fd, dkg_end)?;
-        }
-        Message::DkgPublicShares(dkg_public_shares) => {
-            consensus_serialize_dkg_public_shares(fd, dkg_public_shares)?;
-        }
-        Message::DkgPrivateShares(dkg_private_shares) => {
-            consensus_serialize_dkg_private_shares(fd, dkg_private_shares)?;
-        }
-        Message::NonceRequest(nonce_request) => {
-            consensus_serialize_nonce_request(fd, nonce_request)?;
-        }
-        Message::NonceResponse(nonce_response) => {
-            consensus_serialize_nonce_response(fd, nonce_response)?;
-        }
-        Message::SignatureShareRequest(signature_share_request) => {
-            consensus_serialize_signature_share_request(fd, signature_share_request)?;
-        }
-        Message::SignatureShareResponse(signature_share_response) => {
-            consensus_serialize_signature_share_response(fd, signature_share_response)?;
+impl StacksMessageCodecExtensions for DkgEndBegin {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.signer_ids)?;
+        write_next(fd, &self.key_ids)
+    }
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let signer_ids = read_next::<Vec<u32>, _>(fd)?;
+        let key_ids = read_next::<Vec<u32>, _>(fd)?;
+        Ok(DkgEndBegin {
+            dkg_id,
+            signer_ids,
+            key_ids,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for DkgEnd {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.signer_id)?;
+        match &self.status {
+            DkgStatus::Success => write_next(fd, &0u8),
+            DkgStatus::Failure(failure) => {
+                write_next(fd, &1u8)?;
+                write_next(fd, &failure.as_bytes().to_vec())
+            }
         }
     }
-    Ok(())
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let signer_id = read_next::<u32, _>(fd)?;
+        let status_type_prefix = read_next::<u8, _>(fd)?;
+        let status = match status_type_prefix {
+            0 => DkgStatus::Success,
+            1 => {
+                let failure_bytes: Vec<u8> = read_next(fd)?;
+                let failure = String::from_utf8(failure_bytes)
+                    .map_err(|e| CodecError::DeserializeError(e.to_string()))?;
+                DkgStatus::Failure(failure)
+            }
+            _ => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Unknown DKG status type prefix: {}",
+                    status_type_prefix
+                )))
+            }
+        };
+        Ok(DkgEnd {
+            dkg_id,
+            signer_id,
+            status,
+        })
+    }
 }
 
-fn consensus_serialize_packet<W: Write>(fd: &mut W, packet: &Packet) -> Result<(), CodecError> {
-    write_next(fd, &(TypePrefix::from(packet) as u8))?;
-    consensus_serialize_message(fd, &packet.msg)?;
-    write_next(fd, &packet.sig)?;
-    Ok(())
+impl StacksMessageCodecExtensions for DkgPublicShares {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.signer_id)?;
+        write_next(fd, &(self.comms.len() as u32))?;
+        for (id, comm) in &self.comms {
+            write_next(fd, id)?;
+            comm.id.id.inner_consensus_serialize(fd)?;
+            comm.id.kG.inner_consensus_serialize(fd)?;
+            comm.id.kca.inner_consensus_serialize(fd)?;
+            write_next(fd, &(comm.poly.len() as u32))?;
+            for poly in comm.poly.iter() {
+                poly.inner_consensus_serialize(fd)?
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(non_snake_case)]
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let signer_id = read_next::<u32, _>(fd)?;
+        let num_shares = read_next::<u32, _>(fd)?;
+        let mut comms = Vec::new();
+        for _ in 0..num_shares {
+            let id = read_next::<u32, _>(fd)?;
+            let scalar_id = Scalar::inner_consensus_deserialize(fd)?;
+            let kG = Point::inner_consensus_deserialize(fd)?;
+            let kca = Scalar::inner_consensus_deserialize(fd)?;
+            let num_poly_coeffs = read_next::<u32, _>(fd)?;
+            let mut poly = Vec::new();
+            for _ in 0..num_poly_coeffs {
+                poly.push(Point::inner_consensus_deserialize(fd)?);
+            }
+            comms.push((
+                id,
+                PolyCommitment {
+                    id: ID {
+                        id: scalar_id,
+                        kG,
+                        kca,
+                    },
+                    poly,
+                },
+            ));
+        }
+        Ok(DkgPublicShares {
+            dkg_id,
+            signer_id,
+            comms,
+        })
+    }
 }
 
-fn consensus_deserialize_packet<R: Read>(fd: &mut R) -> Result<Packet, CodecError> {
-    let type_prefix_byte = read_next::<u8, _>(fd)?;
-    let type_prefix = TypePrefix::try_from(type_prefix_byte)?;
-    let msg = match type_prefix {
-        TypePrefix::DkgBegin => Message::DkgBegin(consensus_deserialize_dkg_begin(fd)?),
-        TypePrefix::DkgPrivateBegin => {
-            Message::DkgPrivateBegin(consensus_deserialize_dkg_private_begin(fd)?)
+impl StacksMessageCodecExtensions for DkgPrivateShares {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.signer_id)?;
+        write_next(fd, &(self.shares.len() as u32))?;
+        for (id, share_map) in &self.shares {
+            write_next(fd, id)?;
+            write_next(fd, &(share_map.len() as u32))?;
+            for (id, share) in share_map {
+                write_next(fd, id)?;
+                write_next(fd, share)?;
+            }
         }
-        TypePrefix::DkgEndBegin => Message::DkgEndBegin(consensus_deserialize_dkg_end_begin(fd)?),
-        TypePrefix::DkgEnd => Message::DkgEnd(consensus_deserialize_dkg_end(fd)?),
-        TypePrefix::DkgPublicShares => {
-            Message::DkgPublicShares(consensus_deserialize_dkg_public_shares(fd)?)
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let signer_id = read_next::<u32, _>(fd)?;
+        let num_shares = read_next::<u32, _>(fd)?;
+        let mut shares = Vec::new();
+        for _ in 0..num_shares {
+            let id = read_next::<u32, _>(fd)?;
+            let num_share_map = read_next::<u32, _>(fd)?;
+            let mut share_map = HashMap::new();
+            for _ in 0..num_share_map {
+                let id = read_next::<u32, _>(fd)?;
+                let share: Vec<u8> = read_next(fd)?;
+                share_map.insert(id, share);
+            }
+            shares.push((id, share_map));
         }
-        TypePrefix::DkgPrivateShares => {
-            Message::DkgPrivateShares(consensus_deserialize_dkg_private_shares(fd)?)
+        Ok(DkgPrivateShares {
+            dkg_id,
+            signer_id,
+            shares,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for NonceRequest {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.sign_id)?;
+        write_next(fd, &self.sign_iter_id)?;
+        write_next(fd, &self.message)?;
+        write_next(fd, &(self.is_taproot as u8))?;
+        write_next(fd, &(self.merkle_root.is_some() as u8))?;
+        if let Some(merkle_root) = self.merkle_root {
+            write_next(fd, &merkle_root)?;
         }
-        TypePrefix::NonceRequest => Message::NonceRequest(consensus_deserialize_nonce_request(fd)?),
-        TypePrefix::NonceResponse => {
-            Message::NonceResponse(consensus_deserialize_nonce_response(fd)?)
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let sign_id = read_next::<u64, _>(fd)?;
+        let sign_iter_id = read_next::<u64, _>(fd)?;
+        let message = read_next::<Vec<u8>, _>(fd)?;
+        let is_taproot = read_next::<u8, _>(fd)? != 0;
+        let has_merkle_root = read_next::<u8, _>(fd)? != 0;
+        let merkle_root = if has_merkle_root {
+            Some(read_next::<[u8; 32], _>(fd)?)
+        } else {
+            None
+        };
+
+        Ok(NonceRequest {
+            dkg_id,
+            sign_id,
+            sign_iter_id,
+            message,
+            is_taproot,
+            merkle_root,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for NonceResponse {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.sign_id)?;
+        write_next(fd, &self.sign_iter_id)?;
+        write_next(fd, &self.signer_id)?;
+        write_next(fd, &self.key_ids)?;
+        write_next(fd, &(self.nonces.len() as u32))?;
+        for nonce in &self.nonces {
+            nonce.D.inner_consensus_serialize(fd)?;
+            nonce.E.inner_consensus_serialize(fd)?;
         }
-        TypePrefix::SignatureShareRequest => {
-            Message::SignatureShareRequest(consensus_deserialize_signature_share_request(fd)?)
+        write_next(fd, &self.message)?;
+        Ok(())
+    }
+
+    #[allow(non_snake_case)]
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let sign_id = read_next::<u64, _>(fd)?;
+        let sign_iter_id = read_next::<u64, _>(fd)?;
+        let signer_id = read_next::<u32, _>(fd)?;
+        let key_ids = read_next::<Vec<u32>, _>(fd)?;
+        let num_nonces = read_next::<u32, _>(fd)?;
+        let mut nonces = Vec::new();
+        for _ in 0..num_nonces {
+            let D = Point::inner_consensus_deserialize(fd)?;
+            let E = Point::inner_consensus_deserialize(fd)?;
+            nonces.push(PublicNonce { D, E });
         }
-        TypePrefix::SignatureShareResponse => {
-            Message::SignatureShareResponse(consensus_deserialize_signature_share_response(fd)?)
+        let message = read_next::<Vec<u8>, _>(fd)?;
+
+        Ok(NonceResponse {
+            dkg_id,
+            sign_id,
+            sign_iter_id,
+            signer_id,
+            key_ids,
+            nonces,
+            message,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for SignatureShareRequest {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.sign_id)?;
+        write_next(fd, &self.sign_iter_id)?;
+        write_next(fd, &(self.nonce_responses.len() as u32))?;
+        for nonce_response in &self.nonce_responses {
+            nonce_response.inner_consensus_serialize(fd)?;
         }
-        _ => {
-            return Err(CodecError::DeserializeError(format!(
-                "Unknown packet type prefix: {}",
-                type_prefix_byte
-            )))
+        write_next(fd, &self.message)?;
+        write_next(fd, &(self.is_taproot as u8))?;
+        write_next(fd, &(self.merkle_root.is_some() as u8))?;
+        if let Some(merkle_root) = self.merkle_root {
+            write_next(fd, &merkle_root)?;
         }
-    };
-    let sig: Vec<u8> = read_next(fd)?;
-    Ok(Packet { msg, sig })
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let sign_id = read_next::<u64, _>(fd)?;
+        let sign_iter_id = read_next::<u64, _>(fd)?;
+        let num_nonce_responses = read_next::<u32, _>(fd)?;
+        let mut nonce_responses = Vec::new();
+        for _ in 0..num_nonce_responses {
+            nonce_responses.push(NonceResponse::inner_consensus_deserialize(fd)?);
+        }
+        let message = read_next::<Vec<u8>, _>(fd)?;
+        let is_taproot = read_next::<u8, _>(fd)? != 0;
+        let has_merkle_root = read_next::<u8, _>(fd)? != 0;
+        let merkle_root = if has_merkle_root {
+            Some(read_next::<[u8; 32], _>(fd)?)
+        } else {
+            None
+        };
+
+        Ok(SignatureShareRequest {
+            dkg_id,
+            sign_id,
+            sign_iter_id,
+            nonce_responses,
+            message,
+            is_taproot,
+            merkle_root,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for SignatureShareResponse {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.dkg_id)?;
+        write_next(fd, &self.sign_id)?;
+        write_next(fd, &self.sign_iter_id)?;
+        write_next(fd, &self.signer_id)?;
+        write_next(fd, &(self.signature_shares.len() as u32))?;
+        for share in &self.signature_shares {
+            write_next(fd, &share.id)?;
+            share.z_i.inner_consensus_serialize(fd)?;
+            write_next(fd, &share.key_ids)?;
+        }
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let dkg_id = read_next::<u64, _>(fd)?;
+        let sign_id = read_next::<u64, _>(fd)?;
+        let sign_iter_id = read_next::<u64, _>(fd)?;
+        let signer_id = read_next::<u32, _>(fd)?;
+        let num_shares = read_next::<u32, _>(fd)?;
+        let mut signature_shares = Vec::new();
+        for _ in 0..num_shares {
+            let id = read_next::<u32, _>(fd)?;
+            let z_i = Scalar::inner_consensus_deserialize(fd)?;
+            let key_ids = read_next::<Vec<u32>, _>(fd)?;
+            signature_shares.push(SignatureShare { id, z_i, key_ids });
+        }
+        Ok(SignatureShareResponse {
+            dkg_id,
+            sign_id,
+            sign_iter_id,
+            signer_id,
+            signature_shares,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for Message {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        match self {
+            Message::DkgBegin(dkg_begin) => {
+                dkg_begin.inner_consensus_serialize(fd)?;
+            }
+            Message::DkgPrivateBegin(dkg_private_begin) => {
+                dkg_private_begin.inner_consensus_serialize(fd)?;
+            }
+            Message::DkgEndBegin(dkg_end_begin) => {
+                dkg_end_begin.inner_consensus_serialize(fd)?;
+            }
+            Message::DkgEnd(dkg_end) => {
+                dkg_end.inner_consensus_serialize(fd)?;
+            }
+            Message::DkgPublicShares(dkg_public_shares) => {
+                dkg_public_shares.inner_consensus_serialize(fd)?;
+            }
+            Message::DkgPrivateShares(dkg_private_shares) => {
+                dkg_private_shares.inner_consensus_serialize(fd)?;
+            }
+            Message::NonceRequest(nonce_request) => {
+                nonce_request.inner_consensus_serialize(fd)?;
+            }
+            Message::NonceResponse(nonce_response) => {
+                nonce_response.inner_consensus_serialize(fd)?;
+            }
+            Message::SignatureShareRequest(signature_share_request) => {
+                signature_share_request.inner_consensus_serialize(fd)?;
+            }
+            Message::SignatureShareResponse(signature_share_response) => {
+                signature_share_response.inner_consensus_serialize(fd)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let type_prefix = TypePrefix::try_from(type_prefix_byte)?;
+        let message = match type_prefix {
+            TypePrefix::DkgBegin => Message::DkgBegin(DkgBegin::inner_consensus_deserialize(fd)?),
+            TypePrefix::DkgPrivateBegin => {
+                Message::DkgPrivateBegin(DkgPrivateBegin::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::DkgEndBegin => {
+                Message::DkgEndBegin(DkgEndBegin::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::DkgEnd => Message::DkgEnd(DkgEnd::inner_consensus_deserialize(fd)?),
+            TypePrefix::DkgPublicShares => {
+                Message::DkgPublicShares(DkgPublicShares::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::DkgPrivateShares => {
+                Message::DkgPrivateShares(DkgPrivateShares::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::NonceRequest => {
+                Message::NonceRequest(NonceRequest::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::NonceResponse => {
+                Message::NonceResponse(NonceResponse::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::SignatureShareRequest => Message::SignatureShareRequest(
+                SignatureShareRequest::inner_consensus_deserialize(fd)?,
+            ),
+            TypePrefix::SignatureShareResponse => Message::SignatureShareResponse(
+                SignatureShareResponse::inner_consensus_deserialize(fd)?,
+            ),
+            _ => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Unknown message type prefix: {}",
+                    type_prefix_byte
+                )))
+            }
+        };
+        Ok(message)
+    }
+}
+
+impl StacksMessageCodecExtensions for Packet {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &(TypePrefix::from(self) as u8))?;
+        self.msg.inner_consensus_serialize(fd)?;
+        write_next(fd, &self.sig)?;
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let type_prefix = TypePrefix::try_from(type_prefix_byte)?;
+        let msg = match type_prefix {
+            TypePrefix::DkgBegin => Message::DkgBegin(DkgBegin::inner_consensus_deserialize(fd)?),
+            TypePrefix::DkgPrivateBegin => {
+                Message::DkgPrivateBegin(DkgPrivateBegin::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::DkgEndBegin => {
+                Message::DkgEndBegin(DkgEndBegin::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::DkgEnd => Message::DkgEnd(DkgEnd::inner_consensus_deserialize(fd)?),
+            TypePrefix::DkgPublicShares => {
+                Message::DkgPublicShares(DkgPublicShares::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::DkgPrivateShares => {
+                Message::DkgPrivateShares(DkgPrivateShares::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::NonceRequest => {
+                Message::NonceRequest(NonceRequest::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::NonceResponse => {
+                Message::NonceResponse(NonceResponse::inner_consensus_deserialize(fd)?)
+            }
+            TypePrefix::SignatureShareRequest => Message::SignatureShareRequest(
+                SignatureShareRequest::inner_consensus_deserialize(fd)?,
+            ),
+            TypePrefix::SignatureShareResponse => Message::SignatureShareResponse(
+                SignatureShareResponse::inner_consensus_deserialize(fd)?,
+            ),
+            _ => {
+                return Err(CodecError::DeserializeError(format!(
+                    "Unknown packet type prefix: {}",
+                    type_prefix_byte
+                )))
+            }
+        };
+        let sig: Vec<u8> = read_next(fd)?;
+        Ok(Packet { msg, sig })
+    }
 }
 
 /// The response that a signer sends back to observing miners
@@ -885,7 +916,7 @@ mod test {
     use rand_core::OsRng;
     use wsts::common::Signature;
 
-    use super::*;
+    use super::{StacksMessageCodecExtensions, *};
     #[test]
     fn serde_reject_code() {
         let code = RejectCode::ValidationFailed(ValidateRejectCode::InvalidBlock);
@@ -961,17 +992,19 @@ mod test {
         let mut rng = OsRng;
         let scalar = Scalar::random(&mut rng);
         let mut serialized_scalar = vec![];
-        consensus_serialize_scalar(&mut serialized_scalar, &scalar)
+        scalar
+            .inner_consensus_serialize(&mut serialized_scalar)
             .expect("serialization to buffer failed.");
-        let deserialized_scalar = consensus_deserialize_scalar(&mut &serialized_scalar[..])
+        let deserialized_scalar = Scalar::inner_consensus_deserialize(&mut &serialized_scalar[..])
             .expect("Failed to deserialize Scalar");
         assert_eq!(scalar, deserialized_scalar);
 
         let point = Point::from(scalar);
         let mut serialized_point = vec![];
-        consensus_serialize_point(&mut serialized_point, &point)
+        point
+            .inner_consensus_serialize(&mut serialized_point)
             .expect("serialization to buffer failed.");
-        let deserialized_point = consensus_deserialize_point(&mut &serialized_point[..])
+        let deserialized_point = Point::inner_consensus_deserialize(&mut &serialized_point[..])
             .expect("Failed to deserialize Point");
         assert_eq!(point, deserialized_point);
     }
@@ -982,9 +1015,10 @@ mod test {
             sig: vec![1u8; 20],
         };
         let mut serialized_packet = vec![];
-        consensus_serialize_packet(&mut serialized_packet, &packet)
+        packet
+            .inner_consensus_serialize(&mut serialized_packet)
             .expect("serialization to buffer failed.");
-        let deserialized_packet = consensus_deserialize_packet(&mut &serialized_packet[..])
+        let deserialized_packet = Packet::inner_consensus_deserialize(&mut &serialized_packet[..])
             .expect("Failed to deserialize Packet");
         assert_eq!(packet, deserialized_packet);
     }
