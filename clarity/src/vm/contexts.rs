@@ -611,7 +611,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         &'b mut self,
         sender: Option<PrincipalData>,
         sponsor: Option<PrincipalData>,
-        context: &'b mut ContractContext,
+        context: &'b ContractContext,
     ) -> Environment<'b, 'a, 'hooks> {
         Environment::new(
             &mut self.context,

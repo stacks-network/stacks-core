@@ -50,7 +50,7 @@ impl TraitChecker {
 
     pub fn run(
         &mut self,
-        contract_analysis: &mut ContractAnalysis,
+        contract_analysis: &ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
     ) -> CheckResult<()> {
         for trait_identifier in &contract_analysis.implemented_traits {
