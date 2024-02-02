@@ -28,6 +28,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::analysis::contract_interface_builder::ContractInterface;
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier,
 };
@@ -552,6 +553,12 @@ impl From<burnchain_error> for Error {
 impl From<clarity_error> for Error {
     fn from(e: clarity_error) -> Self {
         Error::ClarityError(e)
+    }
+}
+
+impl From<InterpreterError> for Error {
+    fn from(e: InterpreterError) -> Self {
+        Error::ClarityError(e.into())
     }
 }
 
@@ -2160,6 +2167,7 @@ pub mod test {
                     peerdb.conn(),
                     local_peer.network_id,
                     &contract_id,
+                    0,
                     10000000,
                 )
                 .unwrap()
@@ -2174,8 +2182,7 @@ pub mod test {
                     &db_config,
                     PeerNetworkComms::new(),
                     stacker_dbs,
-                )
-                .expect(&format!("FATAL: could not open '{}'", stackerdb_path));
+                );
 
                 stacker_db_syncs.insert(contract_id.clone(), (db_config.clone(), stacker_db_sync));
             }
@@ -2438,6 +2445,9 @@ pub mod test {
             let stacker_db_syncs =
                 Self::init_stackerdb_syncs(&test_path, &peerdb, &mut stackerdb_configs);
 
+            let stackerdb_contracts: Vec<_> =
+                stacker_db_syncs.keys().map(|cid| cid.clone()).collect();
+
             let mut peer_network = PeerNetwork::new(
                 peerdb,
                 atlasdb,
@@ -2462,8 +2472,25 @@ pub mod test {
             let p2p_port = peer_network.bound_neighbor_key().port;
             let http_port = peer_network.http.as_ref().unwrap().http_server_addr.port();
 
-            config.server_port = p2p_port;
-            config.http_port = http_port;
+            config.data_url =
+                UrlString::try_from(format!("http://127.0.0.1:{}", http_port).as_str()).unwrap();
+
+            peer_network
+                .peerdb
+                .update_local_peer(
+                    config.network_id,
+                    config.burnchain.network_id,
+                    config.data_url.clone(),
+                    p2p_port,
+                    &stackerdb_contracts,
+                )
+                .unwrap();
+
+            let local_peer = PeerDB::get_local_peer(peer_network.peerdb.conn()).unwrap();
+            debug!(
+                "{:?}: initial neighbors: {:?}",
+                &local_peer, &config.initial_neighbors
+            );
 
             TestPeer {
                 config: config,
@@ -3462,7 +3489,7 @@ pub mod test {
                             parent_microblock_header_opt.as_ref(),
                         );
 
-                    builder.epoch_finish(epoch);
+                    builder.epoch_finish(epoch).unwrap();
                     (stacks_block, microblocks)
                 },
             );

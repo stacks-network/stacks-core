@@ -57,7 +57,7 @@ pub fn mem_type_check(
         epoch,
         ASTRules::PrecheckSize,
     )
-    .unwrap()
+    .map_err(|_| CheckErrors::Expects("Failed to build AST".into()))?
     .expressions;
 
     let mut marf = MemoryBackingStore::new();
@@ -77,8 +77,12 @@ pub fn mem_type_check(
             let first_type = x
                 .type_map
                 .as_ref()
-                .unwrap()
-                .get_type(x.expressions.last().unwrap())
+                .ok_or_else(|| CheckErrors::Expects("Should be non-empty".into()))?
+                .get_type(
+                    x.expressions
+                        .last()
+                        .ok_or_else(|| CheckErrors::Expects("Should be non-empty".into()))?,
+                )
                 .cloned();
             Ok((first_type, x))
         }
@@ -141,13 +145,18 @@ pub fn run_analysis(
             | StacksEpochId::Epoch30 => {
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db)
             }
-            StacksEpochId::Epoch10 => unreachable!("Epoch 1.0 is not a valid epoch for analysis"),
+            StacksEpochId::Epoch10 => {
+                return Err(CheckErrors::Expects(
+                    "Epoch 1.0 is not a valid epoch for analysis".into(),
+                )
+                .into())
+            }
         }?;
         TraitChecker::run_pass(&epoch, &mut contract_analysis, db)?;
         ArithmeticOnlyChecker::check_contract_cost_eligible(&mut contract_analysis);
 
         if STORE_CONTRACT_SRC_INTERFACE {
-            let interface = build_contract_interface(&contract_analysis);
+            let interface = build_contract_interface(&contract_analysis)?;
             contract_analysis.contract_interface = Some(interface);
         }
         if save_contract {

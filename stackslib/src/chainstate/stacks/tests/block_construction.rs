@@ -2675,17 +2675,17 @@ fn test_build_microblock_stream_forks() {
         test_debug!(
             "Test {}: {}",
             &account.principal.to_string(),
-            account.stx_balance.get_total_balance()
+            account.stx_balance.get_total_balance().unwrap()
         );
         if (i as u64) < (num_blocks as u64) - MINER_REWARD_MATURITY - 1 {
             assert_eq!(
-                account.stx_balance.get_total_balance(),
+                account.stx_balance.get_total_balance().unwrap(),
                 (initial_balance as u128)
                     + (expected_coinbase * POISON_MICROBLOCK_COMMISSION_FRACTION) / 100
             );
         } else {
             assert_eq!(
-                account.stx_balance.get_total_balance(),
+                account.stx_balance.get_total_balance().unwrap(),
                 initial_balance as u128
             );
         }
@@ -3691,7 +3691,7 @@ fn test_contract_call_across_clarity_versions() {
                                     &addr_anchored, tenure_id
                                 ))
                                 .unwrap();
-                            let call_count = call_count_value.expect_u128();
+                            let call_count = call_count_value.expect_u128().unwrap();
                             assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
 
                             // contract-call transaction worked
@@ -3701,7 +3701,7 @@ fn test_contract_call_across_clarity_versions() {
                                     &addr_anchored, tenure_id
                                 ))
                                 .unwrap();
-                            let call_count = call_count_value.expect_u128();
+                            let call_count = call_count_value.expect_u128().unwrap();
                             assert_eq!(call_count, (num_blocks - tenure_id - 1) as u128);
 
                             // at-block transaction worked
@@ -3711,7 +3711,7 @@ fn test_contract_call_across_clarity_versions() {
                                     &addr_anchored, tenure_id
                                 ))
                                 .unwrap();
-                            let call_count = at_block_count_value.expect_u128();
+                            let call_count = at_block_count_value.expect_u128().unwrap();
 
                             if tenure_id < num_blocks - 1 {
                                 assert_eq!(call_count, 1);
@@ -4356,13 +4356,13 @@ fn mempool_incorporate_pox_unlocks() {
 
                  let available_balance = chainstate.with_read_only_clarity_tx(&sortdb.index_conn(), &parent_tip.index_block_hash(), |clarity_tx| {
                      clarity_tx.with_clarity_db_readonly(|db| {
-                         let burn_block_height = db.get_current_burnchain_block_height() as u64;
+                         let burn_block_height = db.get_current_burnchain_block_height().unwrap() as u64;
                          let v1_unlock_height = db.get_v1_unlock_height();
-                         let v2_unlock_height = db.get_v2_unlock_height();
-                         let v3_unlock_height = db.get_v3_unlock_height();
-                         let balance = db.get_account_stx_balance(&principal);
+                         let v2_unlock_height = db.get_v2_unlock_height().unwrap();
+                         let v3_unlock_height = db.get_v3_unlock_height().unwrap();
+                         let balance = db.get_account_stx_balance(&principal).unwrap();
                          info!("Checking balance"; "v1_unlock_height" => v1_unlock_height, "burn_block_height" => burn_block_height);
-                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height)
+                         balance.get_available_balance_at_burn_block(burn_block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height).unwrap()
                      })
                  }).unwrap();
 
@@ -4698,7 +4698,6 @@ fn paramaterized_mempool_walk_test(
     let b_2 = make_block(&mut chainstate, ConsensusHash([0x2; 20]), &b_1, 2, 2);
 
     let mut mempool_settings = MemPoolWalkSettings::default();
-    mempool_settings.min_tx_fee = 10;
     let mut tx_events = Vec::new();
 
     let txs = codec_all_transactions(

@@ -63,13 +63,14 @@ use blockstack_lib::cost_estimates::UnitEstimator;
 use blockstack_lib::net::db::LocalPeer;
 use blockstack_lib::net::p2p::PeerNetwork;
 use blockstack_lib::net::relay::Relayer;
+use blockstack_lib::net::StacksMessage;
 use blockstack_lib::util_lib::db::sqlite_open;
 use blockstack_lib::util_lib::strings::UrlString;
 use libstackerdb::StackerDBChunkData;
 use rusqlite::types::ToSql;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, StacksAddress, StacksBlockId,
 };
@@ -225,6 +226,35 @@ fn main() {
 
         println!("{:#?}", &block);
         process::exit(0);
+    }
+
+    if argv[1] == "decode-net-message" {
+        let data: String = argv[2].clone();
+        let buf = if data == "-" {
+            let mut buffer = vec![];
+            io::stdin().read_to_end(&mut buffer).unwrap();
+            buffer
+        } else {
+            let data: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
+            let data_array = data.as_array().unwrap();
+            let mut buf = vec![];
+            for elem in data_array {
+                buf.push(elem.as_u64().unwrap() as u8);
+            }
+            buf
+        };
+        match read_next::<StacksMessage, _>(&mut &buf[..]) {
+            Ok(msg) => {
+                println!("{:#?}", &msg);
+                process::exit(0);
+            }
+            Err(_) => {
+                let ptr = &mut &buf[..];
+                let mut debug_cursor = LogReader::from_reader(ptr);
+                let _ = read_next::<StacksMessage, _>(&mut debug_cursor);
+                process::exit(1);
+            }
+        }
     }
 
     if argv[1] == "get-tenure" {
@@ -596,7 +626,6 @@ simulating a miner.
 
         let mut settings = BlockBuilderSettings::limited();
         settings.max_miner_time_ms = max_time;
-        settings.mempool_settings.min_tx_fee = min_fee;
 
         let result = StacksBlockBuilder::build_anchored_block(
             &chain_state,

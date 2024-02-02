@@ -1,3 +1,19 @@
+// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -24,11 +40,12 @@ use stacks::core::{StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_TE
 use stacks::util_lib::strings::StacksString;
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress};
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
+use super::neon_node::{BlockMinerThread, TipCandidate};
 use super::Config;
 use crate::helium::RunLoop;
 use crate::tests::neon_integrations::{get_chain_info, next_block_and_wait};
@@ -520,8 +537,6 @@ fn should_succeed_mining_valid_txs() {
         100000,
     );
 
-    conf.miner.min_tx_fee = 0;
-
     let num_rounds = 6;
     let mut run_loop = RunLoop::new(conf.clone());
 
@@ -994,4 +1009,333 @@ fn test_btc_to_sat_errors() {
     assert!(ParsedUTXO::serialized_btc_to_sat("1e-8").is_none());
     assert!(ParsedUTXO::serialized_btc_to_sat("7.4e-7").is_none());
     assert!(ParsedUTXO::serialized_btc_to_sat("5.96e-6").is_none());
+}
+
+#[test]
+fn test_sort_and_populate_candidates() {
+    let empty: Vec<TipCandidate> = vec![];
+    assert_eq!(
+        empty,
+        BlockMinerThread::sort_and_populate_candidates(vec![])
+    );
+    let candidates = vec![
+        TipCandidate {
+            stacks_height: 1,
+            consensus_hash: ConsensusHash([0x01; 20]),
+            anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            parent_consensus_hash: ConsensusHash([0x00; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x00; 32]),
+            burn_height: 100,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x02; 20]),
+            anchored_block_hash: BlockHeaderHash([0x02; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 102,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x12; 20]),
+            anchored_block_hash: BlockHeaderHash([0x12; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 101,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x22; 20]),
+            anchored_block_hash: BlockHeaderHash([0x22; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 104,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 4,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            anchored_block_hash: BlockHeaderHash([0x04; 32]),
+            parent_consensus_hash: ConsensusHash([0x03; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x03; 32]),
+            burn_height: 105,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 3,
+            consensus_hash: ConsensusHash([0x03; 20]),
+            anchored_block_hash: BlockHeaderHash([0x03; 32]),
+            parent_consensus_hash: ConsensusHash([0x02; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x02; 32]),
+            burn_height: 105,
+            num_earlier_siblings: 0,
+        },
+    ];
+    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates);
+    assert_eq!(
+        sorted_candidates,
+        vec![
+            TipCandidate {
+                stacks_height: 1,
+                consensus_hash: ConsensusHash([0x01; 20]),
+                anchored_block_hash: BlockHeaderHash([0x01; 32]),
+                parent_consensus_hash: ConsensusHash([0x00; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x00; 32]),
+                burn_height: 100,
+                num_earlier_siblings: 0
+            },
+            TipCandidate {
+                stacks_height: 2,
+                consensus_hash: ConsensusHash([0x12; 20]),
+                anchored_block_hash: BlockHeaderHash([0x12; 32]),
+                parent_consensus_hash: ConsensusHash([0x01; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+                burn_height: 101,
+                num_earlier_siblings: 0
+            },
+            TipCandidate {
+                stacks_height: 2,
+                consensus_hash: ConsensusHash([0x02; 20]),
+                anchored_block_hash: BlockHeaderHash([0x02; 32]),
+                parent_consensus_hash: ConsensusHash([0x01; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+                burn_height: 102,
+                num_earlier_siblings: 1
+            },
+            TipCandidate {
+                stacks_height: 2,
+                consensus_hash: ConsensusHash([0x22; 20]),
+                anchored_block_hash: BlockHeaderHash([0x22; 32]),
+                parent_consensus_hash: ConsensusHash([0x01; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+                burn_height: 104,
+                num_earlier_siblings: 2
+            },
+            TipCandidate {
+                stacks_height: 3,
+                consensus_hash: ConsensusHash([0x03; 20]),
+                anchored_block_hash: BlockHeaderHash([0x03; 32]),
+                parent_consensus_hash: ConsensusHash([0x02; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x02; 32]),
+                burn_height: 105,
+                num_earlier_siblings: 0
+            },
+            TipCandidate {
+                stacks_height: 4,
+                consensus_hash: ConsensusHash([0x04; 20]),
+                anchored_block_hash: BlockHeaderHash([0x04; 32]),
+                parent_consensus_hash: ConsensusHash([0x03; 20]),
+                parent_anchored_block_hash: BlockHeaderHash([0x03; 32]),
+                burn_height: 105,
+                num_earlier_siblings: 0
+            }
+        ]
+    );
+}
+
+#[test]
+fn test_inner_pick_best_tip() {
+    // chain structure as folows:
+    //
+    // Bitcoin chain
+    // 100  101  102  103  104  105  106
+    //  |    |    |         |    |    |
+    // Stacks chain         |    |    |
+    //  1 <- 2    |         |.-- 3 <- 4
+    //    \       |         /
+    //     *----- 2 <------*|
+    //      \               |
+    //       *--------------2
+    //
+    // If there are no previous best-tips, then:
+    // At Bitcoin height 105, the best tip is (4,105)
+    // At Bitcoin height 104, the best tip is (3,104)
+    // At Bitcoin height 103, the best tip is (2,101)
+    // At Bitcoin height 102, the best tip is (2,101)
+    // At Bitcoin height 101, the best tip is (2,101)
+    // At Bitcoin height 100, the best tip is (1,100)
+    //
+    let candidates = vec![
+        TipCandidate {
+            stacks_height: 1,
+            consensus_hash: ConsensusHash([0x01; 20]),
+            anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            parent_consensus_hash: ConsensusHash([0x00; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x00; 32]),
+            burn_height: 100,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x02; 20]),
+            anchored_block_hash: BlockHeaderHash([0x02; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 102,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x12; 20]),
+            anchored_block_hash: BlockHeaderHash([0x12; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 101,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 2,
+            consensus_hash: ConsensusHash([0x22; 20]),
+            anchored_block_hash: BlockHeaderHash([0x22; 32]),
+            parent_consensus_hash: ConsensusHash([0x01; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x01; 32]),
+            burn_height: 104,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 4,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            anchored_block_hash: BlockHeaderHash([0x04; 32]),
+            parent_consensus_hash: ConsensusHash([0x03; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x03; 32]),
+            burn_height: 106,
+            num_earlier_siblings: 0,
+        },
+        TipCandidate {
+            stacks_height: 3,
+            consensus_hash: ConsensusHash([0x03; 20]),
+            anchored_block_hash: BlockHeaderHash([0x03; 32]),
+            parent_consensus_hash: ConsensusHash([0x02; 20]),
+            parent_anchored_block_hash: BlockHeaderHash([0x02; 32]),
+            burn_height: 105,
+            num_earlier_siblings: 0,
+        },
+    ];
+
+    let sorted_candidates = BlockMinerThread::sort_and_populate_candidates(candidates.clone());
+    assert_eq!(
+        None,
+        BlockMinerThread::inner_pick_best_tip(vec![], HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[5].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[0].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), HashMap::new())
+    );
+    assert_eq!(
+        Some(sorted_candidates[4].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), HashMap::new())
+    );
+
+    // suppose now that we previously picked (2,104) as the best-tip.
+    // No other tips at Stacks height 2 will be accepted, nor will those at heights 3 and 4 (since
+    // they descend from the wrong height-2 block).
+    let mut best_tips = HashMap::new();
+    best_tips.insert(2, sorted_candidates[3].clone());
+
+    assert_eq!(
+        Some(sorted_candidates[3].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[0].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        None,
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        None,
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[3].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[3].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), best_tips.clone())
+    );
+
+    // now suppose that we previously picked (2,102) as the best-tip.
+    // Conflicting blocks are (2,101) and (2,104)
+    let mut best_tips = HashMap::new();
+    best_tips.insert(2, sorted_candidates[2].clone());
+
+    assert_eq!(
+        Some(sorted_candidates[5].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[0].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        None,
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[2].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[2].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[4].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), best_tips.clone())
+    );
+
+    // now suppose that we previously picked both (2,101) and (3,105) as the best-tips.
+    // these best-tips are in conflict, but that shouldn't prohibit us from choosing (4,106) as the
+    // best tip even though it doesn't confirm (2,101).  However, it would mean that (2,102) and
+    // (2,104) are in conflict.
+    let mut best_tips = HashMap::new();
+    best_tips.insert(2, sorted_candidates[1].clone());
+    best_tips.insert(3, sorted_candidates[4].clone());
+
+    assert_eq!(
+        Some(sorted_candidates[5].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates.clone(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[0].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..1].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..2].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..3].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..4].to_vec(), best_tips.clone())
+    );
+    assert_eq!(
+        Some(sorted_candidates[1].clone()),
+        BlockMinerThread::inner_pick_best_tip(sorted_candidates[0..5].to_vec(), best_tips.clone())
+    );
 }

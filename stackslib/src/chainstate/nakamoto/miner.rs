@@ -324,7 +324,7 @@ impl NakamotoBlockBuilder {
 
     /// Finish up mining an epoch's transactions.
     /// Return the ExecutionCost consumed so far.
-    pub fn tenure_finish(self, tx: ClarityTx) -> ExecutionCost {
+    pub fn tenure_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
         let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
@@ -332,11 +332,11 @@ impl NakamotoBlockBuilder {
             StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
 
         // write out the trie...
-        let consumed = tx.commit_mined_block(&index_block_hash);
+        let consumed = tx.commit_mined_block(&index_block_hash)?;
 
         test_debug!("\n\nFinished mining. Trie is in mined_blocks table.\n",);
 
-        consumed
+        Ok(consumed)
     }
 
     /// Finish constructing a Nakamoto block.
@@ -477,7 +477,7 @@ impl NakamotoBlockBuilder {
         // save the block so we can build microblocks off of it
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.bytes_so_far;
-        let consumed = builder.tenure_finish(tenure_tx);
+        let consumed = builder.tenure_finish(tenure_tx)?;
 
         let ts_end = get_epoch_time_ms();
 

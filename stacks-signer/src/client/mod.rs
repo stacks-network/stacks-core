@@ -21,6 +21,7 @@ pub(crate) mod stacks_client;
 
 use std::time::Duration;
 
+use clarity::vm::errors::Error as ClarityError;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::Value as ClarityValue;
 use libsigner::RPCError;
@@ -78,6 +79,15 @@ pub enum ClientError {
     /// Backoff retry timeout
     #[error("Backoff retry timeout occurred. Stacks node may be down.")]
     RetryTimeout,
+    /// Clarity interpreter error
+    #[error("Clarity interpreter error: {0}")]
+    ClarityError(ClarityError),
+}
+
+impl From<ClarityError> for ClientError {
+    fn from(e: ClarityError) -> ClientError {
+        ClientError::ClarityError(e)
+    }
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure

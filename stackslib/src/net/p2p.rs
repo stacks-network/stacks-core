@@ -1016,9 +1016,9 @@ impl PeerNetwork {
         let num_allowed_peers = allowed_peers.len();
         let mut count = 0;
         for allowed in allowed_peers {
-            if self.events.contains_key(&allowed.addr) {
-                count += 1;
-            }
+            let pubkh = Hash160::from_node_public_key(&allowed.public_key);
+            let events = self.get_pubkey_events(&pubkh);
+            count += events.len() as u64;
         }
         Ok((count, num_allowed_peers as u64))
     }
@@ -1534,6 +1534,15 @@ impl PeerNetwork {
                 event_id
             );
             return Err(net_error::AlreadyConnected(event_id, neighbor_key.clone()));
+        }
+
+        // unroutable?
+        if !self.connection_opts.private_neighbors && neighbor_key.addrbytes.is_in_private_range() {
+            debug!("{:?}: Peer {:?} is in private range and we are configured to drop private neighbors",
+                  &self.local_peer,
+                  &neighbor_key
+            );
+            return Err(net_error::Denied);
         }
 
         // consider rate-limits on in-bound peers

@@ -60,7 +60,7 @@ start() {
         return 1
     fi
     echo -n $"Starting $prog: "
-    $stacks_bin start --config="$stacks_config" > "$stacks_log" 2>&1 &
+    $stacks_bin start --config "$stacks_config" > "$stacks_log" 2>&1 &
     RETVAL=$?
     [ $RETVAL -eq 0 ] && touch "$lockfile"
     echo

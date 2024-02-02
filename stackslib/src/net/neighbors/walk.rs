@@ -565,9 +565,14 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
     }
 
     /// Select neighbors that are routable, and ignore ones that are not.
-    /// TODO: expand if we ever want to filter by unroutable network class or something
-    fn filter_sensible_neighbors(mut neighbors: Vec<NeighborAddress>) -> Vec<NeighborAddress> {
+    fn filter_sensible_neighbors(
+        mut neighbors: Vec<NeighborAddress>,
+        private_neighbors: bool,
+    ) -> Vec<NeighborAddress> {
         neighbors.retain(|neighbor| !neighbor.addrbytes.is_anynet());
+        if !private_neighbors {
+            neighbors.retain(|neighbor| !neighbor.addrbytes.is_in_private_range());
+        }
         neighbors
     }
 
@@ -644,8 +649,6 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         }
     }
 
-    /// Determine if a peer is routable from us
-
     /// Handle a HandshakeAcceptData.
     /// Update the PeerDB information from the handshake data, as well as `self.cur_neighbor`, if
     /// this neighbor was routable.  If it's not routable (i.e. we walked to an inbound neighbor),
@@ -670,7 +673,9 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         // just use the one we used to contact it.  This can happen if the
         // node is behind a load-balancer, or is doing port-forwarding,
         // etc.
-        if neighbor_from_handshake.addr.addrbytes.is_in_private_range() {
+        if neighbor_from_handshake.addr.addrbytes.is_in_private_range()
+            || neighbor_from_handshake.addr.addrbytes.is_anynet()
+        {
             debug!(
                 "{}: outbound neighbor gave private IP address {:?}; assuming it meant {:?}",
                 local_peer_str, &neighbor_from_handshake.addr, &self.cur_neighbor.addr
@@ -834,7 +839,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                     &self.cur_neighbor.addr,
                     data.neighbors
                 );
-                let neighbors = Self::filter_sensible_neighbors(data.neighbors.clone());
+                let neighbors = Self::filter_sensible_neighbors(
+                    data.neighbors.clone(),
+                    network.get_connection_opts().private_neighbors,
+                );
                 let (mut found, to_resolve) = self
                     .neighbor_db
                     .lookup_stale_neighbors(network, &neighbors)?;
@@ -1278,7 +1286,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                         &nkey,
                         &data.neighbors
                     );
-                    let neighbors = Self::filter_sensible_neighbors(data.neighbors.clone());
+                    let neighbors = Self::filter_sensible_neighbors(
+                        data.neighbors.clone(),
+                        network.get_connection_opts().private_neighbors,
+                    );
                     self.resolved_getneighbors_neighbors
                         .insert(naddr, neighbors);
                 }
@@ -1861,7 +1872,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                     &self.state,
                     self.walk_state_timeout
                 );
-                return Ok(None);
+                return Err(net_error::StepTimeout);
             }
 
             can_continue = match self.state {
