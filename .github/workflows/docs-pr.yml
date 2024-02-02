@@ -66,12 +66,12 @@ jobs:
           git add src/_data/boot-contracts-reference.json
           if $(git diff --staged --quiet --exit-code); then
             echo "No reference.json changes, stopping"
-            echo "::set-output name=open_pr::0"
+            echo "open_pr=0" >> "$GITHUB_OUTPUT"
           else
             git remote add robot https://github.com/$ROBOT_OWNER/$ROBOT_REPO
             git commit -m "auto: update Clarity references JSONs from stacks-core@${GITHUB_SHA}"
             git push robot $ROBOT_BRANCH
-            echo "::set-output name=open_pr::1"
+            echo "open_pr=1" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Open PR
