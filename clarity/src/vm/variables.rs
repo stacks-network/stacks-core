@@ -35,6 +35,8 @@ define_versioned_named_enum!(NativeVariables(ClarityVersion) {
     TxSponsor("tx-sponsor?", ClarityVersion::Clarity2),
     Mainnet("is-in-mainnet", ClarityVersion::Clarity2),
     ChainId("chain-id", ClarityVersion::Clarity2),
+    StacksBlockHeight("stacks-block-height", ClarityVersion::Clarity3),
+    TenureHeight("tenure-height", ClarityVersion::Clarity3),
 });
 
 impl NativeVariables {
