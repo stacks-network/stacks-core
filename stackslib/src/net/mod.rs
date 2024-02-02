@@ -67,7 +67,7 @@ use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::coordinator::Error as coordinator_error;
-use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::boot::{
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
 };
@@ -882,6 +882,15 @@ pub struct BlocksData {
     pub blocks: Vec<BlocksDatum>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct NakamotoBlocksDatum(pub ConsensusHash, pub NakamotoBlock);
+
+/// Blocks pushed
+#[derive(Debug, Clone, PartialEq)]
+pub struct NakamotoBlocksData {
+    pub blocks: Vec<NakamotoBlocksDatum>,
+}
+
 /// Microblocks pushed
 #[derive(Debug, Clone, PartialEq)]
 pub struct MicroblocksData {
@@ -1095,6 +1104,8 @@ pub enum StacksMessageType {
     StackerDBGetChunk(StackerDBGetChunkData),
     StackerDBChunk(StackerDBChunkData),
     StackerDBPushChunk(StackerDBPushChunkData),
+    // End stacker DB
+    NakamotoBlocks(NakamotoBlocksData),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1126,6 +1137,8 @@ pub enum StacksMessageID {
     StackerDBGetChunk = 23,
     StackerDBChunk = 24,
     StackerDBPushChunk = 25,
+    // End stackerdb
+    NakamotoBlocks = 26,
     // reserved
     Reserved = 255,
 }
@@ -1378,12 +1391,15 @@ pub struct NetworkResult {
     pub unhandled_messages: HashMap<NeighborKey, Vec<StacksMessage>>,
     pub blocks: Vec<(ConsensusHash, StacksBlock, u64)>, // blocks we downloaded, and time taken
     pub confirmed_microblocks: Vec<(ConsensusHash, Vec<StacksMicroblock>, u64)>, // confiremd microblocks we downloaded, and time taken
+    pub nakamoto_blocks: Vec<(ConsensusHash, NakamotoBlock, u64)>, // Nakamoto blocks we downloaded, and time taken
     pub pushed_transactions: HashMap<NeighborKey, Vec<(Vec<RelayData>, StacksTransaction)>>, // all transactions pushed to us and their message relay hints
     pub pushed_blocks: HashMap<NeighborKey, Vec<BlocksData>>, // all blocks pushed to us
     pub pushed_microblocks: HashMap<NeighborKey, Vec<(Vec<RelayData>, MicroblocksData)>>, // all microblocks pushed to us, and the relay hints from the message
+    pub pushed_nakamoto_blocks: HashMap<NeighborKey, Vec<NakamotoBlocksData>>, // all Nakamoto blocks pushed to us
     pub uploaded_transactions: Vec<StacksTransaction>, // transactions sent to us by the http server
     pub uploaded_blocks: Vec<BlocksData>,              // blocks sent to us via the http server
     pub uploaded_microblocks: Vec<MicroblocksData>,    // microblocks sent to us by the http server
+    pub uploaded_nakamoto_blocks: Vec<NakamotoBlocksData>, // Nakamoto blocks sent to us by the http server
     pub uploaded_stackerdb_chunks: Vec<StackerDBPushChunkData>, // chunks we received from the HTTP server
     pub attachments: Vec<(AttachmentInstance, Attachment)>,
     pub synced_transactions: Vec<StacksTransaction>, // transactions we downloaded via a mempool sync
@@ -1410,19 +1426,22 @@ impl NetworkResult {
             download_pox_id: None,
             blocks: vec![],
             confirmed_microblocks: vec![],
+            nakamoto_blocks: vec![],
             pushed_transactions: HashMap::new(),
             pushed_blocks: HashMap::new(),
             pushed_microblocks: HashMap::new(),
+            pushed_nakamoto_blocks: HashMap::new(),
             uploaded_transactions: vec![],
             uploaded_blocks: vec![],
             uploaded_microblocks: vec![],
+            uploaded_nakamoto_blocks: vec![],
             uploaded_stackerdb_chunks: vec![],
             attachments: vec![],
             synced_transactions: vec![],
             stacker_db_sync_results: vec![],
-            num_state_machine_passes: num_state_machine_passes,
-            num_inv_sync_passes: num_inv_sync_passes,
-            num_download_passes: num_download_passes,
+            num_state_machine_passes,
+            num_inv_sync_passes,
+            num_download_passes,
             burn_height,
             rc_consensus_hash,
             stacker_db_configs,
@@ -1437,6 +1456,10 @@ impl NetworkResult {
         self.confirmed_microblocks.len() > 0
             || self.pushed_microblocks.len() > 0
             || self.uploaded_microblocks.len() > 0
+    }
+
+    pub fn has_nakamoto_blocks(&self) -> bool {
+        self.nakamoto_blocks.len() > 0 || self.pushed_nakamoto_blocks.len() > 0
     }
 
     pub fn has_transactions(&self) -> bool {
@@ -1499,6 +1522,16 @@ impl NetworkResult {
                             );
                         }
                     }
+                    StacksMessageType::NakamotoBlocks(block_data) => {
+                        if let Some(blocks_msgs) =
+                            self.pushed_nakamoto_blocks.get_mut(&neighbor_key)
+                        {
+                            blocks_msgs.push(block_data);
+                        } else {
+                            self.pushed_nakamoto_blocks
+                                .insert(neighbor_key.clone(), vec![block_data]);
+                        }
+                    }
                     StacksMessageType::Transaction(tx_data) => {
                         if let Some(tx_msgs) = self.pushed_transactions.get_mut(&neighbor_key) {
                             tx_msgs.push((message.relayers, tx_data));
@@ -1532,6 +1565,9 @@ impl NetworkResult {
                 }
                 StacksMessageType::Microblocks(mblock_data) => {
                     self.uploaded_microblocks.push(mblock_data);
+                }
+                StacksMessageType::NakamotoBlocks(block_data) => {
+                    self.uploaded_nakamoto_blocks.push(block_data);
                 }
                 StacksMessageType::StackerDBPushChunk(chunk_data) => {
                     self.uploaded_stackerdb_chunks.push(chunk_data);

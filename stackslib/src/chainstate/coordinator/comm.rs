@@ -63,8 +63,10 @@ pub struct CoordinatorChannels {
 /// Notification struct for communicating to
 ///  the coordinator. Each bool indicates a notice
 ///  that there are new events of a type to check
+#[derive(Default)]
 struct SignalBools {
     new_stacks_block: bool,
+    new_nakamoto_block: bool,
     new_burn_block: bool,
     stop: bool,
 }
@@ -135,6 +137,14 @@ impl CoordinatorChannels {
         bools.new_stacks_block = true;
         self.signal_wakeup.notify_all();
         debug!("Announce new stacks block");
+        !bools.stop
+    }
+
+    pub fn announce_new_nakamoto_block(&self) -> bool {
+        let mut bools = self.signal_bools.lock().unwrap();
+        bools.new_nakamoto_block = true;
+        self.signal_wakeup.notify_all();
+        debug!("Announce new Nakamoto block");
         !bools.stop
     }
 
@@ -212,11 +222,7 @@ impl CoordinatorChannels {
 
 impl CoordinatorCommunication {
     pub fn instantiate() -> (CoordinatorReceivers, CoordinatorChannels) {
-        let signal_bools = Arc::new(Mutex::new(SignalBools {
-            new_stacks_block: false,
-            new_burn_block: false,
-            stop: false,
-        }));
+        let signal_bools = Arc::new(Mutex::new(SignalBools::default()));
 
         let signal_wakeup = Arc::new(Condvar::new());
 
@@ -232,8 +238,8 @@ impl CoordinatorCommunication {
         };
 
         let rcvrs = CoordinatorReceivers {
-            signal_bools: signal_bools,
-            signal_wakeup: signal_wakeup,
+            signal_bools,
+            signal_wakeup,
             stacks_blocks_processed,
             sortitions_processed,
         };
