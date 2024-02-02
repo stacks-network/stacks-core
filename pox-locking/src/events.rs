@@ -137,7 +137,7 @@ fn create_event_info_data_code(
                 lock_period = &args[3],
                 pox_addr = &args[1],
                 start_burn_height = &args[2],
-                signer_key = &args.get(3).map_or("none".to_string(), |v| v.to_string()),
+                signer_key = &args.get(4).unwrap_or(&Value::none()),
             )
         }
         "delegate-stack-stx" => {
@@ -295,9 +295,7 @@ fn create_event_info_data_code(
                 extend_count = &args[2]
             )
         }
-        "stack-aggregation-commit"
-        | "stack-aggregation-commit-indexed"
-        | "stack-aggregation-increase" => {
+        "stack-aggregation-commit" | "stack-aggregation-commit-indexed" => {
             format!(
                 r#"
                 {{
@@ -321,7 +319,34 @@ fn create_event_info_data_code(
                 "#,
                 pox_addr = &args[0],
                 reward_cycle = &args[1],
-                signer_key = &args.get(2).map_or("none".to_string(), |v| v.to_string()),
+                signer_key = &args.get(2).unwrap_or(&Value::none()),
+            )
+        }
+        "stack-aggregation-increase" => {
+            format!(
+                r#"
+                {{
+                    data: {{
+                        ;; pox addr locked up
+                        ;; equal to args[0] in all methods
+                        pox-addr: {pox_addr},
+                        ;; reward cycle locked up
+                        ;; equal to args[1] in all methods
+                        reward-cycle: {reward_cycle},
+                        ;; amount locked behind this PoX address by this method
+                        amount-ustx: (get stacked-amount
+                                        (unwrap-panic (map-get? logged-partial-stacked-by-cycle
+                                            {{ pox-addr: {pox_addr}, sender: tx-sender, reward-cycle: {reward_cycle} }}))),
+                        ;; delegator (this is the caller)
+                        delegator: tx-sender,
+                        ;; equal to args[2]
+                        reward-cycle-index: {reward_cycle_index}
+                    }}
+                }}
+                "#,
+                pox_addr = &args[0],
+                reward_cycle = &args[1],
+                reward_cycle_index = &args.get(2).unwrap_or(&Value::none()),
             )
         }
         "delegate-stx" => {
