@@ -4050,6 +4050,7 @@ impl StacksNode {
 
         info!("Start HTTP server on: {}", &config.node.rpc_bind);
         info!("Start P2P server on: {}", &config.node.p2p_bind);
+        info!("Start mining: {}", is_miner);
 
         StacksNode {
             atlas_config,
@@ -4068,12 +4069,15 @@ impl StacksNode {
     /// Called from the main thread.
     /// Return true if we succeeded in carrying out the next task of the operation.
     pub fn relayer_issue_tenure(&mut self, ibd: bool) -> bool {
+        info!("Tenure: Issue tenure!");
         if !self.is_miner {
+            info!("Tenure: Node is not a miner, skipping tenure");
             // node is a follower, don't try to issue a tenure
             return true;
         }
 
         if let Some(burnchain_tip) = self.globals.get_last_sortition() {
+            info!("Tenure: Last burn block: {}", burnchain_tip.block_height);
             if !ibd {
                 // try and register a VRF key before issuing a tenure
                 let leader_key_registration_state =
@@ -4106,6 +4110,7 @@ impl StacksNode {
                     LeaderKeyRegistrationState::Pending(..) => true,
                 }
             } else {
+                info!("Tenure: In IBD, skipping tenure");
                 // still sync'ing so just try again later
                 true
             }

@@ -1302,7 +1302,7 @@ impl RunLoop {
                     // at tip, and not downloading. proceed to mine.
                     if last_tenure_sortition_height != sortition_db_height {
                         info!(
-                            "Runloop: Synchronized full burnchain up to height {}. Proceeding to mine blocks",
+                            "Runloop: Synchronized full burnchain up to height {}. Proceeding to mine blocks !!!",
                             sortition_db_height
                         );
                         last_tenure_sortition_height = sortition_db_height;
