@@ -1904,8 +1904,7 @@ impl NodeConfig {
         chain_id: u32,
         peer_version: u32,
     ) {
-        let parts: Vec<&str> = bootstrap_nodes.split(',').collect();
-        for part in parts.into_iter() {
+        for part in bootstrap_nodes.split(',') {
             if part.len() > 0 {
                 self.add_bootstrap_node(&part, chain_id, peer_version);
             }
@@ -1924,8 +1923,7 @@ impl NodeConfig {
     }
 
     pub fn set_deny_nodes(&mut self, deny_nodes: String, chain_id: u32, peer_version: u32) {
-        let parts: Vec<&str> = deny_nodes.split(',').collect();
-        for part in parts.into_iter() {
+        for part in deny_nodes.split(',') {
             if part.len() > 0 {
                 self.add_deny_node(&part, chain_id, peer_version);
             }
