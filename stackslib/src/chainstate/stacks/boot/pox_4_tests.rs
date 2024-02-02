@@ -1670,7 +1670,9 @@ fn stack_stx_verify_signer_sig() {
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
 
     // valid tx should succeed
-    tx_result(valid_nonce).expect_result_ok();
+    tx_result(valid_nonce)
+        .expect_result_ok()
+        .expect("Expected ok result from tx");
 }
 
 #[test]
@@ -1781,11 +1783,15 @@ fn stack_extend_verify_sig() {
         |nonce: u64| -> Value { stacker_txs.get(nonce as usize).unwrap().result.clone() };
 
     let expected_error = Value::error(Value::Int(35)).unwrap();
-    tx_result(stack_nonce).expect_result_ok();
+    tx_result(stack_nonce)
+        .expect_result_ok()
+        .expect("Expected ok result from tx");
     assert_eq!(tx_result(invalid_cycle_nonce), expected_error);
     assert_eq!(tx_result(invalid_stacker_nonce), expected_error);
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
-    tx_result(valid_nonce).expect_result_ok();
+    tx_result(valid_nonce)
+        .expect_result_ok()
+        .expect("Expected ok result from tx");
 }
 
 #[test]
@@ -1912,11 +1918,15 @@ fn stack_agg_commit_verify_sig() {
 
     let expected_error = Value::error(Value::Int(35)).unwrap();
 
-    tx_result(delegate_stack_stx_nonce).expect_result_ok();
+    tx_result(delegate_stack_stx_nonce)
+        .expect_result_ok()
+        .expect("Expected ok result from tx");
     assert_eq!(tx_result(invalid_cycle_nonce), expected_error);
     assert_eq!(tx_result(invalid_pox_addr_nonce), expected_error);
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
-    tx_result(valid_nonce).expect_result_ok();
+    tx_result(valid_nonce)
+        .expect_result_ok()
+        .expect("Expected ok result from tx");
 }
 
 pub fn assert_latest_was_burn(peer: &mut TestPeer) {

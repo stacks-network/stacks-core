@@ -319,9 +319,9 @@ fn create_event_info_data_code(
                         ;; delegator (this is the caller)
                         delegator: tx-sender,
                         ;; equal to args[2]
-                        signer-sig: {signer_sig}
+                        signer-sig: {signer_sig},
                         ;; equal to args[3]
-                        signer-key: {signer_key}
+                        signer-key: {signer_key},
                     }}
                 }}
                 "#,
