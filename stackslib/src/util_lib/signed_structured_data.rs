@@ -29,7 +29,7 @@ pub const STRUCTURED_DATA_PREFIX: [u8; 6] = [0x53, 0x49, 0x50, 0x30, 0x31, 0x38]
 
 pub fn structured_data_hash(value: Value) -> Sha256Sum {
     let bytes = value.serialize_to_vec();
-    Sha256Sum::from_data(&bytes)
+    Sha256Sum::from_data(&bytes.as_slice())
 }
 
 /// Generate a message hash for signing structured Clarity data.
