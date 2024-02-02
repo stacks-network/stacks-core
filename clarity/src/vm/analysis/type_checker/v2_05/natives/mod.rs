@@ -26,7 +26,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
 };
-use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
+use crate::vm::errors::{Error as InterpError, InterpreterError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
@@ -479,7 +479,10 @@ fn check_principal_of(
 ) -> TypeResult {
     check_argument_count(1, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_33)?;
-    Ok(TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType).unwrap())
+    Ok(
+        TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType)
+            .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+    )
 }
 
 fn check_secp256k1_recover(
@@ -490,7 +493,10 @@ fn check_secp256k1_recover(
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &BUFF_32)?;
     checker.type_check_expects(&args[1], context, &BUFF_65)?;
-    Ok(TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType).unwrap())
+    Ok(
+        TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType)
+            .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+    )
 }
 
 fn check_secp256k1_verify(
@@ -545,10 +551,12 @@ impl TypedNativeFunction {
         }
     }
 
-    pub fn type_native_function(function: &NativeFunctions) -> TypedNativeFunction {
+    pub fn type_native_function(
+        function: &NativeFunctions,
+    ) -> Result<TypedNativeFunction, CheckErrors> {
         use self::TypedNativeFunction::{Simple, Special};
         use crate::vm::functions::NativeFunctions::*;
-        match function {
+        let out = match function {
             Add | Subtract | Divide | Multiply => {
                 Simple(SimpleNativeFunction(FunctionType::ArithmeticVariadic))
             }
@@ -566,30 +574,39 @@ impl TypedNativeFunction {
             ToUInt => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::IntType,
-                    ClarityName::try_from("value".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("value".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::UIntType,
             }))),
             ToInt => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::UIntType,
-                    ClarityName::try_from("value".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("value".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::IntType,
             }))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
-                    ClarityName::try_from("value".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("value".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::BoolType,
             }))),
             Hash160 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -597,7 +614,7 @@ impl TypedNativeFunction {
             ))),
             Sha256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -605,7 +622,7 @@ impl TypedNativeFunction {
             ))),
             Sha512Trunc256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -613,7 +630,7 @@ impl TypedNativeFunction {
             ))),
             Sha512 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -621,7 +638,7 @@ impl TypedNativeFunction {
             ))),
             Keccak256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer(),
+                    TypeSignature::max_buffer()?,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -632,8 +649,11 @@ impl TypedNativeFunction {
             GetStxBalance => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
-                    ClarityName::try_from("owner".to_owned())
-                        .expect("FAIL: ClarityName failed to accept default arg name"),
+                    ClarityName::try_from("owner".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
                 )],
                 returns: TypeSignature::UIntType,
             }))),
@@ -641,44 +661,59 @@ impl TypedNativeFunction {
                 args: vec![
                     FunctionArg::new(
                         TypeSignature::UIntType,
-                        ClarityName::try_from("amount".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("amount".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     ),
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
-                        ClarityName::try_from("sender".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("sender".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     ),
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
-                        ClarityName::try_from("recipient".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("recipient".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     ),
                 ],
                 returns: TypeSignature::new_response(
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                .unwrap(),
+                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             }))),
             StxBurn => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
                         TypeSignature::UIntType,
-                        ClarityName::try_from("amount".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("amount".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     ),
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
-                        ClarityName::try_from("sender".to_owned())
-                            .expect("FAIL: ClarityName failed to accept default arg name"),
+                        ClarityName::try_from("sender".to_owned()).map_err(|_| {
+                            CheckErrors::Expects(
+                                "FAIL: ClarityName failed to accept default arg name".into(),
+                            )
+                        })?,
                     ),
                 ],
                 returns: TypeSignature::new_response(
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                .unwrap(),
+                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             }))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
@@ -743,7 +778,14 @@ impl TypedNativeFunction {
             | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt => unreachable!("Clarity 2 keywords should not show up in 2.05"),
-        }
+            | ReplaceAt => {
+                return Err(CheckErrors::Expects(
+                    "Clarity 2 keywords should not show up in 2.05".into(),
+                )
+                .into())
+            }
+        };
+
+        Ok(out)
     }
 }

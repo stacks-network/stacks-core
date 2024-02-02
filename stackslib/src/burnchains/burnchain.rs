@@ -299,7 +299,7 @@ impl BurnchainStateTransition {
 }
 
 impl BurnchainSigner {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn mock_parts(
         hash_mode: AddressHashMode,
         num_sigs: usize,
@@ -313,7 +313,7 @@ impl BurnchainSigner {
         BurnchainSigner(repr)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn new_p2pkh(pubk: &StacksPublicKey) -> BurnchainSigner {
         BurnchainSigner::mock_parts(AddressHashMode::SerializeP2PKH, 1, vec![pubk.clone()])
     }

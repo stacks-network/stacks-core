@@ -95,6 +95,7 @@ impl ContractAnalysis {
         }
     }
 
+    #[allow(clippy::expect_used)]
     pub fn take_contract_cost_tracker(&mut self) -> LimitedCostTracker {
         self.cost_track
             .take()

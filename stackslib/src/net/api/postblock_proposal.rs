@@ -284,7 +284,7 @@ impl NakamotoBlockProposal {
 
         let mut block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.get_bytes_so_far();
-        let cost = builder.tenure_finish(tenure_tx);
+        let cost = builder.tenure_finish(tenure_tx)?;
 
         // Clone signatures from block proposal
         // These have already been validated by `validate_nakamoto_block_burnchain()``

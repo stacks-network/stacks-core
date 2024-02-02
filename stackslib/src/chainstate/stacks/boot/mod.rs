@@ -271,15 +271,22 @@ impl StacksChainState {
     ///  Stacks fork in the opened `clarity_db`.
     pub fn handled_pox_cycle_start(clarity_db: &mut ClarityDatabase, cycle_number: u64) -> bool {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
-        match clarity_db.get::<String>(&db_key) {
+        match clarity_db
+            .get::<String>(&db_key)
+            .expect("FATAL: DB error when checking PoX cycle start")
+        {
             Some(x) => x == POX_CYCLE_START_HANDLED_VALUE,
             None => false,
         }
     }
 
-    fn mark_pox_cycle_handled(db: &mut ClarityDatabase, cycle_number: u64) {
+    fn mark_pox_cycle_handled(
+        db: &mut ClarityDatabase,
+        cycle_number: u64,
+    ) -> Result<(), clarity::vm::errors::Error> {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
-        db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string());
+        db.put(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string())?;
+        Ok(())
     }
 
     /// Get the stacking state for a user, before deleting it as part of an unlock
@@ -314,7 +321,9 @@ impl StacksChainState {
                 })
             .expect("FATAL: failed to query unlocked principal");
 
-        user_stacking_state.expect_tuple()
+        user_stacking_state
+            .expect_tuple()
+            .expect("FATAL: unexpected PoX structure")
     }
 
     /// Synthesize the handle-unlock print event.  This is done here, instead of pox-2, so we can
@@ -432,7 +441,7 @@ impl StacksChainState {
         cycle_info: Option<PoxStartCycleInfo>,
         pox_contract_name: &str,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
-        clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))?;
+        clarity.with_clarity_db(|db| Ok(Self::mark_pox_cycle_handled(db, cycle_number)))??;
 
         debug!(
             "Handling PoX reward cycle start";
@@ -461,13 +470,14 @@ impl StacksChainState {
             // 4. delete the user's stacking-state entry.
             clarity.with_clarity_db(|db| {
                 // lookup the Stacks account and alter their unlock height to next block
-                let mut balance = db.get_stx_balance_snapshot(&principal);
-                if balance.canonical_balance_repr().amount_locked() < *amount_locked {
-                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", balance.canonical_balance_repr().amount_locked(), *amount_locked);
+                let mut balance = db.get_stx_balance_snapshot(&principal)?;
+                let canonical_locked = balance.canonical_balance_repr()?.amount_locked();
+                if canonical_locked < *amount_locked {
+                    panic!("Principal missed reward slots, but did not have as many locked tokens as expected. Actual: {}, Expected: {}", canonical_locked, *amount_locked);
                 }
 
-                balance.accelerate_unlock();
-                balance.save();
+                balance.accelerate_unlock()?;
+                balance.save()?;
                 Ok(())
             }).expect("FATAL: failed to accelerate PoX unlock");
 
@@ -498,7 +508,9 @@ impl StacksChainState {
                 .expect("FATAL: failed to handle PoX unlock");
 
             // this must be infallible
-            result.expect_result_ok();
+            result
+                .expect_result_ok()
+                .expect("FATAL: unexpected PoX structure");
 
             // extract metadata about the unlock
             let event_info =
@@ -541,9 +553,11 @@ impl StacksChainState {
             &NULL_HEADER_DB,
             &NULL_BURN_STATE_DB,
         );
-        connection.with_clarity_db_readonly_owned(|mut clarity_db| {
-            (clarity_db.get_total_liquid_ustx(), clarity_db)
-        })
+        connection
+            .with_clarity_db_readonly_owned(|mut clarity_db| {
+                (clarity_db.get_total_liquid_ustx(), clarity_db)
+            })
+            .expect("FATAL: failed to get total liquid ustx")
     }
 
     /// Determine the minimum amount of STX per reward address required to stack in the _next_
@@ -560,7 +574,11 @@ impl StacksChainState {
             "pox",
             &format!("(get-stacking-minimum)"),
         )
-        .map(|value| value.expect_u128())
+        .map(|value| {
+            value
+                .expect_u128()
+                .expect("FATAL: unexpected PoX structure")
+        })
     }
 
     pub fn get_total_ustx_stacked(
@@ -596,7 +614,8 @@ impl StacksChainState {
                 )
             })?
             .ok_or_else(|| Error::NoSuchBlockError)??
-            .expect_u128();
+            .expect_u128()
+            .expect("FATAL: unexpected PoX structure");
         Ok(result)
     }
 
@@ -614,7 +633,11 @@ impl StacksChainState {
             "pox",
             &format!("(get-total-ustx-stacked u{})", reward_cycle),
         )
-        .map(|value| value.expect_u128())
+        .map(|value| {
+            value
+                .expect_u128()
+                .expect("FATAL: unexpected PoX structure")
+        })
     }
 
     /// Is PoX active in the given reward cycle?
@@ -631,7 +654,11 @@ impl StacksChainState {
             pox_contract,
             &format!("(is-pox-active u{})", reward_cycle),
         )
-        .map(|value| value.expect_bool())
+        .map(|value| {
+            value
+                .expect_bool()
+                .expect("FATAL: unexpected PoX structure")
+        })
     }
 
     pub fn make_signer_set(
@@ -869,7 +896,8 @@ impl StacksChainState {
                 POX_1_NAME,
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
-            .expect_u128();
+            .expect_u128()
+            .expect("FATAL: unexpected PoX structure");
 
         debug!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
@@ -888,13 +916,15 @@ impl StacksChainState {
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
                 .expect_optional()
+                .expect("FATAL: unexpected PoX structure")
                 .unwrap_or_else(|| {
                     panic!(
                         "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                         i, num_addrs, reward_cycle
                     )
                 })
-                .expect_tuple();
+                .expect_tuple()
+                .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple_data
                 .get("pox-addr")
@@ -908,7 +938,8 @@ impl StacksChainState {
                 .get("total-ustx")
                 .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()                .expect("FATAL: unexpected PoX structure")
+;
 
             debug!(
                 "PoX reward address (for {} ustx): {}",
@@ -947,7 +978,8 @@ impl StacksChainState {
                 POX_2_NAME,
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
-            .expect_u128();
+            .expect_u128()
+            .expect("FATAL: unexpected PoX structure");
 
         debug!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
@@ -965,13 +997,15 @@ impl StacksChainState {
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
                 .expect_optional()
+                .expect("FATAL: unexpected PoX structure")
                 .unwrap_or_else(|| {
                     panic!(
                         "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                         i, num_addrs, reward_cycle
                     )
                 })
-                .expect_tuple();
+                .expect_tuple()
+                .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
@@ -985,7 +1019,8 @@ impl StacksChainState {
                 .get("total-ustx")
                 .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()                .expect("FATAL: unexpected PoX structure")
+;
 
             let stacker = tuple
                 .get("stacker")
@@ -993,7 +1028,12 @@ impl StacksChainState {
                     reward_cycle, i))
                 .to_owned()
                 .expect_optional()
-                .map(|value| value.expect_principal());
+                .expect("FATAL: unexpected PoX structure")
+                .map(|value| {
+                    value
+                        .expect_principal()
+                        .expect("FATAL: unexpected PoX structure")
+                });
 
             debug!(
                 "Parsed PoX reward address";
@@ -1034,7 +1074,8 @@ impl StacksChainState {
                 POX_3_NAME,
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
-            .expect_u128();
+            .expect_u128()
+            .expect("FATAL: unexpected PoX structure");
 
         debug!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
@@ -1052,13 +1093,15 @@ impl StacksChainState {
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
                 .expect_optional()
+                .expect("FATAL: unexpected PoX structure")
                 .unwrap_or_else(|| {
                     panic!(
                         "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                         i, num_addrs, reward_cycle
                     )
                 })
-                .expect_tuple();
+                .expect_tuple()
+                .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
@@ -1072,7 +1115,8 @@ impl StacksChainState {
                 .get("total-ustx")
                 .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
@@ -1080,7 +1124,12 @@ impl StacksChainState {
                     reward_cycle, i))
                 .to_owned()
                 .expect_optional()
-                .map(|value| value.expect_principal());
+                .expect("FATAL: unexpected PoX structure")
+                .map(|value| {
+                    value
+                        .expect_principal()
+                        .expect("FATAL: unexpected PoX structure")
+                });
 
             debug!(
                 "Parsed PoX reward address";
@@ -1115,7 +1164,7 @@ impl StacksChainState {
                 POX_4_NAME,
                 &format!("(get-reward-set-size u{})", reward_cycle),
             )?
-            .expect_u128();
+            .expect_u128()?;
 
         debug!(
             "At block {:?} (reward cycle {}): {} PoX reward addresses",
@@ -1138,14 +1187,14 @@ impl StacksChainState {
                     POX_4_NAME,
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
-                .expect_optional()
+                .expect_optional()?
                 .unwrap_or_else(|| {
                     panic!(
                         "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                         i, num_addrs, reward_cycle
                     )
                 })
-                .expect_tuple();
+                .expect_tuple()?;
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
@@ -1159,22 +1208,26 @@ impl StacksChainState {
                 .get("total-ustx")
                 .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128();
+                .expect_u128()?;
 
-            let stacker = tuple
+            let stacker_opt = tuple
                 .get("stacker")
                 .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
                     reward_cycle, i))
                 .to_owned()
-                .expect_optional()
-                .map(|value| value.expect_principal());
+                .expect_optional()?;
+
+            let stacker = match stacker_opt {
+                Some(stacker_value) => Some(stacker_value.expect_principal()?),
+                None => None,
+            };
 
             let signer = tuple
                 .get("signer")
                 .unwrap_or_else(|_| panic!("FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
                     reward_cycle, i))
                 .to_owned()
-                .expect_buff(SIGNERS_PK_LEN);
+                .expect_buff(SIGNERS_PK_LEN)?;
             // (buff 33) only enforces max size, not min size, so we need to do a len check
             let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
                 let mut bytes = [0; SIGNERS_PK_LEN];
@@ -1269,21 +1322,25 @@ impl StacksChainState {
         block_id: &StacksBlockId,
         reward_cycle: u64,
     ) -> Result<Option<Point>, Error> {
-        let aggregate_public_key = self
+        let aggregate_public_key_opt = self
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
                 POX_4_NAME,
                 &format!("(get-aggregate-public-key u{})", reward_cycle),
             )?
-            .expect_optional()
-            .map(|value| {
+            .expect_optional()?;
+
+        let aggregate_public_key = match aggregate_public_key_opt {
+            Some(value) => {
                 // A point should have 33 bytes exactly.
-                let data = value.expect_buff(33);
+                let data = value.expect_buff(33)?;
                 let msg = "Pox-4 get-aggregate-public-key returned a corrupted value.";
                 let compressed_data = Compressed::try_from(data.as_slice()).expect(msg);
-                Point::try_from(&compressed_data).expect(msg)
-            });
+                Some(Point::try_from(&compressed_data).expect(msg))
+            }
+            None => None,
+        };
         Ok(aggregate_public_key)
     }
 }
@@ -1675,22 +1732,39 @@ pub mod test {
             "pox",
             &format!("(get-stacker-info '{})", addr.to_string()),
         );
-        let data = if let Some(d) = value_opt.expect_optional() {
+        let data = if let Some(d) = value_opt.expect_optional().unwrap() {
             d
         } else {
             return None;
         };
 
-        let data = data.expect_tuple();
+        let data = data.expect_tuple().unwrap();
 
-        let amount_ustx = data.get("amount-ustx").unwrap().to_owned().expect_u128();
-        let pox_addr = tuple_to_pox_addr(data.get("pox-addr").unwrap().to_owned().expect_tuple());
-        let lock_period = data.get("lock-period").unwrap().to_owned().expect_u128();
+        let amount_ustx = data
+            .get("amount-ustx")
+            .unwrap()
+            .to_owned()
+            .expect_u128()
+            .unwrap();
+        let pox_addr = tuple_to_pox_addr(
+            data.get("pox-addr")
+                .unwrap()
+                .to_owned()
+                .expect_tuple()
+                .unwrap(),
+        );
+        let lock_period = data
+            .get("lock-period")
+            .unwrap()
+            .to_owned()
+            .expect_u128()
+            .unwrap();
         let first_reward_cycle = data
             .get("first-reward-cycle")
             .unwrap()
             .to_owned()
-            .expect_u128();
+            .expect_u128()
+            .unwrap();
         Some((amount_ustx, pox_addr, lock_period, first_reward_cycle))
     }
 
@@ -3978,9 +4052,9 @@ pub mod test {
                     "(var-get test-run)",
                 );
 
-                assert!(alice_test_result.expect_bool());
-                assert!(bob_test_result.expect_bool());
-                assert!(charlie_test_result.expect_bool());
+                assert!(alice_test_result.expect_bool().unwrap());
+                assert!(bob_test_result.expect_bool().unwrap());
+                assert!(charlie_test_result.expect_bool().unwrap());
 
                 let alice_test_result = eval_contract_at_tip(
                     &mut peer,
@@ -5412,7 +5486,8 @@ pub mod test {
                         "charlie-try-stack",
                         "(var-get test-passed)",
                     )
-                    .expect_bool();
+                    .expect_bool()
+                    .unwrap();
                     assert!(result, "charlie-try-stack test should be `true`");
                     let result = eval_contract_at_tip(
                         &mut peer,
@@ -5420,7 +5495,8 @@ pub mod test {
                         "charlie-try-reject",
                         "(var-get test-passed)",
                     )
-                    .expect_bool();
+                    .expect_bool()
+                    .unwrap();
                     assert!(result, "charlie-try-reject test should be `true`");
                     let result = eval_contract_at_tip(
                         &mut peer,
@@ -5428,7 +5504,8 @@ pub mod test {
                         "alice-try-reject",
                         "(var-get test-passed)",
                     )
-                    .expect_bool();
+                    .expect_bool()
+                    .unwrap();
                     assert!(result, "alice-try-reject test should be `true`");
                 }
 

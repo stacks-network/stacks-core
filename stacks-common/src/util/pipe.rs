@@ -168,12 +168,12 @@ impl PipeRead {
             }
         }
 
-        if disconnected && copied == 0 && self.buf.is_empty() {
+        if disconnected && copied == 0 {
             // out of data, and will never get more
             return Err(io::Error::from(io::ErrorKind::BrokenPipe));
         }
 
-        if blocked && copied == 0 && self.buf.is_empty() {
+        if blocked && copied == 0 {
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
 
@@ -187,6 +187,10 @@ impl PipeWrite {
     }
 
     fn write_or_buffer(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if buf.len() == 0 {
+            return Ok(0);
+        }
+
         // add buf to our internal buffer...
         if self.buf.is_none() {
             let data = buf.to_vec();
@@ -528,10 +532,37 @@ mod test {
             assert_eq!(nr, segment.len());
             assert_eq!(*segment, bytes);
 
+            // subsequent read fails with EWOULDBLOCK
+            let mut next_bytes = vec![0u8];
+            let res = pipe_read.read(&mut next_bytes).unwrap_err();
+            assert_eq!(res.kind(), io::ErrorKind::WouldBlock);
+
             // flush should have succeeded
             let res = pipe_write.try_flush().unwrap();
             assert!(res);
         }
+
+        // subsequent read fails with EWOULDBLOCK
+        let mut next_bytes = vec![0u8];
+        let res = pipe_read.read(&mut next_bytes).unwrap_err();
+        assert_eq!(res.kind(), io::ErrorKind::WouldBlock);
+
+        // once the write end is dropped, then this data is still consumable but we get broken-pipe
+        // once it's all been read.
+        let _ = pipe_write.write(&[1u8, 1u8]).unwrap();
+        drop(pipe_write);
+
+        let mut next_bytes = vec![0u8];
+        let res = pipe_read.read(&mut next_bytes).unwrap();
+        assert_eq!(res, 1);
+
+        let mut next_bytes = vec![0u8];
+        let res = pipe_read.read(&mut next_bytes).unwrap();
+        assert_eq!(res, 1);
+
+        let mut next_bytes = vec![0u8];
+        let res = pipe_read.read(&mut next_bytes).unwrap_err();
+        assert_eq!(res.kind(), io::ErrorKind::BrokenPipe);
     }
 
     #[test]
@@ -585,6 +616,11 @@ mod test {
             let nr = pipe_read.read(&mut bytes[1..]).unwrap();
             assert_eq!(nr, segment.len() - 1);
             assert_eq!(*segment, bytes);
+
+            // subsequent read fails with EWOULDBLOCK
+            let mut next_bytes = vec![0u8];
+            let res = pipe_read.read(&mut next_bytes).unwrap_err();
+            assert_eq!(res.kind(), io::ErrorKind::WouldBlock);
 
             // flush should have succeeded
             let res = pipe_write.try_flush().unwrap();

@@ -21,7 +21,8 @@ use std::iter::FromIterator;
 
 use stacks_common::types::StacksEpochId;
 
-use super::costs::CostOverflowingMath;
+use super::costs::{CostErrors, CostOverflowingMath};
+use super::errors::InterpreterError;
 use super::types::signatures::CallableSubtype;
 use super::ClarityVersion;
 use crate::vm::analysis::errors::CheckErrors;
@@ -38,9 +39,6 @@ use crate::vm::types::{
 };
 use crate::vm::{eval, Environment, LocalContext, Value};
 
-type SpecialFunctionType =
-    dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>;
-
 pub enum CallableType {
     UserFunction(DefinedFunction),
     NativeFunction(&'static str, NativeHandle, ClarityCostFunction),
@@ -53,7 +51,10 @@ pub enum CallableType {
         ClarityCostFunction,
         &'static dyn Fn(&[Value]) -> Result<u64>,
     ),
-    SpecialFunction(&'static str, &'static SpecialFunctionType),
+    SpecialFunction(
+        &'static str,
+        &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>,
+    ),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -88,12 +89,19 @@ impl NativeHandle {
         match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
-                function(args.pop().unwrap())
+                function(
+                    args.pop()
+                        .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?,
+                )
             }
             Self::DoubleArg(function) => {
                 check_argument_count(2, &args)?;
-                let second = args.pop().unwrap();
-                let first = args.pop().unwrap();
+                let second = args
+                    .pop()
+                    .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?;
+                let first = args
+                    .pop()
+                    .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?;
                 function(first, second)
             }
             Self::MoreArg(function) => function(args),
@@ -105,7 +113,10 @@ impl NativeHandle {
 pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
     args.iter()
         .try_fold(0, |sum, value| {
-            (value.serialized_size() as u64).cost_overflow_add(sum)
+            (value
+                .serialized_size()
+                .map_err(|e| CostErrors::Expect(format!("{e:?}")))? as u64)
+                .cost_overflow_add(sum)
         })
         .map_err(Error::from)
 }
@@ -152,7 +163,7 @@ impl DefinedFunction {
             runtime_cost(
                 ClarityCostFunction::InnerTypeCheckCost,
                 env,
-                arg_type.size(),
+                arg_type.size()?,
             )?;
         }
 
@@ -235,11 +246,7 @@ impl DefinedFunction {
                             )
                             .into());
                         }
-                        if context
-                            .variables
-                            .insert(name.clone(), value.clone())
-                            .is_some()
-                        {
+                        if let Some(_) = context.variables.insert(name.clone(), value.clone()) {
                             return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
                         }
                     }
@@ -281,7 +288,7 @@ impl DefinedFunction {
                     }
                 }
 
-                if context.variables.insert(name.clone(), cast_value).is_some() {
+                if let Some(_) = context.variables.insert(name.clone(), cast_value) {
                     return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
                 }
             }
@@ -318,7 +325,7 @@ impl DefinedFunction {
                     self.name.to_string(),
                 ))?;
 
-        let args = self.arg_types.to_vec();
+        let args = self.arg_types.iter().map(|a| a.clone()).collect();
         if !expected_sig.check_args_trait_compliance(epoch, args)? {
             return Err(
                 CheckErrors::BadTraitImplementation(trait_name, self.name.to_string()).into(),
@@ -388,12 +395,16 @@ impl CallableType {
 impl FunctionIdentifier {
     fn new_native_function(name: &str) -> FunctionIdentifier {
         let identifier = format!("_native_:{}", name);
-        FunctionIdentifier { identifier }
+        FunctionIdentifier {
+            identifier: identifier,
+        }
     }
 
     fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
         let identifier = format!("{}:{}", context, name);
-        FunctionIdentifier { identifier }
+        FunctionIdentifier {
+            identifier: identifier,
+        }
     }
 }
 
@@ -530,7 +541,7 @@ mod test {
             trait_identifier: None,
         });
         let cast_contract = clarity2_implicit_cast(&trait_ty, &contract).unwrap();
-        let cast_trait = cast_contract.expect_callable();
+        let cast_trait = cast_contract.expect_callable().unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
         assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
@@ -538,7 +549,7 @@ mod test {
         let optional_ty = TypeSignature::new_option(trait_ty.clone()).unwrap();
         let optional_contract = Value::some(contract.clone()).unwrap();
         let cast_optional = clarity2_implicit_cast(&optional_ty, &optional_contract).unwrap();
-        match &cast_optional.expect_optional().unwrap() {
+        match &cast_optional.expect_optional().unwrap().unwrap() {
             Value::CallableContract(CallableData {
                 contract_identifier: contract_id,
                 trait_identifier: trait_id,
@@ -554,7 +565,11 @@ mod test {
             TypeSignature::new_response(trait_ty.clone(), TypeSignature::UIntType).unwrap();
         let response_contract = Value::okay(contract.clone()).unwrap();
         let cast_response = clarity2_implicit_cast(&response_ok_ty, &response_contract).unwrap();
-        let cast_trait = cast_response.expect_result_ok().expect_callable();
+        let cast_trait = cast_response
+            .expect_result_ok()
+            .unwrap()
+            .expect_callable()
+            .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
         assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
@@ -563,7 +578,11 @@ mod test {
             TypeSignature::new_response(TypeSignature::UIntType, trait_ty.clone()).unwrap();
         let response_contract = Value::error(contract.clone()).unwrap();
         let cast_response = clarity2_implicit_cast(&response_err_ty, &response_contract).unwrap();
-        let cast_trait = cast_response.expect_result_err().expect_callable();
+        let cast_trait = cast_response
+            .expect_result_err()
+            .unwrap()
+            .expect_callable()
+            .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
         assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
@@ -571,9 +590,9 @@ mod test {
         let list_ty = TypeSignature::list_of(trait_ty.clone(), 4).unwrap();
         let list_contract = Value::list_from(vec![contract.clone(), contract2.clone()]).unwrap();
         let cast_list = clarity2_implicit_cast(&list_ty, &list_contract).unwrap();
-        let items = cast_list.expect_list();
+        let items = cast_list.expect_list().unwrap();
         for item in items {
-            let cast_trait = item.expect_callable();
+            let cast_trait = item.expect_callable().unwrap();
             assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
         }
 
@@ -599,10 +618,12 @@ mod test {
         let cast_tuple = clarity2_implicit_cast(&tuple_ty, &tuple_contract).unwrap();
         let cast_trait = cast_tuple
             .expect_tuple()
+            .unwrap()
             .get(&a_name)
             .unwrap()
             .clone()
-            .expect_callable();
+            .expect_callable()
+            .unwrap();
         assert_eq!(&cast_trait.contract_identifier, &contract_identifier);
         assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
 
@@ -615,11 +636,14 @@ mod test {
         ])
         .unwrap();
         let cast_list = clarity2_implicit_cast(&list_opt_ty, &list_opt_contract).unwrap();
-        let items = cast_list.expect_list();
+        let items = cast_list.expect_list().unwrap();
         for item in items {
-            if let Some(cast_opt) = item.expect_optional() {
-                let cast_trait = cast_opt.expect_callable();
-                assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+            match item.expect_optional().unwrap() {
+                Some(cast_opt) => {
+                    let cast_trait = cast_opt.expect_callable().unwrap();
+                    assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
+                }
+                None => (),
             }
         }
 
@@ -632,9 +656,9 @@ mod test {
         ])
         .unwrap();
         let cast_list = clarity2_implicit_cast(&list_res_ty, &list_res_contract).unwrap();
-        let items = cast_list.expect_list();
+        let items = cast_list.expect_list().unwrap();
         for item in items {
-            let cast_trait = item.expect_result_ok().expect_callable();
+            let cast_trait = item.expect_result_ok().unwrap().expect_callable().unwrap();
             assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
         }
 
@@ -647,9 +671,9 @@ mod test {
         ])
         .unwrap();
         let cast_list = clarity2_implicit_cast(&list_res_ty, &list_res_contract).unwrap();
-        let items = cast_list.expect_list();
+        let items = cast_list.expect_list().unwrap();
         for item in items {
-            let cast_trait = item.expect_result_err().expect_callable();
+            let cast_trait = item.expect_result_err().unwrap().expect_callable().unwrap();
             assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
         }
 
@@ -664,10 +688,10 @@ mod test {
         .unwrap();
         let opt_list_res_contract = Value::some(list_res_contract).unwrap();
         let cast_opt = clarity2_implicit_cast(&opt_list_res_ty, &opt_list_res_contract).unwrap();
-        let inner = cast_opt.expect_optional().unwrap();
-        let items = inner.expect_list();
+        let inner = cast_opt.expect_optional().unwrap().unwrap();
+        let items = inner.expect_list().unwrap();
         for item in items {
-            let cast_trait = item.expect_result_err().expect_callable();
+            let cast_trait = item.expect_result_err().unwrap().expect_callable().unwrap();
             assert_eq!(&cast_trait.trait_identifier.unwrap(), &trait_identifier);
         }
 
@@ -681,7 +705,9 @@ mod test {
         match &cast_optional
             .expect_optional()
             .unwrap()
+            .unwrap()
             .expect_optional()
+            .unwrap()
             .unwrap()
         {
             Value::CallableContract(CallableData {

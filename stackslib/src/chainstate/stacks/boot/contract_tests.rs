@@ -214,7 +214,7 @@ impl ClarityTestSim {
     ) -> StacksEpochId {
         let mut clarity_db = store.as_clarity_db(headers_db, burn_db);
         clarity_db.begin();
-        let parent_epoch = clarity_db.get_clarity_epoch_version();
+        let parent_epoch = clarity_db.get_clarity_epoch_version().unwrap();
         let sortition_epoch = clarity_db
             .get_stacks_epoch(headers_db.height as u32)
             .unwrap()
@@ -222,10 +222,12 @@ impl ClarityTestSim {
 
         if parent_epoch != sortition_epoch {
             debug!("Set epoch to {}", &sortition_epoch);
-            clarity_db.set_clarity_epoch_version(sortition_epoch);
+            clarity_db
+                .set_clarity_epoch_version(sortition_epoch)
+                .unwrap();
         }
 
-        clarity_db.commit();
+        clarity_db.commit().unwrap();
         sortition_epoch
     }
 
@@ -718,7 +720,7 @@ fn pox_2_contract_caller_units() {
             "After revocation, stack-through still shouldn't be an allowed caller for User 1 in the PoX2 contract",
         );
 
-        let until_height = Value::UInt(burn_height.clone().expect_u128() + 1);
+        let until_height = Value::UInt(burn_height.clone().expect_u128().unwrap() + 1);
 
         assert_eq!(
             env.execute_transaction(

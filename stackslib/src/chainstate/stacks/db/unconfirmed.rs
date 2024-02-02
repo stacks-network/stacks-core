@@ -502,7 +502,8 @@ impl StacksChainState {
         );
         unconfirmed
             .clarity_inst
-            .drop_unconfirmed_state(&unconfirmed.confirmed_chain_tip);
+            .drop_unconfirmed_state(&unconfirmed.confirmed_chain_tip)
+            .expect("FATAL: failed to drop unconfirmed state");
         debug!(
             "Dropped unconfirmed state off of {} ({})",
             &unconfirmed.confirmed_chain_tip, &unconfirmed.unconfirmed_chain_tip
@@ -856,7 +857,9 @@ mod test {
                 .chainstate()
                 .with_read_only_unconfirmed_clarity_tx(&sortdb.index_conn(), |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        clarity_db.get_account_stx_balance(&recv_addr.into())
+                        clarity_db
+                            .get_account_stx_balance(&recv_addr.into())
+                            .unwrap()
                     })
                 })
                 .unwrap()
@@ -873,7 +876,9 @@ mod test {
                 .chainstate()
                 .with_read_only_clarity_tx(&sortdb.index_conn(), &canonical_tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        clarity_db.get_account_stx_balance(&recv_addr.into())
+                        clarity_db
+                            .get_account_stx_balance(&recv_addr.into())
+                            .unwrap()
                     })
                 })
                 .unwrap();
@@ -1081,7 +1086,9 @@ mod test {
                     .chainstate()
                     .with_read_only_unconfirmed_clarity_tx(&sortdb.index_conn(), |clarity_tx| {
                         clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                            clarity_db.get_account_stx_balance(&recv_addr.into())
+                            clarity_db
+                                .get_account_stx_balance(&recv_addr.into())
+                                .unwrap()
                         })
                     })
                     .unwrap()
@@ -1101,7 +1108,9 @@ mod test {
                     .chainstate()
                     .with_read_only_clarity_tx(&sortdb.index_conn(), &canonical_tip, |clarity_tx| {
                         clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                            clarity_db.get_account_stx_balance(&recv_addr.into())
+                            clarity_db
+                                .get_account_stx_balance(&recv_addr.into())
+                                .unwrap()
                         })
                     })
                     .unwrap();
@@ -1378,7 +1387,9 @@ mod test {
             .chainstate()
             .with_read_only_unconfirmed_clarity_tx(&sortdb.index_conn(), |clarity_tx| {
                 clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                    clarity_db.get_account_stx_balance(&recv_addr.into())
+                    clarity_db
+                        .get_account_stx_balance(&recv_addr.into())
+                        .unwrap()
                 })
             })
             .unwrap()
