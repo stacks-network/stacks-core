@@ -774,13 +774,8 @@ fn stackerdb_block_proposal_missing_transactions() {
     valid_tx.set_origin_nonce(0);
 
     // Create a transaction signed by a different private key
-    // This transaction will be invalid as it is signed by a different private key than the one that corresponds to the slot into which it is being inserted
-    let invalid_signer_id = 1;
-    let invalid_signer_private_key = signer_test
-        .signer_stacks_private_keys
-        .get(invalid_signer_id)
-        .expect("Cannot find signer private key for signer id 1")
-        .clone();
+    // This transaction will be invalid as it is signed by a non signer private key
+    let invalid_signer_private_key = StacksPrivateKey::new();
     let mut invalid_tx = StacksTransaction {
         version: TransactionVersion::Testnet,
         chain_id: 0,
