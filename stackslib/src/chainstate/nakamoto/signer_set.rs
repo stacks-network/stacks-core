@@ -99,7 +99,7 @@ pub struct SignerCalculation {
 }
 
 impl RawRewardSetEntry {
-    pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Self {
+    pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Result<Self, ChainstateError> {
         let mut tuple_data = tuple.data_map;
 
         let pox_addr_tuple = tuple_data
@@ -114,18 +114,19 @@ impl RawRewardSetEntry {
             .expect(
                 "FATAL: no 'total-ustx' in return value from (pox-4.get-reward-set-pox-address)",
             )
-            .expect_u128();
+            .expect_u128()?;
 
         let stacker = tuple_data
             .remove("stacker")
             .expect("FATAL: no 'stacker' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_optional()
-            .map(|value| value.expect_principal());
+            .expect_optional()?
+            .map(|value| value.expect_principal())
+            .transpose()?;
 
         let signer = tuple_data
             .remove("signer")
             .expect("FATAL: no 'signer' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_buff(SIGNERS_PK_LEN);
+            .expect_buff(SIGNERS_PK_LEN)?;
 
         // (buff 33) only enforces max size, not min size, so we need to do a len check
         let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
@@ -144,12 +145,12 @@ impl RawRewardSetEntry {
             "signer" => to_hex(&signer),
         );
 
-        Self {
+        Ok(Self {
             reward_address,
             amount_stacked: total_ustx,
             stacker,
             signer: Some(pk_bytes),
-        }
+        })
     }
 }
 
@@ -177,7 +178,7 @@ impl NakamotoSigners {
                     reward_cycle.into(),
                 ))],
             )?
-            .expect_u128();
+            .expect_u128()?;
 
         let mut slots = vec![];
         for index in 0..list_length {
@@ -190,14 +191,14 @@ impl NakamotoSigners {
                         SymbolicExpression::atom_value(Value::UInt(index)),
                     ],
                 )?
-                .expect_optional()
+                .expect_optional()?
                 .expect(&format!(
                     "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                     index, list_length, reward_cycle
                 ))
-                .expect_tuple();
+                .expect_tuple()?;
 
-            let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple);
+            let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
 
             slots.push(entry)
         }
@@ -216,7 +217,7 @@ impl NakamotoSigners {
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
 
-        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx());
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
         let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
             &pox_constants,
@@ -338,10 +339,10 @@ impl NakamotoSigners {
         let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
 
         // are we the first block in the prepare phase in our fork?
-        let needs_update = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
+        let needs_update: Result<_, ChainstateError>  = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
             if !clarity_db.has_contract(signers_contract) {
                 // if there's no signers contract, no need to update anything.
-                return false
+                return Ok(false)
             }
             let Ok(value) = clarity_db.lookup_variable_unknown_descriptor(
                 signers_contract,
@@ -351,13 +352,13 @@ impl NakamotoSigners {
                 error!("FATAL: Failed to read `{SIGNERS_UPDATE_STATE}` variable from .signers contract");
                 panic!();
             };
-            let cycle_number = value.expect_u128();
+            let cycle_number = value.expect_u128()?;
             // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
             //  the .signers state.
-            cycle_number < cycle_of_prepare_phase.into()
+            Ok(cycle_number < cycle_of_prepare_phase.into())
         });
 
-        if !needs_update {
+        if !needs_update? {
             debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
             return Ok(None);
         }

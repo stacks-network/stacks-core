@@ -1211,7 +1211,7 @@ impl StacksChainState {
                 ))
                 .expect_tuple()?;
 
-            let entry = RawRewardSetEntry::from_pox_4_tuple(self.mainnet, tuple);
+            let entry = RawRewardSetEntry::from_pox_4_tuple(self.mainnet, tuple)?;
             ret.push(entry)
         }
 

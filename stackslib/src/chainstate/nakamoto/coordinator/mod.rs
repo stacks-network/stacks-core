@@ -100,7 +100,13 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
                 &format!("(map-get? cycle-set-height u{})", cycle),
             )?
             .expect_optional()
-            .map(|x| u64::try_from(x.expect_u128()).expect("FATAL: block height exceeded u64"))
+            .map_err(|e| Error::ChainstateError(e.into()))?
+            .map(|x| {
+                let as_u128 = x.expect_u128()?;
+                Ok(u64::try_from(as_u128).expect("FATAL: block height exceeded u64"))
+            })
+            .transpose()
+            .map_err(|e| Error::ChainstateError(ChainstateError::ClarityError(e)))?
         else {
             err_or_debug!(
                 debug_log,
@@ -239,9 +245,8 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 
     // calculating the reward set for the _next_ reward cycle
     let reward_cycle = burnchain
-        .block_height_to_reward_cycle(burn_height)
-        .expect("FATAL: no reward cycle for burn height")
-        + 1;
+        .next_reward_cycle(burn_height)
+        .expect("FATAL: no reward cycle for burn height");
     let reward_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
     debug!("Processing reward set for Nakamoto reward cycle";
