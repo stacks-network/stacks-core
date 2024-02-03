@@ -1409,7 +1409,10 @@ impl StacksChainState {
                     TenureChangeCause::Extended => {
                         // the stackers granted a tenure extension.
                         // reset the runtime cost
-                        debug!("TenureChange extends block tenure");
+                        debug!(
+                            "TenureChange extends block tenure (confirms {} blocks)",
+                            &payload.previous_tenure_blocks
+                        );
                     }
                 }
 

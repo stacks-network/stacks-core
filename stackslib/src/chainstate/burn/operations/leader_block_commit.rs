@@ -682,9 +682,9 @@ impl LeaderBlockCommitOp {
                             op_error::BlockCommitAnchorCheck})?;
                     if descended_from_anchor != expect_pox_descendant {
                         if descended_from_anchor {
-                            warn!("Invalid block commit: descended from PoX anchor, but used burn outputs");
+                            warn!("Invalid block commit: descended from PoX anchor {}, but used burn outputs", &reward_set_info.anchor_block);
                         } else {
-                            warn!("Invalid block commit: not descended from PoX anchor, but used PoX outputs");
+                            warn!("Invalid block commit: not descended from PoX anchor {}, but used PoX outputs", &reward_set_info.anchor_block);
                         }
                         return Err(op_error::BlockCommitBadOutputs);
                     }

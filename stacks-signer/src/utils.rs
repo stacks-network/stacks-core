@@ -15,23 +15,25 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::time::Duration;
 
-use rand_core::OsRng;
 use slog::slog_debug;
 use stacks_common::debug;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::PrivateKey;
 use wsts::curve::ecdsa;
 use wsts::curve::scalar::Scalar;
 
+use crate::config::Network;
+
 /// Helper function for building a signer config for each provided signer private key
 pub fn build_signer_config_tomls(
-    signer_stacks_private_keys: &[StacksPrivateKey],
+    stacks_private_keys: &[StacksPrivateKey],
     num_keys: u32,
     node_host: &str,
     stackerdb_contract_id: &str,
     timeout: Option<Duration>,
+    network: &Network,
 ) -> Vec<String> {
-    let num_signers = signer_stacks_private_keys.len() as u32;
-    let mut rng = OsRng;
+    let num_signers = stacks_private_keys.len() as u32;
     let keys_per_signer = num_keys / num_signers;
     let mut key_id: u32 = 1;
     let mut key_ids = Vec::new();
@@ -52,40 +54,40 @@ pub fn build_signer_config_tomls(
         }
         key_ids.push(ids.join(", "));
     }
-    let signer_ecdsa_private_keys = (0..num_signers)
-        .map(|_| Scalar::random(&mut rng))
-        .collect::<Vec<Scalar>>();
 
     let mut signer_config_tomls = vec![];
     let mut signers_array = String::new();
+
     signers_array += "signers = [";
-    for (i, private_key) in signer_ecdsa_private_keys.iter().enumerate() {
-        let ecdsa_public_key = ecdsa::PublicKey::new(private_key).unwrap().to_string();
+    for (i, stacks_private_key) in stacks_private_keys.iter().enumerate() {
+        let scalar = Scalar::try_from(&stacks_private_key.to_bytes()[..32])
+            .expect("BUG: failed to convert the StacksPrivateKey to a Scalar");
+        let ecdsa_public_key = ecdsa::PublicKey::new(&scalar)
+            .expect("BUG: failed to get a ecdsa::PublicKey from the provided Scalar")
+            .to_string();
         let ids = key_ids[i].clone();
         signers_array += &format!(
             r#"
-            {{public_key = "{ecdsa_public_key}", key_ids = [{ids}]}}
-        "#
+    {{public_key = "{ecdsa_public_key}", key_ids = [{ids}]}}"#
         );
-        if i != signer_ecdsa_private_keys.len() - 1 {
+        if i != stacks_private_keys.len() - 1 {
             signers_array += ",";
         }
     }
-    signers_array += "]";
+    signers_array += "\n]";
+
     let mut port = 30000;
-    for (i, stacks_private_key) in signer_stacks_private_keys.iter().enumerate() {
+    for (i, stacks_private_key) in stacks_private_keys.iter().enumerate() {
         let endpoint = format!("localhost:{}", port);
         port += 1;
         let id = i;
-        let message_private_key = signer_ecdsa_private_keys[i].to_string();
         let stacks_private_key = stacks_private_key.to_hex();
         let mut signer_config_toml = format!(
             r#"
-message_private_key = "{message_private_key}"
 stacks_private_key = "{stacks_private_key}"
 node_host = "{node_host}"
 endpoint = "{endpoint}"
-network = "testnet"
+network = "{network}"
 stackerdb_contract_id = "{stackerdb_contract_id}"
 signer_id = {id}
 {signers_array}
@@ -137,4 +139,12 @@ pub fn build_stackerdb_contract(
     stackerdb_contract += "            }))\n";
     stackerdb_contract += "    ";
     stackerdb_contract
+}
+
+/// Helper function to convert a private key to a Stacks address
+pub fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
+    StacksAddress::p2pkh(
+        network.is_mainnet(),
+        &StacksPublicKey::from_private(stacks_private_key),
+    )
 }

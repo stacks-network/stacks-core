@@ -48,6 +48,10 @@ use crate::core::PEER_VERSION_TESTNET;
 use crate::net::db::LocalPeer;
 use crate::net::{Error as net_error, *};
 
+pub fn bitvec_len(bitlen: u16) -> u16 {
+    (bitlen / 8) + (if bitlen % 8 != 0 { 1 } else { 0 })
+}
+
 impl Preamble {
     /// Make an empty preamble with the given version and fork-set identifier, and payload length.
     pub fn new(
@@ -251,8 +255,8 @@ impl StacksMessageCodec for BlocksInvData {
             ));
         }
 
-        let block_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
-        let microblocks_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let block_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
+        let microblocks_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
 
         Ok(BlocksInvData {
             bitlen,
@@ -272,27 +276,7 @@ impl BlocksInvData {
     }
 
     pub fn compress_bools(bits: &Vec<bool>) -> Vec<u8> {
-        let mut bitvec = vec![];
-        for i in 0..(bits.len() / 8) {
-            let mut next_octet = 0;
-            for j in 0..8 {
-                if bits[8 * i + j] {
-                    next_octet |= 1 << j;
-                }
-            }
-            bitvec.push(next_octet);
-        }
-        if bits.len() % 8 != 0 {
-            let mut last_octet = 0;
-            let idx = (bits.len() as u64) & 0xfffffffffffffff8; // (bits.len() / 8) * 8
-            for (j, bit) in bits[(idx as usize)..].iter().enumerate() {
-                if *bit {
-                    last_octet |= 1 << j;
-                }
-            }
-            bitvec.push(last_octet);
-        }
-        bitvec
+        NakamotoInvData::bools_to_bitvec(bits)
     }
 
     pub fn has_ith_block(&self, block_index: u16) -> bool {
@@ -313,6 +297,81 @@ impl BlocksInvData {
         let idx = block_index / 8;
         let bit = block_index % 8;
         (self.microblocks_bitvec[idx as usize] & (1 << bit)) != 0
+    }
+}
+
+impl StacksMessageCodec for GetNakamotoInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.consensus_hash)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let consensus_hash: ConsensusHash = read_next(fd)?;
+        Ok(Self { consensus_hash })
+    }
+}
+
+impl StacksMessageCodec for NakamotoInvData {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
+        write_next(fd, &self.bitlen)?;
+        write_next(fd, &self.tenures)?;
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let bitlen: u16 = read_next(fd)?;
+        if bitlen == 0 {
+            return Err(codec_error::DeserializeError(
+                "BlocksInv must contain at least one block/microblock bit".to_string(),
+            ));
+        }
+
+        let tenures: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
+        Ok(Self { bitlen, tenures })
+    }
+}
+
+impl NakamotoInvData {
+    pub fn empty() -> Self {
+        Self {
+            bitlen: 0,
+            tenures: vec![],
+        }
+    }
+
+    pub fn new(bits: &[bool]) -> Self {
+        let bvl: u16 = bits
+            .len()
+            .try_into()
+            .expect("FATAL: tried to compress more than u16::MAX bools");
+        Self {
+            bitlen: bvl,
+            tenures: Self::bools_to_bitvec(bits),
+        }
+    }
+
+    pub fn bools_to_bitvec(bits: &[bool]) -> Vec<u8> {
+        let bvl: u16 = bits
+            .len()
+            .try_into()
+            .expect("FATAL: tried to compress more than u16::MAX bools");
+        let mut bitvec = vec![0u8; bitvec_len(bvl) as usize];
+        for (i, bit) in bits.iter().enumerate() {
+            if *bit {
+                bitvec[i / 8] |= 1u8 << (i % 8);
+            }
+        }
+        bitvec
+    }
+
+    pub fn has_ith_tenure(&self, tenure_index: u16) -> bool {
+        if tenure_index >= self.bitlen {
+            return false;
+        }
+        let idx =
+            usize::try_from(tenure_index).expect("can't get usize from u16 on this architecture");
+        self.tenures[idx / 8] & (1 << (tenure_index % 8)) != 0
     }
 }
 
@@ -365,7 +424,7 @@ impl StacksMessageCodec for PoxInvData {
             ));
         }
 
-        let pox_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, BITVEC_LEN!(bitlen))?;
+        let pox_bitvec: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
         Ok(PoxInvData {
             bitlen: bitlen,
             pox_bitvec: pox_bitvec,
@@ -891,6 +950,8 @@ impl StacksMessageType {
             StacksMessageType::StackerDBGetChunk(ref _m) => StacksMessageID::StackerDBGetChunk,
             StacksMessageType::StackerDBChunk(ref _m) => StacksMessageID::StackerDBChunk,
             StacksMessageType::StackerDBPushChunk(ref _m) => StacksMessageID::StackerDBPushChunk,
+            StacksMessageType::GetNakamotoInv(ref _m) => StacksMessageID::GetNakamotoInv,
+            StacksMessageType::NakamotoInv(ref _m) => StacksMessageID::NakamotoInv,
         }
     }
 
@@ -923,6 +984,8 @@ impl StacksMessageType {
             StacksMessageType::StackerDBGetChunk(ref _m) => "StackerDBGetChunk",
             StacksMessageType::StackerDBChunk(ref _m) => "StackerDBChunk",
             StacksMessageType::StackerDBPushChunk(ref _m) => "StackerDBPushChunk",
+            StacksMessageType::GetNakamotoInv(ref _m) => "GetNakamotoInv",
+            StacksMessageType::NakamotoInv(ref _m) => "NakamotoInv",
         }
     }
 
@@ -1024,6 +1087,12 @@ impl StacksMessageType {
                     m.chunk_data.data.len()
                 )
             }
+            StacksMessageType::GetNakamotoInv(ref m) => {
+                format!("GetNakamotoInv({})", &m.consensus_hash,)
+            }
+            StacksMessageType::NakamotoInv(ref m) => {
+                format!("NakamotoInv({},{:?})", m.bitlen, &m.tenures)
+            }
         }
     }
 }
@@ -1073,6 +1142,8 @@ impl StacksMessageCodec for StacksMessageID {
             x if x == StacksMessageID::StackerDBPushChunk as u8 => {
                 StacksMessageID::StackerDBPushChunk
             }
+            x if x == StacksMessageID::GetNakamotoInv as u8 => StacksMessageID::GetNakamotoInv,
+            x if x == StacksMessageID::NakamotoInv as u8 => StacksMessageID::NakamotoInv,
             _ => {
                 return Err(codec_error::DeserializeError(
                     "Unknown message ID".to_string(),
@@ -1115,6 +1186,8 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageType::StackerDBGetChunk(ref m) => write_next(fd, m)?,
             StacksMessageType::StackerDBChunk(ref m) => write_next(fd, m)?,
             StacksMessageType::StackerDBPushChunk(ref m) => write_next(fd, m)?,
+            StacksMessageType::GetNakamotoInv(ref m) => write_next(fd, m)?,
+            StacksMessageType::NakamotoInv(ref m) => write_next(fd, m)?,
         }
         Ok(())
     }
@@ -1216,6 +1289,14 @@ impl StacksMessageCodec for StacksMessageType {
             StacksMessageID::StackerDBPushChunk => {
                 let m: StackerDBPushChunkData = read_next(fd)?;
                 StacksMessageType::StackerDBPushChunk(m)
+            }
+            StacksMessageID::GetNakamotoInv => {
+                let m: GetNakamotoInvData = read_next(fd)?;
+                StacksMessageType::GetNakamotoInv(m)
+            }
+            StacksMessageID::NakamotoInv => {
+                let m: NakamotoInvData = read_next(fd)?;
+                StacksMessageType::NakamotoInv(m)
             }
             StacksMessageID::Reserved => {
                 return Err(codec_error::DeserializeError(
@@ -1499,6 +1580,7 @@ pub mod test {
     use stacks_common::util::secp256k1::*;
 
     use super::*;
+    use crate::net::{GetNakamotoInvData, NakamotoInvData};
 
     fn check_overflow<T>(r: Result<T, net_error>) -> bool {
         match r {
@@ -1896,10 +1978,7 @@ pub mod test {
             0x00, 0x00, 0x00, 0x00,
         ];
 
-        check_codec_and_corruption::<BlocksInvData>(
-            &maximal_blocksinvdata,
-            &maximal_blocksinvdata_bytes,
-        );
+        assert!(check_deserialize_failure::<BlocksInvData>(&empty_inv));
     }
 
     #[test]
@@ -2307,6 +2386,68 @@ pub mod test {
     }
 
     #[test]
+    fn codec_GetNakamotoInv() {
+        let get_nakamoto_inv = GetNakamotoInvData {
+            consensus_hash: ConsensusHash([0x55; 20]),
+        };
+
+        let get_nakamoto_inv_bytes: Vec<u8> = vec![
+            // consensus hash
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+        ];
+
+        check_codec_and_corruption::<GetNakamotoInvData>(
+            &get_nakamoto_inv,
+            &get_nakamoto_inv_bytes,
+        );
+    }
+
+    #[test]
+    fn codec_NakamotoInv() {
+        let nakamoto_inv = NakamotoInvData {
+            tenures: vec![0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff],
+            bitlen: 64,
+        };
+
+        let nakamoto_inv_bytes = vec![
+            // bitlen
+            0x00, 0x40, // tenures.len()
+            0x00, 0x00, 0x00, 0x08, // tenures
+            0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff,
+        ];
+
+        check_codec_and_corruption::<NakamotoInvData>(&nakamoto_inv, &nakamoto_inv_bytes);
+
+        // test that read_next_exact() works for the tenures bitvec
+        let long_bitlen = NakamotoInvData {
+            bitlen: 1,
+            tenures: vec![0xff, 0x01],
+        };
+        assert!(check_deserialize_failure::<NakamotoInvData>(&long_bitlen));
+
+        let short_bitlen = NakamotoInvData {
+            bitlen: 9,
+            tenures: vec![0xff],
+        };
+        assert!(check_deserialize_failure::<NakamotoInvData>(&short_bitlen));
+
+        // works for empty ones
+        let nakamoto_inv = NakamotoInvData {
+            tenures: vec![],
+            bitlen: 0,
+        };
+
+        let nakamoto_inv_bytes = vec![
+            // bitlen
+            0x00, 0x00, // tenures.len()
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        assert!(check_deserialize_failure::<NakamotoInvData>(&nakamoto_inv));
+    }
+
+    #[test]
     fn codec_StacksMessage() {
         let payloads: Vec<StacksMessageType> = vec![
             StacksMessageType::Handshake(HandshakeData {
@@ -2478,6 +2619,13 @@ pub mod test {
                     sig: MessageSignature::from_raw(&vec![0x44; 65]),
                     data: vec![0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
                 }
+            }),
+            StacksMessageType::GetNakamotoInv(GetNakamotoInvData {
+                consensus_hash: ConsensusHash([0x01; 20]),
+            }),
+            StacksMessageType::NakamotoInv(NakamotoInvData {
+                tenures: vec![0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff],
+                bitlen: 64
             }),
         ];
 
