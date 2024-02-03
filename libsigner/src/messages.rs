@@ -74,55 +74,95 @@ pub const BLOCK_SLOT_ID: u32 = 10;
 /// The slot ID for the transactions list for miners and signers to observe
 pub const TRANSACTIONS_SLOT_ID: u32 = 11;
 
-define_u8_enum!(TypePrefix {
+define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
     Packet = 1,
-    Transactions = 2,
-    DkgBegin = 3,
-    DkgPrivateBegin = 4,
-    DkgEndBegin = 5,
-    DkgEnd = 6,
-    DkgPublicShares = 7,
-    DkgPrivateShares = 8,
-    NonceRequest = 9,
-    NonceResponse = 10,
-    SignatureShareRequest = 11,
-    SignatureShareResponse = 12,
-    DkgStatusSuccess = 13,
-    DkgStatusFailure = 14
+    Transactions = 2
 });
 
-impl TryFrom<u8> for TypePrefix {
+impl TryFrom<u8> for SignerMessageTypePrefix {
     type Error = CodecError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::from_u8(value)
-            .ok_or_else(|| CodecError::DeserializeError(format!("Unknown type prefix: {value}")))
+        Self::from_u8(value).ok_or_else(|| {
+            CodecError::DeserializeError(format!("Unknown signer message type prefix: {value}"))
+        })
     }
 }
 
-impl From<&SignerMessage> for TypePrefix {
+impl From<&SignerMessage> for SignerMessageTypePrefix {
     fn from(message: &SignerMessage) -> Self {
         match message {
-            SignerMessage::Packet(_) => TypePrefix::Packet,
-            SignerMessage::BlockResponse(_) => TypePrefix::BlockResponse,
-            SignerMessage::Transactions(_) => TypePrefix::Transactions,
+            SignerMessage::Packet(_) => SignerMessageTypePrefix::Packet,
+            SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
+            SignerMessage::Transactions(_) => SignerMessageTypePrefix::Transactions,
         }
     }
 }
 
-impl From<&Packet> for TypePrefix {
-    fn from(packet: &Packet) -> Self {
-        match packet.msg {
-            Message::DkgBegin(_) => TypePrefix::DkgBegin,
-            Message::DkgPrivateBegin(_) => TypePrefix::DkgPrivateBegin,
-            Message::DkgEndBegin(_) => TypePrefix::DkgEndBegin,
-            Message::DkgEnd(_) => TypePrefix::DkgEnd,
-            Message::DkgPublicShares(_) => TypePrefix::DkgPublicShares,
-            Message::DkgPrivateShares(_) => TypePrefix::DkgPrivateShares,
-            Message::NonceRequest(_) => TypePrefix::NonceRequest,
-            Message::NonceResponse(_) => TypePrefix::NonceResponse,
-            Message::SignatureShareRequest(_) => TypePrefix::SignatureShareRequest,
-            Message::SignatureShareResponse(_) => TypePrefix::SignatureShareResponse,
+define_u8_enum!(MessageTypePrefix {
+    DkgBegin = 0,
+    DkgPrivateBegin = 1,
+    DkgEndBegin = 2,
+    DkgEnd = 3,
+    DkgPublicShares = 4,
+    DkgPrivateShares = 5,
+    NonceRequest = 6,
+    NonceResponse = 7,
+    SignatureShareRequest = 8,
+    SignatureShareResponse = 9
+});
+
+impl From<&Message> for MessageTypePrefix {
+    fn from(msg: &Message) -> Self {
+        match msg {
+            Message::DkgBegin(_) => MessageTypePrefix::DkgBegin,
+            Message::DkgPrivateBegin(_) => MessageTypePrefix::DkgPrivateBegin,
+            Message::DkgEndBegin(_) => MessageTypePrefix::DkgEndBegin,
+            Message::DkgEnd(_) => MessageTypePrefix::DkgEnd,
+            Message::DkgPublicShares(_) => MessageTypePrefix::DkgPublicShares,
+            Message::DkgPrivateShares(_) => MessageTypePrefix::DkgPrivateShares,
+            Message::NonceRequest(_) => MessageTypePrefix::NonceRequest,
+            Message::NonceResponse(_) => MessageTypePrefix::NonceResponse,
+            Message::SignatureShareRequest(_) => MessageTypePrefix::SignatureShareRequest,
+            Message::SignatureShareResponse(_) => MessageTypePrefix::SignatureShareResponse,
+        }
+    }
+}
+
+impl TryFrom<u8> for MessageTypePrefix {
+    type Error = CodecError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(value).ok_or_else(|| {
+            CodecError::DeserializeError(format!("Unknown packet type prefix: {value}"))
+        })
+    }
+}
+
+define_u8_enum!(RejectCodeTypePrefix{
+    ValidationFailed = 0,
+    SignedRejection = 1,
+    InsufficientSigners = 2,
+    MissingTransactions = 3,
+    ConnectivityIssues = 4
+});
+
+impl TryFrom<u8> for RejectCodeTypePrefix {
+    type Error = CodecError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(value).ok_or_else(|| {
+            CodecError::DeserializeError(format!("Unknown reject code type prefix: {value}"))
+        })
+    }
+}
+
+impl From<&RejectCode> for RejectCodeTypePrefix {
+    fn from(reject_code: &RejectCode) -> Self {
+        match reject_code {
+            RejectCode::ValidationFailed(_) => RejectCodeTypePrefix::ValidationFailed,
+            RejectCode::SignedRejection(_) => RejectCodeTypePrefix::SignedRejection,
+            RejectCode::InsufficientSigners(_) => RejectCodeTypePrefix::InsufficientSigners,
+            RejectCode::MissingTransactions(_) => RejectCodeTypePrefix::MissingTransactions,
+            RejectCode::ConnectivityIssues => RejectCodeTypePrefix::ConnectivityIssues,
         }
     }
 }
@@ -140,7 +180,7 @@ pub enum SignerMessage {
 
 impl StacksMessageCodec for SignerMessage {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &(TypePrefix::from(self) as u8))?;
+        write_next(fd, &(SignerMessageTypePrefix::from(self) as u8))?;
         match self {
             SignerMessage::Packet(packet) => {
                 packet.inner_consensus_serialize(fd)?;
@@ -157,25 +197,19 @@ impl StacksMessageCodec for SignerMessage {
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let type_prefix_byte = read_next::<u8, _>(fd)?;
-        let type_prefix = TypePrefix::try_from(type_prefix_byte)?;
+        let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
-            TypePrefix::Packet => {
+            SignerMessageTypePrefix::Packet => {
                 let packet = Packet::inner_consensus_deserialize(fd)?;
                 SignerMessage::Packet(packet)
             }
-            TypePrefix::BlockResponse => {
+            SignerMessageTypePrefix::BlockResponse => {
                 let block_response = read_next::<BlockResponse, _>(fd)?;
                 SignerMessage::BlockResponse(block_response)
             }
-            TypePrefix::Transactions => {
+            SignerMessageTypePrefix::Transactions => {
                 let transactions = read_next::<Vec<StacksTransaction>, _>(fd)?;
                 SignerMessage::Transactions(transactions)
-            }
-            _ => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Unknown signer message type prefix: {}",
-                    type_prefix_byte
-                )))
             }
         };
         Ok(message)
@@ -562,6 +596,7 @@ impl StacksMessageCodecExtensions for SignatureShareResponse {
 
 impl StacksMessageCodecExtensions for Message {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &(MessageTypePrefix::from(self) as u8))?;
         match self {
             Message::DkgBegin(dkg_begin) => {
                 dkg_begin.inner_consensus_serialize(fd)?;
@@ -599,40 +634,36 @@ impl StacksMessageCodecExtensions for Message {
 
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let type_prefix_byte = read_next::<u8, _>(fd)?;
-        let type_prefix = TypePrefix::try_from(type_prefix_byte)?;
+        let type_prefix = MessageTypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
-            TypePrefix::DkgBegin => Message::DkgBegin(DkgBegin::inner_consensus_deserialize(fd)?),
-            TypePrefix::DkgPrivateBegin => {
+            MessageTypePrefix::DkgBegin => {
+                Message::DkgBegin(DkgBegin::inner_consensus_deserialize(fd)?)
+            }
+            MessageTypePrefix::DkgPrivateBegin => {
                 Message::DkgPrivateBegin(DkgPrivateBegin::inner_consensus_deserialize(fd)?)
             }
-            TypePrefix::DkgEndBegin => {
+            MessageTypePrefix::DkgEndBegin => {
                 Message::DkgEndBegin(DkgEndBegin::inner_consensus_deserialize(fd)?)
             }
-            TypePrefix::DkgEnd => Message::DkgEnd(DkgEnd::inner_consensus_deserialize(fd)?),
-            TypePrefix::DkgPublicShares => {
+            MessageTypePrefix::DkgEnd => Message::DkgEnd(DkgEnd::inner_consensus_deserialize(fd)?),
+            MessageTypePrefix::DkgPublicShares => {
                 Message::DkgPublicShares(DkgPublicShares::inner_consensus_deserialize(fd)?)
             }
-            TypePrefix::DkgPrivateShares => {
+            MessageTypePrefix::DkgPrivateShares => {
                 Message::DkgPrivateShares(DkgPrivateShares::inner_consensus_deserialize(fd)?)
             }
-            TypePrefix::NonceRequest => {
+            MessageTypePrefix::NonceRequest => {
                 Message::NonceRequest(NonceRequest::inner_consensus_deserialize(fd)?)
             }
-            TypePrefix::NonceResponse => {
+            MessageTypePrefix::NonceResponse => {
                 Message::NonceResponse(NonceResponse::inner_consensus_deserialize(fd)?)
             }
-            TypePrefix::SignatureShareRequest => Message::SignatureShareRequest(
+            MessageTypePrefix::SignatureShareRequest => Message::SignatureShareRequest(
                 SignatureShareRequest::inner_consensus_deserialize(fd)?,
             ),
-            TypePrefix::SignatureShareResponse => Message::SignatureShareResponse(
+            MessageTypePrefix::SignatureShareResponse => Message::SignatureShareResponse(
                 SignatureShareResponse::inner_consensus_deserialize(fd)?,
             ),
-            _ => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Unknown message type prefix: {}",
-                    type_prefix_byte
-                )))
-            }
         };
         Ok(message)
     }
@@ -640,49 +671,13 @@ impl StacksMessageCodecExtensions for Message {
 
 impl StacksMessageCodecExtensions for Packet {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &(TypePrefix::from(self) as u8))?;
         self.msg.inner_consensus_serialize(fd)?;
         write_next(fd, &self.sig)?;
         Ok(())
     }
 
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let type_prefix_byte = read_next::<u8, _>(fd)?;
-        let type_prefix = TypePrefix::try_from(type_prefix_byte)?;
-        let msg = match type_prefix {
-            TypePrefix::DkgBegin => Message::DkgBegin(DkgBegin::inner_consensus_deserialize(fd)?),
-            TypePrefix::DkgPrivateBegin => {
-                Message::DkgPrivateBegin(DkgPrivateBegin::inner_consensus_deserialize(fd)?)
-            }
-            TypePrefix::DkgEndBegin => {
-                Message::DkgEndBegin(DkgEndBegin::inner_consensus_deserialize(fd)?)
-            }
-            TypePrefix::DkgEnd => Message::DkgEnd(DkgEnd::inner_consensus_deserialize(fd)?),
-            TypePrefix::DkgPublicShares => {
-                Message::DkgPublicShares(DkgPublicShares::inner_consensus_deserialize(fd)?)
-            }
-            TypePrefix::DkgPrivateShares => {
-                Message::DkgPrivateShares(DkgPrivateShares::inner_consensus_deserialize(fd)?)
-            }
-            TypePrefix::NonceRequest => {
-                Message::NonceRequest(NonceRequest::inner_consensus_deserialize(fd)?)
-            }
-            TypePrefix::NonceResponse => {
-                Message::NonceResponse(NonceResponse::inner_consensus_deserialize(fd)?)
-            }
-            TypePrefix::SignatureShareRequest => Message::SignatureShareRequest(
-                SignatureShareRequest::inner_consensus_deserialize(fd)?,
-            ),
-            TypePrefix::SignatureShareResponse => Message::SignatureShareResponse(
-                SignatureShareResponse::inner_consensus_deserialize(fd)?,
-            ),
-            _ => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Unknown packet type prefix: {}",
-                    type_prefix_byte
-                )))
-            }
-        };
+        let msg = Message::inner_consensus_deserialize(fd)?;
         let sig: Vec<u8> = read_next(fd)?;
         Ok(Packet { msg, sig })
     }
@@ -823,21 +818,14 @@ pub enum RejectCode {
 
 impl StacksMessageCodec for RejectCode {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &(RejectCodeTypePrefix::from(self) as u8))?;
         match self {
-            RejectCode::ValidationFailed(code) => {
-                write_next(fd, &0u8)?;
-                write_next(fd, &(code.clone() as u8))?
-            }
-            RejectCode::SignedRejection(sig) => {
-                write_next(fd, &1u8)?;
-                write_next(fd, sig)?
-            }
+            RejectCode::ValidationFailed(code) => write_next(fd, &(code.clone() as u8))?,
+            RejectCode::SignedRejection(sig) => write_next(fd, sig)?,
             RejectCode::InsufficientSigners(malicious_signers) => {
-                write_next(fd, &2u8)?;
                 write_next(fd, malicious_signers)?
             }
             RejectCode::MissingTransactions(missing_transactions) => {
-                write_next(fd, &3u8)?;
                 write_next(fd, missing_transactions)?
             }
             RejectCode::ConnectivityIssues => write_next(fd, &4u8)?,
@@ -846,9 +834,10 @@ impl StacksMessageCodec for RejectCode {
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let type_prefix = read_next::<u8, _>(fd)?;
+        let type_prefix_byte = read_next::<u8, _>(fd)?;
+        let type_prefix = RejectCodeTypePrefix::try_from(type_prefix_byte)?;
         let code = match type_prefix {
-            0 => RejectCode::ValidationFailed(
+            RejectCodeTypePrefix::ValidationFailed => RejectCode::ValidationFailed(
                 ValidateRejectCode::try_from(read_next::<u8, _>(fd)?).map_err(|e| {
                     CodecError::DeserializeError(format!(
                         "Failed to decode validation reject code: {:?}",
@@ -856,14 +845,16 @@ impl StacksMessageCodec for RejectCode {
                     ))
                 })?,
             ),
-            1 => RejectCode::SignedRejection(read_next::<ThresholdSignature, _>(fd)?),
-            2 => RejectCode::InsufficientSigners(read_next::<Vec<u32>, _>(fd)?),
-            _ => {
-                return Err(CodecError::DeserializeError(format!(
-                    "Unknown reject code type prefix: {}",
-                    type_prefix
-                )))
+            RejectCodeTypePrefix::SignedRejection => {
+                RejectCode::SignedRejection(read_next::<ThresholdSignature, _>(fd)?)
             }
+            RejectCodeTypePrefix::InsufficientSigners => {
+                RejectCode::InsufficientSigners(read_next::<Vec<u32>, _>(fd)?)
+            }
+            RejectCodeTypePrefix::MissingTransactions => {
+                RejectCode::MissingTransactions(read_next::<Vec<StacksTransaction>, _>(fd)?)
+            }
+            RejectCodeTypePrefix::ConnectivityIssues => RejectCode::ConnectivityIssues,
         };
         Ok(code)
     }
@@ -971,6 +962,34 @@ mod test {
         assert_eq!(code, deserialized_code);
 
         let code = RejectCode::InsufficientSigners(vec![0, 1, 2]);
+        let serialized_code = code.serialize_to_vec();
+        let deserialized_code = read_next::<RejectCode, _>(&mut &serialized_code[..])
+            .expect("Failed to deserialize RejectCode");
+        assert_eq!(code, deserialized_code);
+
+        let sk = StacksPrivateKey::new();
+        let tx = StacksTransaction {
+            version: TransactionVersion::Testnet,
+            chain_id: CHAIN_ID_TESTNET,
+            auth: TransactionAuth::from_p2pkh(&sk).unwrap(),
+            anchor_mode: TransactionAnchorMode::Any,
+            post_condition_mode: TransactionPostConditionMode::Allow,
+            post_conditions: vec![],
+            payload: TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: "test-contract".into(),
+                    code_body: StacksString::from_str("(/ 1 0)").unwrap(),
+                },
+                None,
+            ),
+        };
+        let code = RejectCode::MissingTransactions(vec![tx]);
+        let serialized_code = code.serialize_to_vec();
+        let deserialized_code = read_next::<RejectCode, _>(&mut &serialized_code[..])
+            .expect("Failed to deserialize RejectCode");
+        assert_eq!(code, deserialized_code);
+
+        let code = RejectCode::ConnectivityIssues;
         let serialized_code = code.serialize_to_vec();
         let deserialized_code = read_next::<RejectCode, _>(&mut &serialized_code[..])
             .expect("Failed to deserialize RejectCode");
