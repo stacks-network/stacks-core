@@ -492,12 +492,12 @@ impl Burnchain {
     pub fn next_reward_cycle(&self, block_height: u64) -> Option<u64> {
         let cycle = self.block_height_to_reward_cycle(block_height)?;
         let effective_height = block_height.checked_sub(self.first_block_height)?;
-        let next_bump = 
-            if effective_height % u64::from(self.pox_constants.reward_cycle_length) == 0 {
-                0
-            } else {
-                1
-            };
+        let next_bump = if effective_height % u64::from(self.pox_constants.reward_cycle_length) == 0
+        {
+            0
+        } else {
+            1
+        };
         Some(cycle + next_bump)
     }
 
