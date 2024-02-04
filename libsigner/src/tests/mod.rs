@@ -38,7 +38,7 @@ use wsts::net::{DkgBegin, Packet};
 
 use crate::events::SignerEvent;
 use crate::messages::{PacketInfo, SignerMessage};
-use crate::{Signer, SignerEventReceiver, SignerRunLoop};
+use crate::{CoordinatorMetadata, Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
 /// last call to `run_one_pass` as its final state.
@@ -109,8 +109,10 @@ fn test_simple_signer() {
         let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
         let message = SignerMessage::Packet(PacketInfo {
             packet: Packet { msg, sig: vec![] },
-            consensus_hash: ConsensusHash([0u8; 20]),
-            block_height: 0,
+            coordinator_metadata: CoordinatorMetadata {
+                stacks_consensus_hash: ConsensusHash([0u8; 20]),
+                stacks_block_height: 0,
+            },
         });
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);

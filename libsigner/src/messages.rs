@@ -71,11 +71,14 @@ const SIGNATURE_SHARE_RESPONSE_MSG_ID: u32 = 9;
 pub const BLOCK_MSG_ID: u32 = 10;
 /// The slot ID for the transactions list for miners and signers to observe
 pub const TRANSACTIONS_MSG_ID: u32 = 11;
+/// The slot ID for NACK messages to signers with outdated view of the chain
+pub const NACK_MSG_ID: u32 = 12;
 
 define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
     Packet = 1,
-    Transactions = 2
+    Transactions = 2,
+    Nack = 3
 });
 
 impl TryFrom<u8> for SignerMessageTypePrefix {
@@ -93,6 +96,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::Packet(_) => SignerMessageTypePrefix::Packet,
             SignerMessage::BlockResponse(_) => SignerMessageTypePrefix::BlockResponse,
             SignerMessage::Transactions(_) => SignerMessageTypePrefix::Transactions,
+            SignerMessage::Nack(_) => SignerMessageTypePrefix::Nack,
         }
     }
 }
@@ -174,6 +178,8 @@ pub enum SignerMessage {
     Packet(PacketInfo),
     /// The list of transactions for miners and signers to observe that this signer cares about
     Transactions(Vec<StacksTransaction>),
+    /// NACK messages to signers with outdated view of the chain
+    Nack(NackMessage),
 }
 
 impl SignerMessage {
@@ -194,6 +200,7 @@ impl SignerMessage {
             },
             Self::BlockResponse(_) => BLOCK_MSG_ID,
             Self::Transactions(_) => TRANSACTIONS_MSG_ID,
+            Self::Nack(_) => NACK_MSG_ID,
         };
         msg_id
     }
@@ -211,6 +218,9 @@ impl StacksMessageCodec for SignerMessage {
             }
             SignerMessage::Transactions(transactions) => {
                 write_next(fd, transactions)?;
+            }
+            SignerMessage::Nack(nack_message) => {
+                nack_message.inner_consensus_serialize(fd)?;
             }
         };
         Ok(())
@@ -231,6 +241,10 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessageTypePrefix::Transactions => {
                 let transactions = read_next::<Vec<StacksTransaction>, _>(fd)?;
                 SignerMessage::Transactions(transactions)
+            }
+            SignerMessageTypePrefix::Nack => {
+                let nack_message = NackMessage::inner_consensus_deserialize(fd)?;
+                SignerMessage::Nack(nack_message)
             }
         };
         Ok(message)
@@ -818,19 +832,49 @@ impl StacksMessageCodecExtensions for Packet {
 impl StacksMessageCodecExtensions for PacketInfo {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.packet.inner_consensus_serialize(fd)?;
-        write_next(fd, &self.consensus_hash)?;
-        write_next(fd, &self.block_height)?;
+        self.coordinator_metadata.inner_consensus_serialize(fd)?;
         Ok(())
     }
 
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let packet = Packet::inner_consensus_deserialize(fd)?;
-        let consensus_hash = read_next::<ConsensusHash, _>(fd)?;
-        let block_height = read_next::<u64, _>(fd)?;
+        let coordinator_metadata = CoordinatorMetadata::inner_consensus_deserialize(fd)?;
         Ok(PacketInfo {
             packet,
-            consensus_hash,
-            block_height,
+            coordinator_metadata,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for NackMessage {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.signer_id)?;
+        self.coordinator_metadata.inner_consensus_serialize(fd)?;
+        Ok(())
+    }
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let signer_id = read_next::<u32, _>(fd)?;
+        let coordinator_metadata = CoordinatorMetadata::inner_consensus_deserialize(fd)?;
+        Ok(NackMessage {
+            signer_id,
+            coordinator_metadata,
+        })
+    }
+}
+
+impl StacksMessageCodecExtensions for CoordinatorMetadata {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.stacks_consensus_hash.consensus_serialize(fd)?;
+        write_next(fd, &self.stacks_block_height)?;
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let stacks_consensus_hash = ConsensusHash::consensus_deserialize(fd)?;
+        let stacks_block_height = read_next::<u64, _>(fd)?;
+        Ok(CoordinatorMetadata {
+            stacks_consensus_hash,
+            stacks_block_height,
         })
     }
 }
@@ -1058,6 +1102,64 @@ impl From<BlockRejection> for SignerMessage {
 impl From<BlockValidateReject> for SignerMessage {
     fn from(rejection: BlockValidateReject) -> Self {
         Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
+    }
+}
+
+/// Signed network packets sent by signers along with their view
+/// of stacks tip consensus hash and block height for
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PacketInfo {
+    /// Signed network packet
+    pub packet: Packet,
+    /// The signer's view of coordinator metadata including stacks tip consensus hash and block height
+    pub coordinator_metadata: CoordinatorMetadata,
+}
+
+impl PacketInfo {
+    /// Create a new PacketInfo
+    pub fn new(packet: Packet, coordinator_metadata: CoordinatorMetadata) -> Self {
+        PacketInfo {
+            packet,
+            coordinator_metadata,
+        }
+    }
+}
+
+/// Calculated Coordinator Metadata per signer's view of Stacks chain
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CoordinatorMetadata {
+    /// The stacks_tip_consensus_hash from the signer's view
+    pub stacks_consensus_hash: ConsensusHash,
+    /// The stacks tip block height from the signer's view
+    pub stacks_block_height: u64,
+}
+
+impl CoordinatorMetadata {
+    /// Create a new `CoordinatorMetadata` instance
+    pub fn new(stacks_consensus_hash: ConsensusHash, stacks_block_height: u64) -> Self {
+        Self {
+            stacks_consensus_hash,
+            stacks_block_height,
+        }
+    }
+}
+
+/// NACK message structure
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NackMessage {
+    /// The reporting signer_id having a more updated chain view
+    pub signer_id: u32,
+    /// The signer's view of coordinator metadata including consensus-hash and block-height based on its view of the chain
+    pub coordinator_metadata: CoordinatorMetadata,
+}
+
+impl NackMessage {
+    /// Creates a new `NackMessage` with the given coordinator information
+    pub fn new(signer_id: u32, coordinator_metadata: CoordinatorMetadata) -> Self {
+        Self {
+            signer_id,
+            coordinator_metadata,
+        }
     }
 }
 
@@ -1394,8 +1496,10 @@ mod test {
                 msg: Message::DkgBegin(DkgBegin { dkg_id: 0 }),
                 sig: vec![1u8; 20],
             },
-            consensus_hash: ConsensusHash([0u8; 20]),
-            block_height: 0,
+            coordinator_metadata: CoordinatorMetadata {
+                stacks_consensus_hash: ConsensusHash([0u8; 20]),
+                stacks_block_height: 0,
+            },
         });
 
         let serialized_signer_message = signer_message.serialize_to_vec();
