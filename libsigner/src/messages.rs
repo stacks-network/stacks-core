@@ -1086,6 +1086,11 @@ impl From<PacketInfo> for SignerMessage {
         Self::Packet(packet_info)
     }
 }
+impl From<NackMessage> for SignerMessage {
+    fn from(nack_message: NackMessage) -> Self {
+        Self::Nack(nack_message)
+    }
+}
 
 impl From<BlockResponse> for SignerMessage {
     fn from(block_response: BlockResponse) -> Self {
@@ -1126,7 +1131,7 @@ impl PacketInfo {
 }
 
 /// Calculated Coordinator Metadata per signer's view of Stacks chain
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CoordinatorMetadata {
     /// The stacks_tip_consensus_hash from the signer's view
     pub stacks_consensus_hash: ConsensusHash,
