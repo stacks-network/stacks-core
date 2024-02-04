@@ -48,7 +48,7 @@ pub use crate::events::{
     EventReceiver, EventStopSignaler, SignerEvent, SignerEventReceiver, SignerStopSignaler,
 };
 pub use crate::messages::{
-    BlockRejection, BlockResponse, RejectCode, SignerMessage, BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
+    BlockRejection, BlockResponse, PacketInfo, RejectCode, SignerMessage, BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
 };
 pub use crate::runloop::{RunningSigner, Signer, SignerRunLoop};
 pub use crate::session::{SignerSession, StackerDBSession};

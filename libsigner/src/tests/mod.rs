@@ -31,12 +31,13 @@ use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
 };
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 use wsts::net::{DkgBegin, Packet};
 
 use crate::events::SignerEvent;
-use crate::messages::SignerMessage;
+use crate::messages::{PacketInfo, SignerMessage};
 use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
@@ -106,7 +107,11 @@ fn test_simple_signer() {
     for i in 0..max_events {
         let privk = Secp256k1PrivateKey::new();
         let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
-        let message = SignerMessage::Packet(Packet { msg, sig: vec![] });
+        let message = SignerMessage::Packet(PacketInfo {
+            packet: Packet { msg, sig: vec![] },
+            consensus_hash: ConsensusHash([0u8; 20]),
+            block_height: 0,
+        });
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);
         chunk.sign(&privk).unwrap();

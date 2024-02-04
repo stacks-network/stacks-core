@@ -35,12 +35,14 @@ use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
 };
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
 use wsts::common::{PolyCommitment, PublicNonce, Signature, SignatureShare, TupleProof};
+use wsts::curve::keys::PublicKey;
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
 use wsts::net::{
@@ -169,7 +171,7 @@ pub enum SignerMessage {
     /// The signed/validated Nakamoto block for miners to observe
     BlockResponse(BlockResponse),
     /// DKG and Signing round data for other signers to observe
-    Packet(Packet),
+    Packet(PacketInfo),
     /// The list of transactions for miners and signers to observe that this signer cares about
     Transactions(Vec<StacksTransaction>),
 }
@@ -219,8 +221,8 @@ impl StacksMessageCodec for SignerMessage {
         let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
             SignerMessageTypePrefix::Packet => {
-                let packet = Packet::inner_consensus_deserialize(fd)?;
-                SignerMessage::Packet(packet)
+                let packet_info = PacketInfo::inner_consensus_deserialize(fd)?;
+                SignerMessage::Packet(packet_info)
             }
             SignerMessageTypePrefix::BlockResponse => {
                 let block_response = read_next::<BlockResponse, _>(fd)?;
@@ -813,6 +815,26 @@ impl StacksMessageCodecExtensions for Packet {
     }
 }
 
+impl StacksMessageCodecExtensions for PacketInfo {
+    fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        self.packet.inner_consensus_serialize(fd)?;
+        write_next(fd, &self.consensus_hash)?;
+        write_next(fd, &self.block_height)?;
+        Ok(())
+    }
+
+    fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let packet = Packet::inner_consensus_deserialize(fd)?;
+        let consensus_hash = read_next::<ConsensusHash, _>(fd)?;
+        let block_height = read_next::<u64, _>(fd)?;
+        Ok(PacketInfo {
+            packet,
+            consensus_hash,
+            block_height,
+        })
+    }
+}
+
 /// The response that a signer sends back to observing miners
 /// either accepting or rejecting a Nakamoto block with the corresponding reason
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1015,9 +1037,9 @@ impl std::fmt::Display for RejectCode {
     }
 }
 
-impl From<Packet> for SignerMessage {
-    fn from(packet: Packet) -> Self {
-        Self::Packet(packet)
+impl From<PacketInfo> for SignerMessage {
+    fn from(packet_info: PacketInfo) -> Self {
+        Self::Packet(packet_info)
     }
 }
 
@@ -1367,9 +1389,13 @@ mod test {
     #[test]
     fn serde_signer_message() {
         let rng = &mut OsRng;
-        let signer_message = SignerMessage::Packet(Packet {
-            msg: Message::DkgBegin(DkgBegin { dkg_id: 0 }),
-            sig: vec![1u8; 20],
+        let signer_message = SignerMessage::Packet(PacketInfo {
+            packet: Packet {
+                msg: Message::DkgBegin(DkgBegin { dkg_id: 0 }),
+                sig: vec![1u8; 20],
+            },
+            consensus_hash: ConsensusHash([0u8; 20]),
+            block_height: 0,
         });
 
         let serialized_signer_message = signer_message.serialize_to_vec();
