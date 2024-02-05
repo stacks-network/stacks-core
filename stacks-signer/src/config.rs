@@ -30,6 +30,7 @@ use stacks_common::address::{
 };
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::PrivateKey;
 use wsts::curve::ecdsa;
 use wsts::curve::scalar::Scalar;
 use wsts::state_machine::PublicKeys;
@@ -68,6 +69,17 @@ pub enum Network {
     Mocknet,
 }
 
+impl std::fmt::Display for Network {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let network = match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+            Self::Mocknet => "mocknet",
+        };
+        write!(f, "{}", network)
+    }
+}
+
 impl Network {
     /// Converts a Network enum variant to a corresponding chain id
     pub fn to_chain_id(&self) -> u32 {
@@ -103,6 +115,7 @@ impl Network {
 }
 
 /// The parsed configuration for the signer
+#[derive(Clone, Debug)]
 pub struct Config {
     /// endpoint to the stacks node
     pub node_host: SocketAddr,
@@ -111,7 +124,7 @@ pub struct Config {
     /// smart contract that controls the target signers' stackerdb
     pub stackerdb_contract_id: QualifiedContractIdentifier,
     /// The Scalar representation of the private key for signer communication
-    pub message_private_key: Scalar,
+    pub ecdsa_private_key: Scalar,
     /// The signer's Stacks private key
     pub stacks_private_key: StacksPrivateKey,
     /// The signer's Stacks address
@@ -124,6 +137,8 @@ pub struct Config {
     pub signer_key_ids: SignerKeyIds,
     /// This signer's ID
     pub signer_id: u32,
+    /// All signer IDs participating in the current reward cycle
+    pub signer_ids: Vec<u32>,
     /// The time to wait for a response from the stacker-db instance
     pub event_timeout: Duration,
     /// timeout to gather DkgPublicShares messages
@@ -154,9 +169,6 @@ struct RawConfigFile {
     pub endpoint: String,
     /// Signers' Stacker db contract identifier
     pub stackerdb_contract_id: Option<String>,
-
-    /// the 32 byte ECDSA private key used to sign blocks, chunks, transactions, and WSTS messages
-    pub message_private_key: String,
     /// The hex representation of the signer's Stacks private key used for communicating
     /// with the Stacks Node, including writing to the Stacker DB instance.
     pub stacks_private_key: String,
@@ -243,16 +255,16 @@ impl TryFrom<RawConfigFile> for Config {
             None => boot_code_id("signers", raw_data.network == Network::Mainnet),
         };
 
-        let message_private_key =
-            Scalar::try_from(raw_data.message_private_key.as_str()).map_err(|_| {
+        let stacks_private_key =
+            StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
                 ConfigError::BadField(
-                    "message_private_key".to_string(),
-                    raw_data.message_private_key.clone(),
+                    "stacks_private_key".to_string(),
+                    raw_data.stacks_private_key.clone(),
                 )
             })?;
 
-        let stacks_private_key =
-            StacksPrivateKey::from_hex(&raw_data.stacks_private_key).map_err(|_| {
+        let ecdsa_private_key =
+            Scalar::try_from(&stacks_private_key.to_bytes()[..32]).map_err(|_| {
                 ConfigError::BadField(
                     "stacks_private_key".to_string(),
                     raw_data.stacks_private_key.clone(),
@@ -266,6 +278,7 @@ impl TryFrom<RawConfigFile> for Config {
             &vec![stacks_public_key],
         )
         .ok_or(ConfigError::UnsupportedAddressVersion)?;
+        let mut signer_ids = vec![];
         let mut public_keys = PublicKeys::default();
         let mut signer_key_ids = SignerKeyIds::default();
         for (i, s) in raw_data.signers.iter().enumerate() {
@@ -283,10 +296,10 @@ impl TryFrom<RawConfigFile> for Config {
                 }
                 public_keys.key_ids.insert(*key_id, signer_public_key);
             }
-            //We start our signer and key IDs from 1 hence the + 1;
-            let signer_key = u32::try_from(i).unwrap();
-            public_keys.signers.insert(signer_key, signer_public_key);
-            signer_key_ids.insert(signer_key, s.key_ids.clone());
+            let signer_id = u32::try_from(i).unwrap();
+            public_keys.signers.insert(signer_id, signer_public_key);
+            signer_key_ids.insert(signer_id, s.key_ids.clone());
+            signer_ids.push(signer_id);
         }
         let event_timeout =
             Duration::from_millis(raw_data.event_timeout_ms.unwrap_or(EVENT_TIMEOUT_MS));
@@ -299,12 +312,13 @@ impl TryFrom<RawConfigFile> for Config {
             node_host,
             endpoint,
             stackerdb_contract_id,
-            message_private_key,
+            ecdsa_private_key,
             stacks_private_key,
             stacks_address,
             network: raw_data.network,
             signer_ids_public_keys: public_keys,
             signer_id: raw_data.signer_id,
+            signer_ids,
             signer_key_ids,
             event_timeout,
             dkg_end_timeout,
@@ -349,7 +363,6 @@ mod tests {
             node_host: "127.0.0.1:20443".to_string(),
             endpoint: "127.0.0.1:30000".to_string(),
             stackerdb_contract_id: None,
-            message_private_key: "2ZCxUV9BAKJrGnTPaamKHb4HVgj9ArQgEhowuTe7uRt3".to_string(),
             stacks_private_key:
                 "69be0e68947fa7128702761151dc8d9b39ee1401e547781bb2ec3e5b4eb1b36f01".to_string(),
             network: Network::Testnet,
