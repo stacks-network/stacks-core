@@ -42,19 +42,16 @@ use libsigner::{
 };
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
-use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
 use stacks_common::codec::read_next;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
     SignArgs, StackerDBArgs,
 };
-use stacks_signer::config::{Config, Network};
+use stacks_signer::config::Config;
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
-use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
+use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract, to_addr};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
@@ -265,7 +262,7 @@ fn handle_run(args: RunDkgArgs) {
 fn handle_generate_files(args: GenerateFilesArgs) {
     debug!("Generating files...");
     let signer_stacks_private_keys = if let Some(path) = args.private_keys {
-        let file = File::open(&path).unwrap();
+        let file = File::open(path).unwrap();
         let reader = io::BufReader::new(file);
 
         let private_keys: Vec<String> = reader.lines().collect::<Result<_, _>>().unwrap();
@@ -302,6 +299,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         &args.host.to_string(),
         &args.signers_contract.to_string(),
         args.timeout.map(Duration::from_millis),
+        &args.network,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
@@ -355,20 +353,6 @@ fn main() {
             handle_generate_files(args);
         }
     }
-}
-
-fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
-    let version = match network {
-        Network::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        Network::Testnet | Network::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-    StacksAddress::from_public_keys(
-        version,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(stacks_private_key)],
-    )
-    .unwrap()
 }
 
 #[cfg(test)]
