@@ -995,6 +995,7 @@ mod tests {
     use libsigner::SIGNER_SLOTS_PER_USER;
     use rand::distributions::Standard;
     use rand::Rng;
+    use serial_test::serial;
     use stacks_common::bitvec::BitVec;
     use stacks_common::types::chainstate::{
         ConsensusHash, StacksBlockId, StacksPrivateKey, TrieHash,
@@ -1192,6 +1193,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn get_expected_transactions_should_filter_invalid_transactions() {
         // Create a runloop of a valid signer
         let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
@@ -1298,6 +1300,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn verify_transactions_valid() {
         let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let mut runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
