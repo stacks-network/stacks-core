@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -100,7 +99,7 @@ pub struct SignerCalculation {
 }
 
 impl RawRewardSetEntry {
-    pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Self {
+    pub fn from_pox_4_tuple(is_mainnet: bool, tuple: TupleData) -> Result<Self, ChainstateError> {
         let mut tuple_data = tuple.data_map;
 
         let pox_addr_tuple = tuple_data
@@ -121,19 +120,14 @@ impl RawRewardSetEntry {
         let stacker = tuple_data
             .remove("stacker")
             .expect("FATAL: no 'stacker' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_optional()
-            .expect("FATAL: `stacker` is not an option")
-            .map(|value| {
-                value
-                    .expect_principal()
-                    .expect("FATAL: stacker is not a principal")
-            });
+            .expect_optional()?
+            .map(|value| value.expect_principal())
+            .transpose()?;
 
         let signer = tuple_data
             .remove("signer")
             .expect("FATAL: no 'signer' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_buff(SIGNERS_PK_LEN)
-            .expect("FATAL: signer is not a buff");
+            .expect_buff(SIGNERS_PK_LEN)?;
 
         // (buff 33) only enforces max size, not min size, so we need to do a len check
         let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
@@ -152,12 +146,12 @@ impl RawRewardSetEntry {
             "signer" => to_hex(&signer),
         );
 
-        Self {
+        Ok(Self {
             reward_address,
             amount_stacked: total_ustx,
             stacker,
             signer: Some(pk_bytes),
-        }
+        })
     }
 }
 
@@ -198,15 +192,14 @@ impl NakamotoSigners {
                         SymbolicExpression::atom_value(Value::UInt(index)),
                     ],
                 )?
-                .expect_optional()
-                .expect("FATAL: get-reward-set-pox-address did not return an optional")
+                .expect_optional()?
                 .expect(&format!(
                     "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                     index, list_length, reward_cycle
                 ))
                 .expect_tuple()?;
 
-            let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple);
+            let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
 
             slots.push(entry)
         }
@@ -388,10 +381,10 @@ impl NakamotoSigners {
         let signers_contract = &boot_code_id(SIGNERS_NAME, clarity_tx.config.mainnet);
 
         // are we the first block in the prepare phase in our fork?
-        let needs_update = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
+        let needs_update: Result<_, ChainstateError>  = clarity_tx.connection().with_clarity_db_readonly(|clarity_db| {
             if !clarity_db.has_contract(signers_contract) {
                 // if there's no signers contract, no need to update anything.
-                return false
+                return Ok(false)
             }
             let Ok(value) = clarity_db.lookup_variable_unknown_descriptor(
                 signers_contract,
@@ -401,13 +394,13 @@ impl NakamotoSigners {
                 error!("FATAL: Failed to read `{SIGNERS_UPDATE_STATE}` variable from .signers contract");
                 panic!();
             };
-            let cycle_number = value.expect_u128().expect("FATAL: cycle number is not a u128");
+            let cycle_number = value.expect_u128()?;
             // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
             //  the .signers state.
-            cycle_number < cycle_of_prepare_phase.into()
+            Ok(cycle_number < cycle_of_prepare_phase.into())
         });
 
-        if !needs_update {
+        if !needs_update? {
             debug!("Current cycle has already been setup in .signers or .signers is not initialized yet");
             return Ok(None);
         }

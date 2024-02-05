@@ -143,7 +143,15 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::db::{DBConn, DBTx, Error as db_error};
 
 /// maximum chunk inventory size
-pub const STACKERDB_INV_MAX: u32 = 4096;
+pub const STACKERDB_INV_MAX: u32 = 2 * 4000 * SIGNER_SLOTS_PER_USER;
+/// maximum length of an inventory page's Clarity list
+pub const STACKERDB_PAGE_LIST_MAX: u32 = 4096;
+/// maximum number of pages that can be used in a StackerDB contract
+pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
+
+pub const STACKERDB_PAGE_COUNT_FUNCTION: &str = "stackerdb-get-page-count";
+pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
+pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 
 pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";

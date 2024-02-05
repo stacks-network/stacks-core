@@ -106,6 +106,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
+        self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
