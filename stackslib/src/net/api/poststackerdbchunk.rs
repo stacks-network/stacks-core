@@ -145,6 +145,14 @@ impl StackerDBErrorCodes {
             "reason": self.reason()
         })
     }
+
+    pub fn from_code(code: u32) -> Option<Self> {
+        match code {
+            0 => Some(Self::DataAlreadyExists),
+            1 => Some(Self::NoSuchSlot),
+            _ => None,
+        }
+    }
 }
 
 impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
@@ -219,31 +227,34 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                             }
                         };
 
-                    let (reason, slot_metadata_opt) = if let Some(slot_metadata) = slot_metadata_opt
-                    {
-                        let code = if let NetError::BadSlotSigner(..) = e {
-                            StackerDBErrorCodes::BadSigner
-                        } else {
-                            StackerDBErrorCodes::DataAlreadyExists
-                        };
+                    let (reason, slot_metadata_opt, err_code) =
+                        if let Some(slot_metadata) = slot_metadata_opt {
+                            let code = if let NetError::BadSlotSigner(..) = e {
+                                StackerDBErrorCodes::BadSigner
+                            } else {
+                                StackerDBErrorCodes::DataAlreadyExists
+                            };
 
-                        (
-                            serde_json::to_string(&code.into_json())
-                                .unwrap_or("(unable to encode JSON)".to_string()),
-                            Some(slot_metadata),
-                        )
-                    } else {
-                        (
-                            serde_json::to_string(&StackerDBErrorCodes::NoSuchSlot.into_json())
-                                .unwrap_or("(unable to encode JSON)".to_string()),
-                            None,
-                        )
-                    };
+                            (
+                                serde_json::to_string(&code.clone().into_json())
+                                    .unwrap_or("(unable to encode JSON)".to_string()),
+                                Some(slot_metadata),
+                                code,
+                            )
+                        } else {
+                            (
+                                serde_json::to_string(&StackerDBErrorCodes::NoSuchSlot.into_json())
+                                    .unwrap_or("(unable to encode JSON)".to_string()),
+                                None,
+                                StackerDBErrorCodes::DataAlreadyExists,
+                            )
+                        };
 
                     let ack = StackerDBChunkAckData {
                         accepted: false,
                         reason: Some(reason),
                         metadata: slot_metadata_opt,
+                        code: Some(err_code.code()),
                     };
                     return Ok(ack);
                 }
@@ -281,6 +292,7 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                     accepted: true,
                     reason: None,
                     metadata: Some(slot_metadata),
+                    code: None,
                 };
 
                 return Ok(ack);
