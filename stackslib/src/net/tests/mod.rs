@@ -328,6 +328,8 @@ impl NakamotoBootPlan {
                     &pox_addr,
                     &test_stacker.signer_private_key,
                     reward_cycle.into(),
+                    &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
+                    12_u128,
                 );
                 make_pox_4_lockup(
                     &test_stacker.stacker_private_key,

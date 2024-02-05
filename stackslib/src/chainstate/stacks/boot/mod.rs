@@ -1401,6 +1401,9 @@ pub mod test {
     use crate::core::{StacksEpochId, *};
     use crate::net::test::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
+    use crate::util_lib::signed_structured_data::pox4::{
+        make_pox_4_signer_key_signature, Pox4SignatureTopic,
+    };
     use crate::util_lib::signed_structured_data::{
         make_structured_data_domain, sign_structured_data,
     };
@@ -2222,21 +2225,18 @@ pub mod test {
         pox_addr: &PoxAddress,
         signer_key: &StacksPrivateKey,
         reward_cycle: u128,
+        topic: &Pox4SignatureTopic,
+        period: u128,
     ) -> Vec<u8> {
-        let domain_tuple = make_structured_data_domain("pox-4-signer", "1.0.0", CHAIN_ID_TESTNET);
-
-        let data_tuple = Value::Tuple(
-            TupleData::from_data(vec![
-                (
-                    "pox-addr".into(),
-                    pox_addr.clone().as_clarity_tuple().unwrap().into(),
-                ),
-                ("reward-cycle".into(), Value::UInt(reward_cycle)),
-            ])
-            .unwrap(),
-        );
-
-        let signature = sign_structured_data(data_tuple, domain_tuple, signer_key).unwrap();
+        let signature = make_pox_4_signer_key_signature(
+            pox_addr,
+            signer_key,
+            reward_cycle,
+            topic,
+            CHAIN_ID_TESTNET,
+            period,
+        )
+        .unwrap();
 
         signature.to_rsv()
     }

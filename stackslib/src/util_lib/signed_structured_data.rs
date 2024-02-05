@@ -17,12 +17,14 @@
 use clarity::vm::{types::TupleData, Value};
 use stacks_common::{
     codec::StacksMessageCodec,
-    types::PrivateKey,
+    types::{chainstate::StacksPrivateKey, PrivateKey},
     util::{
         hash::{to_hex, Sha256Sum},
         secp256k1::{MessageSignature, Secp256k1PrivateKey},
     },
 };
+
+use crate::chainstate::stacks::address::PoxAddress;
 
 /// Message prefix for signed structured data. "SIP018" in ascii
 pub const STRUCTURED_DATA_PREFIX: [u8; 6] = [0x53, 0x49, 0x50, 0x30, 0x31, 0x38];
@@ -73,6 +75,82 @@ pub fn make_structured_data_domain(name: &str, version: &str, chain_id: u32) -> 
         ])
         .unwrap(),
     )
+}
+
+pub mod pox4 {
+    use super::{
+        make_structured_data_domain, structured_data_message_hash, MessageSignature, PoxAddress,
+        PrivateKey, Sha256Sum, StacksPrivateKey, TupleData, Value,
+    };
+    pub enum Pox4SignatureTopic {
+        StackStx,
+        AggregationCommit,
+        StackExtend,
+    }
+
+    impl Pox4SignatureTopic {
+        pub fn as_str(&self) -> &'static str {
+            match self {
+                Pox4SignatureTopic::StackStx => "stack-stx",
+                Pox4SignatureTopic::AggregationCommit => "agg-commit",
+                Pox4SignatureTopic::StackExtend => "stack-extend",
+            }
+        }
+    }
+
+    pub fn make_pox_4_signed_data_domain(chain_id: u32) -> Value {
+        make_structured_data_domain("pox-4-signer", "1.0.0", chain_id)
+    }
+
+    pub fn make_pox_4_signer_key_message_hash(
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        topic: &Pox4SignatureTopic,
+        chain_id: u32,
+        period: u128,
+    ) -> Sha256Sum {
+        let domain_tuple = make_pox_4_signed_data_domain(chain_id);
+        let data_tuple = Value::Tuple(
+            TupleData::from_data(vec![
+                (
+                    "pox-addr".into(),
+                    pox_addr.clone().as_clarity_tuple().unwrap().into(),
+                ),
+                ("reward-cycle".into(), Value::UInt(reward_cycle)),
+                ("period".into(), Value::UInt(period)),
+                (
+                    "topic".into(),
+                    Value::string_ascii_from_bytes(topic.as_str().into()).unwrap(),
+                ),
+            ])
+            .unwrap(),
+        );
+        structured_data_message_hash(data_tuple, domain_tuple)
+    }
+
+    impl Into<Pox4SignatureTopic> for &'static str {
+        fn into(self) -> Pox4SignatureTopic {
+            match self {
+                "stack-stx" => Pox4SignatureTopic::StackStx,
+                "agg-commit" => Pox4SignatureTopic::AggregationCommit,
+                "stack-extend" => Pox4SignatureTopic::StackExtend,
+                _ => panic!("Invalid pox-4 signature topic"),
+            }
+        }
+    }
+
+    pub fn make_pox_4_signer_key_signature(
+        pox_addr: &PoxAddress,
+        signer_key: &StacksPrivateKey,
+        reward_cycle: u128,
+        topic: &Pox4SignatureTopic,
+        chain_id: u32,
+        period: u128,
+    ) -> Result<MessageSignature, &'static str> {
+        let msg_hash =
+            make_pox_4_signer_key_message_hash(pox_addr, reward_cycle, topic, chain_id, period);
+        signer_key.sign(msg_hash.as_bytes())
+    }
 }
 
 #[cfg(test)]

@@ -23,9 +23,7 @@ use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::read_next;
-use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
-};
+use stacks_common::types::chainstate::{ConsensusHash, StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 use stacks_signer::client::{StackerDB, StacksClient};

@@ -603,7 +603,7 @@
         (err ERR_STACKING_INSUFFICIENT_FUNDS))
 
       ;; Validate ownership of the given signer key
-      (try! (verify-signer-key-sig pox-addr (- first-reward-cycle u1) signer-sig signer-key))
+      (try! (verify-signer-key-sig pox-addr (- first-reward-cycle u1) "stack-stx" lock-period signer-sig signer-key))
 
       ;; ensure that stacking can be performed
       (try! (can-stack-stx pox-addr amount-ustx first-reward-cycle lock-period))
@@ -684,12 +684,20 @@
 ;; The message hash follows SIP018 for signing structured data. The structured data
 ;; is the tuple `{ pox-addr: { version, hashbytes }, reward-cycle }`. The domain is
 ;; `{ name: "pox-4-signer", version: "1.0.0", chain-id: chain-id }`.
-(define-read-only (get-signer-key-message-hash (pox-addr { version: (buff 1), hashbytes: (buff 32) }) (reward-cycle uint))
+(define-read-only (get-signer-key-message-hash (pox-addr { version: (buff 1), hashbytes: (buff 32) }) 
+                                               (reward-cycle uint)
+                                               (topic (string-ascii 12))
+                                               (period uint))
   (let
     (
       (domain { name: "pox-4-signer", version: "1.0.0", chain-id: chain-id })
       (data-hash (sha256 (unwrap-panic
-        (to-consensus-buff? { pox-addr: pox-addr, reward-cycle: reward-cycle }))))
+        (to-consensus-buff? { 
+          pox-addr: pox-addr, 
+          reward-cycle: reward-cycle,
+          topic: topic,
+          period: period,
+        }))))
       (domain-hash (sha256 (unwrap-panic (to-consensus-buff? domain))))
     )
     (sha256 (concat
@@ -707,14 +715,18 @@
 ;; The public key is recovered from the signature and compared to `signer-key`.
 (define-read-only (verify-signer-key-sig (pox-addr { version: (buff 1), hashbytes: (buff 32) })
                                          (reward-cycle uint)
+                                         (topic (string-ascii 12))
+                                         (period uint)
                                          (signer-sig (buff 65))
                                          (signer-key (buff 33)))
-  (let
-    (
-      (msg-hash (get-signer-key-message-hash pox-addr reward-cycle))
-      (pubkey (unwrap! (secp256k1-recover? msg-hash signer-sig) (err ERR_INVALID_SIGNATURE_RECOVER)))
-    )
-    (asserts! (is-eq pubkey signer-key) (err ERR_INVALID_SIGNATURE_PUBKEY))
+  (begin
+    (asserts! 
+      (is-eq 
+        (unwrap! (secp256k1-recover? 
+          (get-signer-key-message-hash pox-addr reward-cycle topic period) 
+          signer-sig) (err ERR_INVALID_SIGNATURE_RECOVER)) 
+        signer-key) 
+      (err ERR_INVALID_SIGNATURE_PUBKEY))
     (ok true)
   )
 )
@@ -742,7 +754,7 @@
     ;; must be called directly by the tx-sender or by an allowed contract-caller
     (asserts! (check-caller-allowed)
               (err ERR_STACKING_PERMISSION_DENIED))
-    (try! (verify-signer-key-sig pox-addr (- reward-cycle u1) signer-sig signer-key))
+    (try! (verify-signer-key-sig pox-addr (- reward-cycle u1) "agg-commit" u1 signer-sig signer-key))
     (let ((amount-ustx (get stacked-amount partial-stacked)))
       (try! (can-stack-stx pox-addr amount-ustx reward-cycle u1))
       ;; Add the pox addr to the reward cycle, and extract the index of the PoX address
@@ -1062,7 +1074,7 @@
               (err ERR_STACKING_IS_DELEGATED))
 
     ;; Verify signature from delegate that allows this sender for this cycle
-    (try! (verify-signer-key-sig pox-addr cur-cycle signer-sig signer-key))
+    (try! (verify-signer-key-sig pox-addr cur-cycle "stack-extend" extend-count signer-sig signer-key))
 
     ;; TODO: add more assertions to sanity check the `stacker-info` values with
     ;;       the `stacker-state` values

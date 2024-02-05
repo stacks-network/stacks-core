@@ -51,6 +51,7 @@ use crate::net::relay::Relayer;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 
 /// Bring a TestPeer into the Nakamoto Epoch
 fn advance_to_nakamoto(
@@ -79,8 +80,13 @@ fn advance_to_nakamoto(
                         AddressHashMode::SerializeP2PKH,
                         addr.bytes.clone(),
                     );
-                    let signature =
-                        make_signer_key_signature(&pox_addr, &test_stacker.signer_private_key, 6);
+                    let signature = make_signer_key_signature(
+                        &pox_addr,
+                        &test_stacker.signer_private_key,
+                        6,
+                        &Pox4SignatureTopic::StackStx,
+                        12_u128,
+                    );
                     make_pox_4_lockup(
                         &test_stacker.stacker_private_key,
                         0,
