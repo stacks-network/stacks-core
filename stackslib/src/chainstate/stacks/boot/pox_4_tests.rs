@@ -1430,6 +1430,7 @@ fn verify_signer_key_sig(
     pox_addr: &PoxAddress,
     peer: &mut TestPeer,
     latest_block: &StacksBlockId,
+    reward_cycle: u128,
 ) -> Value {
     let result: Value = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
         chainstate
@@ -1444,8 +1445,9 @@ fn verify_signer_key_sig(
                         LimitedCostTracker::new_free(),
                         |env| {
                             let program = format!(
-                                "(verify-signer-key-sig {} 0x{} 0x{})",
+                                "(verify-signer-key-sig {} u{} 0x{} 0x{})",
                                 Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()),
+                                reward_cycle,
                                 to_hex(&signature),
                                 signing_key.to_hex(),
                             );
@@ -1519,6 +1521,7 @@ fn verify_signer_key_signatures() {
         &bob_pox_addr,
         &mut peer,
         &latest_block,
+        reward_cycle,
     );
     assert_eq!(result, expected_error);
 
@@ -1532,6 +1535,7 @@ fn verify_signer_key_signatures() {
         &bob_pox_addr, // wrong pox-addr
         &mut peer,
         &latest_block,
+        reward_cycle,
     );
 
     assert_eq!(result, expected_error);
@@ -1546,6 +1550,7 @@ fn verify_signer_key_signatures() {
         &bob_pox_addr,
         &mut peer,
         &latest_block,
+        reward_cycle,
     );
 
     assert_eq!(result, expected_error);
@@ -1560,6 +1565,7 @@ fn verify_signer_key_signatures() {
         &bob_pox_addr,
         &mut peer,
         &latest_block,
+        reward_cycle,
     );
 
     assert_eq!(result, Value::okay_true());
@@ -2410,7 +2416,7 @@ fn delegate_stack_stx_extend_signer_key() {
     );
 
     let extend_signature =
-        make_signer_key_signature(&pox_addr, &signer_extend_sk, reward_cycle.into());
+        make_signer_key_signature(&pox_addr, &signer_extend_sk, (extend_cycle - 1).into());
 
     let agg_tx_1 = make_pox_4_contract_call(
         bob_delegate_private_key,
