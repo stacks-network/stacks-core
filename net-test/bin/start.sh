@@ -145,7 +145,7 @@ start_stacks_master_node() {
    logln "ok"
 
    log "[$$] Starting Stacks master node..."
-   BLOCKSTACK_DEBUG=1 RUST_BACKTRACE=full stacks-node start --config="$STACKS_MASTER_CONF" >"$STACKS_MASTER_LOGFILE" 2>&1 &
+   BLOCKSTACK_DEBUG=1 RUST_BACKTRACE=full stacks-node start --config "$STACKS_MASTER_CONF" >"$STACKS_MASTER_LOGFILE" 2>&1 &
    local STACKS_PID=$!
    logln "PID $STACKS_PID"
 
@@ -233,7 +233,7 @@ start_stacks_miner_node() {
    logln "ok"
    
    log "[$$] Starting Stacks miner node..."
-   BLOCKSTACK_DEBUG=1 RUST_BACKTRACE=full stacks-node start --config="$STACKS_MINER_CONF" >"$STACKS_MINER_LOGFILE" 2>&1 &
+   BLOCKSTACK_DEBUG=1 RUST_BACKTRACE=full stacks-node start --config "$STACKS_MINER_CONF" >"$STACKS_MINER_LOGFILE" 2>&1 &
    local STACKS_PID=$!
    logln "PID $STACKS_PID"
    
@@ -265,7 +265,7 @@ start_stacks_follower_node() {
    logln "ok"
    
    log "[$$] Starting Stacks follower node..."
-   BLOCKSTACK_DEBUG=1 RUST_BACKTRACE=full stacks-node start --config="$STACKS_FOLLOWER_CONF" >"$STACKS_FOLLOWER_LOGFILE" 2>&1 &
+   BLOCKSTACK_DEBUG=1 RUST_BACKTRACE=full stacks-node start --config "$STACKS_FOLLOWER_CONF" >"$STACKS_FOLLOWER_LOGFILE" 2>&1 &
    local STACKS_PID=$!
    logln "PID $STACKS_PID"
 

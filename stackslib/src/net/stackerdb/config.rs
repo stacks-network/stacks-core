@@ -22,9 +22,7 @@
 /// (define-trait stackerdb-trait
 ///
 ///     ;; Get the list of (signer, num-slots) that make up this DB
-///     (define-public (stackerdb-get-signer-slots (uint)) (response (list 4096 { signer: principal, num-slots: uint }) uint))
-///
-///     (define-public (stackerdb-get-page-count) (response uint bool))
+///     (define-public (stackerdb-get-signer-slots) (response (list 4096 { signer: principal, num-slots: uint }) uint))
 ///
 ///     ;; Get the control metadata for this DB
 ///     (define-public (stackerdb-get-config)
@@ -56,10 +54,6 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
-use super::{
-    STACKERDB_MAX_PAGE_COUNT, STACKERDB_PAGE_COUNT_FUNCTION, STACKERDB_PAGE_LIST_MAX,
-    STACKERDB_SLOTS_FUNCTION,
-};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -67,27 +61,17 @@ use crate::chainstate::stacks::Error as chainstate_error;
 use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
 use crate::net::stackerdb::{
     StackerDBConfig, StackerDBs, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX,
-    STACKERDB_MAX_CHUNK_SIZE,
+    STACKERDB_MAX_CHUNK_SIZE, STACKERDB_SLOTS_FUNCTION,
 };
 use crate::net::{Error as NetError, NeighborAddress};
 
 const MAX_HINT_REPLICAS: u32 = 128;
 
 lazy_static! {
-    pub static ref REQUIRED_FUNCTIONS: [(ClarityName, Vec<TypeSignature>, TypeSignature); 3] = [
-        (
-            STACKERDB_PAGE_COUNT_FUNCTION.into(),
-            vec![],
-            TypeSignature::new_response(
-                TypeSignature::UIntType,
-                TypeSignature::UIntType,
-            ).expect("FATAL: failed to construct (response int int)")
-        ),
+    pub static ref REQUIRED_FUNCTIONS: [(ClarityName, Vec<TypeSignature>, TypeSignature); 2] = [
         (
             STACKERDB_SLOTS_FUNCTION.into(),
-            vec![
-                TypeSignature::UIntType
-            ],
+            vec![],
             TypeSignature::new_response(
                 ListTypeData::new_list(
                     TupleTypeSignature::try_from(vec![
@@ -96,7 +80,7 @@ lazy_static! {
                     ])
                     .expect("FATAL: failed to construct signer list type")
                     .into(),
-                    STACKERDB_PAGE_LIST_MAX
+                    STACKERDB_INV_MAX
                 )
                 .expect("FATAL: could not construct signer list type")
                 .into(),
@@ -183,62 +167,6 @@ impl StackerDBConfig {
         Ok(())
     }
 
-    fn eval_page_count(
-        chainstate: &mut StacksChainState,
-        burn_dbconn: &dyn BurnStateDB,
-        contract_id: &QualifiedContractIdentifier,
-        tip: &StacksBlockId,
-    ) -> Result<u32, NetError> {
-        let pages_val = chainstate.eval_fn_read_only(
-            burn_dbconn,
-            tip,
-            contract_id,
-            STACKERDB_PAGE_COUNT_FUNCTION,
-            &[],
-        )?;
-
-        if !matches!(pages_val, ClarityValue::Response(_)) {
-            let reason = format!("StackerDB fn `{contract_id}.{STACKERDB_PAGE_COUNT_FUNCTION}` returned unexpected non-response type");
-            warn!("{reason}");
-            return Err(NetError::InvalidStackerDBContract(
-                contract_id.clone(),
-                reason,
-            ));
-        }
-
-        let ClarityValue::UInt(pages) = pages_val
-            .expect_result()
-            .map_err(|err_val| {
-                let reason = format!(
-                    "StackerDB fn `{contract_id}.{STACKERDB_PAGE_COUNT_FUNCTION}` failed: error {err_val}",
-                );
-                warn!("{reason}");
-                NetError::InvalidStackerDBContract(
-                    contract_id.clone(),
-                    reason,
-                )
-            })?
-        else {
-            let reason = format!("StackerDB fn `{contract_id}.{STACKERDB_PAGE_COUNT_FUNCTION}` returned unexpected non-uint ok type");
-            warn!("{reason}");
-            return Err(NetError::InvalidStackerDBContract(
-                contract_id.clone(), reason));
-        };
-
-        pages.try_into().map_err(
-            |_| {
-                let reason = format!(
-                    "StackerDB fn `{contract_id}.{STACKERDB_PAGE_COUNT_FUNCTION}` returned page count outside of u32 range",
-                );
-                warn!("{reason}");
-                NetError::InvalidStackerDBContract(
-                    contract_id.clone(),
-                    reason,
-                )
-            }
-        )
-    }
-
     fn parse_slot_entry(
         entry: ClarityValue,
         contract_id: &QualifiedContractIdentifier,
@@ -285,98 +213,32 @@ impl StackerDBConfig {
         contract_id: &QualifiedContractIdentifier,
         tip: &StacksBlockId,
     ) -> Result<Vec<(StacksAddress, u32)>, NetError> {
-        let page_count = Self::eval_page_count(chainstate, burn_dbconn, contract_id, tip)?;
-        if page_count == 0 {
-            debug!("StackerDB contract {contract_id} specified zero pages");
-            return Ok(vec![]);
-        }
-        if page_count > STACKERDB_MAX_PAGE_COUNT {
-            let reason = format!("Contract {contract_id} set more than maximum number of pages (max = {STACKERDB_MAX_PAGE_COUNT}");
-            warn!("{reason}");
-            return Err(NetError::InvalidStackerDBContract(
-                contract_id.clone(),
-                reason,
-            ));
-        }
+        let value = chainstate.eval_read_only(
+            burn_dbconn,
+            tip,
+            contract_id,
+            "({STACKERDB_SLOTS_FUNCTION})",
+        )?;
 
-        let mut return_set: Option<Vec<(StacksAddress, u32)>> = None;
-        let mut total_num_slots = 0u32;
-        for page in 0..page_count {
-            let (mut new_entries, total_new_slots) =
-                Self::eval_signer_slots_page(chainstate, burn_dbconn, contract_id, tip, page)?;
-            total_num_slots = total_num_slots
-                .checked_add(total_new_slots)
-                .ok_or_else(|| {
-                    NetError::OverflowError(format!(
-                        "Contract {contract_id} set more than u32::MAX slots",
-                    ))
-                })?;
-            if total_num_slots > STACKERDB_INV_MAX {
-                let reason =
-                    format!("Contract {contract_id} set more than the maximum number of slots in a page (max = {STACKERDB_INV_MAX})",);
-                warn!("{reason}");
+        let result = value.expect_result()?;
+        let slot_list = match result {
+            Err(err_val) => {
+                let err_code = err_val.expect_u128()?;
+                let reason = format!(
+                    "Contract {} failed to run `stackerdb-get-signer-slots`: error u{}",
+                    contract_id, &err_code
+                );
+                warn!("{}", &reason);
                 return Err(NetError::InvalidStackerDBContract(
                     contract_id.clone(),
                     reason,
                 ));
             }
-            // avoid buffering on the first page
-            if let Some(ref mut return_set) = return_set {
-                return_set.append(&mut new_entries);
-            } else {
-                return_set = Some(new_entries);
-            };
-        }
-        Ok(return_set.unwrap_or_else(|| vec![]))
-    }
-
-    /// Evaluate the contract to get its signer slots
-    fn eval_signer_slots_page(
-        chainstate: &mut StacksChainState,
-        burn_dbconn: &dyn BurnStateDB,
-        contract_id: &QualifiedContractIdentifier,
-        tip: &StacksBlockId,
-        page: u32,
-    ) -> Result<(Vec<(StacksAddress, u32)>, u32), NetError> {
-        let resp_value = chainstate.eval_fn_read_only(
-            burn_dbconn,
-            tip,
-            contract_id,
-            STACKERDB_SLOTS_FUNCTION,
-            &[ClarityValue::UInt(page.into())],
-        )?;
-
-        if !matches!(resp_value, ClarityValue::Response(_)) {
-            let reason = format!("StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` returned unexpected non-response type");
-            warn!("{reason}");
-            return Err(NetError::InvalidStackerDBContract(
-                contract_id.clone(),
-                reason,
-            ));
-        }
-
-        let slot_list_val = resp_value.expect_result().map_err(|err_val| {
-            let reason = format!(
-                "StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` failed: error {err_val}",
-            );
-            warn!("{reason}");
-            NetError::InvalidStackerDBContract(contract_id.clone(), reason)
-        })?;
-
-        let slot_list = if let ClarityValue::Sequence(SequenceData::List(list_data)) = slot_list_val
-        {
-            list_data.data
-        } else {
-            let reason = format!("StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` returned unexpected non-list ok type");
-            warn!("{reason}");
-            return Err(NetError::InvalidStackerDBContract(
-                contract_id.clone(),
-                reason,
-            ));
+            Ok(ok_val) => ok_val.expect_list()?,
         };
 
-        if slot_list.len() > usize::try_from(STACKERDB_PAGE_LIST_MAX).unwrap() {
-            let reason = format!("StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` returned too long list (max len={STACKERDB_PAGE_LIST_MAX})");
+        if slot_list.len() > usize::try_from(STACKERDB_INV_MAX).unwrap() {
+            let reason = format!("StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` returned too long list (max len={STACKERDB_INV_MAX})");
             warn!("{reason}");
             return Err(NetError::InvalidStackerDBContract(
                 contract_id.clone(),
@@ -415,7 +277,7 @@ impl StackerDBConfig {
 
             ret.push((addr, num_slots));
         }
-        Ok((ret, total_num_slots))
+        Ok(ret)
     }
 
     /// Evaluate the contract to get its config
@@ -429,10 +291,10 @@ impl StackerDBConfig {
         let value =
             chainstate.eval_read_only(burn_dbconn, tip, contract_id, "(stackerdb-get-config)")?;
 
-        let result = value.expect_result();
+        let result = value.expect_result()?;
         let config_tuple = match result {
             Err(err_val) => {
-                let err_code = err_val.expect_u128();
+                let err_code = err_val.expect_u128()?;
                 let reason = format!(
                     "Contract {} failed to run `stackerdb-get-config`: err u{}",
                     contract_id, &err_code
@@ -443,14 +305,14 @@ impl StackerDBConfig {
                     reason,
                 ));
             }
-            Ok(ok_val) => ok_val.expect_tuple(),
+            Ok(ok_val) => ok_val.expect_tuple()?,
         };
 
         let chunk_size = config_tuple
             .get("chunk-size")
             .expect("FATAL: missing 'chunk-size'")
             .clone()
-            .expect_u128();
+            .expect_u128()?;
 
         if chunk_size > STACKERDB_MAX_CHUNK_SIZE as u128 {
             let reason = format!(
@@ -468,7 +330,7 @@ impl StackerDBConfig {
             .get("write-freq")
             .expect("FATAL: missing 'write-freq'")
             .clone()
-            .expect_u128();
+            .expect_u128()?;
         if write_freq > u64::MAX as u128 {
             let reason = format!(
                 "Contract {} stipulates a write frequency beyond u64::MAX",
@@ -485,7 +347,7 @@ impl StackerDBConfig {
             .get("max-writes")
             .expect("FATAL: missing 'max-writes'")
             .clone()
-            .expect_u128();
+            .expect_u128()?;
         if max_writes > u32::MAX as u128 {
             let reason = format!(
                 "Contract {} stipulates a max-write bound beyond u32::MAX",
@@ -502,7 +364,7 @@ impl StackerDBConfig {
             .get("max-neighbors")
             .expect("FATAL: missing 'max-neighbors'")
             .clone()
-            .expect_u128();
+            .expect_u128()?;
         if max_neighbors > usize::MAX as u128 {
             let reason = format!(
                 "Contract {} stipulates a maximum number of neighbors beyond usize::MAX",
@@ -519,30 +381,30 @@ impl StackerDBConfig {
             .get("hint-replicas")
             .expect("FATAL: missing 'hint-replicas'")
             .clone()
-            .expect_list();
+            .expect_list()?;
         let mut hint_replicas = vec![];
         for hint_replica_value in hint_replicas_list.into_iter() {
-            let hint_replica_data = hint_replica_value.expect_tuple();
+            let hint_replica_data = hint_replica_value.expect_tuple()?;
 
             let addr_byte_list = hint_replica_data
                 .get("addr")
                 .expect("FATAL: missing 'addr'")
                 .clone()
-                .expect_list();
+                .expect_list()?;
             let port = hint_replica_data
                 .get("port")
                 .expect("FATAL: missing 'port'")
                 .clone()
-                .expect_u128();
+                .expect_u128()?;
             let pubkey_hash_bytes = hint_replica_data
                 .get("public-key-hash")
                 .expect("FATAL: missing 'public-key-hash")
                 .clone()
-                .expect_buff_padded(20, 0);
+                .expect_buff_padded(20, 0)?;
 
             let mut addr_bytes = vec![];
             for byte_val in addr_byte_list.into_iter() {
-                let byte = byte_val.expect_u128();
+                let byte = byte_val.expect_u128()?;
                 if byte > (u8::MAX as u128) {
                     let reason = format!(
                         "Contract {} stipulates an addr byte above u8::MAX",
@@ -635,7 +497,7 @@ impl StackerDBConfig {
                 clarity_tx.with_clarity_db_readonly(|db| {
                     // contract must exist or this errors out
                     let analysis = db
-                        .load_contract_analysis(contract_id)
+                        .load_contract_analysis(contract_id)?
                         .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
 
                     // contract must be consistent with StackerDB control interface

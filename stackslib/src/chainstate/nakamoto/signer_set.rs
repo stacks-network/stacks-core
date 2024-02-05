@@ -115,18 +115,25 @@ impl RawRewardSetEntry {
             .expect(
                 "FATAL: no 'total-ustx' in return value from (pox-4.get-reward-set-pox-address)",
             )
-            .expect_u128();
+            .expect_u128()
+            .expect("FATAL: total-ustx is not a u128");
 
         let stacker = tuple_data
             .remove("stacker")
             .expect("FATAL: no 'stacker' in return value from (pox-4.get-reward-set-pox-address)")
             .expect_optional()
-            .map(|value| value.expect_principal());
+            .expect("FATAL: `stacker` is not an option")
+            .map(|value| {
+                value
+                    .expect_principal()
+                    .expect("FATAL: stacker is not a principal")
+            });
 
         let signer = tuple_data
             .remove("signer")
             .expect("FATAL: no 'signer' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_buff(SIGNERS_PK_LEN);
+            .expect_buff(SIGNERS_PK_LEN)
+            .expect("FATAL: signer is not a buff");
 
         // (buff 33) only enforces max size, not min size, so we need to do a len check
         let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
@@ -178,7 +185,7 @@ impl NakamotoSigners {
                     reward_cycle.into(),
                 ))],
             )?
-            .expect_u128();
+            .expect_u128()?;
 
         let mut slots = vec![];
         for index in 0..list_length {
@@ -192,11 +199,12 @@ impl NakamotoSigners {
                     ],
                 )?
                 .expect_optional()
+                .expect("FATAL: get-reward-set-pox-address did not return an optional")
                 .expect(&format!(
                     "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
                     index, list_length, reward_cycle
                 ))
-                .expect_tuple();
+                .expect_tuple()?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple);
 
@@ -217,7 +225,7 @@ impl NakamotoSigners {
         let sender_addr = PrincipalData::from(boot::boot_code_addr(is_mainnet));
         let signers_contract = &boot_code_id(SIGNERS_NAME, is_mainnet);
 
-        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx());
+        let liquid_ustx = clarity.with_clarity_db_readonly(|db| db.get_total_liquid_ustx())?;
         let reward_slots = Self::get_reward_slots(clarity, reward_cycle, pox_contract)?;
         let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
             &pox_constants,
@@ -393,7 +401,7 @@ impl NakamotoSigners {
                 error!("FATAL: Failed to read `{SIGNERS_UPDATE_STATE}` variable from .signers contract");
                 panic!();
             };
-            let cycle_number = value.expect_u128();
+            let cycle_number = value.expect_u128().expect("FATAL: cycle number is not a u128");
             // if the cycle_number is less than `cycle_of_prepare_phase`, we need to update
             //  the .signers state.
             cycle_number < cycle_of_prepare_phase.into()

@@ -4,6 +4,7 @@ use std::iter::FromIterator;
 use std::path::Path;
 
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::database::{ClaritySerializable, STXBalance};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{
     Connection, Error as SqliteError, OptionalExtension, ToSql, Transaction as SqlTransaction,
@@ -163,7 +164,25 @@ impl<M: CostMetric> FeeEstimator for ScalarFeeRateEstimator<M> {
                 let scalar_cost = match payload {
                     TransactionPayload::TokenTransfer(_, _, _) => {
                         // TokenTransfers *only* contribute tx_len, and just have an empty ExecutionCost.
-                        self.metric.from_len(tx_size)
+                        let stx_balance_len = STXBalance::LockedPoxThree {
+                            amount_unlocked: 1,
+                            amount_locked: 1,
+                            unlock_height: 1,
+                        }
+                        .serialize()
+                        .as_bytes()
+                        .len() as u64;
+                        self.metric.from_cost_and_len(
+                            &ExecutionCost {
+                                write_length: stx_balance_len,
+                                write_count: 1,
+                                read_length: 2 * stx_balance_len,
+                                read_count: 2,
+                                runtime: 4640, // taken from .costs-3
+                            },
+                            &block_limit,
+                            tx_size,
+                        )
                     }
                     TransactionPayload::Coinbase(..) => {
                         // Coinbase txs are "free", so they don't factor into the fee market.

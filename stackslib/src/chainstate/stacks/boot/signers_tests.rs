@@ -247,7 +247,8 @@ fn signers_get_signer_keys_from_stackerdb() {
         STACKERDB_SLOTS_FUNCTION.into(),
         vec![Value::UInt(1)],
     )
-    .expect_result_ok();
+    .expect_result_ok()
+    .unwrap();
 
     assert_eq!(signers, expected_stackerdb_slots);
 }
@@ -297,7 +298,8 @@ pub fn prepare_signers_test<'a>(
         "current-reward-cycle".into(),
         vec![],
     )
-    .expect_u128();
+    .expect_u128()
+    .unwrap();
 
     assert_eq!(current_reward_cycle, 7);
 
@@ -309,7 +311,9 @@ pub fn prepare_signers_test<'a>(
         vec![],
     )
     .expect_result_ok()
-    .expect_u128();
+    .unwrap()
+    .expect_u128()
+    .unwrap();
 
     assert_eq!(last_set_cycle, 7);
 
@@ -415,7 +419,9 @@ pub fn get_signer_index(
         vec![Value::UInt(cycle_mod)],
     )
     .expect_result_ok()
-    .expect_list();
+    .unwrap()
+    .expect_list()
+    .unwrap();
 
     signers
         .iter()
@@ -423,10 +429,12 @@ pub fn get_signer_index(
             value
                 .clone()
                 .expect_tuple()
+                .unwrap()
                 .get("signer")
                 .unwrap()
                 .clone()
                 .expect_principal()
+                .unwrap()
                 == signer_address.to_account_principal()
         })
         .expect("signer not found") as u128

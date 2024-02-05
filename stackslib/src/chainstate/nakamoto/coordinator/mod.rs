@@ -71,7 +71,7 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
         // figure out the block ID
-        let Some(coinbase_height_of_calculation) = chainstate
+        let Ok(Some(coinbase_height_of_calculation)) = chainstate
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
@@ -79,7 +79,9 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
                 &format!("(map-get? cycle-set-height u{})", cycle),
             )?
             .expect_optional()
-            .map(|x| u64::try_from(x.expect_u128()).expect("FATAL: block height exceeded u64"))
+            .expect("FATAL: map-get? did not return an option")
+            .map(|x| u64::try_from(x.expect_u128().expect("FATAL: block height is not a u128")))
+            .transpose()
         else {
             if debug_log {
                 debug!(

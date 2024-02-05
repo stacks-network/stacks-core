@@ -20,6 +20,7 @@ use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Instant;
 use std::{fs, io};
 
@@ -446,10 +447,51 @@ impl MemPoolTxMetadata {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MemPoolWalkTxTypes {
+    TokenTransfer,
+    SmartContract,
+    ContractCall,
+}
+
+impl FromStr for MemPoolWalkTxTypes {
+    type Err = &'static str;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "TokenTransfer" => {
+                return Ok(Self::TokenTransfer);
+            }
+            "SmartContract" => {
+                return Ok(Self::SmartContract);
+            }
+            "ContractCall" => {
+                return Ok(Self::ContractCall);
+            }
+            _ => {
+                return Err("Unknown mempool tx walk type");
+            }
+        }
+    }
+}
+
+impl MemPoolWalkTxTypes {
+    pub fn all() -> HashSet<MemPoolWalkTxTypes> {
+        [
+            MemPoolWalkTxTypes::TokenTransfer,
+            MemPoolWalkTxTypes::SmartContract,
+            MemPoolWalkTxTypes::ContractCall,
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    pub fn only(selected: &[MemPoolWalkTxTypes]) -> HashSet<MemPoolWalkTxTypes> {
+        selected.iter().map(|x| x.clone()).collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MemPoolWalkSettings {
-    /// Minimum transaction fee that will be considered
-    pub min_tx_fee: u64,
     /// Maximum amount of time a miner will spend walking through mempool transactions, in
     /// milliseconds.  This is a soft deadline.
     pub max_walk_time_ms: u64,
@@ -462,25 +504,43 @@ pub struct MemPoolWalkSettings {
     /// Size of the candidate cache. These are the candidates that will be retried after each
     /// transaction is mined.
     pub candidate_retry_cache_size: u64,
+    /// Types of transactions we'll consider
+    pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
+    /// Origins for transactions that we'll consider
+    pub filter_origins: HashSet<StacksAddress>,
 }
 
 impl MemPoolWalkSettings {
     pub fn default() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
-            min_tx_fee: 1,
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
+            txs_to_consider: [
+                MemPoolWalkTxTypes::TokenTransfer,
+                MemPoolWalkTxTypes::SmartContract,
+                MemPoolWalkTxTypes::ContractCall,
+            ]
+            .into_iter()
+            .collect(),
+            filter_origins: HashSet::new(),
         }
     }
     pub fn zero() -> MemPoolWalkSettings {
         MemPoolWalkSettings {
-            min_tx_fee: 0,
             max_walk_time_ms: u64::MAX,
             consider_no_estimate_tx_prob: 5,
             nonce_cache_size: 1024 * 1024,
             candidate_retry_cache_size: 64 * 1024,
+            txs_to_consider: [
+                MemPoolWalkTxTypes::TokenTransfer,
+                MemPoolWalkTxTypes::SmartContract,
+                MemPoolWalkTxTypes::ContractCall,
+            ]
+            .into_iter()
+            .collect(),
+            filter_origins: HashSet::new(),
         }
     }
 }
@@ -852,8 +912,8 @@ impl<'a> MemPoolTx<'a> {
             let evict_txid = {
                 let num_recents = MemPoolDB::get_num_recent_txs(&dbtx)?;
                 if num_recents >= MAX_BLOOM_COUNTER_TXS.into() {
-                    // for now, remove lowest-fee tx in the recent tx set.
-                    // TODO: In the future, do it by lowest fee rate
+                    // remove lowest-fee tx (they're paying the least, so replication is
+                    // deprioritized)
                     let sql = "SELECT a.txid FROM mempool AS a LEFT OUTER JOIN removed_txids AS b ON a.txid = b.txid WHERE b.txid IS NULL AND a.height > ?1 ORDER BY a.tx_fee ASC LIMIT 1";
                     let args: &[&dyn ToSql] = &[&u64_to_sql(
                         height.saturating_sub(BLOOM_COUNTER_DEPTH as u64),
@@ -1707,6 +1767,49 @@ impl MemPoolDB {
                     continue;
                 }
             };
+
+            let (tx_type, do_consider) = match &tx_info.tx.payload {
+                TransactionPayload::TokenTransfer(..) => (
+                    "TokenTransfer".to_string(),
+                    settings
+                        .txs_to_consider
+                        .contains(&MemPoolWalkTxTypes::TokenTransfer),
+                ),
+                TransactionPayload::SmartContract(..) => (
+                    "SmartContract".to_string(),
+                    settings
+                        .txs_to_consider
+                        .contains(&MemPoolWalkTxTypes::SmartContract),
+                ),
+                TransactionPayload::ContractCall(..) => (
+                    "ContractCall".to_string(),
+                    settings
+                        .txs_to_consider
+                        .contains(&MemPoolWalkTxTypes::ContractCall),
+                ),
+                _ => ("".to_string(), true),
+            };
+            if !do_consider {
+                debug!("Will skip mempool tx, since it does not have an acceptable type";
+                       "txid" => %tx_info.tx.txid(),
+                       "type" => %tx_type);
+                continue;
+            }
+
+            let do_consider = if settings.filter_origins.len() > 0 {
+                settings
+                    .filter_origins
+                    .contains(&tx_info.metadata.origin_address)
+            } else {
+                true
+            };
+
+            if !do_consider {
+                debug!("Will skip mempool tx, since it does not have an allowed origin";
+                       "txid" => %tx_info.tx.txid(),
+                       "origin" => %tx_info.metadata.origin_address);
+                continue;
+            }
 
             let consider = ConsiderTransaction {
                 tx: tx_info,

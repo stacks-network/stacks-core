@@ -17,7 +17,7 @@ use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
 use stacks::chainstate::stacks::MAX_BLOCK_LEN;
-use stacks::core::mempool::MemPoolWalkSettings;
+use stacks::core::mempool::{MemPoolWalkSettings, MemPoolWalkTxTypes};
 use stacks::core::{
     MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
     CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET,
@@ -35,10 +35,12 @@ use stacks::util_lib::db::Error as DBError;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
+use stacks_common::types::Address;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
+use crate::chain_data::MinerStats;
 use crate::mockamoto::signer::SelfSigner;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
@@ -212,7 +214,7 @@ impl ConfigFile {
         };
 
         let node = NodeConfigFile {
-            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:20444".to_string()),
+            bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444".to_string()),
             miner: Some(false),
             ..NodeConfigFile::default()
         };
@@ -504,34 +506,34 @@ impl Config {
         self.miner.self_signing_key.clone()
     }
 
-    /// get the up-to-date burnchain from the config
-    pub fn get_burnchain_config(&self) -> Result<BurnchainConfig, String> {
-        if let Some(path) = &self.config_path {
-            let config_file = ConfigFile::from_path(path.as_str())?;
-            let config = Config::from_config_file(config_file)?;
-            Ok(config.burnchain)
-        } else {
-            Ok(self.burnchain.clone())
-        }
+    /// get the up-to-date burnchain options from the config.
+    /// If the config file can't be loaded, then return the existing config
+    pub fn get_burnchain_config(&self) -> BurnchainConfig {
+        let Some(path) = &self.config_path else {
+            return self.burnchain.clone();
+        };
+        let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
+            return self.burnchain.clone();
+        };
+        let Ok(config) = Config::from_config_file(config_file) else {
+            return self.burnchain.clone();
+        };
+        config.burnchain
     }
 
-    /// Connect to the MempoolDB using the configured cost estimation
-    pub fn connect_mempool_db(&self) -> Result<MemPoolDB, DBError> {
-        // create estimators, metric instances for RPC handler
-        let cost_estimator = self
-            .make_cost_estimator()
-            .unwrap_or_else(|| Box::new(UnitEstimator));
-        let metric = self
-            .make_cost_metric()
-            .unwrap_or_else(|| Box::new(UnitMetric));
-
-        MemPoolDB::open(
-            self.is_mainnet(),
-            self.burnchain.chain_id,
-            &self.get_chainstate_path_str(),
-            cost_estimator,
-            metric,
-        )
+    /// get the up-to-date miner options from the config
+    /// If the config can't be loaded for some reason, then return the existing config
+    pub fn get_miner_config(&self) -> MinerConfig {
+        let Some(path) = &self.config_path else {
+            return self.miner.clone();
+        };
+        let Ok(config_file) = ConfigFile::from_path(path.as_str()) else {
+            return self.miner.clone();
+        };
+        let Ok(config) = Config::from_config_file(config_file) else {
+            return self.miner.clone();
+        };
+        return config.miner;
     }
 
     /// Apply any test settings to this burnchain config struct
@@ -658,6 +660,25 @@ impl Config {
                 &burnchain.pox_constants
             );
         }
+    }
+
+    /// Connect to the MempoolDB using the configured cost estimation
+    pub fn connect_mempool_db(&self) -> Result<MemPoolDB, DBError> {
+        // create estimators, metric instances for RPC handler
+        let cost_estimator = self
+            .make_cost_estimator()
+            .unwrap_or_else(|| Box::new(UnitEstimator));
+        let metric = self
+            .make_cost_metric()
+            .unwrap_or_else(|| Box::new(UnitMetric));
+
+        MemPoolDB::open(
+            self.is_mainnet(),
+            self.burnchain.chain_id,
+            &self.get_chainstate_path_str(),
+            cost_estimator,
+            metric,
+        )
     }
 
     /// Load up a Burnchain and apply config settings to it.
@@ -1150,33 +1171,46 @@ impl Config {
         microblocks: bool,
         miner_status: Arc<Mutex<MinerStatus>>,
     ) -> BlockBuilderSettings {
+        let miner_config = self.get_miner_config();
         BlockBuilderSettings {
             max_miner_time_ms: if microblocks {
-                self.miner.microblock_attempt_time_ms
+                miner_config.microblock_attempt_time_ms
             } else if attempt <= 1 {
                 // first attempt to mine a block -- do so right away
-                self.miner.first_attempt_time_ms
+                miner_config.first_attempt_time_ms
             } else {
                 // second or later attempt to mine a block -- give it some time
-                self.miner.subsequent_attempt_time_ms
+                miner_config.subsequent_attempt_time_ms
             },
             mempool_settings: MemPoolWalkSettings {
-                min_tx_fee: self.miner.min_tx_fee,
                 max_walk_time_ms: if microblocks {
-                    self.miner.microblock_attempt_time_ms
+                    miner_config.microblock_attempt_time_ms
                 } else if attempt <= 1 {
                     // first attempt to mine a block -- do so right away
-                    self.miner.first_attempt_time_ms
+                    miner_config.first_attempt_time_ms
                 } else {
                     // second or later attempt to mine a block -- give it some time
-                    self.miner.subsequent_attempt_time_ms
+                    miner_config.subsequent_attempt_time_ms
                 },
-                consider_no_estimate_tx_prob: self.miner.probability_pick_no_estimate_tx,
-                nonce_cache_size: self.miner.nonce_cache_size,
-                candidate_retry_cache_size: self.miner.candidate_retry_cache_size,
+                consider_no_estimate_tx_prob: miner_config.probability_pick_no_estimate_tx,
+                nonce_cache_size: miner_config.nonce_cache_size,
+                candidate_retry_cache_size: miner_config.candidate_retry_cache_size,
+                txs_to_consider: miner_config.txs_to_consider,
+                filter_origins: miner_config.filter_origins,
             },
             miner_status,
         }
+    }
+
+    pub fn get_miner_stats(&self) -> Option<MinerStats> {
+        let miner_config = self.get_miner_config();
+        if let Some(unconfirmed_commits_helper) = miner_config.unconfirmed_commits_helper.as_ref() {
+            let miner_stats = MinerStats {
+                unconfirmed_commits_helper: unconfirmed_commits_helper.clone(),
+            };
+            return Some(miner_stats);
+        }
+        None
     }
 }
 
@@ -1856,7 +1890,7 @@ impl NodeConfig {
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
             .expect(&format!("Invalid public key '{}'", pubkey_str));
-        info!("Resolve '{}'", &hostport);
+        debug!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
         self.bootstrap_node.push(neighbor);
@@ -1914,9 +1948,8 @@ impl NodeConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MinerConfig {
-    pub min_tx_fee: u64,
     pub first_attempt_time_ms: u64,
     pub subsequent_attempt_time_ms: u64,
     pub microblock_attempt_time_ms: u64,
@@ -1934,25 +1967,65 @@ pub struct MinerConfig {
     pub self_signing_key: Option<SelfSigner>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
     pub wait_on_interim_blocks: Duration,
+    /// minimum number of transactions that must be in a block if we're going to replace a pending
+    /// block-commit with a new block-commit
+    pub min_tx_count: u64,
+    /// Only allow a block's tx count to increase across RBFs.
+    pub only_increase_tx_count: bool,
+    /// Path to a script that prints out all unconfirmed block-commits for a list of addresses
+    pub unconfirmed_commits_helper: Option<String>,
+    /// Targeted win probability for this miner.  Used to deduce when to stop trying to mine.
+    pub target_win_probability: f64,
+    /// Path to a serialized RegisteredKey struct, which points to an already-registered VRF key
+    /// (so we don't have to go make a new one)
+    pub activated_vrf_key_path: Option<String>,
+    /// When estimating win probability, whether or not to use the assumed win rate 6+ blocks from
+    /// now (true), or the current win rate (false)
+    pub fast_rampup: bool,
+    /// Number of Bitcoin blocks which must pass where the boostes+neutrals are a minority, at which
+    /// point the miner will stop trying.
+    pub underperform_stop_threshold: Option<u64>,
+    /// Kinds of transactions to consider from the mempool.  This is used by boosted and neutral
+    /// miners to push past averse fee estimations.
+    pub txs_to_consider: HashSet<MemPoolWalkTxTypes>,
+    /// Origin addresses to whitelist when doing a mempool walk.  This is used by boosted and
+    /// neutral miners to push transactions through that are important to them.
+    pub filter_origins: HashSet<StacksAddress>,
+    /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
+    /// behind the highest tip.
+    pub max_reorg_depth: u64,
+    /// Amount of time while mining in nakamoto to wait for signers to respond to a proposed block
+    pub wait_on_signers: Duration,
 }
 
 impl Default for MinerConfig {
     fn default() -> MinerConfig {
         MinerConfig {
-            min_tx_fee: 1,
-            first_attempt_time_ms: 5_000,
-            subsequent_attempt_time_ms: 30_000,
+            first_attempt_time_ms: 10,
+            subsequent_attempt_time_ms: 120_000,
             microblock_attempt_time_ms: 30_000,
-            probability_pick_no_estimate_tx: 5,
+            probability_pick_no_estimate_tx: 25,
             block_reward_recipient: None,
             segwit: false,
             wait_for_block_download: true,
-            nonce_cache_size: 10_000,
-            candidate_retry_cache_size: 10_000,
+            nonce_cache_size: 1024 * 1024,
+            candidate_retry_cache_size: 1024 * 1024,
             unprocessed_block_deadline_secs: 30,
             mining_key: None,
             self_signing_key: None,
             wait_on_interim_blocks: Duration::from_millis(2_500),
+            min_tx_count: 0,
+            only_increase_tx_count: false,
+            unconfirmed_commits_helper: None,
+            target_win_probability: 0.0,
+            activated_vrf_key_path: None,
+            fast_rampup: false,
+            underperform_stop_threshold: None,
+            txs_to_consider: MemPoolWalkTxTypes::all(),
+            filter_origins: HashSet::new(),
+            max_reorg_depth: 3,
+            // TODO: update to a sane value based on stackerdb benchmarking
+            wait_on_signers: Duration::from_millis(10_000),
         }
     }
 }
@@ -1984,7 +2057,6 @@ pub struct ConnectionOptionsFile {
     pub max_inflight_attachments: Option<u64>,
     pub read_only_call_limit_write_length: Option<u64>,
     pub read_only_call_limit_read_length: Option<u64>,
-
     pub read_only_call_limit_write_count: Option<u64>,
     pub read_only_call_limit_read_count: Option<u64>,
     pub read_only_call_limit_runtime: Option<u64>,
@@ -1999,6 +2071,7 @@ pub struct ConnectionOptionsFile {
     pub disable_block_download: Option<bool>,
     pub force_disconnect_interval: Option<u64>,
     pub antientropy_public: Option<bool>,
+    pub private_neighbors: Option<bool>,
 }
 
 impl ConnectionOptionsFile {
@@ -2121,6 +2194,7 @@ impl ConnectionOptionsFile {
             handshake_timeout: self.handshake_timeout.unwrap_or(5),
             max_sockets: self.max_sockets.unwrap_or(800) as usize,
             antientropy_public: self.antientropy_public.unwrap_or(true),
+            private_neighbors: self.private_neighbors.unwrap_or(true),
             ..ConnectionOptions::default()
         })
     }
@@ -2254,7 +2328,6 @@ pub struct FeeEstimationConfigFile {
 
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct MinerConfigFile {
-    pub min_tx_fee: Option<u64>,
     pub first_attempt_time_ms: Option<u64>,
     pub subsequent_attempt_time_ms: Option<u64>,
     pub microblock_attempt_time_ms: Option<u64>,
@@ -2267,12 +2340,22 @@ pub struct MinerConfigFile {
     pub mining_key: Option<String>,
     pub self_signing_seed: Option<u64>,
     pub wait_on_interim_blocks_ms: Option<u64>,
+    pub min_tx_count: Option<u64>,
+    pub only_increase_tx_count: Option<bool>,
+    pub unconfirmed_commits_helper: Option<String>,
+    pub target_win_probability: Option<f64>,
+    pub activated_vrf_key_path: Option<String>,
+    pub fast_rampup: Option<bool>,
+    pub underperform_stop_threshold: Option<u64>,
+    pub txs_to_consider: Option<String>,
+    pub filter_origins: Option<String>,
+    pub max_reorg_depth: Option<u64>,
+    pub wait_on_signers_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
     fn into_config_default(self, miner_default_config: MinerConfig) -> Result<MinerConfig, String> {
         Ok(MinerConfig {
-            min_tx_fee: self.min_tx_fee.unwrap_or(miner_default_config.min_tx_fee),
             first_attempt_time_ms: self
                 .first_attempt_time_ms
                 .unwrap_or(miner_default_config.first_attempt_time_ms),
@@ -2320,6 +2403,58 @@ impl MinerConfigFile {
                 .wait_on_interim_blocks_ms
                 .map(Duration::from_millis)
                 .unwrap_or(miner_default_config.wait_on_interim_blocks),
+            min_tx_count: self
+                .min_tx_count
+                .unwrap_or(miner_default_config.min_tx_count),
+            only_increase_tx_count: self
+                .only_increase_tx_count
+                .unwrap_or(miner_default_config.only_increase_tx_count),
+            unconfirmed_commits_helper: self.unconfirmed_commits_helper.clone(),
+            target_win_probability: self
+                .target_win_probability
+                .unwrap_or(miner_default_config.target_win_probability),
+            activated_vrf_key_path: self.activated_vrf_key_path.clone(),
+            fast_rampup: self.fast_rampup.unwrap_or(miner_default_config.fast_rampup),
+            underperform_stop_threshold: self.underperform_stop_threshold,
+            txs_to_consider: {
+                if let Some(txs_to_consider) = &self.txs_to_consider {
+                    txs_to_consider
+                        .split(",")
+                        .map(
+                            |txs_to_consider_str| match str::parse(txs_to_consider_str) {
+                                Ok(txtype) => txtype,
+                                Err(e) => {
+                                    panic!("could not parse '{}': {}", &txs_to_consider_str, &e);
+                                }
+                            },
+                        )
+                        .collect()
+                } else {
+                    MemPoolWalkTxTypes::all()
+                }
+            },
+            filter_origins: {
+                if let Some(filter_origins) = &self.filter_origins {
+                    filter_origins
+                        .split(",")
+                        .map(|origin_str| match StacksAddress::from_string(origin_str) {
+                            Some(addr) => addr,
+                            None => {
+                                panic!("could not parse '{}' into a Stacks address", origin_str);
+                            }
+                        })
+                        .collect()
+                } else {
+                    HashSet::new()
+                }
+            },
+            max_reorg_depth: self
+                .max_reorg_depth
+                .unwrap_or(miner_default_config.max_reorg_depth),
+            wait_on_signers: self
+                .wait_on_signers_ms
+                .map(Duration::from_millis)
+                .unwrap_or(miner_default_config.wait_on_signers),
         })
     }
 }

@@ -211,7 +211,6 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.burnchain.poll_time_secs = 1;
     conf.node.pox_sync_sample_secs = 0;
 
-    conf.miner.min_tx_fee = 1;
     conf.miner.first_attempt_time_ms = i64::max_value() as u64;
     conf.miner.subsequent_attempt_time_ms = i64::max_value() as u64;
 
@@ -1473,11 +1472,17 @@ fn miner_writes_proposed_block_to_stackerdb() {
         .clone()
         .parse()
         .expect("Failed to parse socket");
+
+    let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
+    let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
+        .unwrap()
+        .block_height as u32;
+
     let chunk = std::thread::spawn(move || {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
         miners_stackerdb
-            .get_latest_chunk(0)
+            .get_latest_chunk(burn_height % 2)
             .expect("Failed to get latest chunk from the miner slot ID")
             .expect("No chunk found")
     })

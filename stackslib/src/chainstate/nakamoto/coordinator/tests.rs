@@ -161,7 +161,7 @@ pub fn boot_nakamoto<'a>(
 }
 
 /// Make a replay peer, used for replaying the blockchain
-fn make_replay_peer<'a>(peer: &'a mut TestPeer<'a>) -> TestPeer<'a> {
+fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     let mut replay_config = peer.config.clone();
     replay_config.test_name = format!("{}.replay", &peer.config.test_name);
     replay_config.server_port = 0;
@@ -957,8 +957,7 @@ fn test_nakamoto_chainstate_getters() {
 
 /// Mine a 10 Nakamoto tenures with between 1 and 10 Nakamoto blocks each.
 /// Checks the matured mining rewards as well.
-#[test]
-fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
+pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a> {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -1108,7 +1107,8 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
 
         let stx_balance = clarity_instance
             .read_only_connection(&block_id, &chainstate_tx, &sort_db_tx)
-            .with_clarity_db_readonly(|db| db.get_account_stx_balance(&miner.clone().into()));
+            .with_clarity_db_readonly(|db| db.get_account_stx_balance(&miner.clone().into()))
+            .unwrap();
 
         // only count matured rewards (last 3 blocks are not mature)
         let block_fee = if i > 3 {
@@ -1248,6 +1248,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
             )
         }
     }
+
     // replay the blocks and sortitions in random order, and verify that we still reach the chain
     // tip
     let mut replay_peer = make_replay_peer(&mut peer);
@@ -1274,6 +1275,12 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
         tip.anchored_header.as_stacks_nakamoto().unwrap(),
         &rc_blocks.last().unwrap().last().unwrap().header
     );
+    return peer;
+}
+
+#[test]
+fn test_nakamoto_coordinator_10_tenures_10_sortitions() {
+    simple_nakamoto_coordinator_10_tenures_10_sortitions();
 }
 
 /// Mine two tenures across three sortitions, using a tenure-extend to allow the first tenure to
@@ -1281,8 +1288,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_10_blocks() {
 ///
 /// Use a tenure-extend to grant the miner of the first tenure the ability to mine
 /// 20 blocks in the first tenure (10 before the second sortiton, and 10 after)
-#[test]
-fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
+pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -1609,11 +1615,17 @@ fn test_simple_nakamoto_coordinator_2_tenures_3_sortitions() {
         tip.anchored_header.as_stacks_nakamoto().unwrap(),
         &blocks.last().unwrap().header
     );
+
+    return peer;
+}
+
+#[test]
+fn test_nakamoto_coordinator_2_tenures_3_sortitions() {
+    simple_nakamoto_coordinator_2_tenures_3_sortitions();
 }
 
 /// Mine a 10 Nakamoto tenures with 10 Nakamoto blocks, but do a tenure-extend in each block
-#[test]
-fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
+pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPeer<'static> {
     let private_key = StacksPrivateKey::from_seed(&[2]);
     let addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -1731,7 +1743,7 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
         assert!(last_block.header.consensus_hash == sort_tip.consensus_hash);
         assert_eq!(highest_tenure.coinbase_height, 12 + i);
         assert_eq!(highest_tenure.cause, TenureChangeCause::Extended);
-        assert_eq!(highest_tenure.tenure_index, 8 * (i + 1));
+        assert_eq!(highest_tenure.tenure_index, 10 * (i + 1));
         assert_eq!(
             highest_tenure.num_blocks_confirmed,
             (blocks.len() as u32) - 1
@@ -1793,7 +1805,8 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
 
         let stx_balance = clarity_instance
             .read_only_connection(&block_id, &chainstate_tx, &sort_db_tx)
-            .with_clarity_db_readonly(|db| db.get_account_stx_balance(&miner.clone().into()));
+            .with_clarity_db_readonly(|db| db.get_account_stx_balance(&miner.clone().into()))
+            .unwrap();
 
         // it's 1 * 10 because it's 1 uSTX per token-transfer, and 10 per tenure
         let expected_total_tx_fees = 1 * 10 * (i as u128).saturating_sub(3);
@@ -1868,4 +1881,11 @@ fn test_simple_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
         tip.anchored_header.as_stacks_nakamoto().unwrap(),
         &rc_blocks.last().unwrap().last().unwrap().header
     );
+
+    return peer;
+}
+
+#[test]
+fn test_nakamoto_coordinator_10_tenures_and_extensions_10_blocks() {
+    simple_nakamoto_coordinator_10_extended_tenures_10_sortitions();
 }

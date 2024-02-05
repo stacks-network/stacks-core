@@ -127,7 +127,9 @@ fn create_event_info_data_code(
                         start-burn-height: {start_burn_height},
                         ;; how long to lock, in burn blocks
                         ;; equal to args[3]
-                        lock-period: {lock_period}
+                        lock-period: {lock_period},
+                        ;; equal to args[4]
+                        signer-key: {signer_key}
                     }}
                 }}
                 "#,
@@ -135,6 +137,7 @@ fn create_event_info_data_code(
                 lock_period = &args[3],
                 pox_addr = &args[1],
                 start_burn_height = &args[2],
+                signer_key = &args.get(4).unwrap_or(&Value::none()),
             )
         }
         "delegate-stack-stx" => {
@@ -244,12 +247,15 @@ fn create_event_info_data_code(
                         ;; equal to args[0]
                         extend-count: {extend_count},
                         ;; new unlock burnchain block height
-                        unlock-burn-height: new-unlock-ht
+                        unlock-burn-height: new-unlock-ht,
+                        ;; equal to args[2]
+                        signer-key: {signer_key}
                     }}
                 }})
                 "#,
                 extend_count = &args[0],
                 pox_addr = &args[1],
+                signer_key = &args.get(2).map_or("none".to_string(), |v| v.to_string()),
             )
         }
         "delegate-stack-extend" => {
@@ -289,9 +295,7 @@ fn create_event_info_data_code(
                 extend_count = &args[2]
             )
         }
-        "stack-aggregation-commit"
-        | "stack-aggregation-commit-indexed"
-        | "stack-aggregation-increase" => {
+        "stack-aggregation-commit" | "stack-aggregation-commit-indexed" => {
             format!(
                 r#"
                 {{
@@ -307,12 +311,42 @@ fn create_event_info_data_code(
                                         (unwrap-panic (map-get? logged-partial-stacked-by-cycle
                                             {{ pox-addr: {pox_addr}, sender: tx-sender, reward-cycle: {reward_cycle} }}))),
                         ;; delegator (this is the caller)
-                        delegator: tx-sender
+                        delegator: tx-sender,
+                        ;; equal to args[2]
+                        signer-key: {signer_key}
                     }}
                 }}
                 "#,
                 pox_addr = &args[0],
-                reward_cycle = &args[1]
+                reward_cycle = &args[1],
+                signer_key = &args.get(2).unwrap_or(&Value::none()),
+            )
+        }
+        "stack-aggregation-increase" => {
+            format!(
+                r#"
+                {{
+                    data: {{
+                        ;; pox addr locked up
+                        ;; equal to args[0] in all methods
+                        pox-addr: {pox_addr},
+                        ;; reward cycle locked up
+                        ;; equal to args[1] in all methods
+                        reward-cycle: {reward_cycle},
+                        ;; amount locked behind this PoX address by this method
+                        amount-ustx: (get stacked-amount
+                                        (unwrap-panic (map-get? logged-partial-stacked-by-cycle
+                                            {{ pox-addr: {pox_addr}, sender: tx-sender, reward-cycle: {reward_cycle} }}))),
+                        ;; delegator (this is the caller)
+                        delegator: tx-sender,
+                        ;; equal to args[2]
+                        reward-cycle-index: {reward_cycle_index}
+                    }}
+                }}
+                "#,
+                pox_addr = &args[0],
+                reward_cycle = &args[1],
+                reward_cycle_index = &args.get(2).unwrap_or(&Value::none()),
             )
         }
         "delegate-stx" => {
@@ -354,6 +388,7 @@ fn create_event_info_data_code(
                         .map(|boxed_value| *boxed_value)
                         .unwrap()
                         .expect_tuple()
+                        .expect("FATAL: unexpected clarity value")
                         .get("delegated-to")
                         .unwrap()
                 )
@@ -410,10 +445,7 @@ pub fn synthesize_pox_event_info(
     test_debug!("Evaluate snippet:\n{}", &code_snippet);
     test_debug!("Evaluate data code:\n{}", &data_snippet);
 
-    let pox_contract = global_context
-        .database
-        .get_contract(contract_id)
-        .expect("FATAL: could not load PoX contract metadata");
+    let pox_contract = global_context.database.get_contract(contract_id)?;
 
     let event_info = global_context
         .special_cc_handler_execute_read_only(
@@ -442,8 +474,12 @@ pub fn synthesize_pox_event_info(
                     })?;
 
                 // merge them
-                let base_event_tuple = base_event_info.expect_tuple();
-                let data_tuple = data_event_info.expect_tuple();
+                let base_event_tuple = base_event_info
+                    .expect_tuple()
+                    .expect("FATAL: unexpected clarity value");
+                let data_tuple = data_event_info
+                    .expect_tuple()
+                    .expect("FATAL: unexpected clarity value");
                 let event_tuple =
                     TupleData::shallow_merge(base_event_tuple, data_tuple).map_err(|e| {
                         error!("Failed to merge data-info and event-info: {:?}", &e);

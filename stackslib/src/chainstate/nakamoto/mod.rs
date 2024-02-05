@@ -83,7 +83,7 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use crate::clarity_vm::clarity::{
-    ClarityInstance, ClarityTransactionConnection, PreCommitClarityBlock,
+    ClarityInstance, ClarityTransactionConnection, Error as ClarityError, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::SortitionDBRef;
 use crate::core::BOOT_BLOCK_HASH;
@@ -2725,10 +2725,13 @@ impl NakamotoChainState {
             )
             .ok()
             .map(|agg_key_value| {
-                let agg_key_opt = agg_key_value.expect_optional().map(|agg_key_buff| {
-                    Value::buff_from(agg_key_buff.expect_buff(33))
-                        .expect("failed to reconstruct buffer")
-                });
+                let agg_key_opt = agg_key_value
+                    .expect_optional()
+                    .expect("FATAL: not an optional")
+                    .map(|agg_key_buff| {
+                        Value::buff_from(agg_key_buff.expect_buff(33).expect("FATAL: not a buff"))
+                            .expect("failed to reconstruct buffer")
+                    });
                 agg_key_opt
             })
             .flatten()

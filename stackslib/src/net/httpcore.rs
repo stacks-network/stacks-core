@@ -32,6 +32,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
 use stacks_common::util::chunked_encoding::*;
+use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::retry::{BoundReader, RetryReader};
 use url::Url;
 
@@ -434,11 +435,16 @@ pub trait RPCRequestHandler: HttpRequest + HttpResponse + RPCRequestHandlerClone
 pub struct StacksHttpRequest {
     preamble: HttpRequestPreamble,
     contents: HttpRequestContents,
+    start_time: u128,
 }
 
 impl StacksHttpRequest {
     pub fn new(preamble: HttpRequestPreamble, contents: HttpRequestContents) -> Self {
-        Self { preamble, contents }
+        Self {
+            preamble,
+            contents,
+            start_time: get_epoch_time_ms(),
+        }
     }
 
     /// Instantiate a request to a remote Stacks peer
@@ -469,7 +475,11 @@ impl StacksHttpRequest {
             preamble.path_and_query_str = decoded_path;
         }
 
-        Ok(Self { preamble, contents })
+        Ok(Self {
+            preamble,
+            contents,
+            start_time: get_epoch_time_ms(),
+        })
     }
 
     /// Get a reference to the request premable metadata
@@ -490,6 +500,17 @@ impl StacksHttpRequest {
     /// Get a reference to the fully-qualified request path
     pub fn request_path(&self) -> &str {
         &self.preamble.path_and_query_str
+    }
+
+    /// Get the HTTP verb for this request
+    pub fn verb(&self) -> &str {
+        &self.preamble.verb
+    }
+
+    /// Get the number of milliseconds elapsed since this request was created
+    pub fn duration_ms(&self) -> u128 {
+        let now = get_epoch_time_ms();
+        now.saturating_sub(self.start_time)
     }
 
     /// Write out this message to a Write.
@@ -981,7 +1002,7 @@ impl StacksHttp {
                 }
             };
 
-            info!("Handle StacksHttpRequest"; "verb" => %verb, "peer_addr" => %self.peer_addr, "path" => %decoded_path, "query" => %query);
+            debug!("Handle StacksHttpRequest"; "verb" => %verb, "peer_addr" => %self.peer_addr, "path" => %decoded_path, "query" => %query);
             let request = StacksHttpRequest::new(preamble.clone(), payload);
             return Ok(request);
         }

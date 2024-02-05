@@ -21,17 +21,26 @@ use blockstack_lib::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSpendingCondition, TransactionVersion,
 };
+use blockstack_lib::core::{
+    BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT, BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
+    BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT, BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
+};
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
+use blockstack_lib::net::api::getaccount::AccountEntryResponse;
+use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use serde_json::json;
 use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
 use stacks_common::debug;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::chainstate::{
+    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+};
 use wsts::curve::point::{Compressed, Point};
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
@@ -53,6 +62,17 @@ pub struct StacksClient {
     stacks_node_client: reqwest::blocking::Client,
 }
 
+/// The supported epoch IDs
+#[derive(Debug, PartialEq)]
+pub enum EpochId {
+    /// The mainnet epoch ID
+    Epoch30,
+    /// The testnet epoch ID
+    Epoch25,
+    /// Unsuporrted epoch ID
+    UnsupportedEpoch,
+}
+
 impl From<&Config> for StacksClient {
     fn from(config: &Config) -> Self {
         Self {
@@ -67,35 +87,52 @@ impl From<&Config> for StacksClient {
 }
 
 impl StacksClient {
+    /// Retrieve the signer slots stored within the stackerdb contract
+    pub fn get_stackerdb_signer_slots(
+        &self,
+        stackerdb_contract: &QualifiedContractIdentifier,
+    ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
+        let function_name_str = "stackerdb-get-signer-slots";
+        let function_name = ClarityName::from(function_name_str);
+        let function_args = &[];
+        let value = self.read_only_contract_call_with_retry(
+            &stackerdb_contract.issuer.clone().into(),
+            &stackerdb_contract.name,
+            &function_name,
+            function_args,
+        )?;
+        self.parse_signer_slots(value)
+    }
     /// Retrieve the stacks tip consensus hash from the stacks node
-    pub fn get_stacks_tip_consensus_hash(&self) -> Result<String, ClientError> {
-        let send_request = || {
-            self.stacks_node_client
-                .get(self.core_info_path())
-                .send()
-                .map_err(backoff::Error::transient)
+    pub fn get_stacks_tip_consensus_hash(&self) -> Result<ConsensusHash, ClientError> {
+        let peer_info = self.get_peer_info()?;
+        Ok(peer_info.stacks_tip_consensus_hash)
+    }
+
+    /// Determine the stacks node current epoch
+    pub fn get_node_epoch(&self) -> Result<EpochId, ClientError> {
+        let is_mainnet = self.chain_id == CHAIN_ID_MAINNET;
+        let burn_block_height = self.get_burn_block_height()?;
+
+        let (epoch25_activation_height, epoch_30_activation_height) = if is_mainnet {
+            (
+                BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT,
+                BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
+            )
+        } else {
+            (
+                BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
+                BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
+            )
         };
 
-        let response = retry_with_exponential_backoff(send_request)?;
-        if !response.status().is_success() {
-            return Err(ClientError::RequestFailure(response.status()));
+        if burn_block_height < epoch25_activation_height {
+            Ok(EpochId::UnsupportedEpoch)
+        } else if burn_block_height < epoch_30_activation_height {
+            Ok(EpochId::Epoch25)
+        } else {
+            Ok(EpochId::Epoch30)
         }
-
-        let json_response = response
-            .json::<serde_json::Value>()
-            .map_err(ClientError::ReqwestError)?;
-
-        let stacks_tip_consensus_hash = json_response
-            .get("stacks_tip_consensus_hash")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .ok_or_else(|| {
-                ClientError::UnexpectedResponseFormat(
-                    "Missing or invalid 'stacks_tip_consensus_hash' field".to_string(),
-                )
-            })?;
-
-        Ok(stacks_tip_consensus_hash)
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
@@ -124,17 +161,39 @@ impl StacksClient {
     pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
         let reward_cycle = self.get_current_reward_cycle()?;
         let function_name_str = "get-aggregate-public-key";
-        let function_name = ClarityName::try_from(function_name_str)
-            .map_err(|_| ClientError::InvalidClarityName(function_name_str.to_string()))?;
+        let function_name = ClarityName::from(function_name_str);
         let pox_contract_id = boot_code_id(POX_4_NAME, self.chain_id == CHAIN_ID_MAINNET);
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let contract_response_hex = self.read_only_contract_call_with_retry(
+        let value = self.read_only_contract_call_with_retry(
             &pox_contract_id.issuer.into(),
             &pox_contract_id.name,
             &function_name,
             function_args,
         )?;
-        self.parse_aggregate_public_key(&contract_response_hex)
+        self.parse_aggregate_public_key(value)
+    }
+
+    /// Retrieve the current account nonce for the provided address
+    pub fn get_account_nonce(&self, address: &StacksAddress) -> Result<u64, ClientError> {
+        let account_entry = self.get_account_entry(address)?;
+        Ok(account_entry.nonce)
+    }
+
+    // Helper function to retrieve the peer info data from the stacks node
+    fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
+        debug!("Getting stacks node info...");
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.core_info_path())
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let peer_info_data = response.json::<RPCPeerInfoData>()?;
+        Ok(peer_info_data)
     }
 
     // Helper function to retrieve the pox data from the stacks node
@@ -154,6 +213,12 @@ impl StacksClient {
         Ok(pox_info_data)
     }
 
+    /// Helper function to retrieve the burn tip height from the stacks node
+    fn get_burn_block_height(&self) -> Result<u64, ClientError> {
+        let peer_info = self.get_peer_info()?;
+        Ok(peer_info.burn_block_height)
+    }
+
     /// Helper function to retrieve the current reward cycle number from the stacks node
     fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
         let pox_data = self.get_pox_data()?;
@@ -167,18 +232,41 @@ impl StacksClient {
         todo!("Get the next possible nonce from the stacks node");
     }
 
+    /// Helper function to retrieve the account info from the stacks node for a specific address
+    fn get_account_entry(
+        &self,
+        address: &StacksAddress,
+    ) -> Result<AccountEntryResponse, ClientError> {
+        debug!("Getting account info...");
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.accounts_path(address))
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let account_entry = response.json::<AccountEntryResponse>()?;
+        Ok(account_entry)
+    }
+
     /// Helper function that attempts to deserialize a clarity hex string as the aggregate public key
-    fn parse_aggregate_public_key(&self, hex: &str) -> Result<Option<Point>, ClientError> {
-        debug!("Parsing aggregate public key: {hex}...");
+    fn parse_aggregate_public_key(
+        &self,
+        value: ClarityValue,
+    ) -> Result<Option<Point>, ClientError> {
+        debug!("Parsing aggregate public key...");
         // Due to pox 4 definition, the aggregate public key is always an optional clarity value hence the use of expect
         // If this fails, we have bigger problems than the signer crashing...
-        let value_opt = ClarityValue::try_deserialize_hex_untyped(hex)?.expect_optional();
+        let value_opt = value.expect_optional()?;
         let Some(value) = value_opt else {
             return Ok(None);
         };
         // A point should have 33 bytes exactly due to the pox 4 definition hence the use of expect
         // If this fails, we have bigger problems than the signer crashing...
-        let data = value.clone().expect_buff(33);
+        let data = value.clone().expect_buff(33)?;
         // It is possible that the point was invalid though when voted upon and this cannot be prevented by pox 4 definitions...
         // Pass up this error if the conversions fail.
         let compressed_data = Compressed::try_from(data.as_slice())
@@ -186,6 +274,31 @@ impl StacksClient {
         let point = Point::try_from(&compressed_data)
             .map_err(|_e| ClientError::MalformedClarityValue(value))?;
         Ok(Some(point))
+    }
+
+    /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
+    fn parse_signer_slots(
+        &self,
+        value: ClarityValue,
+    ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
+        debug!("Parsing signer slots...");
+        // Due to .signers definition, the  signer slots is always an OK result of a list of tuples of signer addresses and the number of slots they have
+        // If this fails, we have bigger problems than the signer crashing...
+        let value = value.clone().expect_result_ok()?;
+        let values = value.expect_list()?;
+        let mut signer_slots = Vec::with_capacity(values.len());
+        for value in values {
+            let tuple_data = value.expect_tuple()?;
+            let principal_data = tuple_data.get("signer")?.clone().expect_principal()?;
+            let signer = if let PrincipalData::Standard(signer) = principal_data {
+                signer.into()
+            } else {
+                panic!("BUG: Signers stackerdb contract is corrupted");
+            };
+            let num_slots = tuple_data.get("num-slots")?.clone().expect_u128()?;
+            signer_slots.push((signer, num_slots));
+        }
+        Ok(signer_slots)
     }
 
     /// Sends a transaction to the stacks node for a modifying contract call
@@ -198,61 +311,20 @@ impl StacksClient {
         function_args: &[ClarityValue],
     ) -> Result<Txid, ClientError> {
         debug!("Making a contract call to {contract_addr}.{contract_name}...");
-        let signed_tx = self.build_signed_transaction(
+        let nonce = self.get_account_nonce(&self.stacks_address)?;
+        // TODO: make tx_fee configurable
+        let signed_tx = Self::build_signed_contract_call_transaction(
             contract_addr,
             contract_name,
             function_name,
             function_args,
+            &self.stacks_private_key,
+            self.tx_version,
+            self.chain_id,
+            nonce,
+            10_000,
         )?;
         self.submit_tx(&signed_tx)
-    }
-
-    /// Helper function to create a stacks transaction for a modifying contract call
-    fn build_signed_transaction(
-        &self,
-        contract_addr: &StacksAddress,
-        contract_name: ContractName,
-        function_name: ClarityName,
-        function_args: &[ClarityValue],
-    ) -> Result<StacksTransaction, ClientError> {
-        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
-            address: *contract_addr,
-            contract_name,
-            function_name,
-            function_args: function_args.to_vec(),
-        });
-        let public_key = StacksPublicKey::from_private(&self.stacks_private_key);
-        let tx_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_singlesig_p2pkh(public_key).ok_or(
-                ClientError::TransactionGenerationFailure(format!(
-                    "Failed to create spending condition from public key: {}",
-                    public_key.to_hex()
-                )),
-            )?,
-        );
-
-        let mut unsigned_tx = StacksTransaction::new(self.tx_version, tx_auth, tx_payload);
-
-        // FIXME: Because signers are given priority, we can put down a tx fee of 0
-        // https://github.com/stacks-network/stacks-blockchain/issues/4006
-        // Note: if set to 0 now, will cause a failure (MemPoolRejection::FeeTooLow)
-        unsigned_tx.set_tx_fee(10_000);
-        unsigned_tx.set_origin_nonce(self.get_next_possible_nonce()?);
-
-        unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
-        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-        unsigned_tx.chain_id = self.chain_id;
-
-        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-        tx_signer
-            .sign_origin(&self.stacks_private_key)
-            .map_err(|e| ClientError::TransactionGenerationFailure(e.to_string()))?;
-
-        tx_signer
-            .get_tx()
-            .ok_or(ClientError::TransactionGenerationFailure(
-                "Failed to generate transaction from a transaction signer".to_string(),
-            ))
     }
 
     /// Helper function to submit a transaction to the Stacks node
@@ -281,15 +353,21 @@ impl StacksClient {
         contract_name: &ContractName,
         function_name: &ClarityName,
         function_args: &[ClarityValue],
-    ) -> Result<String, ClientError> {
+    ) -> Result<ClarityValue, ClientError> {
         debug!(
             "Calling read-only function {function_name} with args {:?}...",
             function_args
         );
         let args = function_args
             .iter()
-            .map(|arg| arg.serialize_to_hex())
+            .filter_map(|arg| arg.serialize_to_hex().ok())
             .collect::<Vec<String>>();
+        if args.len() != function_args.len() {
+            return Err(ClientError::ReadOnlyFailure(
+                "Failed to serialize Clarity function arguments".into(),
+            ));
+        }
+
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
@@ -314,7 +392,9 @@ impl StacksClient {
                     .unwrap_or("unknown".to_string())
             )));
         }
-        Ok(call_read_only_response.result.unwrap_or_default())
+        let hex = call_read_only_response.result.unwrap_or_default();
+        let value = ClarityValue::try_deserialize_hex_untyped(&hex)?;
+        Ok(value)
     }
 
     fn pox_path(&self) -> String {
@@ -344,89 +424,116 @@ impl StacksClient {
     fn core_info_path(&self) -> String {
         format!("{}/v2/info", self.http_origin)
     }
+
+    fn accounts_path(&self, stacks_address: &StacksAddress) -> String {
+        format!("{}/v2/accounts/{stacks_address}?proof=0", self.http_origin)
+    }
+
+    /// Helper function to create a stacks transaction for a modifying contract call
+    pub fn build_signed_contract_call_transaction(
+        contract_addr: &StacksAddress,
+        contract_name: ContractName,
+        function_name: ClarityName,
+        function_args: &[ClarityValue],
+        stacks_private_key: &StacksPrivateKey,
+        tx_version: TransactionVersion,
+        chain_id: u32,
+        nonce: u64,
+        tx_fee: u64,
+    ) -> Result<StacksTransaction, ClientError> {
+        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
+            address: *contract_addr,
+            contract_name,
+            function_name,
+            function_args: function_args.to_vec(),
+        });
+        let public_key = StacksPublicKey::from_private(stacks_private_key);
+        let tx_auth = TransactionAuth::Standard(
+            TransactionSpendingCondition::new_singlesig_p2pkh(public_key).ok_or(
+                ClientError::TransactionGenerationFailure(format!(
+                    "Failed to create spending condition from public key: {}",
+                    public_key.to_hex()
+                )),
+            )?,
+        );
+
+        let mut unsigned_tx = StacksTransaction::new(tx_version, tx_auth, tx_payload);
+
+        // FIXME: Because signers are given priority, we can put down a tx fee of 0
+        // https://github.com/stacks-network/stacks-blockchain/issues/4006
+        // Note: if set to 0 now, will cause a failure (MemPoolRejection::FeeTooLow)
+        unsigned_tx.set_tx_fee(tx_fee);
+        unsigned_tx.set_origin_nonce(nonce);
+
+        unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
+        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
+        unsigned_tx.chain_id = chain_id;
+
+        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+        tx_signer
+            .sign_origin(stacks_private_key)
+            .map_err(|e| ClientError::TransactionGenerationFailure(e.to_string()))?;
+
+        tx_signer
+            .get_tx()
+            .ok_or(ClientError::TransactionGenerationFailure(
+                "Failed to generate transaction from a transaction signer".to_string(),
+            ))
+    }
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use std::io::{BufWriter, Read, Write};
-    use std::net::{SocketAddr, TcpListener};
+mod tests {
+    use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
+    use libsigner::SIGNER_SLOTS_PER_USER;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use wsts::curve::scalar::Scalar;
+
     use super::*;
-    use crate::client::ClientError;
-
-    pub(crate) struct TestConfig {
-        pub(crate) mock_server: TcpListener,
-        pub(crate) client: StacksClient,
-    }
-
-    impl TestConfig {
-        pub(crate) fn new() -> Self {
-            let mut config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-
-            let mut mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
-            // Ask the OS to assign a random port to listen on by passing 0
-            let mock_server = TcpListener::bind(mock_server_addr).unwrap();
-
-            // Update the config to use this port
-            mock_server_addr.set_port(mock_server.local_addr().unwrap().port());
-            config.node_host = mock_server_addr;
-
-            let client = StacksClient::from(&config);
-            Self {
-                mock_server,
-                client,
-            }
-        }
-    }
-
-    pub(crate) fn write_response(mock_server: TcpListener, bytes: &[u8]) -> [u8; 1024] {
-        debug!("Writing a response...");
-        let mut request_bytes = [0u8; 1024];
-        {
-            let mut stream = mock_server.accept().unwrap().0;
-            let _ = stream.read(&mut request_bytes).unwrap();
-            stream.write_all(bytes).unwrap();
-        }
-        request_bytes
-    }
+    use crate::client::tests::{write_response, TestConfig};
 
     #[test]
     fn read_only_contract_call_200_success() {
         let config = TestConfig::new();
+        let value = ClarityValue::UInt(10_u128);
+        let hex = value
+            .serialize_to_hex()
+            .expect("Failed to serialize hex value");
+        let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[],
             )
         });
-        write_response(
-            config.mock_server,
-            b"HTTP/1.1 200 OK\n\n{\"okay\":true,\"result\":\"0x070d0000000473425443\"}",
-        );
+        write_response(config.mock_server, response_bytes.as_bytes());
         let result = h.join().unwrap().unwrap();
-        assert_eq!(result, "0x070d0000000473425443");
+        assert_eq!(result, value);
     }
 
     #[test]
     fn read_only_contract_call_with_function_args_200_success() {
         let config = TestConfig::new();
+        let value = ClarityValue::UInt(10_u128);
+        let hex = value
+            .serialize_to_hex()
+            .expect("Failed to serialize hex value");
+        let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[ClarityValue::UInt(10_u128)],
             )
         });
-        write_response(
-            config.mock_server,
-            b"HTTP/1.1 200 OK\n\n{\"okay\":true,\"result\":\"0x070d0000000473425443\"}",
-        );
+        write_response(config.mock_server, response_bytes.as_bytes());
         let result = h.join().unwrap().unwrap();
-        assert_eq!(result, "0x070d0000000473425443");
+        assert_eq!(result, value);
     }
 
     #[test]
@@ -435,8 +542,8 @@ pub(crate) mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[],
             )
         });
@@ -455,8 +562,8 @@ pub(crate) mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[],
             )
         });
@@ -477,8 +584,8 @@ pub(crate) mod tests {
         let h = spawn(move || {
             config.client.read_only_contract_call_with_retry(
                 &config.client.stacks_address,
-                &ContractName::try_from("contract-name").unwrap(),
-                &ClarityName::try_from("function-name").unwrap(),
+                &ContractName::from("contract-name"),
+                &ClarityName::from("function-name"),
                 &[],
             )
         });
@@ -527,52 +634,92 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn get_aggregate_public_key_should_succeed() {
+        let current_reward_cycle_response = b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}";
+        let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        let clarity_value = ClarityValue::some(
+            ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
+                .expect("BUG: Failed to create clarity value from point"),
+        )
+        .expect("BUG: Failed to create clarity value from point");
+        let hex = clarity_value
+            .serialize_to_hex()
+            .expect("Failed to serialize clarity value");
+        let response = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}");
+
+        let test_config = TestConfig::new();
+        let config = test_config.config;
+        let h = spawn(move || test_config.client.get_aggregate_public_key());
+        write_response(test_config.mock_server, current_reward_cycle_response);
+
+        let test_config = TestConfig::from_config(config);
+        write_response(test_config.mock_server, response.as_bytes());
+        let res = h.join().unwrap().unwrap();
+        assert_eq!(res, Some(orig_point));
+
+        let clarity_value = ClarityValue::none();
+        let hex = clarity_value
+            .serialize_to_hex()
+            .expect("Failed to serialize clarity value");
+        let response = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}");
+
+        let test_config = TestConfig::new();
+        let config = test_config.config;
+        let h = spawn(move || test_config.client.get_aggregate_public_key());
+        write_response(test_config.mock_server, current_reward_cycle_response);
+
+        let test_config = TestConfig::from_config(config);
+        write_response(test_config.mock_server, response.as_bytes());
+
+        let res = h.join().unwrap().unwrap();
+        assert!(res.is_none());
+    }
+
+    #[test]
     fn parse_valid_aggregate_public_key_should_succeed() {
         let config = TestConfig::new();
-        let clarity_value_hex =
-            "0x0a020000002103beca18a0e51ea31d8e66f58a245d54791b277ad08e1e9826bf5f814334ac77e0";
+        let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        let clarity_value = ClarityValue::some(
+            ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
+                .expect("BUG: Failed to create clarity value from point"),
+        )
+        .expect("BUG: Failed to create clarity value from point");
         let result = config
             .client
-            .parse_aggregate_public_key(clarity_value_hex)
+            .parse_aggregate_public_key(clarity_value)
             .unwrap();
-        assert_eq!(
-            result.map(|point| point.to_string()),
-            Some("27XiJwhYDWdUrYAFNejKDhmY22jU1hmwyQ5nVDUJZPmbm".to_string())
-        );
+        assert_eq!(result, Some(orig_point));
 
-        let clarity_value_hex = "0x09";
-        let result = config
-            .client
-            .parse_aggregate_public_key(clarity_value_hex)
-            .unwrap();
+        let value = ClarityValue::none();
+        let result = config.client.parse_aggregate_public_key(value).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn parse_invalid_aggregate_public_key_should_fail() {
         let config = TestConfig::new();
-        let clarity_value_hex = "0x00";
-        let result = config.client.parse_aggregate_public_key(clarity_value_hex);
-        assert!(matches!(
-            result,
-            Err(ClientError::ClaritySerializationError(..))
-        ));
-        // TODO: add further tests for malformed clarity values (an optional of any other type for example)
+        let value = ClarityValue::UInt(10_u128);
+        let result = config.client.parse_aggregate_public_key(value);
+        assert!(result.is_err())
     }
 
     #[ignore]
     #[test]
     fn transaction_contract_call_should_send_bytes_to_node() {
         let config = TestConfig::new();
-        let tx = config
-            .client
-            .build_signed_transaction(
-                &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
-                &[],
-            )
-            .unwrap();
+        let private_key = StacksPrivateKey::new();
+        let tx = StacksClient::build_signed_contract_call_transaction(
+            &config.client.stacks_address,
+            ContractName::from("contract-name"),
+            ClarityName::from("function-name"),
+            &[],
+            &private_key,
+            TransactionVersion::Testnet,
+            CHAIN_ID_TESTNET,
+            0,
+            10_000,
+        )
+        .unwrap();
 
         let mut tx_bytes = [0u8; 1024];
         {
@@ -615,8 +762,8 @@ pub(crate) mod tests {
         let h = spawn(move || {
             config.client.transaction_contract_call(
                 &config.client.stacks_address,
-                ContractName::try_from("contract-name").unwrap(),
-                ClarityName::try_from("function-name").unwrap(),
+                ContractName::from("contract-name"),
+                ClarityName::from("function-name"),
                 &[],
             )
         });
@@ -633,15 +780,120 @@ pub(crate) mod tests {
         let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
         write_response(
             config.mock_server,
-            b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\": \"3b593b712f8310768bf16e58f378aea999b8aa3b\"}",
+            b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"burn_block_height\":2575799,\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
         );
-        assert!(h.join().unwrap().is_ok());
+        let consensus_hash = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(
+            consensus_hash.to_hex(),
+            "64c8c3049ff6b939c65828e3168210e6bb32d880"
+        );
     }
 
     #[test]
     fn core_info_call_with_invalid_response_should_fail() {
         let config = TestConfig::new();
         let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
+        );
+        assert!(h.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn core_info_call_for_burn_block_height_should_succeed() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_burn_block_height());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"burn_block_height\":2575799,\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
+        );
+        let burn_block_height = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(burn_block_height, 2575799);
+    }
+
+    #[test]
+    fn core_info_call_for_burn_block_height_should_fail() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_burn_block_height());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
+        );
+        assert!(h.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn get_account_nonce_should_succeed() {
+        let config = TestConfig::new();
+        let address = config.client.stacks_address;
+        let h = spawn(move || config.client.get_account_nonce(&address));
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"nonce\":0,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}"
+        );
+        let nonce = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(nonce, 0);
+    }
+
+    #[test]
+    fn get_account_nonce_should_fail() {
+        let config = TestConfig::new();
+        let address = config.client.stacks_address;
+        let h = spawn(move || config.client.get_account_nonce(&address));
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"nonce\":\"invalid nonce\",\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}"
+        );
+        assert!(h.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn parse_valid_signer_slots_should_succeed() {
+        let config = TestConfig::new();
+        let clarity_value_hex =
+            "0x070b000000050c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a8195196a9a7cf9c37cb13e1ed69a7bc047a84e050c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a6505471146dcf722f0580911183f28bef30a8a890c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a1d7f8e3936e5da5f32982cc47f31d7df9fb1b38a0c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a126d1a814313c952e34c7840acec9211e1727fb80c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a7374ea6bb39f2e8d3d334d62b9f302a977de339a";
+        let value = ClarityValue::try_deserialize_hex_untyped(clarity_value_hex).unwrap();
+        let signer_slots = config.client.parse_signer_slots(value).unwrap();
+        assert_eq!(signer_slots.len(), 5);
+        signer_slots
+            .into_iter()
+            .for_each(|(_address, slots)| assert!(slots == SIGNER_SLOTS_PER_USER as u128));
+    }
+
+    #[test]
+    fn get_node_epoch_should_succeed() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_node_epoch());
+        write_response(
+            config.mock_server,
+            b"HTTP/1.1 200 OK\n\n{\"burn_block_height\":2575799,\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
+        );
+        let epoch = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(epoch, EpochId::UnsupportedEpoch);
+
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_node_epoch());
+        let height = BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT;
+        let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"burn_block_height\":{height},\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}");
+
+        write_response(config.mock_server, response_bytes.as_bytes());
+        let epoch = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(epoch, EpochId::Epoch25);
+
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_node_epoch());
+        let height = BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT;
+        let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"burn_block_height\":{height},\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}");
+        write_response(config.mock_server, response_bytes.as_bytes());
+        let epoch = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(epoch, EpochId::Epoch30);
+    }
+
+    #[test]
+    fn get_node_epoch_should_fail() {
+        let config = TestConfig::new();
+        let h = spawn(move || config.client.get_node_epoch());
         write_response(
             config.mock_server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
