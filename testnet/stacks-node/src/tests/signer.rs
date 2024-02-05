@@ -114,6 +114,7 @@ impl SignerTest {
             &naka_conf.node.rpc_bind,
             &signers_stacker_db_contract_id.to_string(),
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
+            &Network::Testnet,
         );
 
         let mut running_signers = HashMap::new();
