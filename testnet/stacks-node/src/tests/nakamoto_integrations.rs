@@ -1474,20 +1474,24 @@ fn miner_writes_proposed_block_to_stackerdb() {
         .expect("Failed to parse socket");
 
     let sortdb = naka_conf.get_burnchain().open_sortition_db(true).unwrap();
-    let burn_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
-        .unwrap()
-        .block_height as u32;
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    let miner_pubkey =
+        StacksPublicKey::from_private(&naka_conf.get_miner_config().mining_key.unwrap());
+    let slot_id = NakamotoChainState::get_miner_slot(&sortdb, &tip, &miner_pubkey)
+        .expect("Unable to get miner slot")
+        .expect("No miner slot exists");
 
     let chunk = std::thread::spawn(move || {
         let miner_contract_id = boot_code_id(MINERS_NAME, false);
         let mut miners_stackerdb = StackerDBSession::new(rpc_sock, miner_contract_id);
         miners_stackerdb
-            .get_latest_chunk(burn_height % 2)
+            .get_latest_chunk(slot_id)
             .expect("Failed to get latest chunk from the miner slot ID")
             .expect("No chunk found")
     })
     .join()
     .expect("Failed to join chunk handle");
+
     // We should now successfully deserialize a chunk
     let proposed_block = NakamotoBlock::consensus_deserialize(&mut &chunk[..])
         .expect("Failed to deserialize chunk into block");
