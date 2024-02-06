@@ -835,16 +835,12 @@ impl TypeSignature {
                     ListTypeData::new_list(entry_ty.concretize_deep()?, max_len)?,
                 )))
             }
-            TypeSignature::TupleType(tup_ty) => Ok(TupleTypeSignature::try_from(
-                tup_ty.get_type_map().clone().into_iter().try_fold(
-                    std::collections::BTreeMap::new(),
-                    |mut acc, (name, elem_ty)| -> Result<_> {
-                        acc.insert(name, elem_ty.concretize_deep()?);
-                        Ok(acc)
-                    },
-                )?,
-            )?
-            .into()),
+            TypeSignature::TupleType(TupleTypeSignature { mut type_map }) => {
+                for ty in type_map.values_mut() {
+                    *ty = ty.clone().concretize_deep()?;
+                }
+                Ok(TupleTypeSignature { type_map }.into())
+            }
             TypeSignature::ListUnionType(_) | TypeSignature::CallableType(_) => self.concretize(),
         }
     }
