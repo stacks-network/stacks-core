@@ -60,7 +60,7 @@
       (get-signer-slots signer-index cycle)))
 
 (define-read-only (get-signer-slots (signer-index uint) (reward-cycle uint))
-    (let ((details (unwrap! (try! (contract-call? .signers stackerdb-get-signer-by-index reward-cycle signer-index)) err-invalid-signer-index)))
+    (let ((details (unwrap! (try! (contract-call? .signers get-signer-by-index reward-cycle signer-index)) err-invalid-signer-index)))
         (asserts! (is-eq (get signer details) tx-sender) err-signer-index-mismatch)
         (ok (get weight details))))
 
@@ -76,7 +76,7 @@
         (get prepare-cycle-length pox-info)))
 
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
-    (let ((last-cycle (unwrap-panic (contract-call? .signers stackerdb-get-last-set-cycle))))
+    (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
         (and (is-eq last-cycle reward-cycle)
             (is-in-prepare-phase height))))
 
