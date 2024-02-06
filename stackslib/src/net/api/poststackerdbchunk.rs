@@ -116,6 +116,7 @@ impl HttpRequest for RPCPostStackerDBChunkRequestHandler {
 pub enum StackerDBErrorCodes {
     DataAlreadyExists,
     NoSuchSlot,
+    BadSigner,
 }
 
 impl StackerDBErrorCodes {
@@ -123,6 +124,7 @@ impl StackerDBErrorCodes {
         match self {
             Self::DataAlreadyExists => 0,
             Self::NoSuchSlot => 1,
+            Self::BadSigner => 2,
         }
     }
 
@@ -130,6 +132,7 @@ impl StackerDBErrorCodes {
         match self {
             Self::DataAlreadyExists => "Data for this slot and version already exist",
             Self::NoSuchSlot => "No such StackerDB slot",
+            Self::BadSigner => "Signature does not match slot signer",
         }
     }
 
@@ -183,11 +186,18 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
                         &HttpNotFound::new("StackerDB not found".to_string()),
                     ));
                 }
-                if let Err(_e) = tx.try_replace_chunk(
+                if let Err(e) = tx.try_replace_chunk(
                     &contract_identifier,
                     &stackerdb_chunk.get_slot_metadata(),
                     &stackerdb_chunk.data,
                 ) {
+                    test_debug!(
+                        "Failed to replace chunk {}.{} in {}: {:?}",
+                        stackerdb_chunk.slot_id,
+                        stackerdb_chunk.slot_version,
+                        &contract_identifier,
+                        &e
+                    );
                     let slot_metadata_opt =
                         match tx.get_slot_metadata(&contract_identifier, stackerdb_chunk.slot_id) {
                             Ok(slot_opt) => slot_opt,
@@ -209,11 +219,15 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
 
                     let (reason, slot_metadata_opt) = if let Some(slot_metadata) = slot_metadata_opt
                     {
+                        let code = if let NetError::BadSlotSigner(..) = e {
+                            StackerDBErrorCodes::BadSigner
+                        } else {
+                            StackerDBErrorCodes::DataAlreadyExists
+                        };
+
                         (
-                            serde_json::to_string(
-                                &StackerDBErrorCodes::DataAlreadyExists.into_json(),
-                            )
-                            .unwrap_or("(unable to encode JSON)".to_string()),
+                            serde_json::to_string(&code.into_json())
+                                .unwrap_or("(unable to encode JSON)".to_string()),
                             Some(slot_metadata),
                         )
                     } else {
