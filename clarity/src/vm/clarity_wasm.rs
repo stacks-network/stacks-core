@@ -1793,10 +1793,7 @@ fn wasm_to_clarity_value(
                 StandardPrincipalData(principal_bytes[0], principal_bytes[1..].try_into().unwrap());
             let contract_name_length = buffer[0] as usize;
             if contract_name_length == 0 {
-                Ok((
-                    Some(Value::Principal(PrincipalData::Standard(standard))),
-                    STANDARD_PRINCIPAL_BYTES,
-                ))
+                Ok((Some(Value::Principal(PrincipalData::Standard(standard))), 2))
             } else {
                 let mut contract_name: Vec<u8> = vec![0; contract_name_length];
                 memory
@@ -1817,7 +1814,7 @@ fn wasm_to_clarity_value(
                             )?,
                         },
                     ))),
-                    STANDARD_PRINCIPAL_BYTES + contract_name_length,
+                    2,
                 ))
             }
         }
