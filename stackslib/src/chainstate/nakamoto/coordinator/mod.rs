@@ -17,6 +17,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::PrincipalData;
 use stacks_common::types::chainstate::{
@@ -40,7 +41,7 @@ use crate::chainstate::coordinator::{
     RewardSetProvider,
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::boot::RewardSet;
+use crate::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::Error as ChainstateError;
@@ -52,60 +53,119 @@ use crate::util_lib::db::Error as DBError;
 #[cfg(test)]
 pub mod tests;
 
+macro_rules! err_or_debug {
+    ($debug_bool:expr, $($arg:tt)*) => ({
+        if $debug_bool {
+            debug!($($arg)*)
+        } else {
+            error!($($arg)*)
+        }
+    })
+}
+
+macro_rules! inf_or_debug {
+    ($debug_bool:expr, $($arg:tt)*) => ({
+        if $debug_bool {
+            debug!($($arg)*)
+        } else {
+            info!($($arg)*)
+        }
+    })
+}
+
 impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
-    pub fn get_reward_set_nakamoto(
+    /// Read a reward_set written while updating .signers
+    /// `debug_log` should be set to true if the reward set loading should
+    ///  log messages as `debug!` instead of `error!` or `info!`. This allows
+    ///  RPC endpoints to expose this without flooding loggers.
+    pub fn read_reward_set_nakamoto(
         &self,
         cycle_start_burn_height: u64,
         chainstate: &mut StacksChainState,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
+        debug_log: bool,
     ) -> Result<RewardSet, Error> {
-        // TODO: this method should read the .signers contract to get the reward set entries.
-        //   they will have been set via `NakamotoChainState::check_and_handle_prepare_phase_start()`.
         let cycle = burnchain
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
 
-        let registered_addrs =
-            chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
+        // figure out the block ID
+        let Some(coinbase_height_of_calculation) = chainstate
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                SIGNERS_NAME,
+                &format!("(map-get? cycle-set-height u{})", cycle),
+            )?
+            .expect_optional()
+            .map_err(|e| Error::ChainstateError(e.into()))?
+            .map(|x| {
+                let as_u128 = x.expect_u128()?;
+                Ok(u64::try_from(as_u128).expect("FATAL: block height exceeded u64"))
+            })
+            .transpose()
+            .map_err(|e| Error::ChainstateError(ChainstateError::ClarityError(e)))?
+        else {
+            err_or_debug!(
+                debug_log,
+                "The reward set was not written to .signers before it was needed by Nakamoto";
+                "cycle_number" => cycle,
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        };
 
-        let liquid_ustx = chainstate.get_liquid_ustx(block_id);
+        let Some(reward_set_block) = NakamotoChainState::get_header_by_coinbase_height(
+            &mut chainstate.index_tx_begin()?,
+            block_id,
+            coinbase_height_of_calculation,
+        )?
+        else {
+            err_or_debug!(
+                debug_log,
+                "Failed to find the block in which .signers was written"
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        };
 
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            &burnchain.pox_constants,
-            &registered_addrs[..],
-            liquid_ustx,
-        );
-
-        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_burn_height)?
-            .expect(&format!(
-                "FATAL: no epoch defined for burn height {}",
-                cycle_start_burn_height
-            ));
+        let Some(reward_set) = NakamotoChainState::get_reward_set(
+            chainstate.db(),
+            &reward_set_block.index_block_hash(),
+        )?
+        else {
+            err_or_debug!(
+                debug_log,
+                "No reward set stored at the block in which .signers was written";
+                "checked_block" => %reward_set_block.index_block_hash(),
+                "coinbase_height_of_calculation" => coinbase_height_of_calculation,
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        };
 
         // This method should only ever called if the current reward cycle is a nakamoto reward cycle
         //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
         //  Non participation is fatal.
-        if participation == 0 {
+        if reward_set.rewarded_addresses.is_empty() {
             // no one is stacking
-            error!("No PoX participation");
+            err_or_debug!(debug_log, "No PoX participation");
             return Err(Error::PoXAnchorBlockRequired);
         }
 
-        info!("PoX reward cycle threshold computed";
-              "burn_height" => cycle_start_burn_height,
-              "threshold" => threshold,
-              "participation" => participation,
-              "liquid_ustx" => liquid_ustx,
-              "registered_addrs" => registered_addrs.len());
+        inf_or_debug!(
+            debug_log,
+            "PoX reward set loaded from written block state";
+            "reward_set_block_id" => %reward_set_block.index_block_hash(),
+        );
 
-        let reward_set =
-            StacksChainState::make_reward_set(threshold, registered_addrs, cur_epoch.epoch_id);
         if reward_set.signers.is_none() {
-            error!("FATAL: PoX reward set did not specify signer set in Nakamoto");
+            err_or_debug!(
+                debug_log,
+                "FATAL: PoX reward set did not specify signer set in Nakamoto"
+            );
             return Err(Error::PoXAnchorBlockRequired);
         }
+
         Ok(reward_set)
     }
 }
@@ -185,9 +245,8 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 
     // calculating the reward set for the _next_ reward cycle
     let reward_cycle = burnchain
-        .block_height_to_reward_cycle(burn_height)
-        .expect("FATAL: no reward cycle for burn height")
-        + 1;
+        .next_reward_cycle(burn_height)
+        .expect("FATAL: no reward cycle for burn height");
     let reward_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
     debug!("Processing reward set for Nakamoto reward cycle";
@@ -286,7 +345,7 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         "first_prepare_sortition_id" => %first_sortition_id
     );
 
-    let reward_set = provider.get_reward_set(
+    let reward_set = provider.get_reward_set_nakamoto(
         reward_start_height,
         chain_state,
         burnchain,

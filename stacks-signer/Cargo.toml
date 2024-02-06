@@ -43,6 +43,9 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = { workspace = true }
 rand = { workspace = true }
 
+[dev-dependencies]
+serial_test = "3.0.0"
+
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
