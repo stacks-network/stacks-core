@@ -33,9 +33,9 @@ use crate::net::stackerdb::{
     StackerDBConfig, StackerDBSync, StackerDBSyncResult, StackerDBSyncState, StackerDBs,
 };
 use crate::net::{
-    Error as net_error, NackData, Neighbor, NeighborAddress, NeighborKey, StackerDBChunkData,
-    StackerDBChunkInvData, StackerDBGetChunkData, StackerDBGetChunkInvData, StackerDBPushChunkData,
-    StacksMessageType,
+    Error as net_error, NackData, NackErrorCodes, Neighbor, NeighborAddress, NeighborKey,
+    StackerDBChunkData, StackerDBChunkInvData, StackerDBGetChunkData, StackerDBGetChunkInvData,
+    StackerDBPushChunkData, StacksMessageType,
 };
 
 const MAX_CHUNKS_IN_FLIGHT: usize = 6;
@@ -72,6 +72,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             total_pushed: 0,
             last_run_ts: 0,
             need_resync: false,
+            stale_neighbors: HashSet::new(),
         };
         dbsync.reset(None, config);
         dbsync
@@ -178,6 +179,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             chunks_to_store: chunks,
             dead: self.comms.take_dead_neighbors(),
             broken: self.comms.take_broken_neighbors(),
+            stale: std::mem::replace(&mut self.stale_neighbors, HashSet::new()),
         };
 
         // keep all connected replicas, and replenish from config hints and the DB as needed
@@ -677,6 +679,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                             &network.get_chain_view().rc_consensus_hash,
                             &db_data.rc_consensus_hash
                         );
+                        self.connected_replicas.remove(&naddr);
                         continue;
                     }
                     db_data
@@ -688,6 +691,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
+                    self.connected_replicas.remove(&naddr);
+                    if data.error_code == NackErrorCodes::StaleView {
+                        self.stale_neighbors.insert(naddr);
+                    }
                     continue;
                 }
                 x => {
@@ -800,10 +807,15 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         &naddr,
                         data.error_code
                     );
+                    self.connected_replicas.remove(&naddr);
+                    if data.error_code == NackErrorCodes::StaleView {
+                        self.stale_neighbors.insert(naddr);
+                    }
                     continue;
                 }
                 x => {
                     info!("Received unexpected message {:?}", &x);
+                    self.connected_replicas.remove(&naddr);
                     continue;
                 }
             };
@@ -929,10 +941,14 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         data.error_code
                     );
                     self.connected_replicas.remove(&naddr);
+                    if data.error_code == NackErrorCodes::StaleView {
+                        self.stale_neighbors.insert(naddr);
+                    }
                     continue;
                 }
                 x => {
                     info!("Received unexpected message {:?}", &x);
+                    self.connected_replicas.remove(&naddr);
                     continue;
                 }
             };
@@ -1072,6 +1088,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         data.error_code
                     );
                     self.connected_replicas.remove(&naddr);
+                    if data.error_code == NackErrorCodes::StaleView {
+                        self.stale_neighbors.insert(naddr);
+                    }
                     continue;
                 }
                 x => {
