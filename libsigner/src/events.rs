@@ -346,8 +346,10 @@ fn process_stackerdb_event(
             .filter_map(|chunk| read_next::<NakamotoBlock, _>(&mut &chunk.data[..]).ok())
             .collect();
         SignerEvent::ProposedBlocks(blocks)
-    } else if event.contract_id.name.to_string() == SIGNERS_NAME {
-        // TODO: fix this to be against boot_code_id(SIGNERS_NAME, is_mainnet) when .signers is deployed
+    } else if event.contract_id.name.to_string().starts_with(SIGNERS_NAME)
+        && event.contract_id.issuer.1 == [0u8; 20]
+    {
+        // signer-XXX-YYY boot contract
         let signer_messages: Vec<SignerMessage> = event
             .modified_slots
             .iter()
