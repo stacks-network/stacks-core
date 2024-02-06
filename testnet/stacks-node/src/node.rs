@@ -346,6 +346,15 @@ impl Node {
         }
 
         let burnchain_config = config.get_burnchain();
+
+        // instantiate DBs
+        let _burnchain_db = BurnchainDB::connect(
+            &burnchain_config.get_burnchaindb_path(),
+            &burnchain_config,
+            true,
+        )
+        .expect("FATAL: failed to connect to burnchain DB");
+
         run_loop::announce_boot_receipts(
             &mut event_dispatcher,
             &chain_state,
@@ -526,6 +535,7 @@ impl Node {
         let consensus_hash = burnchain_tip.block_snapshot.consensus_hash;
 
         let burnchain = self.config.get_burnchain();
+
         let sortdb = SortitionDB::open(
             &self.config.get_burn_db_file_path(),
             true,
