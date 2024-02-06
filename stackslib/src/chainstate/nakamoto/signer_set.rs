@@ -245,7 +245,7 @@ impl NakamotoSigners {
                                 "signer".into(),
                                 Value::Principal(PrincipalData::from(signing_address)),
                             ),
-                            ("num-slots".into(), Value::UInt(consts::SIGNER_SLOTS_PER_USER.into())),
+                            ("num-slots".into(), Value::UInt(1))
                         ])
                             .expect(
                                 "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
