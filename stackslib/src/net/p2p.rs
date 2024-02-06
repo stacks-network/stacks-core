@@ -5431,9 +5431,11 @@ impl PeerNetwork {
         let stacks_tip =
             SortitionDB::get_canonical_stacks_chain_tip_hash_and_height(sortdb.conn())?;
 
-        let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height;
+        let burnchain_tip_changed = sn.block_height != self.chain_view.burn_block_height || self.num_state_machine_passes == 0;
         let stacks_tip_changed = self.stacks_tip != stacks_tip;
         let new_stacks_tip_block_id = StacksBlockId::new(&stacks_tip.0, &stacks_tip.1);
+        let need_stackerdb_refresh = sn.canonical_stacks_tip_consensus_hash
+            != self.burnchain_tip.canonical_stacks_tip_consensus_hash || burnchain_tip_changed || stacks_tip_changed;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
 
         let aggregate_public_keys =
@@ -5563,7 +5565,16 @@ impl PeerNetwork {
                 .get_last_selected_anchor_block_txid()?
                 .unwrap_or(Txid([0x00; 32]));
 
-            // refresh stackerdb configs
+            test_debug!(
+                "{:?}: chain view is {:?}",
+                &self.get_local_peer(),
+                &self.chain_view
+            );
+        }
+
+        if need_stackerdb_refresh {
+            // refresh stackerdb configs -- canonical stacks tip has changed
+            debug!("{:?}: Refresh all stackerdbs", &self.get_local_peer());
             self.refresh_stacker_db_configs(sortdb, chainstate)?;
         }
 
