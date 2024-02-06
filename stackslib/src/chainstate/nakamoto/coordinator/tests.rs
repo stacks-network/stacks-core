@@ -68,10 +68,6 @@ fn advance_to_nakamoto(
     )
     .unwrap();
 
-    // use the signing key of addr, otherwise the test stackers
-    //  will not stack enough for any single signing key
-    // let signing_key = StacksPublicKey::from_private(&private_key);
-
     for sortition_height in 0..11 {
         // stack to pox-3 in cycle 7
         let txs = if sortition_height == 6 {
