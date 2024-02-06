@@ -865,12 +865,15 @@ impl TypeSignature {
                     err_ty.concretize_deep()?,
                 ))))
             }
-            TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) => {
-                let (entry_ty, max_len) = ltd.destruct();
-                Ok(TypeSignature::SequenceType(SequenceSubtype::ListType(
-                    ListTypeData::new_list(entry_ty.concretize_deep()?, max_len)?,
-                )))
-            }
+            TypeSignature::SequenceType(SequenceSubtype::ListType(ListTypeData {
+                max_len,
+                entry_type,
+            })) => Ok(TypeSignature::SequenceType(SequenceSubtype::ListType(
+                ListTypeData {
+                    max_len,
+                    entry_type: Box::new(entry_type.concretize_deep()?),
+                },
+            ))),
             TypeSignature::TupleType(TupleTypeSignature { mut type_map }) => {
                 for ty in type_map.values_mut() {
                     *ty = ty.clone().concretize_deep()?;
