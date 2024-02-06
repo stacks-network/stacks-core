@@ -286,6 +286,15 @@ pub trait RewardSetProvider {
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
     ) -> Result<RewardSet, Error>;
+
+    fn get_reward_set_nakamoto(
+        &self,
+        cycle_start_burn_height: u64,
+        chainstate: &mut StacksChainState,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+    ) -> Result<RewardSet, Error>;
 }
 
 pub struct OnChainRewardSetProvider<'a, T: BlockEventDispatcher>(pub Option<&'a T>);
@@ -312,6 +321,16 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
         let cycle = burnchain
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
+        // `self.get_reward_set_nakamoto` reads the reward set from data written during
+        //   updates to .signers
+        // `self.get_reward_set_epoch2` reads the reward set from the `.pox-*` contract
+        //
+        //  Data **cannot** be read from `.signers` in epoch 2.5 because the write occurs
+        //   in the first block of the prepare phase, but the PoX anchor block is *before*
+        //   the prepare phase. Therefore, we fetch the reward set in the 2.x style, and then
+        //   apply the necessary nakamoto assertions if the reward set is going to be
+        //   active in Nakamoto (i.e., check for signer set existence).
+
         let is_nakamoto_reward_set = match SortitionDB::get_stacks_epoch_by_epoch_id(
             sortdb.conn(),
             &StacksEpochId::Epoch30,
@@ -325,32 +344,46 @@ impl<'a, T: BlockEventDispatcher> RewardSetProvider for OnChainRewardSetProvider
             // if epoch-3.0 isn't defined, then never use a nakamoto reward set.
             None => false,
         };
-        let reward_set = if !is_nakamoto_reward_set {
-            // Stacks 2.x epoch
-            self.get_reward_set_epoch2(
-                cycle_start_burn_height,
-                chainstate,
-                burnchain,
-                sortdb,
-                block_id,
-                cur_epoch,
-            )?
-        } else {
-            // Nakamoto epoch
-            self.get_reward_set_nakamoto(
-                cycle_start_burn_height,
-                chainstate,
-                burnchain,
-                sortdb,
-                block_id,
-            )?
-        };
+
+        let reward_set = self.get_reward_set_epoch2(
+            cycle_start_burn_height,
+            chainstate,
+            burnchain,
+            sortdb,
+            block_id,
+            cur_epoch,
+        )?;
+
+        if is_nakamoto_reward_set {
+            if reward_set.signers.is_none() || reward_set.signers == Some(vec![]) {
+                error!("FATAL: Signer sets are empty in a reward set that will be used in nakamoto"; "reward_set" => ?reward_set);
+                return Err(Error::PoXAnchorBlockRequired);
+            }
+        }
 
         if let Some(dispatcher) = self.0 {
             dispatcher.announce_reward_set(&reward_set, block_id, cycle);
         }
 
         Ok(reward_set)
+    }
+
+    fn get_reward_set_nakamoto(
+        &self,
+        cycle_start_burn_height: u64,
+        chainstate: &mut StacksChainState,
+        burnchain: &Burnchain,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+    ) -> Result<RewardSet, Error> {
+        self.read_reward_set_nakamoto(
+            cycle_start_burn_height,
+            chainstate,
+            burnchain,
+            sortdb,
+            block_id,
+            false,
+        )
     }
 }
 
