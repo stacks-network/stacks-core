@@ -153,9 +153,6 @@ pub const STACKERDB_PAGE_COUNT_FUNCTION: &str = "stackerdb-get-page-count";
 pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 
-pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
-pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
-
 /// Final result of synchronizing state with a remote set of DB replicas
 pub struct StackerDBSyncResult {
     /// which contract this is a replica for
@@ -317,6 +314,7 @@ impl StackerDBs {
             }
             // Even if we failed to create or reconfigure the DB, we still want to keep track of them
             // so that we can attempt to create/reconfigure them again later.
+            debug!("Reloaded configuration for {}", &stackerdb_contract_id);
             new_stackerdb_configs.insert(stackerdb_contract_id, new_config);
         }
         Ok(new_stackerdb_configs)
