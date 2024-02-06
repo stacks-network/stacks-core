@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use blockstack_lib::chainstate::stacks::boot::make_signers_db_name;
 use blockstack_lib::chainstate::stacks::StacksTransaction;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
@@ -17,13 +18,13 @@ use blockstack_lib::chainstate::stacks::StacksTransaction;
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use clarity::vm::types::QualifiedContractIdentifier;
+use clarity::vm::ContractName;
 use hashbrown::HashMap;
-use libsigner::{
-    SignerMessage, SignerSession, StackerDBSession, SIGNER_SLOTS_PER_USER, TRANSACTIONS_SLOT_ID,
-};
+use libsigner::{SignerMessage, SignerSession, StackerDBSession, TRANSACTIONS_SLOT_ID};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::{debug, warn};
 
@@ -33,26 +34,50 @@ use crate::config::Config;
 
 /// The StackerDB client for communicating with the .signers contract
 pub struct StackerDB {
-    /// The stacker-db session for the signer StackerDB
+    /// The stacker-db session for the signer StackerDB.  Used for querying signer addresses and
+    /// other system metadata.
     signers_stackerdb_session: StackerDBSession,
+    /// The stacker-db sessions for each signer set and message type.
+    /// Maps (signer-set, message ID) to the DB session.
+    signers_message_stackerdb_sessions: HashMap<(u32, u32), StackerDBSession>,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
-    /// A map of a slot ID to last chunk version
-    slot_versions: HashMap<u32, u32>,
+    /// A map of a (signer-set, message ID) to last chunk version for each session
+    slot_versions: HashMap<(u32, u32), HashMap<u32, u32>>,
     /// The signer ID
     signer_id: u32,
+    /// Which signer set to use (0 or 1).
+    /// Depends on whether or not we're signing in an even or odd reward cycle
+    signer_set: u32,
 }
 
 impl From<&Config> for StackerDB {
     fn from(config: &Config) -> Self {
+        let mut signers_message_stackerdb_sessions = HashMap::new();
+        for signer_set in 0..2 {
+            for msg_id in 0..SIGNER_SLOTS_PER_USER {
+                signers_message_stackerdb_sessions.insert(
+                    (signer_set, msg_id),
+                    StackerDBSession::new(
+                        config.node_host.clone(),
+                        QualifiedContractIdentifier::new(
+                            config.stackerdb_contract_id.issuer.clone(),
+                            ContractName::from(make_signers_db_name(signer_set, msg_id).as_str()),
+                        ),
+                    ),
+                );
+            }
+        }
         Self {
             signers_stackerdb_session: StackerDBSession::new(
                 config.node_host,
                 config.stackerdb_contract_id.clone(),
             ),
+            signers_message_stackerdb_sessions,
             stacks_private_key: config.stacks_private_key,
             slot_versions: HashMap::new(),
             signer_id: config.signer_id,
+            signer_set: 0,
         }
     }
 }
@@ -65,11 +90,28 @@ impl StackerDB {
         stacks_private_key: StacksPrivateKey,
         signer_id: u32,
     ) -> Self {
+        let mut signers_message_stackerdb_sessions = HashMap::new();
+        for signer_set in 0..2 {
+            for msg_id in 0..SIGNER_SLOTS_PER_USER {
+                signers_message_stackerdb_sessions.insert(
+                    (signer_set, msg_id),
+                    StackerDBSession::new(
+                        host.clone(),
+                        QualifiedContractIdentifier::new(
+                            stackerdb_contract_id.issuer.clone(),
+                            ContractName::from(make_signers_db_name(signer_set, msg_id).as_str()),
+                        ),
+                    ),
+                );
+            }
+        }
         Self {
             signers_stackerdb_session: StackerDBSession::new(host, stackerdb_contract_id),
+            signers_message_stackerdb_sessions,
             stacks_private_key,
             slot_versions: HashMap::new(),
             signer_id,
+            signer_set: 0,
         }
     }
 
@@ -79,23 +121,48 @@ impl StackerDB {
         message: SignerMessage,
     ) -> Result<StackerDBChunkAckData, ClientError> {
         let message_bytes = message.serialize_to_vec();
-        let slot_id = message.slot_id(self.signer_id);
-
+        let msg_id = message.msg_id();
+        let signer_set = self.signer_set;
+        let slot_id = self.signer_id;
         loop {
-            let slot_version = *self.slot_versions.entry(slot_id).or_insert(0) + 1;
+            let slot_version =
+                if let Some(versions) = self.slot_versions.get_mut(&(signer_set, msg_id)) {
+                    if let Some(version) = versions.get(&slot_id) {
+                        *version
+                    } else {
+                        versions.insert(slot_id, 0);
+                        1
+                    }
+                } else {
+                    let mut versions = HashMap::new();
+                    versions.insert(slot_id, 0);
+                    self.slot_versions.insert((signer_set, msg_id), versions);
+                    1
+                };
+
             let mut chunk = StackerDBChunkData::new(slot_id, slot_version, message_bytes.clone());
             chunk.sign(&self.stacks_private_key)?;
+
+            let Some(session) = self
+                .signers_message_stackerdb_sessions
+                .get_mut(&(signer_set, msg_id))
+            else {
+                panic!("FATAL: would loop forever trying to send a message with ID {}, for which we don't have a session", msg_id);
+            };
+
             debug!(
-                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version}!\n{:?}",
+                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} to contract {:?}!\n{:?}",
+                &session.stackerdb_contract_id,
                 &chunk
             );
-            let send_request = || {
-                self.signers_stackerdb_session
-                    .put_chunk(&chunk)
-                    .map_err(backoff::Error::transient)
-            };
+
+            let send_request = || session.put_chunk(&chunk).map_err(backoff::Error::transient);
             let chunk_ack: StackerDBChunkAckData = retry_with_exponential_backoff(send_request)?;
-            self.slot_versions.insert(slot_id, slot_version);
+
+            if let Some(versions) = self.slot_versions.get_mut(&(signer_set, msg_id)) {
+                // NOTE: per the above, this is always executed
+                versions.insert(slot_id, slot_version);
+            }
 
             if chunk_ack.accepted {
                 debug!("Chunk accepted by stackerdb: {:?}", chunk_ack);
@@ -165,6 +232,16 @@ impl StackerDB {
     /// Retrieve the signer contract id
     pub fn signers_contract_id(&self) -> &QualifiedContractIdentifier {
         &self.signers_stackerdb_session.stackerdb_contract_id
+    }
+
+    /// Retrieve the signer set this stackerdb client is attached to
+    pub fn get_signer_set(&self) -> u32 {
+        self.signer_set
+    }
+
+    /// Set the signer set from a reward cycle
+    pub fn set_signer_set(&mut self, set: u32) {
+        self.signer_set = set
     }
 }
 
