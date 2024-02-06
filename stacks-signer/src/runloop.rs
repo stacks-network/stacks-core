@@ -138,6 +138,8 @@ pub struct RunLoop<C> {
     pub transactions: Vec<StacksTransaction>,
     /// This signer's ID
     pub signer_id: u32,
+    /// The signer set for this runloop
+    pub signer_set: Option<u32>,
     /// The IDs of all signers partipating in the current reward cycle
     pub signer_ids: Vec<u32>,
     /// The stacks addresses of the signers participating in the current reward cycle
@@ -145,6 +147,22 @@ pub struct RunLoop<C> {
 }
 
 impl<C: Coordinator> RunLoop<C> {
+    /// Get and store the signer set assignment for this runloop.
+    /// This assigns the runloop to the _next_ reward cycle, not the current one.
+    fn get_or_set_signer_set(&mut self) -> Result<u32, ClientError> {
+        if let Some(signer_set) = self.signer_set.as_ref() {
+            return Ok(*signer_set);
+        } else {
+            let rc = u32::try_from(self.stacks_client.get_current_reward_cycle()?)
+                .expect("FATAL: reward cycle exceeds u32::MAX")
+                + 1;
+            debug!("Next reward cycle is {}", rc);
+            self.signer_set = Some(rc % 2);
+            self.stackerdb.set_signer_set(rc % 2);
+            Ok(rc % 2)
+        }
+    }
+
     /// Initialize the signer, reading the stacker-db state and setting the aggregate public key
     fn initialize(&mut self) -> Result<(), ClientError> {
         // Check if the aggregate key is set in the pox contract
@@ -162,10 +180,18 @@ impl<C: Coordinator> RunLoop<C> {
                 self.commands.push_front(RunLoopCommand::Dkg);
             }
         }
+
+        // determine what signer set we're using, so we use the right stackerdb replicas
+        let signer_set = self.get_or_set_signer_set()?;
+        debug!("Self-assigning to signer set {}", signer_set);
+
         // Get the signer writers from the stacker-db to verify transactions against
         self.signer_addresses = self
             .stacks_client
-            .get_stackerdb_signer_slots(self.stackerdb.signers_contract_id())?
+            .get_stackerdb_signer_slots(
+                self.stackerdb.signers_contract_id(),
+                self.stackerdb.get_signer_set(),
+            )?
             .into_iter()
             .map(|(address, _)| address)
             .collect();
@@ -872,6 +898,7 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             transactions: Vec::new(),
             signer_ids: config.signer_ids.clone(),
             signer_id: config.signer_id,
+            signer_set: None, // will be updated on .initialize()
             signer_addresses: vec![],
         }
     }
