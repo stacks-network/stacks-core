@@ -77,7 +77,7 @@ impl TypeMap {
     /// [ListUnionType]: TypeSignature::ListUnionType
     pub fn concretize(&mut self) -> CheckResult<()> {
         for ty in self.map.values_mut() {
-            *ty = concretize_deep(ty.clone())?;
+            *ty = ty.clone().concretize_deep()?;
         }
         Ok(())
     }
@@ -149,49 +149,6 @@ impl<'a> TypingContext<'a> {
                 Some(parent) => parent.lookup_trait_reference_type(name),
                 None => None,
             },
-        }
-    }
-}
-
-/// Subroutine of [TypeMap::concretize]
-fn concretize_deep(ty: TypeSignature) -> CheckResult<TypeSignature> {
-    match ty {
-        TypeSignature::NoType
-        | TypeSignature::IntType
-        | TypeSignature::UIntType
-        | TypeSignature::BoolType
-        | TypeSignature::PrincipalType
-        | TypeSignature::SequenceType(SequenceSubtype::BufferType(_))
-        | TypeSignature::SequenceType(SequenceSubtype::StringType(_))
-        | TypeSignature::TraitReferenceType(_) => Ok(ty),
-        TypeSignature::OptionalType(opt_ty) => Ok(TypeSignature::OptionalType(Box::new(
-            concretize_deep(*opt_ty)?,
-        ))),
-        TypeSignature::ResponseType(resp_ty) => {
-            let (ok_ty, err_ty) = *resp_ty;
-            Ok(TypeSignature::ResponseType(Box::new((
-                concretize_deep(ok_ty)?,
-                concretize_deep(err_ty)?,
-            ))))
-        }
-        TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) => {
-            let (entry_ty, max_len) = ltd.destruct();
-            Ok(TypeSignature::SequenceType(SequenceSubtype::ListType(
-                ListTypeData::new_list(concretize_deep(entry_ty)?, max_len)?,
-            )))
-        }
-        TypeSignature::TupleType(tup_ty) => Ok(TupleTypeSignature::try_from(
-            tup_ty.get_type_map().clone().into_iter().try_fold(
-                std::collections::BTreeMap::new(),
-                |mut acc, (name, elem_ty)| -> CheckResult<_> {
-                    acc.insert(name, concretize_deep(elem_ty)?);
-                    Ok(acc)
-                },
-            )?,
-        )?
-        .into()),
-        TypeSignature::ListUnionType(_) | TypeSignature::CallableType(_) => {
-            ty.concretize().map_err(CheckError::new)
         }
     }
 }

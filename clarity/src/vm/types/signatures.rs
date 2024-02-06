@@ -842,6 +842,48 @@ impl TypeSignature {
             _ => Ok(self.clone()),
         }
     }
+
+    /// Goes recursively through a type to [concretize](TypeSignature::concretize)
+    /// the inner [ListUnionType] and [CallableType] variants.
+    pub fn concretize_deep(self) -> Result<Self> {
+        match self {
+            TypeSignature::NoType
+            | TypeSignature::IntType
+            | TypeSignature::UIntType
+            | TypeSignature::BoolType
+            | TypeSignature::PrincipalType
+            | TypeSignature::SequenceType(SequenceSubtype::BufferType(_))
+            | TypeSignature::SequenceType(SequenceSubtype::StringType(_))
+            | TypeSignature::TraitReferenceType(_) => Ok(self),
+            TypeSignature::OptionalType(opt_ty) => Ok(TypeSignature::OptionalType(Box::new(
+                opt_ty.concretize_deep()?,
+            ))),
+            TypeSignature::ResponseType(resp_ty) => {
+                let (ok_ty, err_ty) = *resp_ty;
+                Ok(TypeSignature::ResponseType(Box::new((
+                    ok_ty.concretize_deep()?,
+                    err_ty.concretize_deep()?,
+                ))))
+            }
+            TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) => {
+                let (entry_ty, max_len) = ltd.destruct();
+                Ok(TypeSignature::SequenceType(SequenceSubtype::ListType(
+                    ListTypeData::new_list(entry_ty.concretize_deep()?, max_len)?,
+                )))
+            }
+            TypeSignature::TupleType(tup_ty) => Ok(TupleTypeSignature::try_from(
+                tup_ty.get_type_map().clone().into_iter().try_fold(
+                    std::collections::BTreeMap::new(),
+                    |mut acc, (name, elem_ty)| -> Result<_> {
+                        acc.insert(name, elem_ty.concretize_deep()?);
+                        Ok(acc)
+                    },
+                )?,
+            )?
+            .into()),
+            TypeSignature::ListUnionType(_) | TypeSignature::CallableType(_) => self.concretize(),
+        }
+    }
 }
 
 impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
