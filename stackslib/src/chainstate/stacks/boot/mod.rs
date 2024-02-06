@@ -90,6 +90,8 @@ const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
+pub const SIGNERS_DB_0_BODY: &'static str = std::include_str!("signers-0-xxx.clar");
+pub const SIGNERS_DB_1_BODY: &'static str = std::include_str!("signers-1-xxx.clar");
 const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
@@ -158,6 +160,10 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
         StandardPrincipalData::from(addr.clone()),
         ContractName::try_from(name.to_string()).unwrap(),
     )
+}
+
+pub fn make_signers_db_name(signer_set: u32, message_id: u32) -> String {
+    format!("{}-{}-{}", &SIGNERS_NAME, signer_set, message_id)
 }
 
 #[derive(Clone, Debug)]
