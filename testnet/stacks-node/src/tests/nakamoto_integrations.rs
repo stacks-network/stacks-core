@@ -63,7 +63,7 @@ use crate::tests::neon_integrations::{
 use crate::tests::{make_stacks_transfer, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
-static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
+pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
 static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
 lazy_static! {
@@ -346,15 +346,17 @@ pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
 }
 
 ///
-/// * `stacker_sk` - must be a private key for sending a large `stack-stx` transaction in order
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
 ///   for pox-4 to activate
 pub fn boot_to_epoch_3(
     naka_conf: &Config,
     blocks_processed: &RunLoopCounter,
-    stacker_sk: Secp256k1PrivateKey,
-    signer_pk: StacksPublicKey,
+    stacker_sks: &[Secp256k1PrivateKey],
+    signer_pks: &[StacksPublicKey],
     btc_regtest_controller: &mut BitcoinRegtestController,
 ) {
+    assert_eq!(stacker_sks.len(), signer_pks.len());
+
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
@@ -375,23 +377,25 @@ pub fn boot_to_epoch_3(
         AddressHashMode::SerializeP2PKH as u8,
     ));
 
-    let stacking_tx = tests::make_contract_call(
-        &stacker_sk,
-        0,
-        1000,
-        &StacksAddress::burn_address(false),
-        "pox-4",
-        "stack-stx",
-        &[
-            clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
-            pox_addr_tuple,
-            clarity::vm::Value::UInt(205),
-            clarity::vm::Value::UInt(12),
-            clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
-        ],
-    );
+    for (stacker_sk, signer_pk) in stacker_sks.iter().zip(signer_pks.iter()) {
+        let stacking_tx = tests::make_contract_call(
+            &stacker_sk,
+            0,
+            1000,
+            &StacksAddress::burn_address(false),
+            "pox-4",
+            "stack-stx",
+            &[
+                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                pox_addr_tuple.clone(),
+                clarity::vm::Value::UInt(205),
+                clarity::vm::Value::UInt(12),
+                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            ],
+        );
 
-    submit_tx(&http_origin, &stacking_tx);
+        submit_tx(&http_origin, &stacking_tx);
+    }
 
     run_until_burnchain_height(
         btc_regtest_controller,
@@ -465,8 +469,8 @@ fn simple_neon_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        stacker_sk,
-        sender_signer_key,
+        &vec![stacker_sk],
+        &vec![sender_signer_key],
         &mut btc_regtest_controller,
     );
 
@@ -685,8 +689,8 @@ fn mine_multiple_per_tenure_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        stacker_sk,
-        sender_signer_key,
+        &vec![stacker_sk],
+        &vec![sender_signer_key],
         &mut btc_regtest_controller,
     );
 
@@ -1094,8 +1098,8 @@ fn block_proposal_api_endpoint() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        stacker_sk,
-        StacksPublicKey::new(),
+        &vec![stacker_sk],
+        &vec![StacksPublicKey::new()],
         &mut btc_regtest_controller,
     );
 
@@ -1437,8 +1441,8 @@ fn miner_writes_proposed_block_to_stackerdb() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        stacker_sk,
-        StacksPublicKey::new(),
+        &vec![stacker_sk],
+        &vec![StacksPublicKey::new()],
         &mut btc_regtest_controller,
     );
 
