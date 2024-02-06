@@ -9,6 +9,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- New RPC endpoint `/v2/stacker_set/{cycle_number}` to fetch stacker sets in PoX-4
 - New `/new_pox_anchor` endpoint for broadcasting PoX anchor block processing.
 - Stacker bitvec in NakamotoBlock
 

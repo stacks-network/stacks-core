@@ -57,7 +57,7 @@ use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 fn advance_to_nakamoto(
     peer: &mut TestPeer,
     test_signers: &TestSigners,
-    test_stackers: Vec<TestStacker>,
+    test_stackers: &[TestStacker],
 ) {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
@@ -87,13 +87,15 @@ fn advance_to_nakamoto(
                         &Pox4SignatureTopic::StackStx,
                         12_u128,
                     );
+                    let signing_key =
+                        StacksPublicKey::from_private(&test_stacker.signer_private_key);
                     make_pox_4_lockup(
                         &test_stacker.stacker_private_key,
                         0,
                         test_stacker.amount,
                         pox_addr.clone(),
                         12,
-                        StacksPublicKey::from_private(&test_stacker.signer_private_key),
+                        signing_key,
                         34,
                         signature,
                     )
@@ -114,7 +116,7 @@ pub fn boot_nakamoto<'a>(
     test_name: &str,
     mut initial_balances: Vec<(PrincipalData, u64)>,
     test_signers: &TestSigners,
-    test_stackers: Option<Vec<&TestStacker>>,
+    test_stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
 ) -> TestPeer<'a> {
     let aggregate_public_key = test_signers.aggregate_public_key.clone();
@@ -139,23 +141,6 @@ pub fn boot_nakamoto<'a>(
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
 
-    let test_stackers: Vec<TestStacker> = if let Some(stackers) = test_stackers {
-        stackers.into_iter().cloned().collect()
-    } else {
-        // Create a list of test Stackers and their signer keys
-        (0..test_signers.num_keys)
-            .map(|index| {
-                let stacker_private_key = StacksPrivateKey::from_seed(&index.to_be_bytes());
-                let signer_private_key = StacksPrivateKey::from_seed(&index.to_be_bytes());
-                TestStacker {
-                    stacker_private_key,
-                    signer_private_key,
-                    amount: 1_000_000_000_000_000_000,
-                }
-            })
-            .collect()
-    };
-
     // Create some balances for test Stackers
     let mut stacker_balances = test_stackers
         .iter()
@@ -173,7 +158,7 @@ pub fn boot_nakamoto<'a>(
     peer_config.burnchain.pox_constants.pox_3_activation_height = 26;
     peer_config.burnchain.pox_constants.v3_unlock_height = 27;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
-    peer_config.test_stackers = Some(test_stackers.clone());
+    peer_config.test_stackers = Some(test_stackers.to_vec());
     let mut peer = TestPeer::new_with_observer(peer_config, observer);
 
     advance_to_nakamoto(&mut peer, &test_signers, test_stackers);
@@ -192,7 +177,11 @@ fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     let test_stackers = replay_config.test_stackers.clone().unwrap_or(vec![]);
     let mut replay_peer = TestPeer::new(replay_config);
     let observer = TestEventObserver::new();
-    advance_to_nakamoto(&mut replay_peer, &TestSigners::default(), test_stackers);
+    advance_to_nakamoto(
+        &mut replay_peer,
+        &TestSigners::default(),
+        test_stackers.as_slice(),
+    );
 
     // sanity check
     let replay_tip = {
@@ -307,7 +296,14 @@ fn replay_reward_cycle(
 #[test]
 fn test_simple_nakamoto_coordinator_bootup() {
     let mut test_signers = TestSigners::default();
-    let mut peer = boot_nakamoto(function_name!(), vec![], &test_signers, None, None);
+    let test_stackers = TestStacker::common_signing_set(&test_signers);
+    let mut peer = boot_nakamoto(
+        function_name!(),
+        vec![],
+        &test_signers,
+        &test_stackers,
+        None,
+    );
 
     let (burn_ops, mut tenure_change, miner_key) =
         peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -363,11 +359,12 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     .unwrap();
 
     let mut test_signers = TestSigners::default();
+    let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
-        None,
+        &test_stackers,
         None,
     );
 
@@ -486,11 +483,12 @@ fn test_nakamoto_chainstate_getters() {
     )
     .unwrap();
     let mut test_signers = TestSigners::default();
+    let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
-        None,
+        &test_stackers,
         None,
     );
 
@@ -976,11 +974,12 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     .unwrap();
 
     let mut test_signers = TestSigners::default();
+    let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
-        None,
+        &test_stackers,
         None,
     );
 
@@ -1305,11 +1304,12 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     )
     .unwrap();
     let mut test_signers = TestSigners::default();
+    let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
-        None,
+        &test_stackers,
         None,
     );
 
@@ -1641,11 +1641,12 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     )
     .unwrap();
     let mut test_signers = TestSigners::default();
+    let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
         &test_signers,
-        None,
+        &test_stackers,
         None,
     );
 

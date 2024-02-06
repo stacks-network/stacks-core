@@ -177,11 +177,13 @@ mod tests {
         TransactionSmartContract, TransactionVersion,
     };
     use blockstack_lib::util_lib::strings::StacksString;
+    use serial_test::serial;
 
     use super::*;
     use crate::client::tests::{write_response, TestConfig};
 
     #[test]
+    #[serial]
     fn get_signer_transactions_with_retry_should_succeed() {
         let mut config = TestConfig::new();
         let sk = StacksPrivateKey::new();
@@ -226,6 +228,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn send_signer_message_with_retry_should_succeed() {
         let mut config = TestConfig::new();
         let sk = StacksPrivateKey::new();
