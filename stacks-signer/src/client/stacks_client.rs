@@ -32,7 +32,7 @@ use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use clarity::vm::{ClarityName, ContractName, Value as ClarityValue, Value};
 use serde_json::json;
 use slog::slog_debug;
 use stacks_common::codec::StacksMessageCodec;
@@ -91,10 +91,11 @@ impl StacksClient {
     pub fn get_stackerdb_signer_slots(
         &self,
         stackerdb_contract: &QualifiedContractIdentifier,
+        page: u32,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
-        let function_name_str = "stackerdb-get-signer-slots";
+        let function_name_str = "stackerdb-get-signer-slots-page";
         let function_name = ClarityName::from(function_name_str);
-        let function_args = &[];
+        let function_args = &[Value::UInt(page.into())];
         let value = self.read_only_contract_call_with_retry(
             &stackerdb_contract.issuer.clone().into(),
             &stackerdb_contract.name,
@@ -220,7 +221,7 @@ impl StacksClient {
     }
 
     /// Helper function to retrieve the current reward cycle number from the stacks node
-    fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
+    pub fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
         let pox_data = self.get_pox_data()?;
         Ok(pox_data.reward_cycle_id)
     }
