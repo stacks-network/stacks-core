@@ -6,14 +6,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
+use clarity::boot_util::boot_code_id;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{
     BlockResponse, RejectCode, RunningSigner, Signer, SignerEventReceiver, SignerMessage,
-    BLOCK_SLOT_ID, SIGNER_SLOTS_PER_USER,
+    BLOCK_SLOT_ID,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use stacks::chainstate::stacks::boot::SIGNERS_NAME;
+use stacks::chainstate::stacks::boot::{make_signers_db_name, SIGNERS_NAME};
 use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksTransaction, ThresholdSignature, TransactionAnchorMode,
     TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
@@ -23,6 +24,7 @@ use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::read_next;
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
 };
@@ -31,7 +33,7 @@ use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{Config as SignerConfig, Network};
 use stacks_signer::runloop::{calculate_coordinator, RunLoopCommand};
-use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
+use stacks_signer::utils::build_signer_config_tomls;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::curve::point::Point;
@@ -45,12 +47,10 @@ use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_3, naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
-    setup_stacker,
+    setup_stacker, POX_4_DEFAULT_STACKER_BALANCE,
 };
-use crate::tests::neon_integrations::{
-    next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
-};
-use crate::tests::{make_contract_publish, to_addr};
+use crate::tests::neon_integrations::{next_block_and_wait, test_observer, wait_for_runloop};
+use crate::tests::to_addr;
 use crate::{BitcoinRegtestController, BurnchainController};
 
 // Helper struct for holding the btc and stx neon nodes
@@ -87,23 +87,12 @@ struct SignerTest {
 impl SignerTest {
     fn new(num_signers: u32, num_keys: u32) -> Self {
         // Generate Signer Data
-        let publisher_private_key = StacksPrivateKey::new();
         let signer_stacks_private_keys = (0..num_signers)
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>();
-        let signer_stacks_addresses = signer_stacks_private_keys
-            .iter()
-            .map(to_addr)
-            .collect::<Vec<StacksAddress>>();
 
         // Build the stackerdb signers contract
-        // TODO: Remove this once it is a boot contract
-        let signers_stackerdb_contract =
-            build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
-        let signers_stacker_db_contract_id = QualifiedContractIdentifier::new(
-            to_addr(&publisher_private_key).into(),
-            "signers".into(),
-        );
+        let signers_stacker_db_contract_id = boot_code_id("signers".into(), false);
 
         let (naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
@@ -138,9 +127,6 @@ impl SignerTest {
             naka_conf,
             num_signers,
             &signer_stacks_private_keys,
-            &publisher_private_key,
-            &signers_stackerdb_contract,
-            &signers_stacker_db_contract_id,
             &signer_configs,
         );
 
@@ -222,9 +208,6 @@ fn setup_stx_btc_node(
     mut naka_conf: NeonConfig,
     num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
-    publisher_private_key: &StacksPrivateKey,
-    stackerdb_contract: &str,
-    stackerdb_contract_id: &QualifiedContractIdentifier,
     signer_config_tomls: &Vec<String>,
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
@@ -237,6 +220,11 @@ fn setup_stx_btc_node(
         });
     }
 
+    let signer_stacks_pubks: Vec<_> = signer_stacks_private_keys
+        .iter()
+        .map(|pk| StacksPublicKey::from_private(pk))
+        .collect();
+
     // Spawn a test observer for verification purposes
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -248,25 +236,27 @@ fn setup_stx_btc_node(
     // The signers need some initial balances in order to pay for epoch 2.5 transaction votes
     let mut initial_balances = Vec::new();
 
-    initial_balances.push(InitialBalance {
-        address: to_addr(publisher_private_key).into(),
-        amount: 10_000_000_000_000,
-    });
-
+    // TODO: separate keys for stacking and signing (because they'll be different in prod)
     for i in 0..num_signers {
         initial_balances.push(InitialBalance {
             address: to_addr(&signer_stacks_private_keys[i as usize]).into(),
-            amount: 10_000_000_000_000,
+            amount: POX_4_DEFAULT_STACKER_BALANCE,
         });
     }
     naka_conf.initial_balances.append(&mut initial_balances);
-    naka_conf
-        .node
-        .stacker_dbs
-        .push(stackerdb_contract_id.clone());
+    naka_conf.node.stacker = true;
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
 
-    let stacker_sk = setup_stacker(&mut naka_conf);
+    for signer_set in 0..2 {
+        for message_id in 0..SIGNER_SLOTS_PER_USER {
+            let contract_name = make_signers_db_name(signer_set, message_id);
+            let contract_id = boot_code_id(contract_name.as_str(), false);
+            if !naka_conf.node.stacker_dbs.contains(&contract_id) {
+                debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
+                naka_conf.node.stacker_dbs.push(contract_id);
+            }
+        }
+    }
 
     info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
@@ -311,29 +301,12 @@ fn setup_stx_btc_node(
     info!("Mine third block...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    info!("Send signers stacker-db contract-publish...");
-    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
-
-    let tx_fee = 100_000;
-    let tx = make_contract_publish(
-        publisher_private_key,
-        0,
-        tx_fee,
-        &stackerdb_contract_id.name,
-        stackerdb_contract,
-    );
-    submit_tx(&http_origin, &tx);
-    // mine it
-    info!("Mining the signers stackerdb contract: {stackerdb_contract_id}");
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
     info!("Boot to epoch 3.0 to activate pox-4...");
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        stacker_sk,
-        StacksPublicKey::new(),
+        signer_stacks_private_keys,
+        &signer_stacks_pubks,
         &mut btc_regtest_controller,
     );
 
@@ -534,7 +507,7 @@ fn stackerdb_dkg_sign() {
 ///
 /// Test Assertion:
 /// Signers return an operation result containing a valid signature across the miner's Nakamoto block's signature hash.
-/// Signers broadcasted a signature across the miner's proposed block back to the .signers contract.
+/// Signers broadcasted a signature across the miner's proposed block back to the respective .signers-XXX-YYY contract.
 /// TODO: update test to check miner received the signed block and appended it to the chain
 fn stackerdb_block_proposal() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
