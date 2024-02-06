@@ -1921,10 +1921,10 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         signer_index: u128,
-        aggregate_public_key: &Secp256k1PublicKey,
+        aggregate_public_key: &Point,
         round: u128,
     ) -> StacksTransaction {
-        let aggregate_public_key = Value::buff_from(aggregate_public_key.to_bytes_compressed())
+        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),

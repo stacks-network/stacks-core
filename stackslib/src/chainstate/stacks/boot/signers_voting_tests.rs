@@ -17,7 +17,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
-use ::secp256k1::Scalar;
 use clarity::boot_util::boot_code_addr;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -41,9 +40,10 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
 };
-use stacks_common::types::Address;
+use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
+use wsts::curve::{point::Point, scalar::Scalar};
 
 use super::test::*;
 use super::RawRewardSetEntry;
@@ -255,10 +255,8 @@ fn vote_for_aggregate_public_key_in_last_block() {
     );
 
     let cycle_id: u128 = current_reward_cycle;
-    let private_key = StacksPrivateKey::from_seed(&[3]);
-    let aggregate_public_key = StacksPublicKey::from_private(&private_key);
-    let private_key_1 = StacksPrivateKey::from_seed(&[4]);
-    let aggregate_public_key_1 = StacksPublicKey::from_private(&private_key_1);
+    let aggregate_public_key_1 = Point::from(Scalar::from(1));
+    let aggregate_public_key_2 = Point::from(Scalar::from(2));
 
     // create vote txs for alice
     let signer_1_nonce = 0;
@@ -273,7 +271,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_key,
             signer_1_nonce,
             signer_1_index,
-            &aggregate_public_key,
+            &aggregate_public_key_1,
             1,
         ),
         // cast the vote twice
@@ -281,7 +279,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_key,
             signer_1_nonce + 1,
             signer_1_index,
-            &aggregate_public_key,
+            &aggregate_public_key_1,
             1,
         ),
         // cast a vote for old round
@@ -289,7 +287,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_key,
             signer_1_nonce + 2,
             signer_1_index,
-            &aggregate_public_key_1,
+            &aggregate_public_key_2,
             0,
         ),
     ];
@@ -307,7 +305,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_2_key,
             signer_2_nonce,
             signer_2_index,
-            &aggregate_public_key,
+            &aggregate_public_key_1,
             0,
         ),
     ];
