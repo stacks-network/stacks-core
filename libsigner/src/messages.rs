@@ -21,7 +21,6 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, ThresholdSignature};
 use blockstack_lib::net::api::postblock_proposal::{
@@ -176,6 +175,29 @@ pub enum SignerMessage {
     Packet(Packet),
     /// The list of transactions for miners and signers to observe that this signer cares about
     Transactions(Vec<StacksTransaction>),
+}
+
+impl SignerMessage {
+    /// Helper function to determine the slot ID for the provided stacker-db writer id
+    pub fn msg_id(&self) -> u32 {
+        let msg_id = match self {
+            Self::Packet(packet) => match packet.msg {
+                Message::DkgBegin(_) => DKG_BEGIN_SLOT_ID,
+                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_SLOT_ID,
+                Message::DkgEndBegin(_) => DKG_END_BEGIN_SLOT_ID,
+                Message::DkgEnd(_) => DKG_END_SLOT_ID,
+                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_SLOT_ID,
+                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_SLOT_ID,
+                Message::NonceRequest(_) => NONCE_REQUEST_SLOT_ID,
+                Message::NonceResponse(_) => NONCE_RESPONSE_SLOT_ID,
+                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_SLOT_ID,
+                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_SLOT_ID,
+            },
+            Self::BlockResponse(_) => BLOCK_SLOT_ID,
+            Self::Transactions(_) => TRANSACTIONS_SLOT_ID,
+        };
+        msg_id
+    }
 }
 
 impl StacksMessageCodec for SignerMessage {
@@ -906,29 +928,6 @@ impl From<BlockRejection> for SignerMessage {
 impl From<BlockValidateReject> for SignerMessage {
     fn from(rejection: BlockValidateReject) -> Self {
         Self::BlockResponse(BlockResponse::Rejected(rejection.into()))
-    }
-}
-
-impl SignerMessage {
-    /// Helper function to determine the slot ID for the provided stacker-db writer id
-    pub fn slot_id(&self, id: u32) -> u32 {
-        let slot_id = match self {
-            Self::Packet(packet) => match packet.msg {
-                Message::DkgBegin(_) => DKG_BEGIN_SLOT_ID,
-                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_SLOT_ID,
-                Message::DkgEndBegin(_) => DKG_END_BEGIN_SLOT_ID,
-                Message::DkgEnd(_) => DKG_END_SLOT_ID,
-                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_SLOT_ID,
-                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_SLOT_ID,
-                Message::NonceRequest(_) => NONCE_REQUEST_SLOT_ID,
-                Message::NonceResponse(_) => NONCE_RESPONSE_SLOT_ID,
-                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_SLOT_ID,
-                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_SLOT_ID,
-            },
-            Self::BlockResponse(_) => BLOCK_SLOT_ID,
-            Self::Transactions(_) => TRANSACTIONS_SLOT_ID,
-        };
-        SIGNER_SLOTS_PER_USER * id + slot_id
     }
 }
 
