@@ -312,7 +312,8 @@ impl NakamotoBootPlan {
         let reward_cycle = peer
             .config
             .burnchain
-            .reward_cycle_to_block_height(sortition_height);
+            .block_height_to_reward_cycle(sortition_height.into())
+            .unwrap();
 
         // Make all the test Stackers stack
         let stack_txs: Vec<_> = peer
