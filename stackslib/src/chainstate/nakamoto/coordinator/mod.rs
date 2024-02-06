@@ -91,7 +91,7 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
         // figure out the block ID
-        let Ok(Some(coinbase_height_of_calculation)) = chainstate
+        let Some(coinbase_height_of_calculation) = chainstate
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
