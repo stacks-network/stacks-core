@@ -1737,9 +1737,49 @@ fn stack_stx_verify_signer_sig() {
         signature,
     );
 
-    // TODO: test invalid period and topic in signature
+    // Test 4: invalid topic
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_key,
+        reward_cycle,
+        &Pox4SignatureTopic::StackExtend, // wrong topic
+        lock_period,
+    );
+    let invalid_topic_nonce = stacker_nonce;
+    let invalid_topic_tx = make_pox_4_lockup(
+        &stacker_key,
+        stacker_nonce,
+        min_ustx,
+        pox_addr.clone(),
+        lock_period,
+        signer_public_key.clone(),
+        block_height,
+        signature,
+    );
 
-    // Test 4: valid signature
+    // Test 5: invalid period
+    stacker_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_key,
+        reward_cycle,
+        &topic,
+        lock_period + 1, // wrong period
+    );
+    let invalid_period_nonce = stacker_nonce;
+    let invalid_period_tx = make_pox_4_lockup(
+        &stacker_key,
+        stacker_nonce,
+        min_ustx,
+        pox_addr.clone(),
+        lock_period,
+        signer_public_key.clone(),
+        block_height,
+        signature,
+    );
+
+    // Test 6: valid signature
     stacker_nonce += 1;
     let signature =
         make_signer_key_signature(&pox_addr, &signer_key, reward_cycle, &topic, lock_period);
@@ -1759,6 +1799,8 @@ fn stack_stx_verify_signer_sig() {
         invalid_cycle_stack,
         invalid_stacker_tx,
         invalid_key_tx,
+        invalid_topic_tx,
+        invalid_period_tx,
         valid_tx,
     ];
 
@@ -1773,6 +1815,8 @@ fn stack_stx_verify_signer_sig() {
     assert_eq!(tx_result(invalid_cycle_nonce), expected_error);
     assert_eq!(tx_result(invalid_stacker_nonce), expected_error);
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
+    assert_eq!(tx_result(invalid_period_nonce), expected_error);
+    assert_eq!(tx_result(invalid_topic_nonce), expected_error);
 
     // valid tx should succeed
     tx_result(valid_nonce)
@@ -1878,8 +1922,6 @@ fn stack_extend_verify_sig() {
         signature,
     );
 
-    // TODO: test invalid period and topic in signature
-
     // Test 4: valid stack-extend
     stacker_nonce += 1;
     let signature =
@@ -1978,9 +2020,14 @@ fn stack_agg_commit_verify_sig() {
 
     // Test 1: invalid reward cycle
     delegate_nonce += 1;
-    let next_reward_cycle = reward_cycle + 1; // wrong cycle for signature
-    let signature =
-        make_signer_key_signature(&pox_addr, &signer_sk, next_reward_cycle, &topic, 1_u128);
+    let next_reward_cycle = reward_cycle + 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle, // wrong cycle
+        &topic,
+        1_u128,
+    );
     let invalid_cycle_nonce = delegate_nonce;
     let invalid_cycle_tx = make_pox_4_aggregation_commit_indexed(
         &delegate_key,
@@ -1994,8 +2041,13 @@ fn stack_agg_commit_verify_sig() {
     // Test 2: invalid pox addr
     delegate_nonce += 1;
     let other_pox_addr = pox_addr_from(&Secp256k1PrivateKey::new());
-    let signature =
-        make_signer_key_signature(&other_pox_addr, &signer_sk, reward_cycle, &topic, 1_u128);
+    let signature = make_signer_key_signature(
+        &other_pox_addr,
+        &signer_sk,
+        next_reward_cycle,
+        &topic,
+        1_u128,
+    );
     let invalid_pox_addr_nonce = delegate_nonce;
     let invalid_stacker_tx = make_pox_4_aggregation_commit_indexed(
         &delegate_key,
@@ -2009,7 +2061,7 @@ fn stack_agg_commit_verify_sig() {
     // Test 3: invalid signature
     delegate_nonce += 1;
     let signature =
-        make_signer_key_signature(&pox_addr, &delegate_key, reward_cycle, &topic, 1_u128);
+        make_signer_key_signature(&pox_addr, &delegate_key, next_reward_cycle, &topic, 1_u128);
     let invalid_key_nonce = delegate_nonce;
     let invalid_key_tx = make_pox_4_aggregation_commit_indexed(
         &delegate_key,
@@ -2020,11 +2072,48 @@ fn stack_agg_commit_verify_sig() {
         &signer_pk,
     );
 
-    // TODO: test invalid period and topic in signature
-
-    // Test 4: valid signature
+    // Test 4: invalid period in signature
     delegate_nonce += 1;
-    let signature = make_signer_key_signature(&pox_addr, &signer_sk, reward_cycle, &topic, 1_u128);
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        next_reward_cycle,
+        &topic,
+        2_u128, // wrong period
+    );
+    let invalid_period_nonce = delegate_nonce;
+    let invalid_period_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        signature,
+        &signer_pk,
+    );
+
+    // Test 5: invalid topic in signature
+    delegate_nonce += 1;
+    let signature = make_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        next_reward_cycle,
+        &Pox4SignatureTopic::StackStx, // wrong topic
+        1_u128,
+    );
+    let invalid_topic_nonce = delegate_nonce;
+    let invalid_topic_tx = make_pox_4_aggregation_commit_indexed(
+        &delegate_key,
+        delegate_nonce,
+        &pox_addr,
+        next_reward_cycle,
+        signature,
+        &signer_pk,
+    );
+
+    // Test 6: valid signature
+    delegate_nonce += 1;
+    let signature =
+        make_signer_key_signature(&pox_addr, &signer_sk, next_reward_cycle, &topic, 1_u128);
     let valid_nonce = delegate_nonce;
     let valid_tx = make_pox_4_aggregation_commit_indexed(
         &delegate_key,
@@ -2042,6 +2131,8 @@ fn stack_agg_commit_verify_sig() {
             invalid_cycle_tx,
             invalid_stacker_tx,
             invalid_key_tx,
+            invalid_period_tx,
+            invalid_topic_tx,
             valid_tx,
         ],
         &mut coinbase_nonce,
@@ -2059,6 +2150,8 @@ fn stack_agg_commit_verify_sig() {
     assert_eq!(tx_result(invalid_cycle_nonce), expected_error);
     assert_eq!(tx_result(invalid_pox_addr_nonce), expected_error);
     assert_eq!(tx_result(invalid_key_nonce), expected_error);
+    assert_eq!(tx_result(invalid_period_nonce), expected_error);
+    assert_eq!(tx_result(invalid_topic_nonce), expected_error);
     tx_result(valid_nonce)
         .expect_result_ok()
         .expect("Expected ok result from tx");
@@ -2361,7 +2454,7 @@ fn delegate_stack_stx_signer_key() {
     let signature = make_signer_key_signature(
         &pox_addr,
         &signer_sk,
-        (next_reward_cycle - 1).into(),
+        next_reward_cycle.into(),
         &Pox4SignatureTopic::AggregationCommit,
         1_u128,
     );
@@ -2548,7 +2641,7 @@ fn delegate_stack_stx_extend_signer_key() {
     let signature = make_signer_key_signature(
         &pox_addr,
         &signer_sk,
-        reward_cycle.into(),
+        next_reward_cycle.into(),
         &Pox4SignatureTopic::AggregationCommit,
         1_u128,
     );
@@ -2576,7 +2669,7 @@ fn delegate_stack_stx_extend_signer_key() {
     let extend_signature = make_signer_key_signature(
         &pox_addr,
         &signer_extend_sk,
-        (extend_cycle - 1).into(),
+        extend_cycle.into(),
         &Pox4SignatureTopic::AggregationCommit,
         1_u128,
     );
@@ -2791,7 +2884,7 @@ fn delegate_stack_increase() {
     let signature = make_signer_key_signature(
         &pox_addr,
         &signer_sk,
-        (next_reward_cycle - 1).into(),
+        next_reward_cycle.into(),
         &Pox4SignatureTopic::AggregationCommit,
         1_u128,
     );
