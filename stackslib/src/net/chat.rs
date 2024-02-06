@@ -2701,6 +2701,33 @@ impl ConversationP2P {
         self.dns_deadline < u128::MAX
     }
 
+    /// Try to get the IPv4 or IPv6 address out of a data URL.
+    fn try_decode_data_url_ipaddr(data_url: &UrlString) -> Option<SocketAddr> {
+        // need to begin resolution
+        // NOTE: should always succeed, since a UrlString shouldn't decode unless it's a valid URL or the empty string
+        let Ok(url) = data_url.parse_to_block_url() else {
+            return None;
+        };
+        let port = match url.port_or_known_default() {
+            Some(p) => p,
+            None => {
+                return None;
+            }
+        };
+        let ip_addr_opt = match url.host() {
+            Some(url::Host::Ipv4(addr)) => {
+                // have IPv4 address already
+                Some(SocketAddr::new(IpAddr::V4(addr), port))
+            }
+            Some(url::Host::Ipv6(addr)) => {
+                // have IPv6 address already
+                Some(SocketAddr::new(IpAddr::V6(addr), port))
+            }
+            _ => None
+        };
+        ip_addr_opt
+    }
+
     /// Attempt to resolve the hostname of a conversation's data URL to its IP address.
     fn try_resolve_data_url_host(
         &mut self,
@@ -2713,6 +2740,13 @@ impl ConversationP2P {
         if self.data_url.len() == 0 {
             return;
         }
+        if let Some(ipaddr) = Self::try_decode_data_url_ipaddr(&self.data_url) {
+            // don't need to resolve!
+            debug!("{}: Resolved data URL {} to {}", &self, &self.data_url, &ipaddr);
+            self.data_ip = Some(ipaddr);
+            return;
+        }
+
         let Some(dns_client) = dns_client_opt else {
             return;
         };

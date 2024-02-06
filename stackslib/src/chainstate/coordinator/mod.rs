@@ -237,6 +237,8 @@ pub struct ChainsCoordinator<
     /// Used to tell the P2P thread that the stackerdb
     ///  needs to be refreshed.
     pub refresh_stacker_db: Arc<AtomicBool>,
+    /// whether or not the canonical tip is now a Nakamoto header
+    pub in_nakamoto_epoch: bool,
 }
 
 #[derive(Debug)]
@@ -538,6 +540,7 @@ impl<
             config,
             burnchain_indexer,
             refresh_stacker_db: comms.refresh_stacker_db.clone(),
+            in_nakamoto_epoch: false,
         };
 
         let mut nakamoto_available = false;
@@ -699,6 +702,7 @@ impl<'a, T: BlockEventDispatcher, U: RewardSetProvider, B: BurnchainHeaderReader
             config: ChainsCoordinatorConfig::new(),
             burnchain_indexer,
             refresh_stacker_db: Arc::new(AtomicBool::new(false)),
+            in_nakamoto_epoch: false,
         }
     }
 }

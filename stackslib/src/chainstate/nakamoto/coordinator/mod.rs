@@ -483,6 +483,38 @@ impl<
         if (bits & (CoordinatorEvents::NEW_STACKS_BLOCK as u8)) != 0 {
             signal_mining_blocked(miner_status.clone());
             debug!("Received new Nakamoto stacks block notice");
+           
+            // we may still be processing epoch 2 blocks after the Nakamoto transition, so be sure
+            // to process them so we can get to the Nakamoto blocks!
+            if !self.in_nakamoto_epoch {
+                debug!("Check to see if the system has entered the Nakamoto epoch");
+                if let Ok(Some(canonical_header)) = NakamotoChainState::get_canonical_block_header(&self.chain_state_db.db(), &self.sortition_db) {
+                    if canonical_header.is_nakamoto_block() {
+                        // great! don't check again
+                        debug!("The canonical Stacks tip ({}/{}) is a Nakamoto block!", &canonical_header.consensus_hash, &canonical_header.anchored_header.block_hash());
+                        self.in_nakamoto_epoch = true;
+                    }
+                    else {
+                        // need to process epoch 2 blocks
+                        debug!("Received new epoch 2.x Stacks block notice");
+                        match self.handle_new_stacks_block() {
+                            Ok(missing_block_opt) => {
+                                if missing_block_opt.is_some() {
+                                    debug!(
+                                        "Missing affirmed anchor block: {:?}",
+                                        &missing_block_opt.as_ref().expect("unreachable")
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Error processing new stacks block: {:?}", e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // now we can process the nakamoto block
             match self.handle_new_nakamoto_stacks_block() {
                 Ok(new_anchor_block_opt) => {
                     if let Some(bhh) = new_anchor_block_opt {

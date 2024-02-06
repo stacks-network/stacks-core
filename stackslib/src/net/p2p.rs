@@ -1811,7 +1811,7 @@ impl PeerNetwork {
             }
             if let Some(inv_state) = self.inv_state_nakamoto.as_mut() {
                 debug!(
-                    "{:?}: Remove inventory state for epoch 2.x {:?}",
+                    "{:?}: Remove inventory state for Nakamoto {:?}",
                     &self.local_peer, &nk
                 );
                 inv_state.del_peer(&NeighborAddress::from_neighbor_key(nk, pubkh));
@@ -5699,13 +5699,18 @@ impl PeerNetwork {
         self.do_attachment_downloads(dns_client_opt, network_result);
 
         // synchronize stacker DBs
-        match self.run_stacker_db_sync() {
-            Ok(stacker_db_sync_results) => {
-                network_result.consume_stacker_db_sync_results(stacker_db_sync_results);
+        if !ibd {
+            match self.run_stacker_db_sync() {
+                Ok(stacker_db_sync_results) => {
+                    network_result.consume_stacker_db_sync_results(stacker_db_sync_results);
+                }
+                Err(e) => {
+                    warn!("Failed to run Stacker DB sync: {:?}", &e);
+                }
             }
-            Err(e) => {
-                warn!("Failed to run Stacker DB sync: {:?}", &e);
-            }
+        }
+        else {
+            debug!("{}: skip StackerDB sync in IBD", self.get_local_peer());
         }
 
         // remove timed-out requests from other threads

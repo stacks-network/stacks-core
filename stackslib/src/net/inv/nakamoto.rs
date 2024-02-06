@@ -353,6 +353,7 @@ impl NakamotoTenureInv {
     /// Adjust the next reward cycle to query.
     /// Returns the reward cycle to query.
     pub fn next_reward_cycle(&mut self) -> u64 {
+        test_debug!("Next reward cycle: {}", self.cur_reward_cycle + 1);
         let query_rc = self.cur_reward_cycle;
         self.cur_reward_cycle = self.cur_reward_cycle.saturating_add(1);
         query_rc
@@ -646,11 +647,12 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 )
             });
 
-            let proceed = inv.getnakamotoinv_begin(network, current_reward_cycle);
+            let proceed = inv.getnakamotoinv_begin(network, inv.reward_cycle());
             let inv_rc = inv.reward_cycle();
             new_inventories.insert(naddr.clone(), inv);
 
             if self.comms.has_inflight(&naddr) {
+                test_debug!("{:?}: still waiting for reply from {}", network.get_local_peer(), &naddr);
                 continue;
             }
 

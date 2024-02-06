@@ -2728,7 +2728,6 @@ impl NakamotoDownloadStateMachine {
         &mut self,
         network: &PeerNetwork,
         sortdb: &SortitionDB,
-        chainstate: &StacksChainState,
     ) -> Result<(), NetError> {
         let sort_tip = &network.burnchain_tip;
         let Some(invs) = network.inv_state_nakamoto.as_ref() else {
@@ -2754,6 +2753,7 @@ impl NakamotoDownloadStateMachine {
         let can_advance_wanted_tenures =
             if let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() {
                 !Self::have_unprocessed_tenures(
+                    sortdb.pox_constants.block_height_to_reward_cycle(sortdb.first_block_height, self.nakamoto_start_height).expect("FATAL: first nakamoto block from before system start"),
                     &self.tenure_downloads.completed_tenures,
                     prev_wanted_tenures,
                     &self.tenure_block_ids,
@@ -2886,6 +2886,7 @@ impl NakamotoDownloadStateMachine {
     /// determine whether or not to update the set of wanted tenures -- we don't want to skip
     /// fetching wanted tenures if they're still available!
     pub(crate) fn have_unprocessed_tenures<'a>(
+        first_nakamoto_rc: u64,
         completed_tenures: &HashSet<ConsensusHash>,
         prev_wanted_tenures: &[WantedTenure],
         tenure_block_ids: &HashMap<NeighborAddress, AvailableTenures>,
@@ -2915,16 +2916,25 @@ impl NakamotoDownloadStateMachine {
         let mut has_prev_inv = false;
         let mut has_cur_inv = false;
         for inv in inventory_iter {
-            if inv.tenures_inv.get(&prev_wanted_rc).is_some() {
+            if prev_wanted_rc < first_nakamoto_rc {
+                // assume the epoch 2.x inventory has this
                 has_prev_inv = true;
             }
-            if inv.tenures_inv.get(&cur_wanted_rc).is_some() {
+            else if inv.tenures_inv.get(&prev_wanted_rc).is_some() {
+                has_prev_inv = true;
+            }
+
+            if cur_wanted_rc < first_nakamoto_rc {
+                // assume the epoch 2.x inventory has this
+                has_cur_inv = true;
+            }
+            else if inv.tenures_inv.get(&cur_wanted_rc).is_some() {
                 has_cur_inv = true;
             }
         }
 
         if !has_prev_inv || !has_cur_inv {
-            test_debug!("No peer has an inventory for either the previous ({}) or current ({}) wanted tenures", prev_wanted_rc, cur_wanted_rc);
+            test_debug!("No peer has an inventory for either the previous ({},{}) or current ({},{}) wanted tenures", prev_wanted_rc, has_prev_inv, cur_wanted_rc, has_cur_inv);
             return true;
         }
 
@@ -2948,11 +2958,13 @@ impl NakamotoDownloadStateMachine {
             }
         }
 
-        if !has_prev_rc_block || !has_cur_rc_block {
+        if (prev_wanted_rc >= first_nakamoto_rc && !has_prev_rc_block) || (cur_wanted_rc >= first_nakamoto_rc && !has_cur_rc_block) {
             test_debug!(
-                "tenure_block_ids stale: missing representation in reward cycles {} and {}",
+                "tenure_block_ids stale: missing representation in reward cycles {} ({}) and {} ({})",
                 prev_wanted_rc,
-                cur_wanted_rc
+                has_prev_rc_block,
+                cur_wanted_rc,
+                has_cur_rc_block,
             );
             return true;
         }
@@ -3050,7 +3062,7 @@ impl NakamotoDownloadStateMachine {
         if sort_rc == next_sort_rc {
             // not at a reward cycle boundary, os just extend self.wanted_tenures
             test_debug!("Extend wanted tenures since no sort_rc change and we have tenure data");
-            self.extend_wanted_tenures(network, sortdb, chainstate)?;
+            self.extend_wanted_tenures(network, sortdb)?;
             self.update_tenure_start_blocks(chainstate)?;
             return Ok(());
         }
@@ -3058,6 +3070,7 @@ impl NakamotoDownloadStateMachine {
         let can_advance_wanted_tenures =
             if let Some(prev_wanted_tenures) = self.prev_wanted_tenures.as_ref() {
                 !Self::have_unprocessed_tenures(
+                    sortdb.pox_constants.block_height_to_reward_cycle(self.nakamoto_start_height, sortdb.first_block_height).expect("FATAL: nakamoto starts before system start"),
                     &self.tenure_downloads.completed_tenures,
                     prev_wanted_tenures,
                     &self.tenure_block_ids,
@@ -3441,6 +3454,7 @@ impl NakamotoDownloadStateMachine {
     ///
     /// This method is static to facilitate testing.
     pub(crate) fn need_unconfirmed_tenures<'a>(
+        nakamoto_start_block: u64,
         burnchain_height: u64,
         sort_tip: &BlockSnapshot,
         completed_tenures: &HashSet<ConsensusHash>,
@@ -3473,6 +3487,7 @@ impl NakamotoDownloadStateMachine {
 
         // there are still confirmed tenures we have to go and get
         if Self::have_unprocessed_tenures(
+            pox_constants.block_height_to_reward_cycle(first_burn_height, nakamoto_start_block).expect("FATAL: nakamoto starts before system start"),
             completed_tenures,
             prev_wanted_tenures,
             tenure_block_ids,
@@ -4011,8 +4026,10 @@ impl NakamotoDownloadStateMachine {
                     return HashMap::new();
                 };
 
+                debug!("tenure_downloads.is_empty: {}", self.tenure_downloads.is_empty());
                 if self.tenure_downloads.is_empty()
                     && Self::need_unconfirmed_tenures(
+                        self.nakamoto_start_height,
                         burnchain_height,
                         &network.burnchain_tip,
                         &self.tenure_downloads.completed_tenures,
@@ -4065,6 +4082,7 @@ impl NakamotoDownloadStateMachine {
                     && self.unconfirmed_tenure_download_schedule.is_empty()
                 {
                     if Self::need_unconfirmed_tenures(
+                        self.nakamoto_start_height,
                         burnchain_height,
                         &network.burnchain_tip,
                         &self.tenure_downloads.completed_tenures,
