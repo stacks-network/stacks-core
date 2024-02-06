@@ -69,12 +69,14 @@ use stacks::net::atlas::{AtlasConfig, AtlasDB};
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
 use stacks::util_lib::db::Error as DBError;
-use stacks::util_lib::signed_structured_data::{make_structured_data_domain, sign_structured_data};
+use stacks::util_lib::signed_structured_data::pox4::{
+    make_pox_4_signer_key_signature, Pox4SignatureTopic,
+};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{
-    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
+    CHAIN_ID_TESTNET, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, STACKS_EPOCH_MAX,
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId,
@@ -843,10 +845,17 @@ impl MockamotoNode {
             .block_height_to_reward_cycle(self.sortdb.first_block_height, block_height)
             .unwrap();
 
-        let signature =
-            make_signer_key_signature(&pox_address, &signer_sk, reward_cycle.into(), chain_id);
-
         let stack_stx_payload = if parent_chain_length < 2 {
+            let signature = make_pox_4_signer_key_signature(
+                &pox_address,
+                &signer_sk,
+                reward_cycle.into(),
+                &Pox4SignatureTopic::StackStx,
+                CHAIN_ID_TESTNET,
+                12_u128,
+            )
+            .unwrap()
+            .to_rsv();
             TransactionPayload::ContractCall(TransactionContractCall {
                 address: StacksAddress::burn_address(false),
                 contract_name: "pox-4".try_into().unwrap(),
@@ -861,6 +870,16 @@ impl MockamotoNode {
                 ],
             })
         } else {
+            let signature = make_pox_4_signer_key_signature(
+                &pox_address,
+                &signer_sk,
+                reward_cycle.into(),
+                &Pox4SignatureTopic::StackExtend,
+                CHAIN_ID_TESTNET,
+                5_u128,
+            )
+            .unwrap()
+            .to_rsv();
             // NOTE: stack-extend doesn't currently work, because the PoX-4 lockup
             //  special functions have not been implemented.
             TransactionPayload::ContractCall(TransactionContractCall {
@@ -1031,29 +1050,4 @@ impl MockamotoNode {
         staging_tx.commit()?;
         Ok(chain_length)
     }
-}
-
-fn make_signer_key_signature(
-    pox_addr: &PoxAddress,
-    signer_key: &StacksPrivateKey,
-    reward_cycle: u128,
-    chain_id: u32,
-) -> Vec<u8> {
-    let domain_tuple = make_structured_data_domain("pox-4-signer", "1.0.0", chain_id);
-
-    let data_tuple = clarity::vm::types::TupleData::from_data(vec![
-        (
-            "pox-addr".into(),
-            pox_addr.clone().as_clarity_tuple().unwrap().into(),
-        ),
-        (
-            "reward-cycle".into(),
-            clarity::vm::Value::UInt(reward_cycle),
-        ),
-    ])
-    .unwrap();
-
-    let signature = sign_structured_data(data_tuple.into(), domain_tuple, signer_key).unwrap();
-
-    signature.to_rsv()
 }

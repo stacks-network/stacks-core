@@ -43,7 +43,9 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks::util_lib::boot::boot_code_id;
-use stacks::util_lib::signed_structured_data::{make_structured_data_domain, sign_structured_data};
+use stacks::util_lib::signed_structured_data::pox4::{
+    make_pox_4_signer_key_signature, Pox4SignatureTopic,
+};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
@@ -369,7 +371,16 @@ pub fn boot_to_epoch_3(
     );
     let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
     let signer_pubkey = StacksPublicKey::from_private(&signer_sk);
-    let signature = make_signer_key_signature(&pox_addr, &signer_sk, reward_cycle.into());
+    let signature = make_pox_4_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle.into(),
+        &Pox4SignatureTopic::StackStx,
+        CHAIN_ID_TESTNET,
+        12_u128,
+    )
+    .unwrap()
+    .to_rsv();
 
     let stacking_tx = tests::make_contract_call(
         &stacker_sk,
@@ -398,30 +409,6 @@ pub fn boot_to_epoch_3(
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
-}
-
-fn make_signer_key_signature(
-    pox_addr: &PoxAddress,
-    signer_key: &StacksPrivateKey,
-    reward_cycle: u128,
-) -> Vec<u8> {
-    let domain_tuple = make_structured_data_domain("pox-4-signer", "1.0.0", CHAIN_ID_TESTNET);
-
-    let data_tuple = clarity::vm::types::TupleData::from_data(vec![
-        (
-            "pox-addr".into(),
-            pox_addr.clone().as_clarity_tuple().unwrap().into(),
-        ),
-        (
-            "reward-cycle".into(),
-            clarity::vm::Value::UInt(reward_cycle),
-        ),
-    ])
-    .unwrap();
-
-    let signature = sign_structured_data(data_tuple.into(), domain_tuple, signer_key).unwrap();
-
-    signature.to_rsv()
 }
 
 #[test]
@@ -946,7 +933,16 @@ fn correct_burn_outs() {
             let pk_bytes = StacksPublicKey::from_private(&new_sk).to_bytes_compressed();
 
             let reward_cycle = pox_info.current_cycle.id;
-            let signature = make_signer_key_signature(&pox_addr, &new_sk, reward_cycle.into());
+            let signature = make_pox_4_signer_key_signature(
+                &pox_addr,
+                &new_sk,
+                reward_cycle.into(),
+                &Pox4SignatureTopic::StackStx,
+                CHAIN_ID_TESTNET,
+                1_u128,
+            )
+            .unwrap()
+            .to_rsv();
 
             let stacking_tx = tests::make_contract_call(
                 &account.0,
