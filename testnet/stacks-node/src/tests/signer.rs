@@ -32,12 +32,12 @@ use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, Config as SignerConfig, Network};
-use stacks_signer::runloop::{calculate_coordinator, RunLoopCommand};
+use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::signer::Command as SignerCommand;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::curve::point::Point;
-use wsts::state_machine::{OperationResult, PublicKeys};
+use wsts::state_machine::OperationResult;
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::neon::Counters;
@@ -68,14 +68,10 @@ struct RunningNodes {
 struct SignerTest {
     // The stx and bitcoin nodes and their run loops
     pub running_nodes: RunningNodes,
-    // The channel for sending commands to the coordinator
-    pub coordinator_cmd_sender: Sender<RunLoopCommand>,
     // The channels for sending commands to the signers
-    pub _signer_cmd_senders: HashMap<u32, Sender<RunLoopCommand>>,
-    // The channels for receiving results from both the coordinator and the signers
+    pub signer_cmd_senders: HashMap<u32, Sender<RunLoopCommand>>,
+    // The channels for receiving results from the signers
     pub result_receivers: Vec<Receiver<Vec<OperationResult>>>,
-    // The running coordinator and its threads
-    pub running_coordinator: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
     // The running signer and its threads
     pub running_signers: HashMap<u32, RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
     // the private keys of the signers
@@ -124,35 +120,13 @@ impl SignerTest {
             &signer_stacks_private_keys,
             &signer_configs,
         );
-
-        // Calculate which signer will be selected as the coordinator
         let config = stacks_signer::config::Config::load_from_str(&signer_configs[0]).unwrap();
         let stacks_client = StacksClient::from(&config);
-        let public_key_ids = PublicKeys {
-            key_ids: HashMap::new(),
-            signers: HashMap::new(),
-        };
-        let (coordinator_id, coordinator_pk) =
-            calculate_coordinator(&public_key_ids, &stacks_client);
-        info!(
-            "Selected coordinator id: {:?} with pk: {:?}",
-            &coordinator_id, &coordinator_pk
-        );
-
-        // Fetch the selected coordinator and its cmd_sender
-        let running_coordinator = running_signers
-            .remove(&coordinator_id)
-            .expect("Coordinator not found");
-        let coordinator_cmd_sender = signer_cmd_senders
-            .remove(&coordinator_id)
-            .expect("Command sender not found");
 
         Self {
             running_nodes: node,
             result_receivers,
-            _signer_cmd_senders: signer_cmd_senders,
-            coordinator_cmd_sender,
-            running_coordinator,
+            signer_cmd_senders,
             running_signers,
             signer_stacks_private_keys,
             stacks_client,
@@ -175,8 +149,6 @@ impl SignerTest {
         for (_id, signer) in self.running_signers {
             assert!(signer.stop().is_none());
         }
-        // Stop the coordinator
-        assert!(self.running_coordinator.stop().is_none());
     }
 }
 
@@ -371,10 +343,11 @@ fn stackerdb_dkg_sign() {
         reward_cycle: 0,
         command: SignerCommand::Dkg,
     };
-    signer_test
-        .coordinator_cmd_sender
-        .send(dkg_command)
-        .expect("failed to send Dkg command");
+    for cmd_sender in signer_test.signer_cmd_senders.values() {
+        cmd_sender
+            .send(dkg_command.clone())
+            .expect("failed to send Dkg command");
+    }
     let mut key = Point::default();
     for recv in signer_test.result_receivers.iter() {
         let mut aggregate_public_key = None;
@@ -429,14 +402,14 @@ fn stackerdb_dkg_sign() {
             merkle_root: None,
         },
     };
-    signer_test
-        .coordinator_cmd_sender
-        .send(sign_command)
-        .expect("failed to send non taproot Sign command");
-    signer_test
-        .coordinator_cmd_sender
-        .send(sign_taproot_command)
-        .expect("failed to send taproot Sign command");
+    for cmd_sender in signer_test.signer_cmd_senders.values() {
+        cmd_sender
+            .send(sign_command.clone())
+            .expect("failed to send non taproot Sign command");
+        cmd_sender
+            .send(sign_taproot_command.clone())
+            .expect("failed to send taproot Sign command");
+    }
     for recv in signer_test.result_receivers.iter() {
         let mut frost_signature = None;
         let mut schnorr_proof = None;
@@ -804,10 +777,11 @@ fn stackerdb_block_proposal_missing_transactions() {
         reward_cycle: 0,
         command: SignerCommand::Dkg,
     };
-    signer_test
-        .coordinator_cmd_sender
-        .send(dkg_command)
-        .expect("failed to send Dkg command");
+    for cmd_sender in signer_test.signer_cmd_senders.values() {
+        cmd_sender
+            .send(dkg_command.clone())
+            .expect("failed to send Dkg command");
+    }
     let recv = signer_test
         .result_receivers
         .last()
