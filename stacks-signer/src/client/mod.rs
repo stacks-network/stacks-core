@@ -205,12 +205,9 @@ pub(crate) mod tests {
 
     /// Build a response for the get_last_round request
     pub fn build_get_last_round_response(round: u64) -> String {
-        let response = ClarityValue::okay(ClarityValue::UInt(round as u128))
+        let value = ClarityValue::okay(ClarityValue::UInt(round as u128))
             .expect("Failed to create response");
-        let hex = response
-            .serialize_to_hex()
-            .expect("Failed to serialize hex value");
-        format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",)
+        build_read_only_response(&value)
     }
 
     /// Build a response for the get_account_nonce request
@@ -233,10 +230,7 @@ pub(crate) mod tests {
                 .expect("BUG: Failed to create clarity value from point"),
         )
         .expect("BUG: Failed to create clarity value from point");
-        let hex = clarity_value
-            .serialize_to_hex()
-            .expect("Failed to serialize clarity value");
-        format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
+        build_read_only_response(&clarity_value)
     }
 
     /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
@@ -244,6 +238,14 @@ pub(crate) mod tests {
         format!(
             "HTTP/1.1 200 OK\n\n{{\"stacks_tip_height\":{stacks_tip_height},\"stacks_tip_consensus_hash\":\"{consensus_hash}\",\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"burn_block_height\":2575799,\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}",
         )
+    }
+
+    /// Build a response to a read only clarity contract call
+    pub fn build_read_only_response(value: &ClarityValue) -> String {
+        let hex = value
+            .serialize_to_hex()
+            .expect("Failed to serialize hex value");
+        format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
     /// Generate a random stacks node info
