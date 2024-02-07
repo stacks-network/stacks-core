@@ -115,7 +115,11 @@ impl RunLoop {
         };
 
         // We can only register for a reward cycle if a reward set exists. We know that it should exist due to our earlier check for reward_set_calculated
-        let Some(reward_set_signers) = self.stacks_client.get_reward_set(reward_cycle)?.signers
+        let Some(reward_set_signers) = self
+            .stacks_client
+            .get_reward_set(reward_cycle)
+            .map_err(backoff::Error::transient)?
+            .signers
         else {
             warn!(
                 "No reward set found for reward cycle {reward_cycle}. Must not be a valid Nakamoto reward cycle."
