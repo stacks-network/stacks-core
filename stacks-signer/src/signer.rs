@@ -426,7 +426,7 @@ impl Signer {
             self.signer_id, coordinator_id, &coordinator_public_key
         );
         let packets: Vec<Packet> = messages
-            .into_iter()
+            .iter()
             .filter_map(|msg| match msg {
                 SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
                 SignerMessage::Packet(packet) => {
@@ -801,7 +801,7 @@ impl Signer {
                                     .cast_vote_for_aggregate_public_key(
                                         self.reward_cycle,
                                         self.stackerdb.get_signer_slot_id(),
-                                        point.clone(),
+                                        *point,
                                     )
                                     .map_err(backoff::Error::transient)
                             }) {
@@ -825,7 +825,7 @@ impl Signer {
                                     .build_vote_for_aggregate_public_key(
                                         self.reward_cycle,
                                         self.stackerdb.get_signer_slot_id(),
-                                        point.clone(),
+                                        *point,
                                     )
                                     .map_err(backoff::Error::transient)
                             }) {
@@ -839,7 +839,7 @@ impl Signer {
                     };
                     let old_transactions = self
                         .stackerdb
-                        .get_signer_transactions_with_retry(&vec![self.signer_id])
+                        .get_signer_transactions_with_retry(&[self.signer_id])
                         .map_err(|e| {
                             error!("Failed to get old transactions from stackerdb: {:?}", e);
                         })
@@ -1160,17 +1160,19 @@ mod tests {
     use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::ecdsa;
 
-    use crate::client::tests::{generate_public_keys, write_response, TestConfig};
+    use crate::client::tests::{
+        generate_stacks_node_info, mock_server_from_config, write_response,
+    };
     use crate::client::{StacksClient, VOTE_FUNCTION_NAME};
     use crate::config::Config;
-    use crate::signer::{BlockInfo, Signer, StacksNodeInfo};
+    use crate::signer::{BlockInfo, Signer};
 
     #[test]
     #[serial]
     fn get_expected_transactions_should_filter_invalid_transactions() {
         // Create a runloop of a valid signer
         let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (public_keys, signer_key_ids, stacks_addresses) = generate_public_keys(
+        let (stacks_node_info, _ordered_addresses) = generate_stacks_node_info(
             5,
             20,
             Some(
@@ -1178,16 +1180,6 @@ mod tests {
                     .expect("Failed to create public key."),
             ),
         );
-        let signer_addresses = stacks_addresses.into_iter().collect();
-        let stacks_node_info = StacksNodeInfo {
-            signer_id: 0,
-            reward_cycle: 2,
-            signer_set: 0,
-            signer_slot_id: 0,
-            signer_addresses,
-            public_keys,
-            signer_key_ids,
-        };
         let mut signer = Signer::new(&config, stacks_node_info);
 
         let signer_private_key = config.stacks_private_key;
@@ -1290,41 +1282,41 @@ mod tests {
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         for _ in 0..num_transactions {
             let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
-            let test_config = TestConfig::from_config(config.clone());
-            write_response(test_config.mock_server, nonce_response);
+            let mock_server = mock_server_from_config(&config);
+            write_response(mock_server, nonce_response);
         }
 
         let filtered_txs = h.join().unwrap();
@@ -1335,7 +1327,7 @@ mod tests {
     #[serial]
     fn verify_transactions_valid() {
         let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (public_keys, signer_key_ids, stacks_addresses) = generate_public_keys(
+        let (stacks_node_info, _ordered_addresses) = generate_stacks_node_info(
             5,
             20,
             Some(
@@ -1343,16 +1335,6 @@ mod tests {
                     .expect("Failed to create public key."),
             ),
         );
-        let signer_addresses = stacks_addresses.into_iter().collect();
-        let stacks_node_info = StacksNodeInfo {
-            signer_id: 0,
-            reward_cycle: 2,
-            signer_set: 0,
-            signer_slot_id: 0,
-            signer_addresses,
-            public_keys,
-            signer_key_ids,
-        };
         let mut signer = Signer::new(&config, stacks_node_info);
 
         let signer_private_key = config.stacks_private_key;
@@ -1414,40 +1396,40 @@ mod tests {
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
-        let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, nonce_response);
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, nonce_response);
 
         let valid = h.join().unwrap();
         assert!(valid);
