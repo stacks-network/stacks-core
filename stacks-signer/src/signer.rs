@@ -36,33 +36,14 @@ use wsts::state_machine::coordinator::{
     Config as CoordinatorConfig, Coordinator, State as CoordinatorState,
 };
 use wsts::state_machine::signer::Signer as WSTSSigner;
-use wsts::state_machine::{OperationResult, PublicKeys, SignError};
+use wsts::state_machine::{OperationResult, SignError};
 use wsts::v2;
 
 use crate::client::{
     retry_with_exponential_backoff, ClientError, EpochId, StackerDB, StacksClient,
     VOTE_FUNCTION_NAME,
 };
-use crate::config::Config;
-
-/// The info needed from the stacks node to configure a signer
-#[derive(Debug, Clone)]
-pub struct StacksNodeInfo {
-    /// The signer set for this runloop
-    pub signer_set: u32,
-    /// The index into the signers list of this signer's key (may be different from signer_id)
-    pub signer_slot_id: u32,
-    /// The signer ID assigned to this signer
-    pub signer_id: u32,
-    /// The reward cycle of the configuration
-    pub reward_cycle: u64,
-    /// The signer to key ids mapping
-    pub signer_key_ids: HashMap<u32, HashSet<u32>>,
-    /// The signer addresses
-    pub signer_addresses: HashSet<StacksAddress>,
-    /// The public keys for the reward cycle
-    pub public_keys: PublicKeys,
-}
+use crate::config::{GlobalConfig, RewardCycleConfig};
 
 /// Additional Info about a proposed block
 pub struct BlockInfo {
@@ -160,18 +141,18 @@ pub struct Signer {
 
 impl Signer {
     /// Create a new stacks signer
-    pub fn new(config: &Config, stacks_node_info: StacksNodeInfo) -> Self {
-        let stackerdb = StackerDB::new_with_config(config, &stacks_node_info);
+    pub fn from_configs(config: &GlobalConfig, reward_cycle_config: RewardCycleConfig) -> Self {
+        let stackerdb = StackerDB::from_configs(config, &reward_cycle_config);
         let stacks_client = StacksClient::from(config);
 
-        let num_signers = u32::try_from(stacks_node_info.public_keys.signers.len())
+        let num_signers = u32::try_from(reward_cycle_config.public_keys.signers.len())
             .expect("FATAL: Too many registered signers to fit in a u32");
-        let num_keys = u32::try_from(stacks_node_info.public_keys.key_ids.len())
+        let num_keys = u32::try_from(reward_cycle_config.public_keys.key_ids.len())
             .expect("FATAL: Too many key ids to fit in a u32");
         let threshold = num_keys * 7 / 10;
         let dkg_threshold = num_keys * 9 / 10;
         // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
-        let signer_key_ids: Vec<u32> = stacks_node_info
+        let signer_key_ids: Vec<u32> = reward_cycle_config
             .public_keys
             .key_ids
             .keys()
@@ -189,7 +170,7 @@ impl Signer {
             dkg_end_timeout: config.dkg_end_timeout,
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
-            signer_key_ids: stacks_node_info.signer_key_ids.clone(),
+            signer_key_ids: reward_cycle_config.signer_key_ids.clone(),
         };
 
         let coordinator = FireCoordinator::new(coordinator_config);
@@ -197,10 +178,10 @@ impl Signer {
             threshold,
             num_signers,
             num_keys,
-            stacks_node_info.signer_id,
+            reward_cycle_config.signer_id,
             signer_key_ids,
             config.ecdsa_private_key,
-            stacks_node_info.public_keys,
+            reward_cycle_config.public_keys,
         );
         Self {
             coordinator,
@@ -211,9 +192,9 @@ impl Signer {
             stackerdb,
             stacks_client,
             is_mainnet: config.network.is_mainnet(), // will be updated on .initialize()
-            signer_id: stacks_node_info.signer_id,
-            signer_addresses: stacks_node_info.signer_addresses,
-            reward_cycle: stacks_node_info.reward_cycle,
+            signer_id: reward_cycle_config.signer_id,
+            signer_addresses: reward_cycle_config.signer_addresses,
+            reward_cycle: reward_cycle_config.reward_cycle,
         }
     }
 
@@ -1172,18 +1153,18 @@ mod tests {
     use wsts::curve::ecdsa;
 
     use crate::client::tests::{
-        generate_stacks_node_info, mock_server_from_config, write_response,
+        generate_reward_cycle_config, mock_server_from_config, write_response,
     };
     use crate::client::{StacksClient, VOTE_FUNCTION_NAME};
-    use crate::config::Config;
+    use crate::config::GlobalConfig;
     use crate::signer::{BlockInfo, Signer};
 
     #[test]
     #[serial]
     fn get_expected_transactions_should_filter_invalid_transactions() {
         // Create a runloop of a valid signer
-        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (stacks_node_info, _ordered_addresses) = generate_stacks_node_info(
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let (reward_cycle_info, _ordered_addresses) = generate_reward_cycle_config(
             5,
             20,
             Some(
@@ -1191,7 +1172,7 @@ mod tests {
                     .expect("Failed to create public key."),
             ),
         );
-        let mut signer = Signer::new(&config, stacks_node_info);
+        let mut signer = Signer::from_configs(&config, reward_cycle_info);
 
         let signer_private_key = config.stacks_private_key;
         let non_signer_private_key = StacksPrivateKey::new();
@@ -1337,8 +1318,8 @@ mod tests {
     #[test]
     #[serial]
     fn verify_transactions_valid() {
-        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (stacks_node_info, _ordered_addresses) = generate_stacks_node_info(
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let (reward_cycle_info, _ordered_addresses) = generate_reward_cycle_config(
             5,
             20,
             Some(
@@ -1346,7 +1327,7 @@ mod tests {
                     .expect("Failed to create public key."),
             ),
         );
-        let mut signer = Signer::new(&config, stacks_node_info);
+        let mut signer = Signer::from_configs(&config, reward_cycle_info);
 
         let signer_private_key = config.stacks_private_key;
         let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.is_mainnet);
