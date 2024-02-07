@@ -22,7 +22,9 @@ use clarity::vm::Value;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use stacks_common::consts::{
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, SIGNER_SLOTS_PER_USER,
+};
 use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
@@ -34,6 +36,7 @@ use wsts::curve::point::Point;
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
@@ -244,6 +247,13 @@ pub fn boot_nakamoto<'a>(
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
+    for signer_set in 0..2 {
+        for message_id in 0..SIGNER_SLOTS_PER_USER {
+            let contract_name = NakamotoSigners::make_signers_db_name(signer_set, message_id);
+            let contract_id = boot_code_id(contract_name.as_str(), false);
+            peer_config.stacker_dbs.push(contract_id);
+        }
+    }
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
 

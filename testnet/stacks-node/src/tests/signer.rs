@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -7,6 +6,7 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
+use hashbrown::HashMap;
 use libsigner::{
     BlockResponse, RejectCode, RunningSigner, Signer, SignerEventReceiver, SignerMessage,
     BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
@@ -31,15 +31,13 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
-use stacks_signer::config::{Config as SignerConfig, Network};
+use stacks_signer::config::{build_signer_config_tomls, Config as SignerConfig, Network};
 use stacks_signer::runloop::{calculate_coordinator, RunLoopCommand};
-use stacks_signer::utils::build_signer_config_tomls;
+use stacks_signer::signer::Command as SignerCommand;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::curve::point::Point;
-use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
-use wsts::state_machine::OperationResult;
-use wsts::v2;
+use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
 use crate::neon::Counters;
@@ -87,23 +85,18 @@ struct SignerTest {
 }
 
 impl SignerTest {
-    fn new(num_signers: u32, num_keys: u32) -> Self {
+    fn new(num_signers: u32, _num_keys: u32) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = (0..num_signers)
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>();
-
-        // Build the stackerdb signers contract
-        let signers_stacker_db_contract_id = boot_code_id(SIGNERS_NAME.into(), false);
 
         let (naka_conf, _miner_account) = naka_neon_integration_conf(None);
 
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
             &signer_stacks_private_keys,
-            num_keys,
             &naka_conf.node.rpc_bind,
-            &signers_stacker_db_contract_id.to_string(),
             Some(Duration::from_millis(128)), // Timeout defaults to 5 seconds. Let's override it to 128 milliseconds.
             &Network::Testnet,
         );
@@ -135,8 +128,12 @@ impl SignerTest {
         // Calculate which signer will be selected as the coordinator
         let config = stacks_signer::config::Config::load_from_str(&signer_configs[0]).unwrap();
         let stacks_client = StacksClient::from(&config);
+        let public_key_ids = PublicKeys {
+            key_ids: HashMap::new(),
+            signers: HashMap::new(),
+        };
         let (coordinator_id, coordinator_pk) =
-            calculate_coordinator(&config.signer_ids_public_keys, &stacks_client);
+            calculate_coordinator(&public_key_ids, &stacks_client);
         info!(
             "Selected coordinator id: {:?} with pk: {:?}",
             &coordinator_id, &coordinator_pk
@@ -189,21 +186,16 @@ fn spawn_signer(
     sender: Sender<Vec<OperationResult>>,
 ) -> RunningSigner<SignerEventReceiver, Vec<OperationResult>> {
     let config = stacks_signer::config::Config::load_from_str(data).unwrap();
-    let is_mainnet = config.network.is_mainnet();
-    let ev = SignerEventReceiver::new(vec![config.stackerdb_contract_id.clone()], is_mainnet);
-    let runloop: stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>> =
-        stacks_signer::runloop::RunLoop::from(&config);
+    let ev = SignerEventReceiver::new(config.network.is_mainnet());
+    let endpoint = config.endpoint;
+    let runloop: stacks_signer::runloop::RunLoop = stacks_signer::runloop::RunLoop::from(config);
     let mut signer: Signer<
         RunLoopCommand,
         Vec<OperationResult>,
-        stacks_signer::runloop::RunLoop<FireCoordinator<v2::Aggregator>>,
+        stacks_signer::runloop::RunLoop,
         SignerEventReceiver,
     > = Signer::new(runloop, ev, receiver, sender);
-    let endpoint = config.endpoint;
-    info!(
-        "Spawning signer {} on endpoint {}",
-        config.signer_id, endpoint
-    );
+    info!("Spawning signer on endpoint {}", endpoint);
     signer.spawn(endpoint).unwrap()
 }
 
@@ -308,7 +300,7 @@ fn setup_stx_btc_node(
         &mut btc_regtest_controller,
     );
 
-    info!("Pox 4 activated and ready for signers to perform DKG and sign!");
+    info!("Pox 4 activated and ready for signers to perform DKG and Sign!");
     RunningNodes {
         btcd_controller,
         btc_regtest_controller,
@@ -375,16 +367,20 @@ fn stackerdb_dkg_sign() {
     info!("------------------------- Test DKG -------------------------");
     info!("signer_runloop: spawn send commands to do dkg");
     let dkg_now = Instant::now();
+    let dkg_command = RunLoopCommand {
+        reward_cycle: 0,
+        command: SignerCommand::Dkg,
+    };
     signer_test
         .coordinator_cmd_sender
-        .send(RunLoopCommand::Dkg)
+        .send(dkg_command)
         .expect("failed to send Dkg command");
     let mut key = Point::default();
     for recv in signer_test.result_receivers.iter() {
         let mut aggregate_public_key = None;
         loop {
             let results = recv
-                .recv_timeout(Duration::from_secs(30))
+                .recv_timeout(Duration::from_secs(100))
                 .expect("failed to recv dkg results");
             for result in results {
                 match result {
@@ -417,21 +413,29 @@ fn stackerdb_dkg_sign() {
     info!("------------------------- Test Sign -------------------------");
     let sign_now = Instant::now();
     info!("signer_runloop: spawn send commands to do dkg and then sign");
-    signer_test
-        .coordinator_cmd_sender
-        .send(RunLoopCommand::Sign {
+    let sign_command = RunLoopCommand {
+        reward_cycle: 0,
+        command: SignerCommand::Sign {
             block: block.clone(),
             is_taproot: false,
             merkle_root: None,
-        })
+        },
+    };
+    let sign_taproot_command = RunLoopCommand {
+        reward_cycle: 0,
+        command: SignerCommand::Sign {
+            block: block.clone(),
+            is_taproot: true,
+            merkle_root: None,
+        },
+    };
+    signer_test
+        .coordinator_cmd_sender
+        .send(sign_command)
         .expect("failed to send non taproot Sign command");
     signer_test
         .coordinator_cmd_sender
-        .send(RunLoopCommand::Sign {
-            block,
-            is_taproot: true,
-            merkle_root: None,
-        })
+        .send(sign_taproot_command)
         .expect("failed to send taproot Sign command");
     for recv in signer_test.result_receivers.iter() {
         let mut frost_signature = None;
@@ -494,8 +498,7 @@ fn stackerdb_dkg_sign() {
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is advanced to epoch 3.0. and signers perform a DKG round (this should be removed
-/// once we have proper casting of the vote during epoch 2.5).
+/// The stacks node is advanced to epoch 3.0, triggering signers to perform DKG round.
 ///
 /// Test Execution:
 /// The node attempts to mine a Nakamoto tenure, sending a block to the observing signers via the
@@ -520,13 +523,6 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Setup -------------------------");
     let mut signer_test = SignerTest::new(5, 5);
 
-    // First run DKG in order to sign the block that arrives from the miners following a nakamoto block production
-    // TODO: remove this forcibly running DKG once we have casting of the vote automagically happening during epoch 2.5
-    info!("signer_runloop: spawn send commands to do dkg");
-    signer_test
-        .coordinator_cmd_sender
-        .send(RunLoopCommand::Dkg)
-        .expect("failed to send Dkg command");
     let mut aggregate_public_key = None;
     let recv = signer_test
         .result_receivers
@@ -714,7 +710,7 @@ fn stackerdb_block_proposal_missing_transactions() {
         .unwrap()
         .next()
         .unwrap();
-    let signer_stacker_db_1 = signer_test
+    let _stx_genesissigner_stacker_db_1 = signer_test
         .running_nodes
         .conf
         .node
@@ -748,9 +744,7 @@ fn stackerdb_block_proposal_missing_transactions() {
         .cloned()
         .expect("Cannot find signer private key for signer id 1");
 
-    let mut stackerdb_1 = StackerDB::new(host, signer_stacker_db_1, signer_private_key_1, 0);
-
-    stackerdb_1.set_signer_set(1);
+    let mut stackerdb_1 = StackerDB::new(host, signer_private_key_1, false, 1, 0);
 
     debug!("Signer address is {}", &signer_address_1);
     assert_eq!(
@@ -806,9 +800,13 @@ fn stackerdb_block_proposal_missing_transactions() {
     // First run DKG in order to sign the block that arrives from the miners following a nakamoto block production
     // TODO: remove this forcibly running DKG once we have casting of the vote automagically happening during epoch 2.5
     info!("signer_runloop: spawn send commands to do dkg");
+    let dkg_command = RunLoopCommand {
+        reward_cycle: 0,
+        command: SignerCommand::Dkg,
+    };
     signer_test
         .coordinator_cmd_sender
-        .send(RunLoopCommand::Dkg)
+        .send(dkg_command)
         .expect("failed to send Dkg command");
     let recv = signer_test
         .result_receivers

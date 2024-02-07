@@ -196,6 +196,9 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.node
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, conf.is_mainnet()));
+    conf.node
+        .stacker_dbs
+        .push(boot_code_id(SIGNERS_NAME, conf.is_mainnet()));
     conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.username = Some("neon-tester".into());
@@ -354,6 +357,7 @@ pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
 ///
 /// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
 ///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
 pub fn boot_to_epoch_3(
     naka_conf: &Config,
     blocks_processed: &RunLoopCounter,
@@ -366,9 +370,10 @@ pub fn boot_to_epoch_3(
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
+    let epoch_30_start_height = epoch_3.start_height - 1;
     info!(
         "Chain bootstrapped to bitcoin block 201, starting Epoch 2x miner";
-        "Epoch 3.0 Boundary" => (epoch_3.start_height - 1),
+        "Epoch 3.0 Boundary" => epoch_30_start_height,
     );
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
@@ -471,7 +476,7 @@ pub fn boot_to_epoch_3(
     run_until_burnchain_height(
         btc_regtest_controller,
         &blocks_processed,
-        epoch_3.start_height - 1,
+        epoch_30_start_height,
         &naka_conf,
     );
 
