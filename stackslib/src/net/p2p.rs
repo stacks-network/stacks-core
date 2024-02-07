@@ -5224,7 +5224,12 @@ impl PeerNetwork {
         // update burnchain snapshot if we need to (careful -- it's expensive)
         let sn = SortitionDB::get_canonical_burn_chain_tip(&sortdb.conn())?;
         let mut ret: HashMap<NeighborKey, Vec<StacksMessage>> = HashMap::new();
-        if sn.block_height != self.chain_view.burn_block_height {
+        let mut need_stackerdb_refresh = sn.canonical_stacks_tip_consensus_hash
+            != self.burnchain_tip.canonical_stacks_tip_consensus_hash;
+
+        if sn.block_height != self.chain_view.burn_block_height
+            || self.num_state_machine_passes == 0
+        {
             debug!(
                 "{:?}: load chain view for burn block {}",
                 &self.local_peer, sn.block_height
@@ -5303,7 +5308,17 @@ impl PeerNetwork {
                 .get_last_selected_anchor_block_txid()?
                 .unwrap_or(Txid([0x00; 32]));
 
-            // refresh stackerdb configs
+            test_debug!(
+                "{:?}: chain view is {:?}",
+                &self.get_local_peer(),
+                &self.chain_view
+            );
+            need_stackerdb_refresh = true;
+        }
+
+        if need_stackerdb_refresh {
+            // refresh stackerdb configs -- canonical stacks tip has changed
+            debug!("{:?}: Refresh all stackerdbs", &self.get_local_peer());
             let mut new_stackerdb_configs = HashMap::new();
             let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
             for (stackerdb_contract_id, stackerdb_config) in stacker_db_configs.into_iter() {
