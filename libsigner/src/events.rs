@@ -56,7 +56,7 @@ pub enum SignerEvent {
     /// The miner proposed blocks for signers to observe and sign
     ProposedBlocks(Vec<NakamotoBlock>),
     /// The signer messages for other signers and miners to observe
-    SignerMessages(Vec<SignerMessage>),
+    SignerMessages(u32, Vec<SignerMessage>),
     /// A new block proposal validation response from the node
     BlockValidationResponse(BlockValidateResponse),
     /// Status endpoint request
@@ -126,8 +126,6 @@ pub trait EventReceiver {
 
 /// Event receiver for Signer events
 pub struct SignerEventReceiver {
-    /// stacker db contracts we're listening for
-    pub stackerdb_contract_ids: Vec<QualifiedContractIdentifier>,
     /// Address we bind to
     local_addr: Option<SocketAddr>,
     /// server socket that listens for HTTP POSTs from the node
@@ -143,12 +141,8 @@ pub struct SignerEventReceiver {
 impl SignerEventReceiver {
     /// Make a new Signer event receiver, and return both the receiver and the read end of a
     /// channel into which node-received data can be obtained.
-    pub fn new(
-        contract_ids: Vec<QualifiedContractIdentifier>,
-        is_mainnet: bool,
-    ) -> SignerEventReceiver {
+    pub fn new(is_mainnet: bool) -> SignerEventReceiver {
         SignerEventReceiver {
-            stackerdb_contract_ids: contract_ids,
             http_server: None,
             local_addr: None,
             out_channels: vec![],
@@ -349,13 +343,16 @@ fn process_stackerdb_event(
     } else if event.contract_id.name.to_string().starts_with(SIGNERS_NAME)
         && event.contract_id.issuer.1 == [0u8; 20]
     {
+        // TODO: check contract id first u8 to determine if its even or odd reward cycle
+        let reward_cycle_modulus = 0;
         // signer-XXX-YYY boot contract
         let signer_messages: Vec<SignerMessage> = event
             .modified_slots
             .iter()
             .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
             .collect();
-        SignerEvent::SignerMessages(signer_messages)
+        //
+        SignerEvent::SignerMessages(reward_cycle_modulus, signer_messages)
     } else {
         info!(
             "[{:?}] next_event got event from an unexpected contract id {}, return OK so other side doesn't keep sending this",

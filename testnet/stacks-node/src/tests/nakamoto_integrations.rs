@@ -28,7 +28,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use stacks::chainstate::stacks::boot::MINERS_NAME;
+use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use stacks::chainstate::stacks::{StacksTransaction, ThresholdSignature, TransactionPayload};
@@ -190,6 +190,9 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.node
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, conf.is_mainnet()));
+    conf.node
+        .stacker_dbs
+        .push(boot_code_id(SIGNERS_NAME, conf.is_mainnet()));
     conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.username = Some("neon-tester".into());
@@ -335,19 +338,24 @@ pub fn next_block_and_mine_commit(
     })
 }
 
-pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
-    let stacker_sk = Secp256k1PrivateKey::new();
-    let stacker_address = tests::to_addr(&stacker_sk);
-    naka_conf.add_initial_balance(
-        PrincipalData::from(stacker_address.clone()).to_string(),
-        POX_4_DEFAULT_STACKER_BALANCE,
-    );
-    stacker_sk
+pub fn setup_stackers(naka_conf: &mut Config, num_stackers: u32) -> Vec<Secp256k1PrivateKey> {
+    let mut stacker_sks = vec![];
+    for _ in 0..num_stackers {
+        let stacker_sk = Secp256k1PrivateKey::new();
+        let stacker_address = tests::to_addr(&stacker_sk);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(stacker_address.clone()).to_string(),
+            POX_4_DEFAULT_STACKER_BALANCE,
+        );
+        stacker_sks.push(stacker_sk);
+    }
+    stacker_sks
 }
 
 ///
 /// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
 ///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
 pub fn boot_to_epoch_3(
     naka_conf: &Config,
     blocks_processed: &RunLoopCounter,
@@ -360,9 +368,10 @@ pub fn boot_to_epoch_3(
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
+    let epoch_30_start_height = epoch_3.start_height - 1;
     info!(
         "Chain bootstrapped to bitcoin block 201, starting Epoch 2x miner";
-        "Epoch 3.0 Boundary" => (epoch_3.start_height - 1),
+        "Epoch 3.0 Boundary" => epoch_30_start_height,
     );
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
@@ -400,7 +409,7 @@ pub fn boot_to_epoch_3(
     run_until_burnchain_height(
         btc_regtest_controller,
         &blocks_processed,
-        epoch_3.start_height - 1,
+        epoch_30_start_height,
         &naka_conf,
     );
 
@@ -437,7 +446,7 @@ fn simple_neon_integration() {
         send_amt + send_fee,
     );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let stacker_sk = setup_stacker(&mut naka_conf);
+    let stacker_sk = setup_stackers(&mut naka_conf, 1)[0];
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -469,8 +478,8 @@ fn simple_neon_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &vec![stacker_sk],
-        &vec![sender_signer_key],
+        &[stacker_sk],
+        &[sender_signer_key],
         &mut btc_regtest_controller,
     );
 
@@ -654,7 +663,7 @@ fn mine_multiple_per_tenure_integration() {
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let stacker_sk = setup_stacker(&mut naka_conf);
+    let stacker_sk = setup_stackers(&mut naka_conf, 1)[0];
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -689,8 +698,8 @@ fn mine_multiple_per_tenure_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &vec![stacker_sk],
-        &vec![sender_signer_key],
+        &[stacker_sk],
+        &[sender_signer_key],
         &mut btc_regtest_controller,
     );
 
@@ -1065,7 +1074,7 @@ fn block_proposal_api_endpoint() {
 
     let (mut conf, _miner_account) = naka_neon_integration_conf(None);
     let account_keys = add_initial_balances(&mut conf, 10, 1_000_000);
-    let stacker_sk = setup_stacker(&mut conf);
+    let stacker_sk = setup_stackers(&mut conf, 1)[0];
 
     // only subscribe to the block proposal events
     test_observer::spawn();
@@ -1098,8 +1107,8 @@ fn block_proposal_api_endpoint() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &vec![stacker_sk],
-        &vec![StacksPublicKey::new()],
+        &[stacker_sk],
+        &[StacksPublicKey::new()],
         &mut btc_regtest_controller,
     );
 
@@ -1409,7 +1418,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    let stacker_sk = setup_stacker(&mut naka_conf);
+    let stacker_sk = setup_stackers(&mut naka_conf, 1)[0];
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -1441,8 +1450,8 @@ fn miner_writes_proposed_block_to_stackerdb() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &vec![stacker_sk],
-        &vec![StacksPublicKey::new()],
+        &[stacker_sk],
+        &[StacksPublicKey::new()],
         &mut btc_regtest_controller,
     );
 

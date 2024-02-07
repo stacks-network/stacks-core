@@ -28,5 +28,5 @@ pub mod client;
 pub mod config;
 /// The primary runloop for the signer
 pub mod runloop;
-/// Util functions
-pub mod utils;
+/// The signer module for processing events
+pub mod signer;

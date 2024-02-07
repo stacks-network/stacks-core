@@ -96,7 +96,7 @@ impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
 #[test]
 fn test_simple_signer() {
     let contract_id = boot_code_id(SIGNERS_NAME, false);
-    let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
+    let ev = SignerEventReceiver::new(false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
     let max_events = 5;
@@ -160,7 +160,7 @@ fn test_simple_signer() {
         .map(|chunk| {
             let msg = chunk.modified_slots[0].data.clone();
             let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
-            SignerEvent::SignerMessages(vec![signer_message])
+            SignerEvent::SignerMessages(0, vec![signer_message])
         })
         .collect();
 
@@ -170,10 +170,7 @@ fn test_simple_signer() {
 
 #[test]
 fn test_status_endpoint() {
-    let contract_id =
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.signers")
-            .unwrap(); // TODO: change to boot_code_id(SIGNERS_NAME, false) when .signers is deployed
-    let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
+    let ev = SignerEventReceiver::new(false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
     let max_events = 1;
