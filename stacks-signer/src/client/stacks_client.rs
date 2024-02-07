@@ -282,7 +282,7 @@ impl StacksClient {
         &self,
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
-        debug!("Parsing signer slots...");
+        debug!("Parsing signer slots from {:?}", &value);
         // Due to .signers definition, the  signer slots is always an OK result of a list of tuples of signer addresses and the number of slots they have
         // If this fails, we have bigger problems than the signer crashing...
         let value = value.clone().expect_result_ok()?;

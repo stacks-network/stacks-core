@@ -1362,10 +1362,16 @@ mod tests {
             current_reward_cycle_response.as_bytes(),
         );
         let test_config = TestConfig::from_config(config.clone());
-        write_response(test_config.mock_server, aggregate_key_response.as_bytes());
-
-        let test_config = TestConfig::from_config(config);
         write_response(test_config.mock_server, signer_slots_response.as_bytes());
+
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(
+            test_config.mock_server,
+            current_reward_cycle_response.as_bytes(),
+        );
+
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, aggregate_key_response.as_bytes());
     }
 
     fn simulate_nonce_response(config: &Config, num_transactions: usize) {
