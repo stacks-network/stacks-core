@@ -44,7 +44,6 @@ use crate::client::{
     VOTE_FUNCTION_NAME,
 };
 use crate::config::Config;
-use crate::runloop::calculate_coordinator;
 
 /// The info needed from the stacks node to configure a signer
 #[derive(Debug, Clone)]
@@ -220,9 +219,17 @@ impl Signer {
 
     /// Execute the given command and update state accordingly
     /// Returns true when it is successfully executed, else false
-    /// Execute the given command and update state accordingly
-    /// Returns true when it is successfully executed, else false
     fn execute_command(&mut self, command: &Command) -> bool {
+        let (coordinator_id, _) = self
+            .stacks_client
+            .calculate_coordinator(&self.signing_round.public_keys);
+        if coordinator_id != self.signer_id {
+            warn!(
+                "Signer #{}: Not the coordinator. Ignoring command {:?}.",
+                self.signer_id, command,
+            );
+            return false;
+        }
         match command {
             Command::Dkg => {
                 info!("Signer #{}: Starting DKG", self.signer_id);
@@ -384,8 +391,9 @@ impl Signer {
             };
             self.handle_packets(res, &[packet]);
         } else {
-            let (coordinator_id, _) =
-                calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
+            let (coordinator_id, _) = self
+                .stacks_client
+                .calculate_coordinator(&self.signing_round.public_keys);
             if block_info.valid.unwrap_or(false)
                 && !block_info.signed_over
                 && coordinator_id == self.signer_id
@@ -419,8 +427,9 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         messages: &[SignerMessage],
     ) {
-        let (coordinator_id, coordinator_public_key) =
-            calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
+        let (coordinator_id, coordinator_public_key) = self
+            .stacks_client
+            .calculate_coordinator(&self.signing_round.public_keys);
         debug!(
             "Signer #{}: coordinator is signer #{} public key {}",
             self.signer_id, coordinator_id, &coordinator_public_key
@@ -1054,8 +1063,10 @@ impl Signer {
             .reward_cycle_in_vote_window(reward_cycle)?;
         self.coordinator
             .set_aggregate_public_key(aggregate_public_key);
-        let coordinator_id =
-            calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client).0;
+        let coordinator_id = self
+            .stacks_client
+            .calculate_coordinator(&self.signing_round.public_keys)
+            .0;
         // TODO: should we attempt to vote anyway if out of window? what if we didn't successfully run DKG in prepare phase?
         if in_vote_window
             && aggregate_public_key.is_none()
