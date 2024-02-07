@@ -110,21 +110,17 @@ const TEST_CONTRACT: &'static str = "
 
     (define-public (do-test) (ok u0))
 
-    (define-read-only (stackerdb-get-page-count) (ok u1))
-
     ;; stacker DB
-    (define-read-only (stackerdb-get-signer-slots (page uint))
-        (if (is-eq page u0)
-            (ok (list
-              {
-                signer: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R,
-                num-slots: u3
-              }
-              {
-                signer: 'STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW,
-                num-slots: u3
-              }))
-            (err u1)))
+    (define-read-only (stackerdb-get-signer-slots)
+        (ok (list
+          {
+            signer: 'ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R,
+            num-slots: u3
+          }
+          {
+            signer: 'STVN97YYA10MY5F6KQJHKNYJNM24C4A1AT39WRW,
+            num-slots: u3
+          })))
 
     (define-read-only (stackerdb-get-config)
         (ok {

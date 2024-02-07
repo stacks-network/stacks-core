@@ -149,7 +149,6 @@ pub const STACKERDB_PAGE_LIST_MAX: u32 = 4096;
 /// maximum number of pages that can be used in a StackerDB contract
 pub const STACKERDB_MAX_PAGE_COUNT: u32 = 2;
 
-pub const STACKERDB_PAGE_COUNT_FUNCTION: &str = "stackerdb-get-page-count";
 pub const STACKERDB_SLOTS_FUNCTION: &str = "stackerdb-get-signer-slots";
 pub const STACKERDB_CONFIG_FUNCTION: &str = "stackerdb-get-config";
 

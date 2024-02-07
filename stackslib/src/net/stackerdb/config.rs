@@ -54,10 +54,7 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
-use super::{
-    STACKERDB_MAX_PAGE_COUNT, STACKERDB_PAGE_COUNT_FUNCTION, STACKERDB_PAGE_LIST_MAX,
-    STACKERDB_SLOTS_FUNCTION,
-};
+use super::{STACKERDB_MAX_PAGE_COUNT, STACKERDB_PAGE_LIST_MAX, STACKERDB_SLOTS_FUNCTION};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -146,8 +143,9 @@ impl StackerDBConfig {
 
             if func.args.len() != expected_args.len() {
                 let reason = format!(
-                    "Function '{name}' has an invalid signature: it must have {} args",
-                    expected_args.len()
+                    "Function '{name}' has an invalid signature: it must have {} args (got {})",
+                    expected_args.len(),
+                    func.args.len(),
                 );
                 return Err(reason);
             }
