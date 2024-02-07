@@ -345,23 +345,6 @@ impl StacksClient {
         Ok(pox_info.next_cycle.prepare_phase_start_block_height < stacks_tip_height)
     }
 
-    /// Check whether the given reward cycle is in the prepare phase
-    pub fn reward_cycle_in_vote_window(&self, reward_cycle: u64) -> Result<bool, ClientError> {
-        let pox_info = self.get_pox_data()?;
-        if reward_cycle == pox_info.reward_cycle_id.wrapping_add(1) {
-            let peer_info = self.get_peer_info()?;
-            let stacks_tip_height = peer_info.stacks_tip_height;
-            // The vote window starts at the second block of the prepare phase hence the + 1.
-            let vote_window_start = pox_info
-                .next_cycle
-                .prepare_phase_start_block_height
-                .wrapping_add(1);
-            Ok(stacks_tip_height >= vote_window_start)
-        } else {
-            // We are not in the prepare phase of the reward cycle as the upcoming cycle does not match
-            Ok(false)
-        }
-    }
     /// Get the reward set from the stacks node for the given reward cycle
     pub fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
         debug!("Getting reward set for reward cycle {reward_cycle}...");
@@ -1285,53 +1268,6 @@ mod tests {
         let mock = MockServerClient::from_config(mock.config);
         write_response(mock.server, peer_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
-    }
-
-    #[test]
-    #[serial]
-    fn reward_cycle_in_vote_window() {
-        let consensus_hash = "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string();
-
-        // Should return FALSE as the passed in reward cycle is old
-        let mock = MockServerClient::new();
-        let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || mock.client.reward_cycle_in_vote_window(0));
-        write_response(mock.server, pox_response.as_bytes());
-        assert!(!h.join().unwrap().unwrap());
-
-        // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
-        let mock = MockServerClient::new();
-        let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || mock.client.reward_cycle_in_vote_window(4));
-        write_response(mock.server, pox_response.as_bytes());
-        assert!(!h.join().unwrap().unwrap());
-
-        // Should return FALSE as the passed in reward cycle is the same as the current reward cycle
-        let mock = MockServerClient::new();
-        let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || mock.client.reward_cycle_in_vote_window(2));
-        write_response(mock.server, pox_response.as_bytes());
-        assert!(!h.join().unwrap().unwrap());
-
-        // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT the prepare phase is in its FIRST block
-        let mock = MockServerClient::new();
-        let pox_response = build_get_pox_data_response(2, 11);
-        let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
-        let h = spawn(move || mock.client.reward_cycle_in_vote_window(3));
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        assert!(!h.join().unwrap().unwrap());
-
-        // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
-        let mock = MockServerClient::new();
-        let pox_response = build_get_pox_data_response(2, 10);
-        let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
-        let h = spawn(move || mock.client.reward_cycle_in_vote_window(3));
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        assert!(h.join().unwrap().unwrap());
     }
 
     fn generate_random_consensus_hash() -> String {

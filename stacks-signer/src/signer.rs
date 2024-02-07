@@ -1041,31 +1041,26 @@ impl Signer {
 
     /// Update the DKG for the provided signer info, triggering it if required
     pub fn update_dkg(&mut self) -> Result<(), ClientError> {
+        debug!("Signer #{}: Checking DKG...", self.signer_id);
         let reward_cycle = self.reward_cycle;
         let aggregate_public_key = self.stacks_client.get_aggregate_public_key(reward_cycle)?;
-        let in_vote_window = self
-            .stacks_client
-            .reward_cycle_in_vote_window(reward_cycle)?;
         self.coordinator
             .set_aggregate_public_key(aggregate_public_key);
         let coordinator_id = self
             .stacks_client
             .calculate_coordinator(&self.signing_round.public_keys)
             .0;
-        // TODO: should we attempt to vote anyway if out of window? what if we didn't successfully run DKG in prepare phase?
-        if in_vote_window
-            && aggregate_public_key.is_none()
+        if aggregate_public_key.is_none()
             && self.signer_id == coordinator_id
             && self.coordinator.state == CoordinatorState::Idle
         {
-            info!("Signer is the coordinator and is in the prepare phase for reward cycle {reward_cycle}. Triggering a DKG round...");
+            info!("Signer #{}: Is the current coordinator for {reward_cycle}. Triggering a DKG round...", self.signer_id);
             self.commands.push_back(Command::Dkg);
         } else {
-            debug!("Not updating dkg";
-                "in_vote_window" => in_vote_window,
+            debug!("Signer #{}: Not triggering a DKG round.", self.signer_id;
                 "aggregate_public_key" => aggregate_public_key.is_some(),
-                "signer_id" => self.signer_id,
                 "coordinator_id" => coordinator_id,
+                "coordinator_idle" => self.coordinator.state == CoordinatorState::Idle,
             );
         }
         Ok(())
