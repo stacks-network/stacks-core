@@ -243,6 +243,8 @@ impl RunLoop {
             if self.stacks_signers.is_empty() {
                 info!("Signer is not registered for the current or next reward cycle. Waiting for confirmed registration...");
                 return Err(backoff::Error::transient(ClientError::NotRegistered));
+            } else {
+                info!("Runloop successfully initialized!");
             }
             self.state = State::Initialized;
             Ok(())
