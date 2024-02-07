@@ -111,7 +111,7 @@ impl StacksClient {
             }) {
                 Ok(hash) => hash,
                 Err(e) => {
-                    debug!("Failed to get stacks tip consensus hash: {:?}", e);
+                    debug!("Failed to get stacks tip consensus hash: {e:?}");
                     return (
                         0,
                         public_keys.signers.get(&0).cloned().expect(
@@ -121,8 +121,7 @@ impl StacksClient {
                 }
             };
         debug!(
-            "Using stacks_tip_consensus_hash {:?} for selecting coordinator",
-            &stacks_tip_consensus_hash
+            "Using stacks_tip_consensus_hash {stacks_tip_consensus_hash:?} for selecting coordinator"
         );
 
         // Create combined hash of each signer's public key with stacks_tip_consensus_hash
@@ -553,10 +552,7 @@ impl StacksClient {
         function_name: &ClarityName,
         function_args: &[ClarityValue],
     ) -> Result<ClarityValue, ClientError> {
-        debug!(
-            "Calling read-only function {function_name} with args {:?}...",
-            function_args
-        );
+        debug!("Calling read-only function {function_name} with args {function_args:?}...");
         let args = function_args
             .iter()
             .filter_map(|arg| arg.serialize_to_hex().ok())

@@ -108,11 +108,11 @@ pub enum ClientError {
 pub fn retry_with_exponential_backoff<F, E, T>(request_fn: F) -> Result<T, ClientError>
 where
     F: FnMut() -> Result<T, backoff::Error<E>>,
+    E: std::fmt::Debug,
 {
-    let notify = |_err, dur| {
+    let notify = |err, dur| {
         debug!(
-            "Failed to connect to stacks node and/or deserialize its response. Next attempt in {:?}",
-            dur
+            "Failed to connect to stacks node and/or deserialize its response: {err:?}. Next attempt in {dur:?}"
         );
     };
 

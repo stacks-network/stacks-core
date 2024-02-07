@@ -206,8 +206,8 @@ impl Signer {
             .calculate_coordinator(&self.signing_round.public_keys);
         if coordinator_id != self.signer_id {
             warn!(
-                "Signer #{}: Not the coordinator. Ignoring command {:?}.",
-                self.signer_id, command,
+                "Signer #{}: Not the coordinator. Ignoring command {command:?}.",
+                self.signer_id
             );
             return false;
         }
@@ -217,13 +217,16 @@ impl Signer {
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
-                        debug!("Signer #{}: ACK: {:?}", self.signer_id, ack);
+                        debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
                         self.state = State::Dkg;
                         true
                     }
                     Err(e) => {
-                        error!("Failed to start DKG: {:?}", e);
-                        warn!("Resetting coordinator's internal state.");
+                        error!("Signer #{}: Failed to start DKG: {e:?}", self.signer_id);
+                        warn!(
+                            "Signer #{}: Resetting coordinator's internal state.",
+                            self.signer_id
+                        );
                         self.coordinator.reset();
                         false
                     }
@@ -243,7 +246,7 @@ impl Signer {
                     debug!("Signer #{}: Received a sign command for a block we are already signing over. Ignore it.", self.signer_id);
                     return false;
                 }
-                info!("Signer #{}: Signing block: {:?}", self.signer_id, block);
+                info!("Signer #{}: Signing block: {block:?}", self.signer_id);
                 match self.coordinator.start_signing_round(
                     &block.serialize_to_vec(),
                     *is_taproot,
@@ -251,15 +254,15 @@ impl Signer {
                 ) {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
-                        debug!("Signer #{}: ACK: {:?}", self.signer_id, ack);
+                        debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
                         self.state = State::Sign;
                         block_info.signed_over = true;
                         true
                     }
                     Err(e) => {
                         error!(
-                            "Signer #{}: Failed to start signing message: {:?}",
-                            self.signer_id, e
+                            "Signer #{}: Failed to start signing message: {e:?}",
+                            self.signer_id
                         );
                         warn!(
                             "Signer #{}: Resetting coordinator's internal state.",
@@ -353,8 +356,8 @@ impl Signer {
                     .send_message_with_retry(block_validate_reject.clone().into())
                 {
                     warn!(
-                        "Signer #{}: Failed to send block rejection to stacker-db: {:?}",
-                        self.signer_id, e
+                        "Signer #{}: Failed to send block rejection to stacker-db: {e:?}",
+                        self.signer_id
                     );
                 }
                 block_info
@@ -439,7 +442,7 @@ impl Signer {
             self.stacks_client
                 .submit_block_for_validation(block.clone())
                 .unwrap_or_else(|e| {
-                    warn!("Failed to submit block for validation: {:?}", e);
+                    warn!("Failed to submit block for validation: {e:?}");
                 });
         }
     }
@@ -451,7 +454,7 @@ impl Signer {
             .signing_round
             .process_inbound_messages(packets)
             .unwrap_or_else(|e| {
-                error!("Failed to process inbound messages as a signer: {e}");
+                error!("Failed to process inbound messages as a signer: {e:?}");
                 vec![]
             });
 
@@ -460,7 +463,7 @@ impl Signer {
             .coordinator
             .process_inbound_messages(packets)
             .unwrap_or_else(|e| {
-                error!("Failed to process inbound messages as a coordinator: {e}");
+                error!("Failed to process inbound messages as a coordinator: {e:?}");
                 (vec![], vec![])
             });
 
@@ -502,8 +505,8 @@ impl Signer {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
                 debug!(
-                    "Signer #{}: set vote for {} to {:?}",
-                    self.signer_id, &hash, &vote
+                    "Signer #{}: set vote for {hash} to {vote:?}",
+                    self.signer_id
                 );
                 request.message = vote.clone();
                 true
@@ -552,8 +555,8 @@ impl Signer {
                 .submit_block_for_validation(block)
                 .unwrap_or_else(|e| {
                     warn!(
-                        "Signer #{}: Failed to submit block for validation: {:?}",
-                        self.signer_id, e
+                        "Signer #{}: Failed to submit block for validation: {e:?}",
+                        self.signer_id
                     );
                 });
             return false;
@@ -609,8 +612,8 @@ impl Signer {
                     .send_message_with_retry(block_rejection.into())
                 {
                     warn!(
-                        "Signer #{}: Failed to send block rejection to stacker-db: {:?}",
-                        self.signer_id, e
+                        "Signer #{}: Failed to send block rejection to stacker-db: {e:?}",
+                        self.signer_id
                     );
                 }
             }
@@ -631,8 +634,8 @@ impl Signer {
                 .send_message_with_retry(block_rejection.into())
             {
                 warn!(
-                    "Signer #{}: Failed to send block submission to stacker-db: {:?}",
-                    self.signer_id, e
+                    "Signer #{}: Failed to send block submission to stacker-db: {e:?}",
+                    self.signer_id
                 );
             }
             false
@@ -693,7 +696,7 @@ impl Signer {
                         );
                         return None;
                     }
-                    debug!("Signer #{}: Expect transaction {} ({:?})", self.signer_id, transaction.txid(), &transaction);
+                    debug!("Signer #{}: Expect transaction {} ({transaction:?})", self.signer_id, transaction.txid());
                     Some(transaction)
                 }).collect();
         Ok(transactions)
@@ -753,8 +756,8 @@ impl Signer {
             Some(packet)
         } else {
             debug!(
-                "Signer #{}: Failed to verify wsts packet with {}: {:?}",
-                self.signer_id, coordinator_public_key, &packet
+                "Signer #{}: Failed to verify wsts packet with {}: {packet:?}",
+                self.signer_id, coordinator_public_key
             );
             None
         }
@@ -797,13 +800,13 @@ impl Signer {
                             }) {
                                 Ok(transaction) => {
                                     debug!("Signer #{}: Successfully cast aggregate public key vote: {:?}",
-                                    self.signer_id,
+                                        self.signer_id,
                                         transaction.txid()
                                     );
                                     transaction
                                 }
                                 Err(e) => {
-                                    warn!("Signer #{}: Failed to cast aggregate public key vote: {:?}", self.signer_id, e);
+                                    warn!("Signer #{}: Failed to cast aggregate public key vote: {e:?}", self.signer_id);
                                     continue;
                                 }
                             }
@@ -821,7 +824,7 @@ impl Signer {
                             }) {
                                 Ok(transaction) => transaction,
                                 Err(e) => {
-                                    warn!("Signer #{}: Failed to build a cast aggregate public key vote transaction: {:?}", self.signer_id, e);
+                                    warn!("Signer #{}: Failed to build a cast aggregate public key vote transaction: {e:?}", self.signer_id);
                                     continue;
                                 }
                             }
@@ -831,7 +834,7 @@ impl Signer {
                         .stackerdb
                         .get_signer_transactions_with_retry(&[self.signer_id])
                         .map_err(|e| {
-                            error!("Failed to get old transactions from stackerdb: {:?}", e);
+                            error!("Failed to get old transactions from stackerdb: {e:?}");
                         })
                         .unwrap_or_default();
                     // Filter out our old transactions that are no longer valid
@@ -853,8 +856,8 @@ impl Signer {
                     let signer_message = SignerMessage::Transactions(new_transactions);
                     if let Err(e) = self.stackerdb.send_message_with_retry(signer_message) {
                         warn!(
-                            "Signer #{}: Failed to update transactions in stacker-db: {:?}",
-                            self.signer_id, e
+                            "Signer #{}: Failed to update transactions in stacker-db: {e:?}",
+                            self.signer_id
                         );
                     }
                 }
@@ -862,7 +865,7 @@ impl Signer {
                     self.process_sign_error(e);
                 }
                 OperationResult::DkgError(e) => {
-                    warn!("Signer #{}: Received a DKG error: {:?}", self.signer_id, e);
+                    warn!("Signer #{}: Received a DKG error: {e:?}", self.signer_id);
                 }
             }
         }
@@ -913,13 +916,13 @@ impl Signer {
 
         // Submit signature result to miners to observe
         debug!(
-            "Signer #{}: submit block response {:?}",
-            self.signer_id, &block_submission
+            "Signer #{}: submit block response {block_submission:?}",
+            self.signer_id
         );
         if let Err(e) = self.stackerdb.send_message_with_retry(block_submission) {
             warn!(
-                "Signer #{}: Failed to send block submission to stacker-db: {:?}",
-                self.signer_id, e
+                "Signer #{}: Failed to send block submission to stacker-db: {e:?}",
+                self.signer_id
             );
         }
     }
@@ -927,8 +930,8 @@ impl Signer {
     /// Process a sign error from a signing round, broadcasting a rejection message to stackerdb accordingly
     fn process_sign_error(&mut self, e: &SignError) {
         warn!(
-            "Signer #{}: Received a signature error: {:?}",
-            self.signer_id, e
+            "Signer #{}: Received a signature error: {e:?}",
+            self.signer_id
         );
         match e {
             SignError::NonceTimeout(_valid_signers, _malicious_signers) => {
@@ -968,8 +971,8 @@ impl Signer {
                     RejectCode::InsufficientSigners(malicious_signers.clone()),
                 );
                 debug!(
-                    "Signer #{}: Insufficient signers for block; send rejection {:?}",
-                    self.signer_id, &block_rejection
+                    "Signer #{}: Insufficient signers for block; send rejection {block_rejection:?}",
+                    self.signer_id
                 );
                 // Submit signature result to miners to observe
                 if let Err(e) = self
@@ -977,15 +980,15 @@ impl Signer {
                     .send_message_with_retry(block_rejection.into())
                 {
                     warn!(
-                        "Signer #{}: Failed to send block submission to stacker-db: {:?}",
-                        self.signer_id, e
+                        "Signer #{}: Failed to send block submission to stacker-db: {e:?}",
+                        self.signer_id
                     );
                 }
             }
             SignError::Aggregator(e) => {
                 warn!(
-                    "Signer #{}: Received an aggregator error: {:?}",
-                    self.signer_id, e
+                    "Signer #{}: Received an aggregator error: {e:?}",
+                    self.signer_id
                 );
             }
         }
@@ -1008,8 +1011,8 @@ impl Signer {
             }
             Err(e) => {
                 warn!(
-                    "Signer #{}: Failed to send {} operation results: {:?}",
-                    self.signer_id, nmb_results, e
+                    "Signer #{}: Failed to send {nmb_results} operation results: {e:?}",
+                    self.signer_id
                 );
             }
         }
@@ -1025,11 +1028,11 @@ impl Signer {
         for msg in outbound_messages {
             let ack = self.stackerdb.send_message_with_retry(msg.into());
             if let Ok(ack) = ack {
-                debug!("Signer #{}: send outbound ACK: {:?}", self.signer_id, ack);
+                debug!("Signer #{}: send outbound ACK: {ack:?}", self.signer_id);
             } else {
                 warn!(
-                    "Signer #{}: Failed to send message to stacker-db instance: {:?}",
-                    self.signer_id, ack
+                    "Signer #{}: Failed to send message to stacker-db instance: {ack:?}",
+                    self.signer_id
                 );
             }
         }
@@ -1087,7 +1090,7 @@ impl Signer {
             self.state = State::TenureExceeded;
             return Ok(());
         }
-        debug!("Signer #{}: Processing event: {:?}", self.signer_id, event);
+        debug!("Signer #{}: Processing event: {event:?}", self.signer_id);
         match event {
             Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
                 debug!(
