@@ -22,15 +22,14 @@ use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
 use hashbrown::HashSet;
 use libsigner::{
-    BlockResponse, RejectCode, SignerMessage, SignerSession, StackerDBSession, BLOCK_SLOT_ID,
-    SIGNER_SLOTS_PER_USER,
+    BlockResponse, RejectCode, SignerMessage, SignerSession, StackerDBSession, BLOCK_MSG_ID,
 };
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use stacks::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
+use stacks::chainstate::stacks::boot::{make_signers_db_name, MINERS_NAME};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
@@ -265,8 +264,17 @@ impl BlockMinerThread {
         let stackerdb_contracts = stackerdbs
             .get_stackerdb_contract_ids()
             .expect("FATAL: could not get the stacker DB contract ids");
-        // TODO: get this directly instead of this jankiness when .signers is a boot contract
-        let signers_contract_id = boot_code_id(SIGNERS_NAME, self.config.is_mainnet());
+
+        let reward_cycle = u32::try_from(
+            self.burnchain
+                .block_height_to_reward_cycle(self.burn_block.block_height)
+                .expect("FATAL: no reward cycle for burn block"),
+        )
+        .expect("FATAL: too many reward cycles");
+        let signers_contract_id = boot_code_id(
+            &make_signers_db_name(reward_cycle % 2, BLOCK_MSG_ID),
+            self.config.is_mainnet(),
+        );
         if !stackerdb_contracts.contains(&signers_contract_id) {
             return Err(NakamotoNodeError::SignerSignatureError(
                 "No signers contract found, cannot wait for signers",
@@ -278,8 +286,11 @@ impl BlockMinerThread {
             .expect("FATAL: could not get signers from stacker DB")
             .iter()
             .enumerate()
-            .map(|(id, _)| id as u32 * SIGNER_SLOTS_PER_USER + BLOCK_SLOT_ID)
+            .map(|(id, _)| {
+                u32::try_from(id).expect("FATAL: too many signers to fit into u32 range")
+            })
             .collect::<Vec<u32>>();
+
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
         let rejection_threshold = slot_ids.len() / 10 * 7;
         let mut rejections = HashSet::new();
