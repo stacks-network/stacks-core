@@ -28,8 +28,8 @@ use wsts::curve::point::{Compressed, Point};
 use wsts::state_machine::{OperationResult, PublicKeys};
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
-use crate::config::Config;
-use crate::signer::{Command as SignerCommand, Signer, StacksNodeInfo, State as SignerState};
+use crate::config::{GlobalConfig, RewardCycleConfig};
+use crate::signer::{Command as SignerCommand, Signer, State as SignerState};
 
 /// Which operation to perform
 #[derive(PartialEq, Clone, Debug)]
@@ -52,7 +52,7 @@ pub enum State {
 /// The runloop for the stacks signer
 pub struct RunLoop {
     /// Configuration info
-    pub config: Config,
+    pub config: GlobalConfig,
     /// The stacks node client
     pub stacks_client: StacksClient,
     /// The internal signer for an odd or even reward cycle
@@ -62,9 +62,9 @@ pub struct RunLoop {
     pub state: State,
 }
 
-impl From<Config> for RunLoop {
+impl From<GlobalConfig> for RunLoop {
     /// Creates new runloop from a config
-    fn from(config: Config) -> Self {
+    fn from(config: GlobalConfig) -> Self {
         let stacks_client = StacksClient::from(&config);
         RunLoop {
             config,
@@ -77,10 +77,10 @@ impl From<Config> for RunLoop {
 
 impl RunLoop {
     /// Get a signer configruation for a specific reward cycle from the stacks node
-    fn get_stacks_node_info(
+    fn get_reward_cycle_config(
         &mut self,
         reward_cycle: u64,
-    ) -> Result<Option<StacksNodeInfo>, backoff::Error<ClientError>> {
+    ) -> Result<Option<RewardCycleConfig>, backoff::Error<ClientError>> {
         let reward_set_calculated = self
             .stacks_client
             .reward_set_calculated(reward_cycle)
@@ -171,7 +171,7 @@ impl RunLoop {
             warn!("Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}.");
             return Ok(None);
         };
-        Ok(Some(StacksNodeInfo {
+        Ok(Some(RewardCycleConfig {
             reward_cycle,
             signer_id,
             signer_slot_id,
@@ -202,11 +202,13 @@ impl RunLoop {
             needs_refresh = true;
         };
         if needs_refresh {
-            let new_config = self.get_stacks_node_info(reward_cycle)?;
-            if let Some(new_node_info) = new_config {
+            let new_reward_cycle_config = self.get_reward_cycle_config(reward_cycle)?;
+            if let Some(new_reward_cycle_config) = new_reward_cycle_config {
                 debug!("Signer is registered for reward cycle {reward_cycle}. Initializing signer state.");
-                self.stacks_signers
-                    .insert(reward_index, Signer::new(&self.config, new_node_info));
+                self.stacks_signers.insert(
+                    reward_index,
+                    Signer::from_configs(&self.config, new_reward_cycle_config),
+                );
             } else {
                 // Nothing to initialize. Signer is not registered for this reward cycle
                 debug!("Signer is not registered for reward cycle {reward_cycle}. Nothing to initialize.");

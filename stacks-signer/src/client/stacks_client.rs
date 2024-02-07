@@ -47,7 +47,7 @@ use wsts::curve::point::{Compressed, Point};
 use wsts::state_machine::PublicKeys;
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
-use crate::config::Config;
+use crate::config::GlobalConfig;
 
 /// The name of the function for casting a DKG result to signer vote contract
 pub const VOTE_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -82,8 +82,8 @@ pub enum EpochId {
     UnsupportedEpoch,
 }
 
-impl From<&Config> for StacksClient {
-    fn from(config: &Config) -> Self {
+impl From<&GlobalConfig> for StacksClient {
+    fn from(config: &GlobalConfig) -> Self {
         Self {
             stacks_private_key: config.stacks_private_key,
             stacks_address: config.stacks_address,
@@ -704,7 +704,7 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_aggregate_public_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        build_read_only_response, generate_stacks_node_info, write_response, MockServerClient,
+        build_read_only_response, generate_reward_cycle_config, write_response, MockServerClient,
     };
 
     #[test]
@@ -1330,7 +1330,7 @@ mod tests {
     #[test]
     fn calculate_coordinator_should_produce_unique_results() {
         let number_of_tests = 5;
-        let generated_public_keys = generate_stacks_node_info(10, 4000, None).0.public_keys;
+        let generated_public_keys = generate_reward_cycle_config(10, 4000, None).0.public_keys;
         let mut results = Vec::new();
 
         for _ in 0..number_of_tests {
@@ -1359,7 +1359,7 @@ mod tests {
 
     fn generate_test_results(random_consensus: bool, count: usize) -> Vec<(u32, ecdsa::PublicKey)> {
         let mut results = Vec::new();
-        let generated_public_keys = generate_stacks_node_info(10, 4000, None).0.public_keys;
+        let generated_public_keys = generate_reward_cycle_config(10, 4000, None).0.public_keys;
         for _ in 0..count {
             let mock = MockServerClient::new();
             let generated_public_keys = generated_public_keys.clone();

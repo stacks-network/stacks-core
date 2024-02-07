@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
-use stacks_signer::config::{build_signer_config_tomls, Config as SignerConfig, Network};
+use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
 use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::signer::Command as SignerCommand;
 use tracing_subscriber::prelude::*;
@@ -120,7 +120,7 @@ impl SignerTest {
             &signer_stacks_private_keys,
             &signer_configs,
         );
-        let config = stacks_signer::config::Config::load_from_str(&signer_configs[0]).unwrap();
+        let config = SignerConfig::load_from_str(&signer_configs[0]).unwrap();
         let stacks_client = StacksClient::from(&config);
 
         Self {
@@ -157,7 +157,7 @@ fn spawn_signer(
     receiver: Receiver<RunLoopCommand>,
     sender: Sender<Vec<OperationResult>>,
 ) -> RunningSigner<SignerEventReceiver, Vec<OperationResult>> {
-    let config = stacks_signer::config::Config::load_from_str(data).unwrap();
+    let config = SignerConfig::load_from_str(data).unwrap();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());
     let endpoint = config.endpoint;
     let runloop: stacks_signer::runloop::RunLoop = stacks_signer::runloop::RunLoop::from(config);
