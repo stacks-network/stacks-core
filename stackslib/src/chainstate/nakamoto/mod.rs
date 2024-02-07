@@ -3106,6 +3106,7 @@ impl NakamotoChainState {
         // store the reward set calculated during this block if it happened
         // NOTE: miner and proposal evaluation should not invoke this because
         //  it depends on knowing the StacksBlockId.
+        let signers_updated = signer_set_calc.is_some();
         if let Some(signer_calculation) = signer_set_calc {
             Self::write_reward_set(chainstate_tx, &new_block_id, &signer_calculation.reward_set)?
         }
@@ -3146,6 +3147,7 @@ impl NakamotoChainState {
             parent_burn_block_timestamp,
             evaluated_epoch,
             epoch_transition: applied_epoch_transition,
+            signers_updated,
         };
 
         NakamotoChainState::set_block_processed(&chainstate_tx, &new_block_id)?;

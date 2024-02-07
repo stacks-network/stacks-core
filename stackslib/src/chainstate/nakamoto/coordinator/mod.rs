@@ -577,6 +577,12 @@ impl<
                 break;
             };
 
+            if block_receipt.signers_updated {
+                // notify p2p thread via globals
+                self.refresh_stacker_db
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+
             let block_hash = block_receipt.header.anchored_header.block_hash();
             let (
                 canonical_stacks_block_id,
