@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
+use blockstack_lib::chainstate::stacks::boot::{RewardSet, POX_4_NAME, SIGNERS_VOTING_NAME};
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -46,7 +46,11 @@ use wsts::curve::point::{Compressed, Point};
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::Config;
 
+/// The name of the function for casting a DKG result to signer vote contract
+pub const VOTE_FUNCTION_NAME: &'static str = "vote-for-aggregate-public-key";
+
 /// The Stacks signer client used to communicate with the stacks node
+#[derive(Clone, Debug)]
 pub struct StacksClient {
     /// The stacks address of the signer
     stacks_address: StacksAddress,
@@ -90,6 +94,11 @@ impl From<&Config> for StacksClient {
 }
 
 impl StacksClient {
+    /// Get our signer address
+    pub fn get_signer_address(&self) -> &StacksAddress {
+        &self.stacks_address
+    }
+
     /// Retrieve the signer slots stored within the stackerdb contract
     pub fn get_stackerdb_signer_slots(
         &self,
@@ -99,7 +108,7 @@ impl StacksClient {
         let function_name_str = "stackerdb-get-signer-slots-page";
         let function_name = ClarityName::from(function_name_str);
         let function_args = &[Value::UInt(page.into())];
-        let value = self.read_only_contract_call_with_retry(
+        let value = self.read_only_contract_call(
             &stackerdb_contract.issuer.clone().into(),
             &stackerdb_contract.name,
             &function_name,
@@ -107,6 +116,32 @@ impl StacksClient {
         )?;
         self.parse_signer_slots(value)
     }
+
+    /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
+    fn parse_signer_slots(
+        &self,
+        value: ClarityValue,
+    ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
+        debug!("Parsing signer slots...");
+        // Due to .signers definition, the  signer slots is always an OK result of a list of tuples of signer addresses and the number of slots they have
+        // If this fails, we have bigger problems than the signer crashing...
+        let value = value.clone().expect_result_ok()?;
+        let values = value.expect_list()?;
+        let mut signer_slots = Vec::with_capacity(values.len());
+        for value in values {
+            let tuple_data = value.expect_tuple()?;
+            let principal_data = tuple_data.get("signer")?.clone().expect_principal()?;
+            let signer = if let PrincipalData::Standard(signer) = principal_data {
+                signer.into()
+            } else {
+                panic!("BUG: Signers stackerdb contract is corrupted");
+            };
+            let num_slots = tuple_data.get("num-slots")?.clone().expect_u128()?;
+            signer_slots.push((signer, num_slots));
+        }
+        Ok(signer_slots)
+    }
+
     /// Retrieve the stacks tip consensus hash from the stacks node
     pub fn get_stacks_tip_consensus_hash(&self) -> Result<ConsensusHash, ClientError> {
         let peer_info = self.get_peer_info()?;
@@ -161,14 +196,15 @@ impl StacksClient {
         Ok(())
     }
 
-    /// Retrieve the current DKG aggregate public key
-    pub fn get_aggregate_public_key(&self) -> Result<Option<Point>, ClientError> {
-        let reward_cycle = self.get_current_reward_cycle()?;
-        let function_name_str = "get-aggregate-public-key";
-        let function_name = ClarityName::from(function_name_str);
+    /// Retrieve the DKG aggregate public key for the given reward cycle
+    pub fn get_aggregate_public_key(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Option<Point>, ClientError> {
+        let function_name = ClarityName::from("get-aggregate-public-key");
         let pox_contract_id = boot_code_id(POX_4_NAME, self.chain_id == CHAIN_ID_MAINNET);
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let value = self.read_only_contract_call_with_retry(
+        let value = self.read_only_contract_call(
             &pox_contract_id.issuer.into(),
             &pox_contract_id.name,
             &function_name,
@@ -200,6 +236,97 @@ impl StacksClient {
         Ok(peer_info_data)
     }
 
+    /// Retrieve the last DKG vote round number for the current reward cycle
+    pub fn get_last_round(&self, reward_cycle: u64) -> Result<u64, ClientError> {
+        debug!("Getting the last DKG vote round of reward cycle {reward_cycle}...");
+        let contract_addr = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
+        let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
+        let function_name = ClarityName::from("get-last-round");
+        let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
+        let last_round = u64::try_from(
+            self.read_only_contract_call(
+                &contract_addr,
+                &contract_name,
+                &function_name,
+                function_args,
+            )?
+            .expect_result_ok()?
+            .expect_u128()?,
+        )
+        .map_err(|e| {
+            ClientError::MalformedContractData(format!("Failed to convert vote round to u64: {e}"))
+        })?;
+        Ok(last_round)
+    }
+
+    /// Retrieve the vote of the signer for the given round
+    pub fn get_signer_vote(&self, round: u128) -> Result<Option<Point>, ClientError> {
+        let reward_cycle = ClarityValue::UInt(self.get_current_reward_cycle()? as u128);
+        let round = ClarityValue::UInt(round);
+        let signer = ClarityValue::Principal(self.stacks_address.into());
+        let contract_addr = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
+        let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
+        let function = ClarityName::from("get-vote");
+        let function_args = &[reward_cycle, round, signer];
+        let value =
+            self.read_only_contract_call(&contract_addr, &contract_name, &function, function_args)?;
+        self.parse_aggregate_public_key(value)
+    }
+
+    /// Get whether the reward set has been determined for the provided reward cycle.
+    /// i.e the node has passed the first block of the new reward cycle's prepare phase
+    pub fn reward_set_calculated(&self, reward_cycle: u64) -> Result<bool, ClientError> {
+        let pox_info = self.get_pox_data()?;
+        let current_reward_cycle = pox_info.reward_cycle_id;
+        if current_reward_cycle >= reward_cycle {
+            // We have already entered into this reward cycle or beyond
+            // therefore the reward set has already been calculated
+            return Ok(true);
+        }
+        if current_reward_cycle.wrapping_add(1) != reward_cycle {
+            // We are not in the prepare phase of the reward cycle as the upcoming cycle nor are we in the current reward cycle...
+            return Ok(false);
+        }
+        let peer_info = self.get_peer_info()?;
+        let stacks_tip_height = peer_info.stacks_tip_height;
+        // Have we passed the first block of the new reward cycle's prepare phase?
+        Ok(pox_info.next_cycle.prepare_phase_start_block_height < stacks_tip_height)
+    }
+
+    /// Check whether the given reward cycle is in the prepare phase
+    pub fn reward_cycle_in_vote_window(&self, reward_cycle: u64) -> Result<bool, ClientError> {
+        let pox_info = self.get_pox_data()?;
+        if reward_cycle == pox_info.reward_cycle_id.wrapping_add(1) {
+            let peer_info = self.get_peer_info()?;
+            let stacks_tip_height = peer_info.stacks_tip_height;
+            // The vote window starts at the second block of the prepare phase hence the + 1.
+            let vote_window_start = pox_info
+                .next_cycle
+                .prepare_phase_start_block_height
+                .wrapping_add(1);
+            Ok(stacks_tip_height >= vote_window_start)
+        } else {
+            // We are not in the prepare phase of the reward cycle as the upcoming cycle does not match
+            Ok(false)
+        }
+    }
+    /// Get the reward set from the stacks node for the given reward cycle
+    pub fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
+        debug!("Getting reward set for {reward_cycle}...");
+        let send_request = || {
+            self.stacks_node_client
+                .get(self.reward_set_path(reward_cycle))
+                .send()
+                .map_err(backoff::Error::transient)
+        };
+        let response = retry_with_exponential_backoff(send_request)?;
+        if !response.status().is_success() {
+            return Err(ClientError::RequestFailure(response.status()));
+        }
+        let reward_set = response.json::<RewardSet>()?;
+        Ok(reward_set)
+    }
+
     // Helper function to retrieve the pox data from the stacks node
     fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
@@ -223,7 +350,7 @@ impl StacksClient {
         Ok(peer_info.burn_block_height)
     }
 
-    /// Helper function to retrieve the current reward cycle number from the stacks node
+    /// Get the current reward cycle from the stacks node
     pub fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
         let pox_data = self.get_pox_data()?;
         Ok(pox_data.reward_cycle_id)
@@ -255,72 +382,56 @@ impl StacksClient {
         value: ClarityValue,
     ) -> Result<Option<Point>, ClientError> {
         debug!("Parsing aggregate public key...");
-        // Due to pox 4 definition, the aggregate public key is always an optional clarity value hence the use of expect
+        // Due to pox 4 definition, the aggregate public key is always an optional clarity value of 33 bytes hence the use of expect
         // If this fails, we have bigger problems than the signer crashing...
-        let value_opt = value.expect_optional()?;
-        let Some(value) = value_opt else {
+        let opt = value.clone().expect_optional()?;
+        let Some(inner_data) = opt else {
             return Ok(None);
         };
-        // A point should have 33 bytes exactly due to the pox 4 definition hence the use of expect
-        // If this fails, we have bigger problems than the signer crashing...
-        let data = value.clone().expect_buff(33)?;
+        let data = inner_data.expect_buff(33)?;
         // It is possible that the point was invalid though when voted upon and this cannot be prevented by pox 4 definitions...
         // Pass up this error if the conversions fail.
-        let compressed_data = Compressed::try_from(data.as_slice())
-            .map_err(|_e| ClientError::MalformedClarityValue(value.clone()))?;
-        let point = Point::try_from(&compressed_data)
-            .map_err(|_e| ClientError::MalformedClarityValue(value))?;
+        let compressed_data = Compressed::try_from(data.as_slice()).map_err(|e| {
+            ClientError::MalformedClarityValue(format!(
+                "Failed to convert aggregate public key to compressed data: {e}"
+            ))
+        })?;
+        let point = Point::try_from(&compressed_data).map_err(|e| {
+            ClientError::MalformedClarityValue(format!(
+                "Failed to convert aggregate public key to a point: {e}"
+            ))
+        })?;
         Ok(Some(point))
     }
 
-    /// Helper function  that attempts to deserialize a clarity hext string as a list of signer slots and their associated number of signer slots
-    fn parse_signer_slots(
-        &self,
-        value: ClarityValue,
-    ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
-        debug!("Parsing signer slots from {:?}", &value);
-        // Due to .signers definition, the  signer slots is always an OK result of a list of tuples of signer addresses and the number of slots they have
-        // If this fails, we have bigger problems than the signer crashing...
-        let value = value.clone().expect_result_ok()?;
-        let values = value.expect_list()?;
-        let mut signer_slots = Vec::with_capacity(values.len());
-        for value in values {
-            let tuple_data = value.expect_tuple()?;
-            let principal_data = tuple_data.get("signer")?.clone().expect_principal()?;
-            let signer = if let PrincipalData::Standard(signer) = principal_data {
-                signer.into()
-            } else {
-                panic!("BUG: Signers stackerdb contract is corrupted");
-            };
-            let num_slots = tuple_data.get("num-slots")?.clone().expect_u128()?;
-            signer_slots.push((signer, num_slots));
-        }
-        Ok(signer_slots)
-    }
-
-    /// Sends a transaction to the stacks node for a modifying contract call
+    /// Cast a vote for the given aggregate public key by broadcasting it to the mempool
     pub fn cast_vote_for_aggregate_public_key(
         &self,
+        reward_cycle: u64,
+        signer_index: u32,
         point: Point,
-        round: u64,
-    ) -> Result<Txid, ClientError> {
+    ) -> Result<StacksTransaction, ClientError> {
         debug!("Casting vote for aggregate public key to the mempool...");
-        let signed_tx = self.build_vote_for_aggregate_public_key(point, round)?;
-        self.submit_tx(&signed_tx)
+        let signed_tx =
+            self.build_vote_for_aggregate_public_key(reward_cycle, signer_index, point)?;
+        self.submit_tx(&signed_tx)?;
+        Ok(signed_tx)
     }
 
     /// Helper function to create a stacks transaction for a modifying contract call
     pub fn build_vote_for_aggregate_public_key(
         &self,
+        reward_cycle: u64,
+        signer_index: u32,
         point: Point,
-        round: u64,
     ) -> Result<StacksTransaction, ClientError> {
-        debug!("Building vote-for-aggregate-public-key transaction...");
-        let signer_index = 0; // TODO retreieve the index from the stacks node
+        debug!("Building {VOTE_FUNCTION_NAME} transaction...");
+        let round = self.get_last_round(reward_cycle)?;
+        // TODO: this nonce should be calculated on the side as we may have pending transactions that are not yet confirmed...
         let nonce = self.get_account_nonce(&self.stacks_address)?;
         let contract_address = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
         let contract_name = ContractName::from(POX_4_NAME); //TODO update this to POX_4_VOTE_NAME when the contract is deployed
-        let function_name = ClarityName::from("vote-for-aggregate-public-key");
+        let function_name = ClarityName::from(VOTE_FUNCTION_NAME);
         let function_args = &[
             ClarityValue::UInt(signer_index as u128),
             ClarityValue::UInt(round as u128),
@@ -383,7 +494,7 @@ impl StacksClient {
     }
 
     /// Makes a read only contract call to a stacks contract
-    pub fn read_only_contract_call_with_retry(
+    pub fn read_only_contract_call(
         &self,
         contract_addr: &StacksAddress,
         contract_name: &ContractName,
@@ -407,15 +518,12 @@ impl StacksClient {
         let body =
             json!({"sender": self.stacks_address.to_string(), "arguments": args}).to_string();
         let path = self.read_only_path(contract_addr, contract_name, function_name);
-        let send_request = || {
-            self.stacks_node_client
-                .post(path.clone())
-                .header("Content-Type", "application/json")
-                .body(body.clone())
-                .send()
-                .map_err(backoff::Error::transient)
-        };
-        let response = retry_with_exponential_backoff(send_request)?;
+        let response = self
+            .stacks_node_client
+            .post(path.clone())
+            .header("Content-Type", "application/json")
+            .body(body.clone())
+            .send()?;
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
@@ -465,6 +573,10 @@ impl StacksClient {
         format!("{}/v2/accounts/{stacks_address}?proof=0", self.http_origin)
     }
 
+    fn reward_set_path(&self, reward_cycle: u64) -> String {
+        format!("/v2/stacker_set/{reward_cycle}")
+    }
+
     /// Helper function to create a stacks transaction for a modifying contract call
     pub fn build_signed_contract_call_transaction(
         contract_addr: &StacksAddress,
@@ -495,9 +607,6 @@ impl StacksClient {
 
         let mut unsigned_tx = StacksTransaction::new(tx_version, tx_auth, tx_payload);
 
-        // FIXME: Because signers are given priority, we can put down a tx fee of 0
-        // https://github.com/stacks-network/stacks-blockchain/issues/4006
-        // Note: if set to 0 now, will cause a failure (MemPoolRejection::FeeTooLow)
         unsigned_tx.set_tx_fee(tx_fee);
         unsigned_tx.set_origin_nonce(nonce);
 
@@ -523,11 +632,25 @@ mod tests {
     use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
+    use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
+    use blockstack_lib::chainstate::stacks::ThresholdSignature;
+    use rand::thread_rng;
+    use rand_core::RngCore;
+    use serial_test::serial;
+    use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
+    use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
+    use stacks_common::types::StacksPublicKeyBuffer;
+    use stacks_common::util::hash::{Hash160, Sha256Sum, Sha512Trunc256Sum};
+    use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::scalar::Scalar;
 
     use super::*;
-    use crate::client::tests::{write_response, TestConfig};
+    use crate::client::tests::{
+        build_account_nonce_response, build_get_aggregate_public_key_response,
+        build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
+        write_response, TestConfig,
+    };
 
     #[test]
     fn read_only_contract_call_200_success() {
@@ -538,7 +661,7 @@ mod tests {
             .expect("Failed to serialize hex value");
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
         let h = spawn(move || {
-            config.client.read_only_contract_call_with_retry(
+            config.client.read_only_contract_call(
                 &config.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
@@ -559,7 +682,7 @@ mod tests {
             .expect("Failed to serialize hex value");
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
         let h = spawn(move || {
-            config.client.read_only_contract_call_with_retry(
+            config.client.read_only_contract_call(
                 &config.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
@@ -575,7 +698,7 @@ mod tests {
     fn read_only_contract_call_200_failure() {
         let config = TestConfig::new();
         let h = spawn(move || {
-            config.client.read_only_contract_call_with_retry(
+            config.client.read_only_contract_call(
                 &config.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
@@ -595,7 +718,7 @@ mod tests {
         let config = TestConfig::new();
         // Simulate a 400 Bad Request response
         let h = spawn(move || {
-            config.client.read_only_contract_call_with_retry(
+            config.client.read_only_contract_call(
                 &config.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
@@ -617,7 +740,7 @@ mod tests {
         let config = TestConfig::new();
         // Simulate a 400 Bad Request response
         let h = spawn(move || {
-            config.client.read_only_contract_call_with_retry(
+            config.client.read_only_contract_call(
                 &config.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
@@ -635,13 +758,14 @@ mod tests {
     #[test]
     fn valid_reward_cycle_should_succeed() {
         let config = TestConfig::new();
+        let reward_cycle = thread_rng().next_u64();
+        let prepare_phase_start_block_height = thread_rng().next_u64();
+        let pox_data_response =
+            build_get_pox_data_response(reward_cycle, prepare_phase_start_block_height);
         let h = spawn(move || config.client.get_current_reward_cycle());
-        write_response(
-            config.mock_server,
-            b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}",
-        );
+        write_response(config.mock_server, pox_data_response.as_bytes());
         let current_cycle_id = h.join().unwrap().unwrap();
-        assert_eq!(544, current_cycle_id);
+        assert_eq!(reward_cycle, current_cycle_id);
     }
 
     #[test]
@@ -670,24 +794,11 @@ mod tests {
 
     #[test]
     fn get_aggregate_public_key_should_succeed() {
-        let current_reward_cycle_response = b"HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}";
         let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let clarity_value = ClarityValue::some(
-            ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
-                .expect("BUG: Failed to create clarity value from point"),
-        )
-        .expect("BUG: Failed to create clarity value from point");
-        let hex = clarity_value
-            .serialize_to_hex()
-            .expect("Failed to serialize clarity value");
-        let response = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}");
+        let response = build_get_aggregate_public_key_response(orig_point);
 
         let test_config = TestConfig::new();
-        let config = test_config.config;
-        let h = spawn(move || test_config.client.get_aggregate_public_key());
-        write_response(test_config.mock_server, current_reward_cycle_response);
-
-        let test_config = TestConfig::from_config(config);
+        let h = spawn(move || test_config.client.get_aggregate_public_key(0));
         write_response(test_config.mock_server, response.as_bytes());
         let res = h.join().unwrap().unwrap();
         assert_eq!(res, Some(orig_point));
@@ -698,12 +809,8 @@ mod tests {
             .expect("Failed to serialize clarity value");
         let response = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}");
 
-        let test_config = TestConfig::new();
-        let config = test_config.config;
-        let h = spawn(move || test_config.client.get_aggregate_public_key());
-        write_response(test_config.mock_server, current_reward_cycle_response);
-
-        let test_config = TestConfig::from_config(config);
+        let test_config = TestConfig::from_config(test_config.config);
+        let h = spawn(move || test_config.client.get_aggregate_public_key(0));
         write_response(test_config.mock_server, response.as_bytes());
 
         let res = h.join().unwrap().unwrap();
@@ -792,15 +899,46 @@ mod tests {
 
     #[ignore]
     #[test]
-    fn transaction_contract_call_should_succeed() {
+    #[serial]
+    fn build_vote_for_aggregate_public_key_should_succeed() {
         let config = TestConfig::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let round = 10;
+        let round = rand::thread_rng().next_u64();
+        let round_response = build_get_last_round_response(round);
+        let nonce = thread_rng().next_u64();
+        let account_nonce_response = build_account_nonce_response(nonce);
+
         let h = spawn(move || {
             config
                 .client
-                .cast_vote_for_aggregate_public_key(point, round)
+                .build_vote_for_aggregate_public_key(0, 0, point)
         });
+        write_response(config.mock_server, round_response.as_bytes());
+        let config = TestConfig::from_config(config.config);
+        write_response(config.mock_server, account_nonce_response.as_bytes());
+        assert!(h.join().unwrap().is_ok());
+    }
+
+    #[ignore]
+    #[test]
+    #[serial]
+    fn cast_vote_for_aggregate_public_key_should_succeed() {
+        let config = TestConfig::new();
+        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        let round = rand::thread_rng().next_u64();
+        let round_response = build_get_last_round_response(round);
+        let nonce = thread_rng().next_u64();
+        let account_nonce_response = build_account_nonce_response(nonce);
+
+        let h = spawn(move || {
+            config
+                .client
+                .cast_vote_for_aggregate_public_key(0, 0, point)
+        });
+        write_response(config.mock_server, round_response.as_bytes());
+        let config = TestConfig::from_config(config.config);
+        write_response(config.mock_server, account_nonce_response.as_bytes());
+        let config = TestConfig::from_config(config.config);
         write_response(
             config.mock_server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
@@ -862,12 +1000,13 @@ mod tests {
         let config = TestConfig::new();
         let address = config.client.stacks_address;
         let h = spawn(move || config.client.get_account_nonce(&address));
+        let nonce = thread_rng().next_u64();
         write_response(
             config.mock_server,
-            b"HTTP/1.1 200 OK\n\n{\"nonce\":0,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}"
+            build_account_nonce_response(nonce).as_bytes(),
         );
-        let nonce = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(nonce, 0);
+        let returned_nonce = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(returned_nonce, nonce);
     }
 
     #[test]
@@ -933,5 +1072,202 @@ mod tests {
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
         );
         assert!(h.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn submit_block_for_validation_should_succeed() {
+        let config = TestConfig::new();
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 2,
+            burn_spent: 3,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            parent_block_id: StacksBlockId([0x05; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+            state_index_root: TrieHash([0x07; 32]),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).unwrap(),
+        };
+        let block = NakamotoBlock {
+            header,
+            txs: vec![],
+        };
+        let h = spawn(move || config.client.submit_block_for_validation(block));
+        write_response(config.mock_server, b"HTTP/1.1 200 OK\n\n");
+        assert!(h.join().unwrap().is_ok());
+    }
+
+    #[test]
+    fn submit_block_for_validation_should_fail() {
+        let config = TestConfig::new();
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 2,
+            burn_spent: 3,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            parent_block_id: StacksBlockId([0x05; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+            state_index_root: TrieHash([0x07; 32]),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).unwrap(),
+        };
+        let block = NakamotoBlock {
+            header,
+            txs: vec![],
+        };
+        let h = spawn(move || config.client.submit_block_for_validation(block));
+        write_response(config.mock_server, b"HTTP/1.1 404 Not Found\n\n");
+        assert!(h.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn get_peer_info_should_succeed() {
+        let config = TestConfig::new();
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
+        let public_key_hash = Hash160::from_node_public_key(&public_key);
+        let stackerdb_contract_ids = vec![boot_code_id("fake", false)];
+
+        let peer_info = RPCPeerInfoData {
+            peer_version: 1,
+            pox_consensus: ConsensusHash([0x04; 20]),
+            burn_block_height: 200,
+            stable_pox_consensus: ConsensusHash([0x05; 20]),
+            stable_burn_block_height: 2,
+            server_version: "fake version".to_string(),
+            network_id: 0,
+            parent_network_id: 1,
+            stacks_tip_height: 20,
+            stacks_tip: BlockHeaderHash([0x06; 32]),
+            stacks_tip_consensus_hash: ConsensusHash([0x07; 20]),
+            unanchored_tip: None,
+            unanchored_seq: Some(1),
+            exit_at_block_height: None,
+            genesis_chainstate_hash: Sha256Sum::zero(),
+            node_public_key: Some(public_key_buf),
+            node_public_key_hash: Some(public_key_hash),
+            affirmations: None,
+            last_pox_anchor: None,
+            stackerdbs: Some(
+                stackerdb_contract_ids
+                    .into_iter()
+                    .map(|cid| format!("{}", cid))
+                    .collect(),
+            ),
+        };
+        let peer_info_json =
+            serde_json::to_string(&peer_info).expect("Failed to serialize peer info");
+        let response = format!("HTTP/1.1 200 OK\n\n{peer_info_json}");
+        let h = spawn(move || config.client.get_peer_info());
+        write_response(config.mock_server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), peer_info);
+    }
+
+    #[test]
+    fn get_last_round_should_succeed() {
+        let config = TestConfig::new();
+        let round = rand::thread_rng().next_u64();
+        let response = build_get_last_round_response(round);
+        let h = spawn(move || config.client.get_last_round(0));
+
+        write_response(config.mock_server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), round);
+    }
+
+    #[test]
+    #[serial]
+    fn get_reward_set_calculated() {
+        let consensus_hash = "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string();
+
+        // Should return TRUE as the passed in reward cycle is older than the current reward cycle of the node
+        let config = TestConfig::new();
+        let pox_response = build_get_pox_data_response(2, 10);
+        let h = spawn(move || config.client.reward_set_calculated(0));
+        write_response(config.mock_server, pox_response.as_bytes());
+        assert!(h.join().unwrap().unwrap());
+
+        // Should return TRUE as the passed in reward cycle is the same as the current reward cycle
+        let config = TestConfig::from_config(config.config);
+        let pox_response = build_get_pox_data_response(2, 10);
+        let h = spawn(move || config.client.reward_set_calculated(2));
+        write_response(config.mock_server, pox_response.as_bytes());
+        assert!(h.join().unwrap().unwrap());
+
+        // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
+        let config = TestConfig::from_config(config.config);
+        let pox_response = build_get_pox_data_response(2, 10);
+        let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
+        let h = spawn(move || config.client.reward_set_calculated(3));
+        write_response(config.mock_server, pox_response.as_bytes());
+        let config = TestConfig::from_config(config.config);
+        write_response(config.mock_server, peer_response.as_bytes());
+        assert!(h.join().unwrap().unwrap());
+
+        // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
+        let config = TestConfig::from_config(config.config);
+        let pox_response = build_get_pox_data_response(2, 10);
+        let h = spawn(move || config.client.reward_set_calculated(4));
+        write_response(config.mock_server, pox_response.as_bytes());
+        assert!(!h.join().unwrap().unwrap());
+
+        // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT the prepare phase is in its FIRST block
+        let config = TestConfig::from_config(config.config);
+        let pox_response = build_get_pox_data_response(2, 11);
+        let peer_response = build_get_peer_info_response(11, consensus_hash);
+        let h = spawn(move || config.client.reward_set_calculated(3));
+        write_response(config.mock_server, pox_response.as_bytes());
+        let config = TestConfig::from_config(config.config);
+        write_response(config.mock_server, peer_response.as_bytes());
+        assert!(!h.join().unwrap().unwrap());
+    }
+
+    #[test]
+    #[serial]
+    fn reward_cycle_in_vote_window() {
+        let consensus_hash = "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string();
+
+        // Should return FALSE as the passed in reward cycle is old
+        let config = TestConfig::new();
+        let pox_response = build_get_pox_data_response(2, 10);
+        let h = spawn(move || config.client.reward_cycle_in_vote_window(0));
+        write_response(config.mock_server, pox_response.as_bytes());
+        assert!(!h.join().unwrap().unwrap());
+
+        // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
+        let config = TestConfig::from_config(config.config);
+        let pox_response = build_get_pox_data_response(2, 10);
+        let h = spawn(move || config.client.reward_cycle_in_vote_window(4));
+        write_response(config.mock_server, pox_response.as_bytes());
+        assert!(!h.join().unwrap().unwrap());
+
+        // Should return FALSE as the passed in reward cycle is the same as the current reward cycle
+        let config = TestConfig::from_config(config.config);
+        let pox_response = build_get_pox_data_response(2, 10);
+        let h = spawn(move || config.client.reward_cycle_in_vote_window(2));
+        write_response(config.mock_server, pox_response.as_bytes());
+        assert!(!h.join().unwrap().unwrap());
+
+        // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT the prepare phase is in its FIRST block
+        let config = TestConfig::from_config(config.config);
+        let pox_response = build_get_pox_data_response(2, 11);
+        let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
+        let h = spawn(move || config.client.reward_cycle_in_vote_window(3));
+        write_response(config.mock_server, pox_response.as_bytes());
+        let config = TestConfig::from_config(config.config);
+        write_response(config.mock_server, peer_response.as_bytes());
+        assert!(!h.join().unwrap().unwrap());
+
+        // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
+        let config = TestConfig::from_config(config.config);
+        let pox_response = build_get_pox_data_response(2, 10);
+        let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
+        let h = spawn(move || config.client.reward_cycle_in_vote_window(3));
+        write_response(config.mock_server, pox_response.as_bytes());
+        let config = TestConfig::from_config(config.config);
+        write_response(config.mock_server, peer_response.as_bytes());
+        assert!(h.join().unwrap().unwrap());
     }
 }

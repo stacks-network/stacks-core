@@ -38,7 +38,7 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup, make_signer_key_signature,
 };
-use crate::chainstate::stacks::boot::MINERS_NAME;
+use crate::chainstate::stacks::boot::{make_signers_db_name, MINERS_NAME, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
@@ -110,6 +110,7 @@ fn advance_to_nakamoto(
     // peer is at the start of cycle 8
 }
 
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 /// Make a peer and transition it into the Nakamoto epoch.
 /// The node needs to be stacking; otherwise, Nakamoto won't activate.
 pub fn boot_nakamoto<'a>(
@@ -138,6 +139,13 @@ pub fn boot_nakamoto<'a>(
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
+    for signer_set in 0..2 {
+        for message_id in 0..SIGNER_SLOTS_PER_USER {
+            let contract_name = make_signers_db_name(signer_set, message_id);
+            let contract_id = boot_code_id(contract_name.as_str(), false);
+            peer_config.stacker_dbs.push(contract_id);
+        }
+    }
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
 

@@ -41,8 +41,7 @@ use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, Stack
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
 use stacks_common::codec::read_next;
-use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
+use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::{debug, error};
@@ -50,14 +49,12 @@ use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
     GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, SignArgs, StackerDBArgs,
 };
-use stacks_signer::config::Config;
+use stacks_signer::config::{build_signer_config_tomls, Config};
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
-use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract, to_addr};
+use stacks_signer::signer::Command as SignerCommand;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
-use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::OperationResult;
-use wsts::v2;
 
 struct SpawnedSigner {
     running_signer: RunningSigner<SignerEventReceiver, Vec<OperationResult>>,
@@ -88,20 +85,14 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 // Spawn a running signer and return its handle, command sender, and result receiver
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
+    let endpoint = config.endpoint.clone();
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
-    let ev = SignerEventReceiver::new(
-        vec![config.stackerdb_contract_id.clone()],
-        config.network.is_mainnet(),
-    );
-    let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
-    let mut signer: Signer<
-        RunLoopCommand,
-        Vec<OperationResult>,
-        RunLoop<FireCoordinator<v2::Aggregator>>,
-        SignerEventReceiver,
-    > = Signer::new(runloop, ev, cmd_recv, res_send);
-    let running_signer = signer.spawn(config.endpoint).unwrap();
+    let ev = SignerEventReceiver::new(config.network.is_mainnet());
+    let runloop = RunLoop::from(config);
+    let mut signer: Signer<RunLoopCommand, Vec<OperationResult>, RunLoop, SignerEventReceiver> =
+        Signer::new(runloop, ev, cmd_recv, res_send);
+    let running_signer = signer.spawn(endpoint).unwrap();
     SpawnedSigner {
         running_signer,
         cmd_send,
@@ -200,7 +191,11 @@ fn handle_put_chunk(args: PutChunkArgs) {
 fn handle_dkg(args: RunDkgArgs) {
     debug!("Running DKG...");
     let spawned_signer = spawn_running_signer(&args.config);
-    spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
+    let dkg_command = RunLoopCommand {
+        reward_cycle: args.reward_cycle,
+        command: SignerCommand::Dkg,
+    };
+    spawned_signer.cmd_send.send(dkg_command).unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
     spawned_signer.running_signer.stop();
@@ -214,14 +209,15 @@ fn handle_sign(args: SignArgs) {
         spawned_signer.running_signer.stop();
         return;
     };
-    spawned_signer
-        .cmd_send
-        .send(RunLoopCommand::Sign {
+    let sign_command = RunLoopCommand {
+        reward_cycle: args.reward_cycle,
+        command: SignerCommand::Sign {
             block,
             is_taproot: false,
             merkle_root: None,
-        })
-        .unwrap();
+        },
+    };
+    spawned_signer.cmd_send.send(sign_command).unwrap();
     let sign_res = spawned_signer.res_recv.recv().unwrap();
     process_sign_result(&sign_res);
     spawned_signer.running_signer.stop();
@@ -235,16 +231,21 @@ fn handle_dkg_sign(args: SignArgs) {
         spawned_signer.running_signer.stop();
         return;
     };
-    // First execute DKG, then sign
-    spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
-    spawned_signer
-        .cmd_send
-        .send(RunLoopCommand::Sign {
+    let dkg_command = RunLoopCommand {
+        reward_cycle: args.reward_cycle,
+        command: SignerCommand::Dkg,
+    };
+    let sign_command = RunLoopCommand {
+        reward_cycle: args.reward_cycle,
+        command: SignerCommand::Sign {
             block,
             is_taproot: false,
             merkle_root: None,
-        })
-        .unwrap();
+        },
+    };
+    // First execute DKG, then sign
+    spawned_signer.cmd_send.send(dkg_command).unwrap();
+    spawned_signer.cmd_send.send(sign_command).unwrap();
     let dkg_res = spawned_signer.res_recv.recv().unwrap();
     process_dkg_result(&dkg_res);
     let sign_res = spawned_signer.res_recv.recv().unwrap();
@@ -285,20 +286,10 @@ fn handle_generate_files(args: GenerateFilesArgs) {
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>()
     };
-    let signer_stacks_addresses = signer_stacks_private_keys
-        .iter()
-        .map(|key| to_addr(key, &args.network))
-        .collect::<Vec<StacksAddress>>();
-    // Build the signer and miner stackerdb contract
-    let signer_stackerdb_contract =
-        build_stackerdb_contract(&signer_stacks_addresses, SIGNER_SLOTS_PER_USER);
-    write_file(&args.dir, "signers.clar", &signer_stackerdb_contract);
 
     let signer_config_tomls = build_signer_config_tomls(
         &signer_stacks_private_keys,
-        args.num_keys,
         &args.host.to_string(),
-        &args.signers_contract.to_string(),
         args.timeout.map(Duration::from_millis),
         &args.network,
     );
