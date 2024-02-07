@@ -29,6 +29,7 @@ use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
 use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
 use blockstack_lib::net::api::getpoxinfo::RPCPoxInfoData;
+use blockstack_lib::net::api::getstackers::GetStackersResponse;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -363,7 +364,7 @@ impl StacksClient {
     }
     /// Get the reward set from the stacks node for the given reward cycle
     pub fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
-        debug!("Getting reward set for {reward_cycle}...");
+        debug!("Getting reward set for reward cycle {reward_cycle}...");
         let send_request = || {
             self.stacks_node_client
                 .get(self.reward_set_path(reward_cycle))
@@ -374,8 +375,8 @@ impl StacksClient {
         if !response.status().is_success() {
             return Err(ClientError::RequestFailure(response.status()));
         }
-        let reward_set = response.json::<RewardSet>()?;
-        Ok(reward_set)
+        let stackers_response = response.json::<GetStackersResponse>()?;
+        Ok(stackers_response.stacker_set)
     }
 
     // Helper function to retrieve the pox data from the stacks node
@@ -683,6 +684,8 @@ mod tests {
     use std::thread::spawn;
 
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
+    use blockstack_lib::chainstate::stacks::address::PoxAddress;
+    use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, PoxStartCycleInfo};
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
     use rand::distributions::Standard;
     use rand::{thread_rng, Rng};
@@ -1206,6 +1209,35 @@ mod tests {
 
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), round);
+    }
+
+    #[test]
+    fn get_reward_set_should_succeed() {
+        let mock = MockServerClient::new();
+        let point = Point::from(Scalar::random(&mut rand::thread_rng())).compress();
+        let mut bytes = [0u8; 33];
+        bytes.copy_from_slice(point.as_bytes());
+        let stacker_set = RewardSet {
+            rewarded_addresses: vec![PoxAddress::standard_burn_address(false)],
+            start_cycle_state: PoxStartCycleInfo {
+                missed_reward_slots: vec![],
+            },
+            signers: Some(vec![NakamotoSignerEntry {
+                signing_key: bytes,
+                stacked_amt: rand::thread_rng().next_u64() as u128,
+                slots: 1,
+            }]),
+        };
+        let stackers_response = GetStackersResponse {
+            stacker_set: stacker_set.clone(),
+        };
+
+        let stackers_response_json = serde_json::to_string(&stackers_response)
+            .expect("Failed to serialize get stacker response");
+        let response = format!("HTTP/1.1 200 OK\n\n{stackers_response_json}");
+        let h = spawn(move || mock.client.get_reward_set(0));
+        write_response(mock.server, response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), stacker_set);
     }
 
     #[test]
