@@ -41,7 +41,10 @@ use stacks_common::debug;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
+use stacks_common::util::hash::Sha256Sum;
+use wsts::curve::ecdsa;
 use wsts::curve::point::{Compressed, Point};
+use wsts::state_machine::PublicKeys;
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::Config;
@@ -97,6 +100,55 @@ impl StacksClient {
     /// Get our signer address
     pub fn get_signer_address(&self) -> &StacksAddress {
         &self.stacks_address
+    }
+
+    /// Calculate the coordinator address by comparing the provided public keys against the stacks tip consensus hash
+    pub fn calculate_coordinator(&self, public_keys: &PublicKeys) -> (u32, ecdsa::PublicKey) {
+        let stacks_tip_consensus_hash =
+            match retry_with_exponential_backoff(|| {
+                self.get_stacks_tip_consensus_hash()
+                    .map_err(backoff::Error::transient)
+            }) {
+                Ok(hash) => hash,
+                Err(e) => {
+                    debug!("Failed to get stacks tip consensus hash: {:?}", e);
+                    return (
+                        0,
+                        public_keys.signers.get(&0).cloned().expect(
+                            "FATAL: No public keys found. Signer was not properly registered",
+                        ),
+                    );
+                }
+            };
+        debug!(
+            "Using stacks_tip_consensus_hash {:?} for selecting coordinator",
+            &stacks_tip_consensus_hash
+        );
+
+        // Create combined hash of each signer's public key with stacks_tip_consensus_hash
+        let mut selection_ids = public_keys
+            .signers
+            .iter()
+            .map(|(&id, pk)| {
+                let pk_bytes = pk.to_bytes();
+                let mut buffer =
+                    Vec::with_capacity(pk_bytes.len() + stacks_tip_consensus_hash.as_bytes().len());
+                buffer.extend_from_slice(&pk_bytes[..]);
+                buffer.extend_from_slice(stacks_tip_consensus_hash.as_bytes());
+                let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
+                (digest, id)
+            })
+            .collect::<Vec<_>>();
+
+        // Sort the selection IDs based on the hash
+        selection_ids.sort_by_key(|(hash, _)| hash.clone());
+
+        // Get the first ID from the sorted list and retrieve its public key,
+        // or default to the first signer if none are found
+        selection_ids
+            .first()
+            .and_then(|(_, id)| public_keys.signers.get(id).map(|pk| (*id, *pk)))
+            .expect("FATAL: No public keys found. Signer was not properly registered")
     }
 
     /// Retrieve the signer slots stored within the stackerdb contract
@@ -630,12 +682,14 @@ impl StacksClient {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as FmtWrite;
     use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
     use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
-    use rand::thread_rng;
+    use rand::distributions::Standard;
+    use rand::{thread_rng, Rng};
     use rand_core::RngCore;
     use serial_test::serial;
     use stacks_common::bitvec::BitVec;
@@ -650,7 +704,7 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_aggregate_public_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        build_read_only_response, write_response, MockServerClient,
+        build_read_only_response, generate_stacks_node_info, write_response, MockServerClient,
     };
 
     #[test]
@@ -1250,5 +1304,100 @@ mod tests {
         let mock = MockServerClient::from_config(mock.config);
         write_response(mock.server, peer_response.as_bytes());
         assert!(h.join().unwrap().unwrap());
+    }
+
+    fn generate_random_consensus_hash() -> String {
+        let rng = rand::thread_rng();
+        let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
+        let hex_string = bytes.iter().fold(String::new(), |mut acc, &b| {
+            write!(&mut acc, "{:02x}", b).expect("Error writing to string");
+            acc
+        });
+        hex_string
+    }
+
+    fn build_get_stacks_tip_consensus_hash(random_consensus: bool) -> String {
+        let consensus_hash = match random_consensus {
+            true => generate_random_consensus_hash(),
+            false => "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string(),
+        };
+
+        println!("{}", consensus_hash);
+        let stacks_tip_height = thread_rng().next_u64();
+        build_get_peer_info_response(stacks_tip_height, consensus_hash)
+    }
+
+    #[test]
+    fn calculate_coordinator_should_produce_unique_results() {
+        let number_of_tests = 5;
+        let generated_public_keys = generate_stacks_node_info(10, 4000, None).0.public_keys;
+        let mut results = Vec::new();
+
+        for _ in 0..number_of_tests {
+            let mock = MockServerClient::new();
+            let response = build_get_stacks_tip_consensus_hash(true);
+            let generated_public_keys = generated_public_keys.clone();
+            let h = spawn(move || mock.client.calculate_coordinator(&generated_public_keys));
+            write_response(mock.server, response.as_bytes());
+            let result = h.join().unwrap();
+            results.push(result);
+        }
+
+        // Check that not all coordinator IDs are the same
+        let all_ids_same = results.iter().all(|&(id, _)| id == results[0].0);
+        assert!(!all_ids_same, "Not all coordinator IDs should be the same");
+
+        // Check that not all coordinator public keys are the same
+        let all_keys_same = results
+            .iter()
+            .all(|&(_, key)| key.key.data == results[0].1.key.data);
+        assert!(
+            !all_keys_same,
+            "Not all coordinator public keys should be the same"
+        );
+    }
+
+    fn generate_test_results(random_consensus: bool, count: usize) -> Vec<(u32, ecdsa::PublicKey)> {
+        let mut results = Vec::new();
+        let generated_public_keys = generate_stacks_node_info(10, 4000, None).0.public_keys;
+        for _ in 0..count {
+            let mock = MockServerClient::new();
+            let generated_public_keys = generated_public_keys.clone();
+            let response = build_get_stacks_tip_consensus_hash(random_consensus);
+            let h = spawn(move || mock.client.calculate_coordinator(&generated_public_keys));
+            write_response(mock.server, response.as_bytes());
+            let result = h.join().unwrap();
+            results.push(result);
+        }
+        results
+    }
+
+    #[test]
+    fn calculate_coordinator_results_should_vary_or_match_based_on_hash() {
+        let results_with_random_hash = generate_test_results(true, 5);
+        let all_ids_same = results_with_random_hash
+            .iter()
+            .all(|&(id, _)| id == results_with_random_hash[0].0);
+        let all_keys_same = results_with_random_hash
+            .iter()
+            .all(|&(_, key)| key.key.data == results_with_random_hash[0].1.key.data);
+        assert!(!all_ids_same, "Not all coordinator IDs should be the same");
+        assert!(
+            !all_keys_same,
+            "Not all coordinator public keys should be the same"
+        );
+
+        let results_with_static_hash = generate_test_results(false, 5);
+        let all_ids_same = results_with_static_hash
+            .iter()
+            .all(|&(id, _)| id == results_with_static_hash[0].0);
+        let all_keys_same = results_with_static_hash
+            .iter()
+            .all(|&(_, key)| key.key.data == results_with_static_hash[0].1.key.data);
+        assert!(all_ids_same, "All coordinator IDs should be the same");
+        assert!(
+            all_keys_same,
+            "All coordinator public keys should be the same"
+        );
     }
 }
