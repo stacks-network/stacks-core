@@ -622,7 +622,7 @@ impl StacksClient {
     }
 
     fn reward_set_path(&self, reward_cycle: u64) -> String {
-        format!("/v2/stacker_set/{reward_cycle}")
+        format!("{}/v2/stacker_set/{reward_cycle}", self.http_origin)
     }
 
     /// Helper function to create a stacks transaction for a modifying contract call
