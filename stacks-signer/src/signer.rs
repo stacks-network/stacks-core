@@ -857,7 +857,7 @@ impl Signer {
                             return None;
                         };
                         if origin_nonce < account_nonce {
-                            debug!("Signer #{}: Transaction {} has an invalid nonce. Removing if removing it from our stored transactions.", self.signer_id, transaction.txid());
+                            debug!("Signer #{}: Transaction {} has an outdated nonce. Removing it from our stored transactions.", self.signer_id, transaction.txid());
                             return None;
                         }
                         Some(transaction)
