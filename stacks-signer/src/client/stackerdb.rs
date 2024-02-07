@@ -20,7 +20,7 @@ use blockstack_lib::chainstate::stacks::StacksTransaction;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use hashbrown::HashMap;
-use libsigner::{SignerMessage, SignerSession, StackerDBSession, TRANSACTIONS_SLOT_ID};
+use libsigner::{SignerMessage, SignerSession, StackerDBSession, TRANSACTIONS_MSG_ID};
 use libstackerdb::{StackerDBChunkAckData, StackerDBChunkData};
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
@@ -202,7 +202,7 @@ impl StackerDB {
         );
         let Some(transactions_session) = self
             .signers_message_stackerdb_sessions
-            .get_mut(&(self.signer_set, TRANSACTIONS_SLOT_ID))
+            .get_mut(&(self.signer_set, TRANSACTIONS_MSG_ID))
         else {
             return Err(ClientError::NotConnected);
         };
@@ -222,7 +222,15 @@ impl StackerDB {
                 continue;
             };
             let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) else {
-                warn!("Failed to deserialize chunk data into a SignerMessage");
+                if data.len() > 0 {
+                    warn!("Failed to deserialize chunk data into a SignerMessage");
+                    debug!(
+                        "signer #{}: Failed chunk ({}): {:?}",
+                        signer_id,
+                        &data.len(),
+                        &data[..]
+                    );
+                }
                 continue;
             };
 
