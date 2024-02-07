@@ -47,7 +47,7 @@ use crate::client::{retry_with_exponential_backoff, ClientError};
 use crate::config::Config;
 
 /// The name of the function for casting a DKG result to signer vote contract
-pub const VOTE_FUNCTION_NAME: &'static str = "vote-for-aggregate-public-key";
+pub const VOTE_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
 
 /// The Stacks signer client used to communicate with the stacks node
 #[derive(Clone, Debug)]
@@ -578,6 +578,7 @@ impl StacksClient {
     }
 
     /// Helper function to create a stacks transaction for a modifying contract call
+    #[allow(clippy::too_many_arguments)]
     pub fn build_signed_contract_call_transaction(
         contract_addr: &StacksAddress,
         contract_name: ContractName,
@@ -649,64 +650,64 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_aggregate_public_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        write_response, TestConfig,
+        write_response, MockServerClient,
     };
 
     #[test]
     fn read_only_contract_call_200_success() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let value = ClarityValue::UInt(10_u128);
         let hex = value
             .serialize_to_hex()
             .expect("Failed to serialize hex value");
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
         let h = spawn(move || {
-            config.client.read_only_contract_call(
-                &config.client.stacks_address,
+            mock.client.read_only_contract_call(
+                &mock.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
                 &[],
             )
         });
-        write_response(config.mock_server, response_bytes.as_bytes());
+        write_response(mock.server, response_bytes.as_bytes());
         let result = h.join().unwrap().unwrap();
         assert_eq!(result, value);
     }
 
     #[test]
     fn read_only_contract_call_with_function_args_200_success() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let value = ClarityValue::UInt(10_u128);
         let hex = value
             .serialize_to_hex()
             .expect("Failed to serialize hex value");
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
         let h = spawn(move || {
-            config.client.read_only_contract_call(
-                &config.client.stacks_address,
+            mock.client.read_only_contract_call(
+                &mock.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
                 &[ClarityValue::UInt(10_u128)],
             )
         });
-        write_response(config.mock_server, response_bytes.as_bytes());
+        write_response(mock.server, response_bytes.as_bytes());
         let result = h.join().unwrap().unwrap();
         assert_eq!(result, value);
     }
 
     #[test]
     fn read_only_contract_call_200_failure() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let h = spawn(move || {
-            config.client.read_only_contract_call(
-                &config.client.stacks_address,
+            mock.client.read_only_contract_call(
+                &mock.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
                 &[],
             )
         });
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n{\"okay\":false,\"cause\":\"Some reason\"}",
         );
         let result = h.join().unwrap();
@@ -715,17 +716,17 @@ mod tests {
 
     #[test]
     fn read_only_contract_call_400_failure() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         // Simulate a 400 Bad Request response
         let h = spawn(move || {
-            config.client.read_only_contract_call(
-                &config.client.stacks_address,
+            mock.client.read_only_contract_call(
+                &mock.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
                 &[],
             )
         });
-        write_response(config.mock_server, b"HTTP/1.1 400 Bad Request\n\n");
+        write_response(mock.server, b"HTTP/1.1 400 Bad Request\n\n");
         let result = h.join().unwrap();
         assert!(matches!(
             result,
@@ -737,17 +738,17 @@ mod tests {
 
     #[test]
     fn read_only_contract_call_404_failure() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         // Simulate a 400 Bad Request response
         let h = spawn(move || {
-            config.client.read_only_contract_call(
-                &config.client.stacks_address,
+            mock.client.read_only_contract_call(
+                &mock.client.stacks_address,
                 &ContractName::from("contract-name"),
                 &ClarityName::from("function-name"),
                 &[],
             )
         });
-        write_response(config.mock_server, b"HTTP/1.1 404 Not Found\n\n");
+        write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         let result = h.join().unwrap();
         assert!(matches!(
             result,
@@ -757,23 +758,23 @@ mod tests {
 
     #[test]
     fn valid_reward_cycle_should_succeed() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let reward_cycle = thread_rng().next_u64();
         let prepare_phase_start_block_height = thread_rng().next_u64();
         let pox_data_response =
             build_get_pox_data_response(reward_cycle, prepare_phase_start_block_height);
-        let h = spawn(move || config.client.get_current_reward_cycle());
-        write_response(config.mock_server, pox_data_response.as_bytes());
+        let h = spawn(move || mock.client.get_current_reward_cycle());
+        write_response(mock.server, pox_data_response.as_bytes());
         let current_cycle_id = h.join().unwrap().unwrap();
         assert_eq!(reward_cycle, current_cycle_id);
     }
 
     #[test]
     fn invalid_reward_cycle_should_fail() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_current_reward_cycle());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_current_reward_cycle());
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"id\":\"fake id\", \"is_pox_active\":false}}",
         );
         let res = h.join().unwrap();
@@ -782,10 +783,10 @@ mod tests {
 
     #[test]
     fn missing_reward_cycle_should_fail() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_current_reward_cycle());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_current_reward_cycle());
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"is_pox_active\":false}}",
         );
         let res = h.join().unwrap();
@@ -797,9 +798,9 @@ mod tests {
         let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let response = build_get_aggregate_public_key_response(orig_point);
 
-        let test_config = TestConfig::new();
-        let h = spawn(move || test_config.client.get_aggregate_public_key(0));
-        write_response(test_config.mock_server, response.as_bytes());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_aggregate_public_key(0));
+        write_response(mock.server, response.as_bytes());
         let res = h.join().unwrap().unwrap();
         assert_eq!(res, Some(orig_point));
 
@@ -809,9 +810,9 @@ mod tests {
             .expect("Failed to serialize clarity value");
         let response = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}");
 
-        let test_config = TestConfig::from_config(test_config.config);
-        let h = spawn(move || test_config.client.get_aggregate_public_key(0));
-        write_response(test_config.mock_server, response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        let h = spawn(move || mock.client.get_aggregate_public_key(0));
+        write_response(mock.server, response.as_bytes());
 
         let res = h.join().unwrap().unwrap();
         assert!(res.is_none());
@@ -819,39 +820,39 @@ mod tests {
 
     #[test]
     fn parse_valid_aggregate_public_key_should_succeed() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let clarity_value = ClarityValue::some(
             ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
                 .expect("BUG: Failed to create clarity value from point"),
         )
         .expect("BUG: Failed to create clarity value from point");
-        let result = config
+        let result = mock
             .client
             .parse_aggregate_public_key(clarity_value)
             .unwrap();
         assert_eq!(result, Some(orig_point));
 
         let value = ClarityValue::none();
-        let result = config.client.parse_aggregate_public_key(value).unwrap();
+        let result = mock.client.parse_aggregate_public_key(value).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn parse_invalid_aggregate_public_key_should_fail() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let value = ClarityValue::UInt(10_u128);
-        let result = config.client.parse_aggregate_public_key(value);
+        let result = mock.client.parse_aggregate_public_key(value);
         assert!(result.is_err())
     }
 
     #[ignore]
     #[test]
     fn transaction_contract_call_should_send_bytes_to_node() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let private_key = StacksPrivateKey::new();
         let tx = StacksClient::build_signed_contract_call_transaction(
-            &config.client.stacks_address,
+            &mock.client.stacks_address,
             ContractName::from("contract-name"),
             ClarityName::from("function-name"),
             &[],
@@ -880,10 +881,10 @@ mod tests {
             + 1;
 
         let tx_clone = tx.clone();
-        let h = spawn(move || config.client.submit_tx(&tx_clone));
+        let h = spawn(move || mock.client.submit_tx(&tx_clone));
 
         let request_bytes = write_response(
-            config.mock_server,
+            mock.server,
             format!("HTTP/1.1 200 OK\n\n{}", tx.txid()).as_bytes(),
         );
         let returned_txid = h.join().unwrap().unwrap();
@@ -901,21 +902,17 @@ mod tests {
     #[test]
     #[serial]
     fn build_vote_for_aggregate_public_key_should_succeed() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let round = rand::thread_rng().next_u64();
         let round_response = build_get_last_round_response(round);
         let nonce = thread_rng().next_u64();
         let account_nonce_response = build_account_nonce_response(nonce);
 
-        let h = spawn(move || {
-            config
-                .client
-                .build_vote_for_aggregate_public_key(0, 0, point)
-        });
-        write_response(config.mock_server, round_response.as_bytes());
-        let config = TestConfig::from_config(config.config);
-        write_response(config.mock_server, account_nonce_response.as_bytes());
+        let h = spawn(move || mock.client.build_vote_for_aggregate_public_key(0, 0, point));
+        write_response(mock.server, round_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, account_nonce_response.as_bytes());
         assert!(h.join().unwrap().is_ok());
     }
 
@@ -923,24 +920,20 @@ mod tests {
     #[test]
     #[serial]
     fn cast_vote_for_aggregate_public_key_should_succeed() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let round = rand::thread_rng().next_u64();
         let round_response = build_get_last_round_response(round);
         let nonce = thread_rng().next_u64();
         let account_nonce_response = build_account_nonce_response(nonce);
 
-        let h = spawn(move || {
-            config
-                .client
-                .cast_vote_for_aggregate_public_key(0, 0, point)
-        });
-        write_response(config.mock_server, round_response.as_bytes());
-        let config = TestConfig::from_config(config.config);
-        write_response(config.mock_server, account_nonce_response.as_bytes());
-        let config = TestConfig::from_config(config.config);
+        let h = spawn(move || mock.client.cast_vote_for_aggregate_public_key(0, 0, point));
+        write_response(mock.server, round_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, account_nonce_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
         );
         assert!(h.join().unwrap().is_ok());
@@ -948,10 +941,10 @@ mod tests {
 
     #[test]
     fn core_info_call_for_consensus_hash_should_succeed() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_stacks_tip_consensus_hash());
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"burn_block_height\":2575799,\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
         );
         let consensus_hash = h.join().unwrap().expect("Failed to deserialize response");
@@ -963,10 +956,10 @@ mod tests {
 
     #[test]
     fn core_info_call_with_invalid_response_should_fail() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_stacks_tip_consensus_hash());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_stacks_tip_consensus_hash());
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
         );
         assert!(h.join().unwrap().is_err());
@@ -974,10 +967,10 @@ mod tests {
 
     #[test]
     fn core_info_call_for_burn_block_height_should_succeed() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_burn_block_height());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_burn_block_height());
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n{\"burn_block_height\":2575799,\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
         );
         let burn_block_height = h.join().unwrap().expect("Failed to deserialize response");
@@ -986,10 +979,10 @@ mod tests {
 
     #[test]
     fn core_info_call_for_burn_block_height_should_fail() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_burn_block_height());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_burn_block_height());
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
         );
         assert!(h.join().unwrap().is_err());
@@ -997,25 +990,22 @@ mod tests {
 
     #[test]
     fn get_account_nonce_should_succeed() {
-        let config = TestConfig::new();
-        let address = config.client.stacks_address;
-        let h = spawn(move || config.client.get_account_nonce(&address));
+        let mock = MockServerClient::new();
+        let address = mock.client.stacks_address;
+        let h = spawn(move || mock.client.get_account_nonce(&address));
         let nonce = thread_rng().next_u64();
-        write_response(
-            config.mock_server,
-            build_account_nonce_response(nonce).as_bytes(),
-        );
+        write_response(mock.server, build_account_nonce_response(nonce).as_bytes());
         let returned_nonce = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(returned_nonce, nonce);
     }
 
     #[test]
     fn get_account_nonce_should_fail() {
-        let config = TestConfig::new();
-        let address = config.client.stacks_address;
-        let h = spawn(move || config.client.get_account_nonce(&address));
+        let mock = MockServerClient::new();
+        let address = mock.client.stacks_address;
+        let h = spawn(move || mock.client.get_account_nonce(&address));
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n{\"nonce\":\"invalid nonce\",\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}"
         );
         assert!(h.join().unwrap().is_err());
@@ -1023,11 +1013,11 @@ mod tests {
 
     #[test]
     fn parse_valid_signer_slots_should_succeed() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let clarity_value_hex =
             "0x070b000000050c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a8195196a9a7cf9c37cb13e1ed69a7bc047a84e050c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a6505471146dcf722f0580911183f28bef30a8a890c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a1d7f8e3936e5da5f32982cc47f31d7df9fb1b38a0c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a126d1a814313c952e34c7840acec9211e1727fb80c00000002096e756d2d736c6f7473010000000000000000000000000000000c067369676e6572051a7374ea6bb39f2e8d3d334d62b9f302a977de339a";
         let value = ClarityValue::try_deserialize_hex_untyped(clarity_value_hex).unwrap();
-        let signer_slots = config.client.parse_signer_slots(value).unwrap();
+        let signer_slots = mock.client.parse_signer_slots(value).unwrap();
         assert_eq!(signer_slots.len(), 5);
         signer_slots
             .into_iter()
@@ -1036,39 +1026,39 @@ mod tests {
 
     #[test]
     fn get_node_epoch_should_succeed() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_node_epoch());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_node_epoch());
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n{\"burn_block_height\":2575799,\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
         );
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, EpochId::UnsupportedEpoch);
 
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_node_epoch());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_node_epoch());
         let height = BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT;
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"burn_block_height\":{height},\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}");
 
-        write_response(config.mock_server, response_bytes.as_bytes());
+        write_response(mock.server, response_bytes.as_bytes());
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, EpochId::Epoch25);
 
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_node_epoch());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_node_epoch());
         let height = BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT;
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"burn_block_height\":{height},\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}");
-        write_response(config.mock_server, response_bytes.as_bytes());
+        write_response(mock.server, response_bytes.as_bytes());
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, EpochId::Epoch30);
     }
 
     #[test]
     fn get_node_epoch_should_fail() {
-        let config = TestConfig::new();
-        let h = spawn(move || config.client.get_node_epoch());
+        let mock = MockServerClient::new();
+        let h = spawn(move || mock.client.get_node_epoch());
         write_response(
-            config.mock_server,
+            mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
         );
         assert!(h.join().unwrap().is_err());
@@ -1076,7 +1066,7 @@ mod tests {
 
     #[test]
     fn submit_block_for_validation_should_succeed() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let header = NakamotoBlockHeader {
             version: 1,
             chain_length: 2,
@@ -1093,14 +1083,14 @@ mod tests {
             header,
             txs: vec![],
         };
-        let h = spawn(move || config.client.submit_block_for_validation(block));
-        write_response(config.mock_server, b"HTTP/1.1 200 OK\n\n");
+        let h = spawn(move || mock.client.submit_block_for_validation(block));
+        write_response(mock.server, b"HTTP/1.1 200 OK\n\n");
         assert!(h.join().unwrap().is_ok());
     }
 
     #[test]
     fn submit_block_for_validation_should_fail() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let header = NakamotoBlockHeader {
             version: 1,
             chain_length: 2,
@@ -1117,14 +1107,14 @@ mod tests {
             header,
             txs: vec![],
         };
-        let h = spawn(move || config.client.submit_block_for_validation(block));
-        write_response(config.mock_server, b"HTTP/1.1 404 Not Found\n\n");
+        let h = spawn(move || mock.client.submit_block_for_validation(block));
+        write_response(mock.server, b"HTTP/1.1 404 Not Found\n\n");
         assert!(h.join().unwrap().is_err());
     }
 
     #[test]
     fn get_peer_info_should_succeed() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let private_key = StacksPrivateKey::new();
         let public_key = StacksPublicKey::from_private(&private_key);
         let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
@@ -1161,19 +1151,19 @@ mod tests {
         let peer_info_json =
             serde_json::to_string(&peer_info).expect("Failed to serialize peer info");
         let response = format!("HTTP/1.1 200 OK\n\n{peer_info_json}");
-        let h = spawn(move || config.client.get_peer_info());
-        write_response(config.mock_server, response.as_bytes());
+        let h = spawn(move || mock.client.get_peer_info());
+        write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), peer_info);
     }
 
     #[test]
     fn get_last_round_should_succeed() {
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let round = rand::thread_rng().next_u64();
         let response = build_get_last_round_response(round);
-        let h = spawn(move || config.client.get_last_round(0));
+        let h = spawn(move || mock.client.get_last_round(0));
 
-        write_response(config.mock_server, response.as_bytes());
+        write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), round);
     }
 
@@ -1183,44 +1173,44 @@ mod tests {
         let consensus_hash = "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string();
 
         // Should return TRUE as the passed in reward cycle is older than the current reward cycle of the node
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || config.client.reward_set_calculated(0));
-        write_response(config.mock_server, pox_response.as_bytes());
+        let h = spawn(move || mock.client.reward_set_calculated(0));
+        write_response(mock.server, pox_response.as_bytes());
         assert!(h.join().unwrap().unwrap());
 
         // Should return TRUE as the passed in reward cycle is the same as the current reward cycle
-        let config = TestConfig::from_config(config.config);
+        let mock = MockServerClient::from_config(mock.config);
         let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || config.client.reward_set_calculated(2));
-        write_response(config.mock_server, pox_response.as_bytes());
+        let h = spawn(move || mock.client.reward_set_calculated(2));
+        write_response(mock.server, pox_response.as_bytes());
         assert!(h.join().unwrap().unwrap());
 
         // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
-        let config = TestConfig::from_config(config.config);
+        let mock = MockServerClient::from_config(mock.config);
         let pox_response = build_get_pox_data_response(2, 10);
         let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
-        let h = spawn(move || config.client.reward_set_calculated(3));
-        write_response(config.mock_server, pox_response.as_bytes());
-        let config = TestConfig::from_config(config.config);
-        write_response(config.mock_server, peer_response.as_bytes());
+        let h = spawn(move || mock.client.reward_set_calculated(3));
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
         assert!(h.join().unwrap().unwrap());
 
         // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
-        let config = TestConfig::from_config(config.config);
+        let mock = MockServerClient::from_config(mock.config);
         let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || config.client.reward_set_calculated(4));
-        write_response(config.mock_server, pox_response.as_bytes());
+        let h = spawn(move || mock.client.reward_set_calculated(4));
+        write_response(mock.server, pox_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
 
         // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT the prepare phase is in its FIRST block
-        let config = TestConfig::from_config(config.config);
+        let mock = MockServerClient::from_config(mock.config);
         let pox_response = build_get_pox_data_response(2, 11);
         let peer_response = build_get_peer_info_response(11, consensus_hash);
-        let h = spawn(move || config.client.reward_set_calculated(3));
-        write_response(config.mock_server, pox_response.as_bytes());
-        let config = TestConfig::from_config(config.config);
-        write_response(config.mock_server, peer_response.as_bytes());
+        let h = spawn(move || mock.client.reward_set_calculated(3));
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
     }
 
@@ -1230,44 +1220,44 @@ mod tests {
         let consensus_hash = "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string();
 
         // Should return FALSE as the passed in reward cycle is old
-        let config = TestConfig::new();
+        let mock = MockServerClient::new();
         let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || config.client.reward_cycle_in_vote_window(0));
-        write_response(config.mock_server, pox_response.as_bytes());
+        let h = spawn(move || mock.client.reward_cycle_in_vote_window(0));
+        write_response(mock.server, pox_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
 
         // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
-        let config = TestConfig::from_config(config.config);
+        let mock = MockServerClient::new();
         let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || config.client.reward_cycle_in_vote_window(4));
-        write_response(config.mock_server, pox_response.as_bytes());
+        let h = spawn(move || mock.client.reward_cycle_in_vote_window(4));
+        write_response(mock.server, pox_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
 
         // Should return FALSE as the passed in reward cycle is the same as the current reward cycle
-        let config = TestConfig::from_config(config.config);
+        let mock = MockServerClient::new();
         let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || config.client.reward_cycle_in_vote_window(2));
-        write_response(config.mock_server, pox_response.as_bytes());
+        let h = spawn(move || mock.client.reward_cycle_in_vote_window(2));
+        write_response(mock.server, pox_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
 
         // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT the prepare phase is in its FIRST block
-        let config = TestConfig::from_config(config.config);
+        let mock = MockServerClient::new();
         let pox_response = build_get_pox_data_response(2, 11);
         let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
-        let h = spawn(move || config.client.reward_cycle_in_vote_window(3));
-        write_response(config.mock_server, pox_response.as_bytes());
-        let config = TestConfig::from_config(config.config);
-        write_response(config.mock_server, peer_response.as_bytes());
+        let h = spawn(move || mock.client.reward_cycle_in_vote_window(3));
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
 
         // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
-        let config = TestConfig::from_config(config.config);
+        let mock = MockServerClient::new();
         let pox_response = build_get_pox_data_response(2, 10);
         let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
-        let h = spawn(move || config.client.reward_cycle_in_vote_window(3));
-        write_response(config.mock_server, pox_response.as_bytes());
-        let config = TestConfig::from_config(config.config);
-        write_response(config.mock_server, peer_response.as_bytes());
+        let h = spawn(move || mock.client.reward_cycle_in_vote_window(3));
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
         assert!(h.join().unwrap().unwrap());
     }
 }

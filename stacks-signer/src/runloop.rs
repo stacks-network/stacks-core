@@ -161,7 +161,7 @@ impl RunLoop {
             let weight_start = weight_end;
             weight_end = weight_start + entry.slots;
             for key_id in weight_start..weight_end {
-                public_keys.key_ids.insert(key_id, ecdsa_public_key.clone());
+                public_keys.key_ids.insert(key_id, ecdsa_public_key);
                 signer_key_ids
                     .entry(signer_id)
                     .or_insert(HashSet::with_capacity(entry.slots as usize))
@@ -375,7 +375,7 @@ mod tests {
 
     use super::*;
     use crate::client::tests::{
-        build_get_peer_info_response, generate_public_keys, write_response, TestConfig,
+        build_get_peer_info_response, generate_stacks_node_info, write_response, MockServerClient,
     };
 
     fn generate_random_consensus_hash() -> String {
@@ -407,15 +407,15 @@ mod tests {
     #[test]
     fn calculate_coordinator_should_produce_unique_results() {
         let number_of_tests = 5;
-        let generated_public_keys = generate_public_keys(10, 4000, None).0;
+        let generated_public_keys = generate_stacks_node_info(10, 4000, None).0.public_keys;
         let mut results = Vec::new();
 
         for _ in 0..number_of_tests {
-            let test_config = TestConfig::new();
-            mock_stacks_client_response(test_config.mock_server, true);
+            let mock = MockServerClient::new();
+            mock_stacks_client_response(mock.server, true);
 
             let (coordinator_id, coordinator_public_key) =
-                calculate_coordinator(&generated_public_keys, &test_config.client);
+                calculate_coordinator(&generated_public_keys, &mock.client);
 
             results.push((coordinator_id, coordinator_public_key));
         }
@@ -435,11 +435,11 @@ mod tests {
     }
     fn generate_test_results(random_consensus: bool, count: usize) -> Vec<(u32, ecdsa::PublicKey)> {
         let mut results = Vec::new();
-        let generated_public_keys = generate_public_keys(10, 4000, None).0;
+        let generated_public_keys = generate_stacks_node_info(10, 4000, None).0.public_keys;
         for _ in 0..count {
-            let test_config = TestConfig::new();
-            mock_stacks_client_response(test_config.mock_server, random_consensus);
-            let result = calculate_coordinator(&generated_public_keys, &test_config.client);
+            let mock = MockServerClient::new();
+            mock_stacks_client_response(mock.server, random_consensus);
+            let result = calculate_coordinator(&generated_public_keys, &mock.client);
             results.push(result);
         }
         results

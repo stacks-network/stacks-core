@@ -282,13 +282,11 @@ impl TryFrom<&PathBuf> for Config {
 
 impl Config {
     /// load the config from a string and parse it
-    #[allow(dead_code)]
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         RawConfigFile::load_from_str(data)?.try_into()
     }
 
     /// load the config from a file and parse it
-    #[allow(dead_code)]
     pub fn load_from_file(path: &str) -> Result<Self, ConfigError> {
         Self::try_from(&PathBuf::from(path))
     }
