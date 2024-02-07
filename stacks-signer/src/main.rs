@@ -36,13 +36,11 @@ use std::time::Duration;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{
-    RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession,
-    SIGNER_SLOTS_PER_USER,
-};
+use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
 use stacks_common::codec::read_next;
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks_common::{debug, error};
 use stacks_signer::cli::{

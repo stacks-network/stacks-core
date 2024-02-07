@@ -488,8 +488,7 @@ mod tests {
     use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
-    use libsigner::SIGNER_SLOTS_PER_USER;
-    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
     use wsts::curve::scalar::Scalar;
 
     use super::*;

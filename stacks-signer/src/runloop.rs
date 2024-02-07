@@ -1175,11 +1175,11 @@ mod tests {
     use blockstack_lib::util_lib::boot::boot_code_addr;
     use clarity::vm::types::{ResponseData, TupleData};
     use clarity::vm::{ClarityName, Value as ClarityValue};
-    use libsigner::SIGNER_SLOTS_PER_USER;
     use rand::distributions::Standard;
     use rand::Rng;
     use serial_test::serial;
     use stacks_common::bitvec::BitVec;
+    use stacks_common::consts::SIGNER_SLOTS_PER_USER;
     use stacks_common::types::chainstate::{
         ConsensusHash, StacksBlockId, StacksPrivateKey, TrieHash,
     };
