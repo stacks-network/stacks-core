@@ -317,7 +317,7 @@ impl NakamotoSigners {
                         )?;
                         env.execute_contract_allow_private(
                             &signers_contract,
-                            "stackerdb-set-signers",
+                            "set-signers",
                             &set_signers_args,
                             false,
                         )

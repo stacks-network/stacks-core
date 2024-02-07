@@ -265,14 +265,16 @@ impl BlockMinerThread {
             .get_stackerdb_contract_ids()
             .expect("FATAL: could not get the stacker DB contract ids");
 
-        let reward_cycle = u32::try_from(
-            self.burnchain
-                .block_height_to_reward_cycle(self.burn_block.block_height)
-                .expect("FATAL: no reward cycle for burn block"),
-        )
-        .expect("FATAL: too many reward cycles");
+        let reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_block.block_height)
+            .expect("FATAL: no reward cycle for burn block");
+
         let signers_contract_id = boot_code_id(
-            &make_signers_db_name(reward_cycle % 2, BLOCK_MSG_ID),
+            &make_signers_db_name(
+                u32::try_from(reward_cycle % 2).expect("FATAL: infallible"),
+                BLOCK_MSG_ID,
+            ),
             self.config.is_mainnet(),
         );
         if !stackerdb_contracts.contains(&signers_contract_id) {

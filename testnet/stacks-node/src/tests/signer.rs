@@ -93,7 +93,7 @@ impl SignerTest {
             .collect::<Vec<StacksPrivateKey>>();
 
         // Build the stackerdb signers contract
-        let signers_stacker_db_contract_id = boot_code_id("signers".into(), false);
+        let signers_stacker_db_contract_id = boot_code_id(SIGNERS_NAME.into(), false);
 
         let (naka_conf, _miner_account) = naka_neon_integration_conf(None);
 

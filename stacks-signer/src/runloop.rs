@@ -163,11 +163,12 @@ impl<C: Coordinator> RunLoop<C> {
         let signer_set = if let Some(signer_set) = self.signer_set.as_ref() {
             *signer_set
         } else {
-            let rc = u32::try_from(self.stacks_client.get_current_reward_cycle()?)
-                .expect("FATAL: reward cycle exceeds u32::MAX")
-                + 1;
+            let rc = self
+                .stacks_client
+                .get_current_reward_cycle()?
+                .saturating_add(1);
             debug!("Next reward cycle is {}", rc);
-            let signer_set = rc % 2;
+            let signer_set = u32::try_from(rc % 2).expect("FATAL: infallible");
             self.signer_set = Some(signer_set);
             self.stackerdb.set_signer_set(signer_set);
             signer_set

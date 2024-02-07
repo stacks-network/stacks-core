@@ -24,7 +24,7 @@
 
 ;; Called internally by te Stacks node.
 ;; Sets the list of signers and weights for a given reward cycle.
-(define-private (stackerdb-set-signers
+(define-private (set-signers
                  (reward-cycle uint)
                  (signers (list 4000 { signer: principal, weight: uint })))
      (begin
