@@ -650,17 +650,14 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_aggregate_public_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        write_response, MockServerClient,
+        build_read_only_response, write_response, MockServerClient,
     };
 
     #[test]
     fn read_only_contract_call_200_success() {
         let mock = MockServerClient::new();
         let value = ClarityValue::UInt(10_u128);
-        let hex = value
-            .serialize_to_hex()
-            .expect("Failed to serialize hex value");
-        let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
+        let response = build_read_only_response(&value);
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
@@ -669,7 +666,7 @@ mod tests {
                 &[],
             )
         });
-        write_response(mock.server, response_bytes.as_bytes());
+        write_response(mock.server, response.as_bytes());
         let result = h.join().unwrap().unwrap();
         assert_eq!(result, value);
     }
@@ -678,10 +675,7 @@ mod tests {
     fn read_only_contract_call_with_function_args_200_success() {
         let mock = MockServerClient::new();
         let value = ClarityValue::UInt(10_u128);
-        let hex = value
-            .serialize_to_hex()
-            .expect("Failed to serialize hex value");
-        let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}",);
+        let response = build_read_only_response(&value);
         let h = spawn(move || {
             mock.client.read_only_contract_call(
                 &mock.client.stacks_address,
@@ -690,7 +684,7 @@ mod tests {
                 &[ClarityValue::UInt(10_u128)],
             )
         });
-        write_response(mock.server, response_bytes.as_bytes());
+        write_response(mock.server, response.as_bytes());
         let result = h.join().unwrap().unwrap();
         assert_eq!(result, value);
     }
@@ -805,10 +799,7 @@ mod tests {
         assert_eq!(res, Some(orig_point));
 
         let clarity_value = ClarityValue::none();
-        let hex = clarity_value
-            .serialize_to_hex()
-            .expect("Failed to serialize clarity value");
-        let response = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}");
+        let response = build_read_only_response(&clarity_value);
 
         let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_aggregate_public_key(0));

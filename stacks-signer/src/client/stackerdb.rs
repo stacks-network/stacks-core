@@ -364,7 +364,6 @@ mod tests {
         let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
         response_bytes.extend(payload.as_bytes());
         let h = spawn(move || stackerdb.send_message_with_retry(signer_message));
-        std::thread::sleep(std::time::Duration::from_millis(100));
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, response_bytes.as_slice());
         assert_eq!(ack, h.join().unwrap().unwrap());
