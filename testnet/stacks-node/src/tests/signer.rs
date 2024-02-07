@@ -7,10 +7,9 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{
     BlockResponse, RejectCode, RunningSigner, Signer, SignerEventReceiver, SignerMessage,
-    BLOCK_SLOT_ID,
+    BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -47,7 +46,7 @@ use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_3, naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
-    setup_stacker, POX_4_DEFAULT_STACKER_BALANCE,
+    POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{next_block_and_wait, test_observer, wait_for_runloop};
 use crate::tests::to_addr;
@@ -82,6 +81,8 @@ struct SignerTest {
     pub running_signers: HashMap<u32, RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
+    // link to the stacks node
+    pub stacks_client: StacksClient,
 }
 
 impl SignerTest {
@@ -156,6 +157,7 @@ impl SignerTest {
             running_coordinator,
             running_signers,
             signer_stacks_private_keys,
+            stacks_client,
         }
     }
 
@@ -645,10 +647,14 @@ fn stackerdb_block_proposal() {
 
         let nakamoto_blocks = test_observer::get_stackerdb_chunks();
         for event in nakamoto_blocks {
-            // Only care about the miners block slot
-            for slot in event.modified_slots {
-                if slot.slot_id == BLOCK_SLOT_ID {
+            if event.contract_id.name == format!("signers-1-{}", BLOCK_MSG_ID).as_str().into()
+                || event.contract_id.name == format!("signers-0-{}", BLOCK_MSG_ID).as_str().into()
+            {
+                for slot in event.modified_slots {
                     chunk = Some(slot.data);
+                    break;
+                }
+                if chunk.is_some() {
                     break;
                 }
             }
@@ -712,27 +718,53 @@ fn stackerdb_block_proposal_missing_transactions() {
         .unwrap()
         .next()
         .unwrap();
-    let signer_stacker_db = signer_test
+    let signer_stacker_db_1 = signer_test
         .running_nodes
         .conf
         .node
         .stacker_dbs
         .iter()
-        .find(|id| id.name.to_string() == SIGNERS_NAME)
+        .find(|id| id.name.to_string() == make_signers_db_name(1, TRANSACTIONS_MSG_ID))
         .unwrap()
         .clone();
+
     let signer_id = 0;
-    let signer_private_key = signer_test
+
+    let signer_addresses_1: Vec<_> = signer_test
+        .stacks_client
+        .get_stackerdb_signer_slots(&boot_code_id(SIGNERS_NAME, false), 1)
+        .unwrap()
+        .into_iter()
+        .map(|(address, _)| address)
+        .collect();
+
+    let signer_address_1 = signer_addresses_1.get(signer_id).cloned().unwrap();
+
+    let signer_private_key_1 = signer_test
         .signer_stacks_private_keys
-        .get(signer_id)
-        .expect("Cannot find signer private key for signer id 0")
-        .clone();
-    let mut stackerdb = StackerDB::new(host, signer_stacker_db, signer_private_key, 0);
+        .iter()
+        .find(|pk| {
+            let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(pk));
+            addr == signer_address_1
+        })
+        .cloned()
+        .expect("Cannot find signer private key for signer id 1");
+
+    let mut stackerdb_1 = StackerDB::new(host, signer_stacker_db_1, signer_private_key_1, 0);
+
+    stackerdb_1.set_signer_set(1);
+
+    debug!("Signer address is {}", &signer_address_1);
+    assert_eq!(
+        signer_address_1,
+        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_private_key_1))
+    );
+
     // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
     let mut valid_tx = StacksTransaction {
         version: TransactionVersion::Testnet,
-        chain_id: 0,
-        auth: TransactionAuth::from_p2pkh(&signer_private_key).unwrap(),
+        chain_id: 0x80000000,
+        auth: TransactionAuth::from_p2pkh(&signer_private_key_1).unwrap(),
         anchor_mode: TransactionAnchorMode::Any,
         post_condition_mode: TransactionPostConditionMode::Allow,
         post_conditions: vec![],
@@ -744,11 +776,18 @@ fn stackerdb_block_proposal_missing_transactions() {
             None,
         ),
     };
-    valid_tx.set_origin_nonce(0);
+    valid_tx.set_origin_nonce(2);
 
     // Create a transaction signed by a different private key
     // This transaction will be invalid as it is signed by a non signer private key
     let invalid_signer_private_key = StacksPrivateKey::new();
+    debug!(
+        "Invalid address is {}",
+        &StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&invalid_signer_private_key)
+        )
+    );
     let mut invalid_tx = StacksTransaction {
         version: TransactionVersion::Testnet,
         chain_id: 0,
@@ -793,12 +832,12 @@ fn stackerdb_block_proposal_missing_transactions() {
     }
 
     // Following stacker DKG, submit transactions to stackerdb for the signers to pick up during block verification
-    stackerdb
+    stackerdb_1
         .send_message_with_retry(SignerMessage::Transactions(vec![
             valid_tx.clone(),
-            invalid_tx,
+            invalid_tx.clone(),
         ]))
-        .expect("Failed to write expected transactions to stackerdb");
+        .expect("Failed to write expected transactions to stackerdb_1");
 
     let (vrfs_submitted, commits_submitted) = (
         signer_test.running_nodes.vrfs_submitted.clone(),
@@ -852,14 +891,16 @@ fn stackerdb_block_proposal_missing_transactions() {
         let nakamoto_blocks = test_observer::get_stackerdb_chunks();
         for event in nakamoto_blocks {
             // Only care about the miners block slot
-            for slot in event.modified_slots {
-                if slot.slot_id == BLOCK_SLOT_ID {
+            if event.contract_id.name == format!("signers-1-{}", BLOCK_MSG_ID).as_str().into()
+                || event.contract_id.name == format!("signers-0-{}", BLOCK_MSG_ID).as_str().into()
+            {
+                for slot in event.modified_slots {
                     chunk = Some(slot.data);
                     break;
                 }
-            }
-            if chunk.is_some() {
-                break;
+                if chunk.is_some() {
+                    break;
+                }
             }
         }
         thread::sleep(Duration::from_secs(1));
@@ -874,7 +915,7 @@ fn stackerdb_block_proposal_missing_transactions() {
             panic!("Received unexpected rejection reason");
         }
     } else {
-        panic!("Received unexpected message");
+        panic!("Received unexpected message: {:?}", &signer_message);
     }
     signer_test.shutdown();
 }
