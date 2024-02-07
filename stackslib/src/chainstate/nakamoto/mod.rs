@@ -2511,7 +2511,8 @@ impl NakamotoChainState {
                 Self::calculate_matured_miner_rewards(
                     &mut clarity_tx,
                     sortition_dbconn.sqlite_conn(),
-                    coinbase_height + 1,
+                    // coinbase_height + 1,
+                    coinbase_height,
                     matured_rewards_schedule,
                 )
             })

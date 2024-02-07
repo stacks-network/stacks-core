@@ -184,7 +184,7 @@ fn signers_get_config() {
             TupleData::from_data(vec![
                 ("chunk-size".into(), Value::UInt(2 * 1024 * 1024)),
                 ("write-freq".into(), Value::UInt(0)),
-                ("max-writes".into(), Value::UInt(u128::MAX)),
+                ("max-writes".into(), Value::UInt(u32::MAX.into())),
                 ("max-neighbors".into(), Value::UInt(32)),
                 (
                     "hint-replicas".into(),
@@ -212,7 +212,7 @@ fn signers_get_config() {
                     TupleData::from_data(vec![
                         ("chunk-size".into(), Value::UInt(2 * 1024 * 1024)),
                         ("write-freq".into(), Value::UInt(0)),
-                        ("max-writes".into(), Value::UInt(u128::MAX)),
+                        ("max-writes".into(), Value::UInt(u32::MAX.into())),
                         ("max-neighbors".into(), Value::UInt(32)),
                         (
                             "hint-replicas".into(),

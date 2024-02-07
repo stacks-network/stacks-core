@@ -122,10 +122,8 @@ fn test_valid_and_invalid_stackerdb_configs() {
         (
             // valid
             r#"
-            (define-public (stackerdb-get-signer-slots (page uint))
+            (define-public (stackerdb-get-signer-slots)
                 (ok (list { signer: 'ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B, num-slots: u3 })))
-
-            (define-public (stackerdb-get-page-count) (ok u1))
 
             (define-public (stackerdb-get-config)
                 (ok {
@@ -165,10 +163,8 @@ fn test_valid_and_invalid_stackerdb_configs() {
         (
             // valid
             r#"
-            (define-read-only (stackerdb-get-signer-slots (page uint))
+            (define-read-only (stackerdb-get-signer-slots)
                 (ok (list { signer: 'ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B, num-slots: u3 })))
-
-            (define-public (stackerdb-get-page-count) (ok u1))
 
             (define-read-only (stackerdb-get-config)
                 (ok {
@@ -204,28 +200,6 @@ fn test_valid_and_invalid_stackerdb_configs() {
                 }],
                 max_neighbors: 7,
             }),
-        ),
-        (
-            // valid
-            r#"
-            (define-read-only (stackerdb-get-signer-slots (page uint))
-                (ok (list { signer: 'ST2TFVBMRPS5SSNP98DQKQ5JNB2B6NZM91C4K3P7B, num-slots: u3 })))
-
-            (define-read-only (stackerdb-get-config)
-                (ok {
-                    chunk-size: u123,
-                    write-freq: u4,
-                    max-writes: u56,
-                    max-neighbors: u7,
-                    hint-replicas: (list
-                        {
-                            addr: (list u0 u0 u0 u0 u0 u0 u0 u0 u0 u0 u255 u255 u127 u0 u0 u1),
-                            port: u8901,
-                            public-key-hash: 0x0123456789abcdef0123456789abcdef01234567
-                        })
-                }))
-            "#,
-            None,
         ),
         (
             // invalid -- missing function
