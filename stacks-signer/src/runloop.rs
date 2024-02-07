@@ -204,10 +204,10 @@ impl RunLoop {
         };
         if needs_refresh {
             let new_config = self.get_stacks_node_info(reward_cycle)?;
-            if let Some(new_config) = new_config {
+            if let Some(new_node_info) = new_config {
                 debug!("Signer is registered for reward cycle {reward_cycle}. Initializing signer state.");
                 self.stacks_signers
-                    .insert(reward_index, Signer::new(&self.config, new_config));
+                    .insert(reward_index, Signer::new(&self.config, new_node_info));
             } else {
                 // Nothing to initialize. Signer is not registered for this reward cycle
                 debug!("Signer is not registered for reward cycle {reward_cycle}. Nothing to initialize.");
