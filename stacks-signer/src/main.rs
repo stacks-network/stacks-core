@@ -85,7 +85,7 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 // Spawn a running signer and return its handle, command sender, and result receiver
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
-    let endpoint = config.endpoint.clone();
+    let endpoint = config.endpoint;
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
     let ev = SignerEventReceiver::new(config.network.is_mainnet());

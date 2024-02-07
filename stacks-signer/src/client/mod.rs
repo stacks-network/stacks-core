@@ -129,10 +129,10 @@ pub(crate) mod tests {
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener};
 
-    use clarity::vm::types::{ResponseData, TupleData};
-    use clarity::vm::{ClarityName, Value as ClarityValue};
+    use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
-    use rand_core::OsRng;
+    use rand::thread_rng;
+    use rand_core::{OsRng, RngCore};
     use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
     use wsts::curve::ecdsa;
     use wsts::curve::point::{Compressed, Point};
@@ -141,50 +141,54 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::config::Config;
+    use crate::signer::StacksNodeInfo;
 
-    pub struct TestConfig {
-        pub mock_server: TcpListener,
+    pub struct MockServerClient {
+        pub server: TcpListener,
         pub client: StacksClient,
-        pub stackerdb: StackerDB,
         pub config: Config,
     }
 
-    impl TestConfig {
-        /// Construct a new TestConfig which will spin up a stacker db, stacks client, and a mock tcp server
+    impl MockServerClient {
+        /// Construct a new MockServerClient on a random port
         pub fn new() -> Self {
             let mut config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-
-            let mut mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
-            // Ask the OS to assign a random port to listen on by passing 0
-            let mock_server = TcpListener::bind(mock_server_addr).unwrap();
-
-            // Update the config to use this port
-            mock_server_addr.set_port(mock_server.local_addr().unwrap().port());
+            let (server, mock_server_addr) = mock_server_random();
             config.node_host = mock_server_addr;
 
             let client = StacksClient::from(&config);
-            let stackerdb = StackerDB::new_with_config(&config, 0);
             Self {
-                mock_server,
+                server,
                 client,
-                stackerdb,
                 config,
             }
         }
 
-        /// Construct a new TestConfig from the provided Config. This will spin up a stacker db, stacks client, and a mock tcp server
+        /// Construct a new MockServerClient on the port specified in the config
         pub fn from_config(config: Config) -> Self {
-            let mock_server = TcpListener::bind(config.node_host).unwrap();
-
+            let server = mock_server_from_config(&config);
             let client = StacksClient::from(&config);
-            let stackerdb = StackerDB::new_with_config(&config, 0);
             Self {
-                mock_server,
+                server,
                 client,
-                stackerdb,
                 config,
             }
         }
+    }
+
+    /// Create a mock server on a random port and return the socket addr
+    pub fn mock_server_random() -> (TcpListener, SocketAddr) {
+        let mut mock_server_addr = SocketAddr::from(([127, 0, 0, 1], 0));
+        // Ask the OS to assign a random port to listen on by passing 0
+        let server = TcpListener::bind(mock_server_addr).unwrap();
+
+        mock_server_addr.set_port(server.local_addr().unwrap().port());
+        (server, mock_server_addr)
+    }
+
+    /// Create a mock server on a same port as in the config
+    pub fn mock_server_from_config(config: &Config) -> TcpListener {
+        TcpListener::bind(config.node_host).unwrap()
     }
 
     /// Write a response to the mock server and return the request bytes
@@ -197,47 +201,6 @@ pub(crate) mod tests {
             stream.write_all(bytes).unwrap();
         }
         request_bytes
-    }
-
-    /// Build a response for the get_signers request
-    /// TODO: fix this
-    pub fn build_get_signers_response(config: &Config) -> (String, Vec<StacksAddress>) {
-        let (_generated_public_keys, _signer_key_ids, stacks_addresses, _) = generate_public_keys(
-            10,
-            4000,
-            Some(
-                ecdsa::PublicKey::new(&config.ecdsa_private_key)
-                    .expect("Failed to create public key."),
-            ),
-        );
-        let mut list_data = vec![];
-        for stacks_address in stacks_addresses.clone() {
-            let tuple_data = vec![
-                (
-                    ClarityName::from("signer"),
-                    ClarityValue::Principal(stacks_address.into()),
-                ),
-                (ClarityName::from("weight"), ClarityValue::UInt(1 as u128)),
-            ];
-            let tuple = ClarityValue::Tuple(
-                TupleData::from_data(tuple_data).expect("Failed to create tuple data"),
-            );
-            list_data.push(tuple);
-        }
-
-        let result_data =
-            ClarityValue::cons_list_unsanitized(list_data).expect("Failed to construct list data");
-        let response_clarity = ClarityValue::Response(ResponseData {
-            committed: true,
-            data: Box::new(result_data),
-        });
-        let hex = response_clarity
-            .serialize_to_hex()
-            .expect("Failed to serialize clarity value");
-        (
-            format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}"),
-            stacks_addresses,
-        )
     }
 
     /// Build a response for the get_last_round request
@@ -283,18 +246,13 @@ pub(crate) mod tests {
         )
     }
 
-    /// Generate some random public keys given a num of signers and a num of key ids
-    /// Optionally include a signer pubilc key to set as the first signer id
-    pub fn generate_public_keys(
+    /// Generate a random stacks node info
+    /// Optionally include a signer pubilc key to set as the first signer id with signer id 0 and signer slot id 0
+    pub fn generate_stacks_node_info(
         num_signers: u32,
         num_keys: u32,
         signer_key: Option<ecdsa::PublicKey>,
-    ) -> (
-        PublicKeys,
-        HashMap<u32, HashSet<u32>>,
-        Vec<StacksAddress>,
-        HashMap<u32, Point>,
-    ) {
+    ) -> (StacksNodeInfo, Vec<StacksAddress>) {
         assert!(
             num_signers > 0,
             "Cannot generate 0 signers...Specify at least 1 signer."
@@ -307,6 +265,9 @@ pub(crate) mod tests {
             signers: HashMap::new(),
             key_ids: HashMap::new(),
         };
+        let reward_cycle = thread_rng().next_u64();
+        let signer_set = u32::try_from(reward_cycle % 2)
+            .expect("Failed to convert reward cycle signer set to u32");
         let rng = &mut OsRng;
         let num_keys = num_keys / num_signers;
         let remaining_keys = num_keys % num_signers;
@@ -330,12 +291,13 @@ pub(crate) mod tests {
                             .expect("Failed to create stacks public key"),
                     );
                     addresses.push(address);
+                    public_keys.signers.insert(signer_id, signer_key);
                     let signer_public_key =
                         Point::try_from(&Compressed::from(signer_key.to_bytes())).unwrap();
                     signer_public_keys.insert(signer_id, signer_public_key);
                     public_keys.signers.insert(signer_id, signer_key.clone());
                     for k in start_key_id..end_key_id {
-                        public_keys.key_ids.insert(k, signer_key.clone());
+                        public_keys.key_ids.insert(k, signer_key);
                         signer_key_ids
                             .entry(signer_id)
                             .or_insert(HashSet::new())
@@ -352,7 +314,7 @@ pub(crate) mod tests {
             signer_public_keys.insert(signer_id, signer_public_key);
             public_keys.signers.insert(signer_id, public_key.clone());
             for k in start_key_id..end_key_id {
-                public_keys.key_ids.insert(k, public_key.clone());
+                public_keys.key_ids.insert(k, public_key);
                 signer_key_ids
                     .entry(signer_id)
                     .or_insert(HashSet::new())
@@ -366,6 +328,18 @@ pub(crate) mod tests {
             addresses.push(address);
             start_key_id = end_key_id;
         }
-        (public_keys, signer_key_ids, addresses, signer_public_keys)
+        (
+            StacksNodeInfo {
+                public_keys,
+                signer_key_ids,
+                signer_slot_id: 0,
+                signer_id: 0,
+                signer_set,
+                reward_cycle,
+                signer_addresses: addresses.iter().cloned().collect(),
+                signer_public_keys,
+            },
+            addresses,
+        )
     }
 }

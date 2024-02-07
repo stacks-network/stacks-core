@@ -65,7 +65,7 @@ impl StackerDB {
             signers_message_stackerdb_sessions.insert(
                 msg_id,
                 StackerDBSession::new(
-                    host.clone(),
+                    host,
                     QualifiedContractIdentifier::new(
                         stackerdb_issuer.into(),
                         ContractName::from(
@@ -93,7 +93,7 @@ impl StackerDB {
             signers_message_stackerdb_sessions.insert(
                 msg_id,
                 StackerDBSession::new(
-                    config.node_host.clone(),
+                    config.node_host,
                     QualifiedContractIdentifier::new(
                         stackerdb_issuer.into(),
                         ContractName::from(
@@ -218,7 +218,7 @@ impl StackerDB {
                 continue;
             };
             let Ok(message) = read_next::<SignerMessage, _>(&mut &data[..]) else {
-                if data.len() > 0 {
+                if !data.is_empty() {
                     warn!("Failed to deserialize chunk data into a SignerMessage");
                     debug!(
                         "signer #{}: Failed chunk ({}): {:?}",
@@ -265,14 +265,26 @@ mod tests {
     };
     use blockstack_lib::util_lib::strings::StacksString;
     use serial_test::serial;
+    use wsts::curve::ecdsa;
 
     use super::*;
-    use crate::client::tests::{write_response, TestConfig};
+    use crate::client::tests::{
+        generate_stacks_node_info, mock_server_from_config, write_response,
+    };
 
     #[test]
     #[serial]
     fn get_signer_transactions_with_retry_should_succeed() {
-        let mut config = TestConfig::new();
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let (stacks_node_info, _ordered_addresses) = generate_stacks_node_info(
+            5,
+            20,
+            Some(
+                ecdsa::PublicKey::new(&config.ecdsa_private_key)
+                    .expect("Failed to create public key."),
+            ),
+        );
+        let mut stackerdb = StackerDB::new_with_config(&config, &stacks_node_info);
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
             version: TransactionVersion::Testnet,
@@ -294,21 +306,18 @@ mod tests {
         let message = signer_message.serialize_to_vec();
 
         let signer_ids = vec![0, 1];
-        let h = spawn(move || {
-            config
-                .stackerdb
-                .get_signer_transactions_with_retry(&signer_ids)
-        });
+        let h = spawn(move || stackerdb.get_signer_transactions_with_retry(&signer_ids));
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        write_response(config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
-        let test_config = TestConfig::from_config(config.config);
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        write_response(test_config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
 
         let transactions = h.join().unwrap().unwrap();
         assert_eq!(transactions, vec![tx]);
@@ -317,7 +326,16 @@ mod tests {
     #[test]
     #[serial]
     fn send_signer_message_with_retry_should_succeed() {
-        let mut config = TestConfig::new();
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let (stacks_node_info, _ordered_addresses) = generate_stacks_node_info(
+            5,
+            20,
+            Some(
+                ecdsa::PublicKey::new(&config.ecdsa_private_key)
+                    .expect("Failed to create public key."),
+            ),
+        );
+        let mut stackerdb = StackerDB::new_with_config(&config, &stacks_node_info);
 
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
@@ -345,9 +363,10 @@ mod tests {
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
         response_bytes.extend(payload.as_bytes());
-        let h = spawn(move || config.stackerdb.send_message_with_retry(signer_message));
+        let h = spawn(move || stackerdb.send_message_with_retry(signer_message));
         std::thread::sleep(std::time::Duration::from_millis(100));
-        write_response(config.mock_server, response_bytes.as_slice());
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, response_bytes.as_slice());
         assert_eq!(ack, h.join().unwrap().unwrap());
     }
 }
