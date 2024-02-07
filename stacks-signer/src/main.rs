@@ -49,7 +49,7 @@ use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GenerateStackingSignatureArgs, GetChunkArgs,
     GetLatestChunkArgs, PutChunkArgs, RunDkgArgs, SignArgs, StackerDBArgs,
 };
-use stacks_signer::config::{build_signer_config_tomls, Config};
+use stacks_signer::config::{build_signer_config_tomls, GlobalConfig};
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
 use stacks_signer::signer::Command as SignerCommand;
 use tracing_subscriber::prelude::*;
@@ -84,7 +84,7 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 
 // Spawn a running signer and return its handle, command sender, and result receiver
 fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
-    let config = Config::try_from(path).unwrap();
+    let config = GlobalConfig::try_from(path).unwrap();
     let endpoint = config.endpoint;
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
@@ -303,7 +303,7 @@ fn handle_generate_stacking_signature(
     args: GenerateStackingSignatureArgs,
     do_print: bool,
 ) -> MessageSignature {
-    let config = Config::try_from(&args.config).unwrap();
+    let config = GlobalConfig::try_from(&args.config).unwrap();
 
     let private_key = config.stacks_private_key;
     let public_key = Secp256k1PublicKey::from_private(&private_key);
@@ -394,7 +394,7 @@ pub mod tests {
     use stacks_signer::cli::parse_pox_addr;
 
     use super::{handle_generate_stacking_signature, *};
-    use crate::{Config, GenerateStackingSignatureArgs};
+    use crate::{GenerateStackingSignatureArgs, GlobalConfig};
 
     fn call_verify_signer_sig(
         pox_addr: &PoxAddress,
@@ -429,7 +429,7 @@ pub mod tests {
 
     #[test]
     fn test_stacking_signature_with_pox_code() {
-        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let btc_address = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
         let mut args = GenerateStackingSignatureArgs {
             config: "./src/tests/conf/signer-0.toml".into(),
@@ -473,7 +473,7 @@ pub mod tests {
 
     #[test]
     fn test_generate_stacking_signature() {
-        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let btc_address = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
         let args = GenerateStackingSignatureArgs {
             config: "./src/tests/conf/signer-0.toml".into(),

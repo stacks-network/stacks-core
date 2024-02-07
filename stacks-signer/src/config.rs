@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use serde::Deserialize;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -29,7 +29,9 @@ use stacks_common::address::{
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::PrivateKey;
+use wsts::curve::point::Point;
 use wsts::curve::scalar::Scalar;
+use wsts::state_machine::PublicKeys;
 
 /// List of key_ids for each signer_id
 pub type SignerKeyIds = HashMap<u32, Vec<u32>>;
@@ -111,9 +113,30 @@ impl Network {
     }
 }
 
+/// The Configuration info needed for an individual signer per reward cycle
+#[derive(Debug, Clone)]
+pub struct RewardCycleConfig {
+    /// The signer set for this runloop
+    pub signer_set: u32,
+    /// The index into the signers list of this signer's key (may be different from signer_id)
+    pub signer_slot_id: u32,
+    /// The signer ID assigned to this signer
+    pub signer_id: u32,
+    /// The reward cycle of the configuration
+    pub reward_cycle: u64,
+    /// The signer ids to wsts pubilc keys mapping
+    pub signer_public_keys: HashMap<u32, Point>,
+    /// The signer to key ids mapping
+    pub signer_key_ids: HashMap<u32, HashSet<u32>>,
+    /// The signer addresses
+    pub signer_addresses: HashSet<StacksAddress>,
+    /// The public keys for the reward cycle
+    pub public_keys: PublicKeys,
+}
+
 /// The parsed configuration for the signer
 #[derive(Clone, Debug)]
-pub struct Config {
+pub struct GlobalConfig {
     /// endpoint to the stacks node
     pub node_host: SocketAddr,
     /// endpoint to the event receiver
@@ -194,7 +217,7 @@ impl TryFrom<&PathBuf> for RawConfigFile {
     }
 }
 
-impl TryFrom<RawConfigFile> for Config {
+impl TryFrom<RawConfigFile> for GlobalConfig {
     type Error = ConfigError;
 
     /// Attempt to decode the raw config file's primitive types into our types.
@@ -272,7 +295,7 @@ impl TryFrom<RawConfigFile> for Config {
     }
 }
 
-impl TryFrom<&PathBuf> for Config {
+impl TryFrom<&PathBuf> for GlobalConfig {
     type Error = ConfigError;
     fn try_from(path: &PathBuf) -> Result<Self, ConfigError> {
         let config_file = RawConfigFile::try_from(path)?;
@@ -280,7 +303,7 @@ impl TryFrom<&PathBuf> for Config {
     }
 }
 
-impl Config {
+impl GlobalConfig {
     /// load the config from a string and parse it
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         RawConfigFile::load_from_str(data)?.try_into()

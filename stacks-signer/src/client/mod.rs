@@ -140,19 +140,19 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::Config;
-    use crate::signer::StacksNodeInfo;
+    use crate::config::{GlobalConfig, RewardCycleConfig};
 
     pub struct MockServerClient {
         pub server: TcpListener,
         pub client: StacksClient,
-        pub config: Config,
+        pub config: GlobalConfig,
     }
 
     impl MockServerClient {
         /// Construct a new MockServerClient on a random port
         pub fn new() -> Self {
-            let mut config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+            let mut config =
+                GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
             let (server, mock_server_addr) = mock_server_random();
             config.node_host = mock_server_addr;
 
@@ -165,7 +165,7 @@ pub(crate) mod tests {
         }
 
         /// Construct a new MockServerClient on the port specified in the config
-        pub fn from_config(config: Config) -> Self {
+        pub fn from_config(config: GlobalConfig) -> Self {
             let server = mock_server_from_config(&config);
             let client = StacksClient::from(&config);
             Self {
@@ -187,7 +187,7 @@ pub(crate) mod tests {
     }
 
     /// Create a mock server on a same port as in the config
-    pub fn mock_server_from_config(config: &Config) -> TcpListener {
+    pub fn mock_server_from_config(config: &GlobalConfig) -> TcpListener {
         TcpListener::bind(config.node_host).unwrap()
     }
 
@@ -248,13 +248,13 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
-    /// Generate a random stacks node info
+    /// Generate a random reward cycle config
     /// Optionally include a signer pubilc key to set as the first signer id with signer id 0 and signer slot id 0
-    pub fn generate_stacks_node_info(
+    pub fn generate_reward_cycle_config(
         num_signers: u32,
         num_keys: u32,
         signer_key: Option<ecdsa::PublicKey>,
-    ) -> (StacksNodeInfo, Vec<StacksAddress>) {
+    ) -> (RewardCycleConfig, Vec<StacksAddress>) {
         assert!(
             num_signers > 0,
             "Cannot generate 0 signers...Specify at least 1 signer."
@@ -331,7 +331,7 @@ pub(crate) mod tests {
             start_key_id = end_key_id;
         }
         (
-            StacksNodeInfo {
+            RewardCycleConfig {
                 public_keys,
                 signer_key_ids,
                 signer_slot_id: 0,
