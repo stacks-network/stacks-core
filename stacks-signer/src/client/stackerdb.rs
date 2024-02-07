@@ -146,9 +146,8 @@ impl StackerDB {
             };
 
             debug!(
-                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} to contract {:?}!\n{:?}",
-                &session.stackerdb_contract_id,
-                &chunk
+                "Sending a chunk to stackerdb slot ID {slot_id} with version {slot_version} to contract {:?}!\n{chunk:?}",
+                &session.stackerdb_contract_id
             );
 
             let send_request = || session.put_chunk(&chunk).map_err(backoff::Error::transient);
@@ -162,10 +161,10 @@ impl StackerDB {
             }
 
             if chunk_ack.accepted {
-                debug!("Chunk accepted by stackerdb: {:?}", chunk_ack);
+                debug!("Chunk accepted by stackerdb: {chunk_ack:?}");
                 return Ok(chunk_ack);
             } else {
-                warn!("Chunk rejected by stackerdb: {:?}", chunk_ack);
+                warn!("Chunk rejected by stackerdb: {chunk_ack:?}");
             }
             if let Some(reason) = chunk_ack.reason {
                 // TODO: fix this jankiness. Update stackerdb to use an error code mapping instead of just a string
@@ -191,10 +190,7 @@ impl StackerDB {
         &mut self,
         signer_ids: &[u32],
     ) -> Result<Vec<StacksTransaction>, ClientError> {
-        debug!(
-            "Getting latest chunks from stackerdb for the following signers: {:?}",
-            signer_ids
-        );
+        debug!("Getting latest chunks from stackerdb for the following signers: {signer_ids:?}",);
         let Some(transactions_session) = self
             .signers_message_stackerdb_sessions
             .get_mut(&TRANSACTIONS_MSG_ID)
@@ -220,10 +216,8 @@ impl StackerDB {
                 if !data.is_empty() {
                     warn!("Failed to deserialize chunk data into a SignerMessage");
                     debug!(
-                        "signer #{}: Failed chunk ({}): {:?}",
-                        signer_id,
+                        "signer #{signer_id}: Failed chunk ({}): {data:?}",
                         &data.len(),
-                        &data[..]
                     );
                 }
                 continue;

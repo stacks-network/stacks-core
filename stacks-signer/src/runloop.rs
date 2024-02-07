@@ -175,6 +175,9 @@ impl RunLoop {
             warn!("Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}.");
             return Ok(None);
         };
+        debug!(
+            "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
+        );
         Ok(Some(RewardCycleConfig {
             reward_cycle,
             signer_id,
@@ -287,7 +290,7 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             if self.state == State::Uninitialized {
                 // If we were never actually initialized, we cannot process anything. Just return.
                 error!("Failed to initialize signers. Are you sure this signer is correctly registered for the current or next reward cycle?");
-                warn!("Ignoring event: {:?}", event);
+                warn!("Ignoring event: {event:?}");
                 return None;
             } else {
                 error!("Failed to refresh signers: {e}. Signer may have an outdated view of the network. Attempting to process event anyway.");

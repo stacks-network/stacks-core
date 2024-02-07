@@ -197,7 +197,7 @@ impl RawConfigFile {
     /// load the config from a string
     pub fn load_from_str(data: &str) -> Result<Self, ConfigError> {
         let config: RawConfigFile =
-            toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{:?}", &e)))?;
+            toml::from_str(data).map_err(|e| ConfigError::ParseError(format!("{e:?}")))?;
         Ok(config)
     }
     /// load the config from a file and parse it
@@ -212,7 +212,7 @@ impl TryFrom<&PathBuf> for RawConfigFile {
 
     fn try_from(path: &PathBuf) -> Result<Self, Self::Error> {
         RawConfigFile::load_from_str(&fs::read_to_string(path).map_err(|e| {
-            ConfigError::InvalidConfig(format!("failed to read config file: {:?}", &e))
+            ConfigError::InvalidConfig(format!("failed to read config file: {e:?}"))
         })?)
     }
 }
