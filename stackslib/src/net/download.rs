@@ -48,7 +48,7 @@ use crate::net::db::{PeerDB, *};
 use crate::net::dns::*;
 use crate::net::http::HttpRequestContents;
 use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
-use crate::net::inv::InvState;
+use crate::net::inv::inv2x::InvState;
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::net::p2p::PeerNetwork;
 use crate::net::rpc::*;
@@ -2527,7 +2527,7 @@ pub mod test {
     use crate::chainstate::stacks::tests::*;
     use crate::chainstate::stacks::*;
     use crate::net::codec::*;
-    use crate::net::inv::*;
+    use crate::net::inv::inv2x::*;
     use crate::net::relay::*;
     use crate::net::test::*;
     use crate::net::*;
@@ -3133,6 +3133,7 @@ pub mod test {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db
                             .get_account_nonce(&spending_account.origin_address().unwrap().into())
+                            .unwrap()
                     })
                 })
                 .unwrap()

@@ -357,7 +357,7 @@ pub trait NeighborComms {
             }
             Err(Err(e)) => {
                 // disconnected
-                test_debug!(
+                debug!(
                     "{:?}: Failed to get reply: {:?}",
                     network.get_local_peer(),
                     &e
@@ -395,11 +395,12 @@ pub trait NeighborComms {
         }
     }
 
-    /// Are we connected already to a neighbor?
+    /// Are we connected and handshake'd already to a neighbor?
     fn has_neighbor_session<NK: ToNeighborKey>(&self, network: &PeerNetwork, nk: &NK) -> bool {
-        network
-            .get_neighbor_convo(&nk.to_neighbor_key(network))
-            .is_some()
+        let Some(convo) = network.get_neighbor_convo(&nk.to_neighbor_key(network)) else {
+            return false;
+        };
+        convo.is_authenticated() && convo.peer_version > 0
     }
 
     /// Reset all comms

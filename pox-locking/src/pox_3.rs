@@ -70,15 +70,15 @@ pub fn pox_lock_v3(
     assert!(unlock_burn_height > 0);
     assert!(lock_amount > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if snapshot.has_locked_tokens() {
+    if snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxAlreadyLocked);
     }
-    if !snapshot.can_transfer(lock_amount) {
+    if !snapshot.can_transfer(lock_amount)? {
         return Err(LockingError::PoxInsufficientBalance);
     }
-    snapshot.lock_tokens_v3(lock_amount, unlock_burn_height);
+    snapshot.lock_tokens_v3(lock_amount, unlock_burn_height)?;
 
     debug!(
         "PoX v3 lock applied";
@@ -88,7 +88,7 @@ pub fn pox_lock_v3(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(())
 }
 
@@ -106,13 +106,13 @@ pub fn pox_lock_extend_v3(
 ) -> Result<u128, LockingError> {
     assert!(unlock_burn_height > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if !snapshot.has_locked_tokens() {
+    if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    snapshot.extend_lock_v3(unlock_burn_height);
+    snapshot.extend_lock_v3(unlock_burn_height)?;
 
     let amount_locked = snapshot.balance().amount_locked();
 
@@ -124,7 +124,7 @@ pub fn pox_lock_extend_v3(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(amount_locked)
 }
 
@@ -142,13 +142,13 @@ pub fn pox_lock_increase_v3(
 ) -> Result<STXBalance, LockingError> {
     assert!(new_total_locked > 0);
 
-    let mut snapshot = db.get_stx_balance_snapshot(principal);
+    let mut snapshot = db.get_stx_balance_snapshot(principal)?;
 
-    if !snapshot.has_locked_tokens() {
+    if !snapshot.has_locked_tokens()? {
         return Err(LockingError::PoxExtendNotLocked);
     }
 
-    let bal = snapshot.canonical_balance_repr();
+    let bal = snapshot.canonical_balance_repr()?;
     let total_amount = bal
         .amount_unlocked()
         .checked_add(bal.amount_locked())
@@ -161,9 +161,9 @@ pub fn pox_lock_increase_v3(
         return Err(LockingError::PoxInvalidIncrease);
     }
 
-    snapshot.increase_lock_v3(new_total_locked);
+    snapshot.increase_lock_v3(new_total_locked)?;
 
-    let out_balance = snapshot.canonical_balance_repr();
+    let out_balance = snapshot.canonical_balance_repr()?;
 
     debug!(
         "PoX v3 lock increased";
@@ -173,7 +173,7 @@ pub fn pox_lock_increase_v3(
         "account" => %principal,
     );
 
-    snapshot.save();
+    snapshot.save()?;
     Ok(out_balance)
 }
 

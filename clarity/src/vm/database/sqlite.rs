@@ -42,21 +42,21 @@ pub struct SqliteConnection {
     conn: Connection,
 }
 
-fn sqlite_put(conn: &Connection, key: &str, value: &str) {
+fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
     let params: [&dyn ToSql; 2] = [&key, &value];
     match conn.execute(
         "REPLACE INTO data_table (key, value) VALUES (?, ?)",
         &params,
     ) {
-        Ok(_) => {}
+        Ok(_) => Ok(()),
         Err(e) => {
             error!("Failed to insert/replace ({},{}): {:?}", key, value, &e);
-            panic!("{}", SQL_FAIL_MESSAGE);
+            Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
-    };
+    }
 }
 
-fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
+fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     trace!("sqlite_get {}", key);
     let params: [&dyn ToSql; 1] = [&key];
     let res = match conn
@@ -67,10 +67,10 @@ fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
         )
         .optional()
     {
-        Ok(x) => x,
+        Ok(x) => Ok(x),
         Err(e) => {
             error!("Failed to query '{}': {:?}", key, &e);
-            panic!("{}", SQL_FAIL_MESSAGE);
+            Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
     };
 
@@ -78,8 +78,8 @@ fn sqlite_get(conn: &Connection, key: &str) -> Option<String> {
     res
 }
 
-fn sqlite_has_entry(conn: &Connection, key: &str) -> bool {
-    sqlite_get(conn, key).is_some()
+fn sqlite_has_entry(conn: &Connection, key: &str) -> Result<bool> {
+    Ok(sqlite_get(conn, key)?.is_some())
 }
 
 pub fn sqlite_get_contract_hash(
@@ -149,11 +149,11 @@ pub fn sqlite_get_metadata_manual(
 }
 
 impl SqliteConnection {
-    pub fn put(conn: &Connection, key: &str, value: &str) {
+    pub fn put(conn: &Connection, key: &str, value: &str) -> Result<()> {
         sqlite_put(conn, key, value)
     }
 
-    pub fn get(conn: &Connection, key: &str) -> Option<String> {
+    pub fn get(conn: &Connection, key: &str) -> Result<Option<String>> {
         sqlite_get(conn, key)
     }
 
@@ -163,7 +163,7 @@ impl SqliteConnection {
         contract_hash: &str,
         key: &str,
         value: &str,
-    ) {
+    ) -> Result<()> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 3] = [&bhh, &key, &value];
 
@@ -178,26 +178,33 @@ impl SqliteConnection {
                 &value.to_string(),
                 &e
             );
-            panic!("{}", SQL_FAIL_MESSAGE);
+            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
+        Ok(())
     }
 
-    pub fn commit_metadata_to(conn: &Connection, from: &StacksBlockId, to: &StacksBlockId) {
+    pub fn commit_metadata_to(
+        conn: &Connection,
+        from: &StacksBlockId,
+        to: &StacksBlockId,
+    ) -> Result<()> {
         let params = [to, from];
         if let Err(e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             &params,
         ) {
             error!("Failed to update {} to {}: {:?}", &from, &to, &e);
-            panic!("{}", SQL_FAIL_MESSAGE);
+            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
+        Ok(())
     }
 
-    pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) {
+    pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) -> Result<()> {
         if let Err(e) = conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[from]) {
             error!("Failed to drop metadata from {}: {:?}", &from, &e);
-            panic!("{}", SQL_FAIL_MESSAGE);
+            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
+        Ok(())
     }
 
     pub fn get_metadata(
@@ -205,7 +212,7 @@ impl SqliteConnection {
         bhh: &StacksBlockId,
         contract_hash: &str,
         key: &str,
-    ) -> Option<String> {
+    ) -> Result<Option<String>> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
         let params: [&dyn ToSql; 2] = [&bhh, &key];
 
@@ -217,15 +224,15 @@ impl SqliteConnection {
             )
             .optional()
         {
-            Ok(x) => x,
+            Ok(x) => Ok(x),
             Err(e) => {
                 error!("Failed to query ({},{}): {:?}", &bhh, &key, &e);
-                panic!("{}", SQL_FAIL_MESSAGE);
+                Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
             }
         }
     }
 
-    pub fn has_entry(conn: &Connection, key: &str) -> bool {
+    pub fn has_entry(conn: &Connection, key: &str) -> Result<bool> {
         sqlite_has_entry(conn, key)
     }
 }
@@ -310,21 +317,44 @@ impl MemoryBackingStore {
     }
 }
 
+impl Default for MemoryBackingStore {
+    fn default() -> Self {
+        MemoryBackingStore::new()
+    }
+}
+
+impl MemoryBackingStore {
+    #[allow(clippy::unwrap_used)]
+    pub fn new() -> MemoryBackingStore {
+        let side_store = SqliteConnection::memory().unwrap();
+
+        let mut memory_marf = MemoryBackingStore { side_store };
+
+        memory_marf.as_clarity_db().initialize();
+
+        memory_marf
+    }
+
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
+        ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
+    }
+
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
+        AnalysisDatabase::new(self)
+    }
+}
+
 impl ClarityBackingStore for MemoryBackingStore {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
+    fn get(&mut self, key: &str) -> Result<Option<String>> {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
-        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, vec![]))
-    }
-
-    fn get_side_store(&mut self) -> &Connection {
-        &self.side_store
+    fn get_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
+        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
@@ -351,10 +381,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         None
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) {
+    fn put_all(&mut self, items: Vec<(String, String)>) -> Result<()> {
         for (key, value) in items.into_iter() {
-            SqliteConnection::put(self.get_side_store(), &key, &value);
+            SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }
+        Ok(())
     }
 
     fn get_contract_hash(

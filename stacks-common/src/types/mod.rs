@@ -4,9 +4,9 @@ use std::fmt;
 
 use crate::address::c32::{c32_address, c32_address_decode};
 use crate::address::{
-    public_keys_to_address_hash, AddressHashMode, C32_ADDRESS_VERSION_MAINNET_MULTISIG,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_MULTISIG,
-    C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+    public_keys_to_address_hash, to_bits_p2pkh, AddressHashMode,
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 use crate::deps_common::bitcoin::blockdata::transaction::TxOut;
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
@@ -214,6 +214,25 @@ impl StacksAddress {
 
         let hash_bits = public_keys_to_address_hash(hash_mode, num_sigs, pubkeys);
         Some(StacksAddress::new(version, hash_bits))
+    }
+
+    /// Make a P2PKH StacksAddress
+    pub fn p2pkh(mainnet: bool, pubkey: &StacksPublicKey) -> StacksAddress {
+        let bytes = to_bits_p2pkh(pubkey);
+        Self::p2pkh_from_hash(mainnet, bytes)
+    }
+
+    /// Make a P2PKH StacksAddress
+    pub fn p2pkh_from_hash(mainnet: bool, hash: Hash160) -> StacksAddress {
+        let version = if mainnet {
+            C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+        } else {
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG
+        };
+        Self {
+            version,
+            bytes: hash,
+        }
     }
 }
 

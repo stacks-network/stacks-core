@@ -16,19 +16,27 @@
 
 mod http;
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use std::{mem, thread};
 
+use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
+use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::StackerDBChunkData;
+use stacks_common::codec::{
+    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
+    StacksMessageCodec,
+};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
+use wsts::net::{DkgBegin, Packet};
 
 use crate::events::SignerEvent;
+use crate::messages::SignerMessage;
 use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
@@ -87,28 +95,28 @@ impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
 /// and the signer runloop.
 #[test]
 fn test_simple_signer() {
-    let ev = SignerEventReceiver::new(vec![QualifiedContractIdentifier::parse(
-        "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
-    )
-    .unwrap()]);
+    let contract_id =
+        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.signers")
+            .unwrap(); // TODO: change to boot_code_id(SIGNERS_NAME, false) when .signers is deployed
+    let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
-    let mut signer = Signer::new(SimpleRunLoop::new(5), ev, cmd_recv, res_send);
+    let max_events = 5;
+    let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, cmd_recv, res_send);
     let endpoint: SocketAddr = "127.0.0.1:30000".parse().unwrap();
-
     let mut chunks = vec![];
-    for i in 0..5 {
+    for i in 0..max_events {
         let privk = Secp256k1PrivateKey::new();
-        let mut chunk = StackerDBChunkData::new(i as u32, 1, "hello world".as_bytes().to_vec());
+        let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
+        let message = SignerMessage::Packet(Packet { msg, sig: vec![] });
+        let message_bytes = message.serialize_to_vec();
+        let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);
         chunk.sign(&privk).unwrap();
 
-        let chunk_event = SignerEvent::StackerDB(StackerDBChunksEvent {
-            contract_id: QualifiedContractIdentifier::parse(
-                "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world",
-            )
-            .unwrap(),
+        let chunk_event = StackerDBChunksEvent {
+            contract_id: contract_id.clone(),
             modified_slots: vec![chunk],
-        });
+        };
         chunks.push(chunk_event);
     }
 
@@ -126,42 +134,81 @@ fn test_simple_signer() {
                 }
             };
 
-            match &thread_chunks[num_sent] {
-                SignerEvent::StackerDB(ev) => {
-                    let body = serde_json::to_string(ev).unwrap();
-                    let req = format!("POST /stackerdb_chunks HTTP/1.0\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}", &body.len(), body);
-                    debug!("Send:\n{}", &req);
+            let ev = &thread_chunks[num_sent];
+            let body = serde_json::to_string(ev).unwrap();
+            let req = format!("POST /stackerdb_chunks HTTP/1.0\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}", &body.len(), body);
+            debug!("Send:\n{}", &req);
 
-                    sock.write_all(req.as_bytes()).unwrap();
-                    sock.flush().unwrap();
+            sock.write_all(req.as_bytes()).unwrap();
+            sock.flush().unwrap();
 
-                    num_sent += 1;
-                }
-                _ => panic!("Unexpected event type"),
-            }
+            num_sent += 1;
         }
     });
 
     let running_signer = signer.spawn(endpoint).unwrap();
     sleep_ms(5000);
-    let mut accepted_events = running_signer.stop().unwrap();
+    let accepted_events = running_signer.stop().unwrap();
 
-    chunks.sort_by(|ev1, ev2| match (ev1, ev2) {
-        (SignerEvent::StackerDB(ev1), SignerEvent::StackerDB(ev2)) => ev1.modified_slots[0]
+    chunks.sort_by(|ev1, ev2| {
+        ev1.modified_slots[0]
             .slot_id
             .partial_cmp(&ev2.modified_slots[0].slot_id)
-            .unwrap(),
-        _ => panic!("Unexpected event type"),
-    });
-    accepted_events.sort_by(|ev1, ev2| match (ev1, ev2) {
-        (SignerEvent::StackerDB(ev1), SignerEvent::StackerDB(ev2)) => ev1.modified_slots[0]
-            .slot_id
-            .partial_cmp(&ev2.modified_slots[0].slot_id)
-            .unwrap(),
-        _ => panic!("Unexpected event type"),
+            .unwrap()
     });
 
-    // runloop got the event that the mocked stacks node sent
-    assert_eq!(accepted_events, chunks);
+    let sent_events: Vec<SignerEvent> = chunks
+        .iter()
+        .map(|chunk| {
+            let msg = chunk.modified_slots[0].data.clone();
+            let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
+            SignerEvent::SignerMessages(vec![signer_message])
+        })
+        .collect();
+
+    assert_eq!(sent_events, accepted_events);
+    mock_stacks_node.join().unwrap();
+}
+
+#[test]
+fn test_status_endpoint() {
+    let contract_id =
+        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.signers")
+            .unwrap(); // TODO: change to boot_code_id(SIGNERS_NAME, false) when .signers is deployed
+    let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
+    let (_cmd_send, cmd_recv) = channel();
+    let (res_send, _res_recv) = channel();
+    let max_events = 1;
+    let mut signer = Signer::new(SimpleRunLoop::new(max_events), ev, cmd_recv, res_send);
+    let endpoint: SocketAddr = "127.0.0.1:31000".parse().unwrap();
+
+    // simulate a node that's trying to push data
+    let mock_stacks_node = thread::spawn(move || {
+        let mut sock = match TcpStream::connect(endpoint) {
+            Ok(sock) => sock,
+            Err(e) => {
+                eprint!("Error connecting to {}: {}", endpoint, e);
+                sleep_ms(100);
+                return;
+            }
+        };
+        let req = "GET /status HTTP/1.0\r\nConnection: close\r\n\r\n";
+
+        sock.write_all(req.as_bytes()).unwrap();
+        let mut buf = [0; 128];
+        let _ = sock.read(&mut buf).unwrap();
+        let res_str = std::str::from_utf8(&buf).unwrap();
+        let expected_status_res = "HTTP/1.0 200 OK\r\n";
+        assert_eq!(expected_status_res, &res_str[..expected_status_res.len()]);
+        sock.flush().unwrap();
+    });
+
+    let running_signer = signer.spawn(endpoint).unwrap();
+    sleep_ms(3000);
+    let accepted_events = running_signer.stop().unwrap();
+
+    let sent_events: Vec<SignerEvent> = vec![SignerEvent::StatusCheck];
+
+    assert_eq!(sent_events, accepted_events);
     mock_stacks_node.join().unwrap();
 }

@@ -545,13 +545,21 @@ impl ConversationHttp {
                     // new request that we can handle
                     self.total_request_count += 1;
                     self.last_request_timestamp = get_epoch_time_secs();
+                    let latency = req.duration_ms();
                     let start_time = Instant::now();
-                    let path = req.request_path().to_string();
+                    let verb = req.verb().to_string();
+                    let request_path = req.request_path().to_string();
                     let msg_opt = monitoring::instrument_http_request_handler(req, |req| {
                         self.handle_request(req, node)
                     })?;
 
-                    debug!("Processed HTTPRequest"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
+                    info!("Handled StacksHTTPRequest";
+                           "verb" => %verb,
+                           "path" => %request_path,
+                           "processing_time_ms" => start_time.elapsed().as_millis(),
+                           "latency_ms" => latency,
+                           "conn_id" => self.conn_id,
+                           "peer_addr" => &self.peer_addr);
 
                     if let Some(msg) = msg_opt {
                         ret.push(msg);
@@ -564,7 +572,7 @@ impl ConversationHttp {
                     let start_time = Instant::now();
                     self.reply_error(resp)?;
 
-                    debug!("Processed HTTPRequest Error"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
+                    info!("Handled StacksHTTPRequest Error"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
                 }
                 StacksHttpMessage::Response(resp) => {
                     // Is there someone else waiting for this message?  If so, pass it along.

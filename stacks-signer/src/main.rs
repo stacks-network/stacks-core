@@ -33,24 +33,25 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
+use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
-use libstackerdb::StackerDBChunkData;
-use slog::slog_debug;
-use stacks_common::address::{
-    AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+use libsigner::{
+    RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession,
+    SIGNER_SLOTS_PER_USER,
 };
-use stacks_common::debug;
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use libstackerdb::StackerDBChunkData;
+use slog::{slog_debug, slog_error};
+use stacks_common::codec::read_next;
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
+use stacks_common::{debug, error};
 use stacks_signer::cli::{
     Cli, Command, GenerateFilesArgs, GetChunkArgs, GetLatestChunkArgs, PutChunkArgs, RunDkgArgs,
     SignArgs, StackerDBArgs,
 };
-use stacks_signer::client::SIGNER_SLOTS_PER_USER;
-use stacks_signer::config::{Config, Network};
+use stacks_signer::config::Config;
 use stacks_signer::runloop::{RunLoop, RunLoopCommand};
-use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract};
+use stacks_signer::utils::{build_signer_config_tomls, build_stackerdb_contract, to_addr};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
@@ -88,7 +89,10 @@ fn spawn_running_signer(path: &PathBuf) -> SpawnedSigner {
     let config = Config::try_from(path).unwrap();
     let (cmd_send, cmd_recv) = channel();
     let (res_send, res_recv) = channel();
-    let ev = SignerEventReceiver::new(vec![config.stackerdb_contract_id.clone()]);
+    let ev = SignerEventReceiver::new(
+        vec![config.stackerdb_contract_id.clone()],
+        config.network.is_mainnet(),
+    );
     let runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
     let mut signer: Signer<
         RunLoopCommand,
@@ -204,10 +208,15 @@ fn handle_dkg(args: RunDkgArgs) {
 fn handle_sign(args: SignArgs) {
     debug!("Signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
+    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
+        error!("Unable to parse provided message as a NakamotoBlock.");
+        spawned_signer.running_signer.stop();
+        return;
+    };
     spawned_signer
         .cmd_send
         .send(RunLoopCommand::Sign {
-            message: args.data,
+            block,
             is_taproot: false,
             merkle_root: None,
         })
@@ -220,12 +229,17 @@ fn handle_sign(args: SignArgs) {
 fn handle_dkg_sign(args: SignArgs) {
     debug!("Running DKG and signing message...");
     let spawned_signer = spawn_running_signer(&args.config);
+    let Some(block) = read_next::<NakamotoBlock, _>(&mut &args.data[..]).ok() else {
+        error!("Unable to parse provided message as a NakamotoBlock.");
+        spawned_signer.running_signer.stop();
+        return;
+    };
     // First execute DKG, then sign
     spawned_signer.cmd_send.send(RunLoopCommand::Dkg).unwrap();
     spawned_signer
         .cmd_send
         .send(RunLoopCommand::Sign {
-            message: args.data,
+            block,
             is_taproot: false,
             merkle_root: None,
         })
@@ -248,7 +262,7 @@ fn handle_run(args: RunDkgArgs) {
 fn handle_generate_files(args: GenerateFilesArgs) {
     debug!("Generating files...");
     let signer_stacks_private_keys = if let Some(path) = args.private_keys {
-        let file = File::open(&path).unwrap();
+        let file = File::open(path).unwrap();
         let reader = io::BufReader::new(file);
 
         let private_keys: Vec<String> = reader.lines().collect::<Result<_, _>>().unwrap();
@@ -285,6 +299,7 @@ fn handle_generate_files(args: GenerateFilesArgs) {
         &args.host.to_string(),
         &args.signers_contract.to_string(),
         args.timeout.map(Duration::from_millis),
+        &args.network,
     );
     debug!("Built {:?} signer config tomls.", signer_config_tomls.len());
     for (i, file_contents) in signer_config_tomls.iter().enumerate() {
@@ -338,20 +353,6 @@ fn main() {
             handle_generate_files(args);
         }
     }
-}
-
-fn to_addr(stacks_private_key: &StacksPrivateKey, network: &Network) -> StacksAddress {
-    let version = match network {
-        Network::Mainnet => C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-        Network::Testnet | Network::Mocknet => C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-    };
-    StacksAddress::from_public_keys(
-        version,
-        &AddressHashMode::SerializeP2PKH,
-        1,
-        &vec![StacksPublicKey::from_private(stacks_private_key)],
-    )
-    .unwrap()
 }
 
 #[cfg(test)]

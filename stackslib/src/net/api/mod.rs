@@ -53,8 +53,10 @@ pub mod getneighbors;
 pub mod getpoxinfo;
 pub mod getstackerdbchunk;
 pub mod getstackerdbmetadata;
+pub mod getstackers;
 pub mod getstxtransfercost;
 pub mod gettransaction_unconfirmed;
+pub mod liststackerdbreplicas;
 pub mod postblock;
 pub mod postblock_proposal;
 pub mod postfeerate;
@@ -104,8 +106,12 @@ impl StacksHttp {
         self.register_rpc_endpoint(
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
+        self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(
+            liststackerdbreplicas::RPCListStackerDBReplicasRequestHandler::new(),
         );
         self.register_rpc_endpoint(postblock::RPCPostBlockRequestHandler::new());
         self.register_rpc_endpoint(postblock_proposal::RPCBlockProposalRequestHandler::new());

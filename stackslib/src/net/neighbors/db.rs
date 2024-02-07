@@ -176,6 +176,34 @@ pub trait NeighborWalkDB {
     /// Get the number of peers in a given AS
     fn get_asn_count(&self, network: &PeerNetwork, asn: u32) -> u64;
 
+    /// Pick neighbors with a minimum age for a walk
+    fn pick_walk_neighbors(
+        network: &PeerNetwork,
+        num_neighbors: u64,
+        min_age: u64,
+    ) -> Result<Vec<Neighbor>, net_error> {
+        let block_height = network.get_chain_view().burn_block_height;
+        let cur_epoch = network.get_current_epoch();
+        let neighbors = PeerDB::get_random_walk_neighbors(
+            &network.peerdb_conn(),
+            network.get_local_peer().network_id,
+            cur_epoch.network_epoch,
+            min_age,
+            num_neighbors as u32,
+            block_height,
+        )
+        .map_err(net_error::DBError)?;
+
+        if neighbors.len() == 0 {
+            debug!(
+                "{:?}: No neighbors available in the peer DB!",
+                network.get_local_peer()
+            );
+            return Err(net_error::NoSuchNeighbor);
+        }
+        Ok(neighbors)
+    }
+
     /// Get a random starting neighbor for an ongoing walk.
     /// Older but still fresh neighbors will be preferred -- a neighbor from the first 50th
     /// percentile of neighbors (by last contact time) will be selected at random.
@@ -184,16 +212,45 @@ pub trait NeighborWalkDB {
     fn get_next_walk_neighbor(&self, network: &PeerNetwork) -> Result<Neighbor, net_error> {
         // pick a random neighbor as a walking point.
         // favor neighbors with older last-contact times
-        let mut next_neighbors = self
+        let next_neighbors_res = self
             .get_fresh_random_neighbors(network, (NUM_NEIGHBORS as u64) * 2)
             .map_err(|e| {
                 debug!(
-                    "{:?}: Failed to load initial walk neighbors: {:?}",
+                    "{:?}: Failed to load fresh initial walk neighbors: {:?}",
+                    network.get_local_peer(),
+                    &e
+                );
+                e
+            });
+
+        let db_neighbors = if let Ok(neighbors) = next_neighbors_res {
+            neighbors
+        } else {
+            let any_neighbors = Self::pick_walk_neighbors(network, (NUM_NEIGHBORS as u64) * 2, 0)
+                .map_err(|e| {
+                info!(
+                    "{:?}: Failed to load any initial walk neighbors: {:?}",
                     network.get_local_peer(),
                     &e
                 );
                 e
             })?;
+
+            any_neighbors
+        };
+
+        let mut next_neighbors: Vec<_> = db_neighbors
+            .into_iter()
+            .filter_map(|neighbor| {
+                if !network.get_connection_opts().private_neighbors
+                    && neighbor.addr.addrbytes.is_in_private_range()
+                {
+                    None
+                } else {
+                    Some(neighbor)
+                }
+            })
+            .collect();
 
         if next_neighbors.len() == 0 {
             return Err(net_error::NoSuchNeighbor);
@@ -246,28 +303,9 @@ impl NeighborWalkDB for PeerDBNeighborWalk {
         network: &PeerNetwork,
         num_neighbors: u64,
     ) -> Result<Vec<Neighbor>, net_error> {
-        let block_height = network.get_chain_view().burn_block_height;
         let min_age =
             get_epoch_time_secs().saturating_sub(network.connection_opts.max_neighbor_age);
-        let cur_epoch = network.get_current_epoch();
-        let neighbors = PeerDB::get_random_walk_neighbors(
-            &network.peerdb_conn(),
-            network.get_local_peer().network_id,
-            cur_epoch.network_epoch,
-            min_age,
-            num_neighbors as u32,
-            block_height,
-        )
-        .map_err(net_error::DBError)?;
-
-        if neighbors.len() == 0 {
-            debug!(
-                "{:?}: No neighbors available in the peer DB!",
-                network.get_local_peer()
-            );
-            return Err(net_error::NoSuchNeighbor);
-        }
-        Ok(neighbors)
+        Self::pick_walk_neighbors(network, num_neighbors, min_age)
     }
 
     fn lookup_stale_neighbors(

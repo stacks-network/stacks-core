@@ -48,7 +48,8 @@ use crate::chainstate::stacks::boot::{
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
     MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
-    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_MAINNET_CODE, POX_4_NAME, POX_4_TESTNET_CODE,
+    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY, SIGNERS_NAME,
+    SIGNERS_VOTING_NAME, SIGNER_VOTING_CODE,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -526,9 +527,10 @@ impl ClarityInstance {
         conn
     }
 
-    pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) {
+    pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) -> Result<(), Error> {
         let datastore = self.datastore.begin_unconfirmed(block);
-        datastore.rollback_unconfirmed()
+        datastore.rollback_unconfirmed()?;
+        Ok(())
     }
 
     pub fn begin_unconfirmed<'a, 'b>(
@@ -591,9 +593,9 @@ impl ClarityInstance {
             let mut db = datastore.as_clarity_db(header_db, burn_state_db);
             db.begin();
             let result = db.get_clarity_epoch_version();
-            db.roll_back();
+            db.roll_back()?;
             result
-        };
+        }?;
 
         Ok(ClarityReadOnlyConnection {
             datastore,
@@ -624,9 +626,9 @@ impl ClarityInstance {
         let epoch_id = {
             clarity_db.begin();
             let result = clarity_db.get_clarity_epoch_version();
-            clarity_db.roll_back();
+            clarity_db.roll_back()?;
             result
-        };
+        }?;
 
         let mut env = OwnedEnvironment::new_free(self.mainnet, self.chain_id, clarity_db, epoch_id);
         env.eval_read_only_with_rules(contract, program, ast_rules)
@@ -649,7 +651,8 @@ impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
             ClarityDatabase::new(&mut self.datastore, &self.header_db, &self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
-        db.roll_back();
+        db.roll_back()
+            .expect("FATAL: failed to roll back from read-only context");
         result
     }
 
@@ -660,7 +663,8 @@ impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
         let mut db = AnalysisDatabase::new(&mut self.datastore);
         db.begin();
         let result = to_do(&mut db);
-        db.roll_back();
+        db.roll_back()
+            .expect("FATAL: failed to roll back from read-only context");
         result
     }
 
@@ -680,7 +684,8 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
             .as_clarity_db(&self.header_db, &self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
-        db.roll_back();
+        db.roll_back()
+            .expect("FATAL: failed to roll back changes in read-only context");
         result
     }
 
@@ -691,7 +696,8 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
         let mut db = self.datastore.as_analysis_db();
         db.begin();
         let result = to_do(&mut db);
-        db.roll_back();
+        db.roll_back()
+            .expect("FATAL: failed to roll back changes in read-only context");
         result
     }
 
@@ -703,7 +709,9 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
 impl<'a> PreCommitClarityBlock<'a> {
     pub fn commit(self) {
         debug!("Committing Clarity block connection"; "index_block" => %self.commit_to);
-        self.datastore.commit_to(&self.commit_to);
+        self.datastore
+            .commit_to(&self.commit_to)
+            .expect("FATAL: failed to commit block");
     }
 }
 
@@ -725,7 +733,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback unconfirmed Clarity datastore");
-        self.datastore.rollback_unconfirmed();
+        self.datastore
+            .rollback_unconfirmed()
+            .expect("FATAL: failed to rollback block");
     }
 
     /// Commits all changes in the current block by
@@ -756,7 +766,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// time of opening).
     pub fn commit_to_block(self, final_bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", final_bhh);
-        self.datastore.commit_to(final_bhh);
+        self.datastore
+            .commit_to(final_bhh)
+            .expect("FATAL: failed to commit block");
 
         self.cost_track.unwrap()
     }
@@ -767,11 +779,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     ///    before this saves, it updates the metadata headers in
     ///    the sidestore so that they don't get stepped on after
     ///    a miner re-executes a constructed block.
-    pub fn commit_mined_block(self, bhh: &StacksBlockId) -> LimitedCostTracker {
+    pub fn commit_mined_block(self, bhh: &StacksBlockId) -> Result<LimitedCostTracker, Error> {
         debug!("Commit mined Clarity datastore to {}", bhh);
-        self.datastore.commit_mined_block(bhh);
+        self.datastore.commit_mined_block(bhh)?;
 
-        self.cost_track.unwrap()
+        Ok(self.cost_track.unwrap())
     }
 
     /// Save all unconfirmed state by
@@ -789,8 +801,9 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Get the boot code account
     fn get_boot_code_account(&mut self) -> Result<StacksAccount, Error> {
         let boot_code_address = boot_code_addr(self.mainnet);
-        let boot_code_nonce = self
-            .with_clarity_db_readonly(|db| db.get_account_nonce(&boot_code_address.clone().into()));
+        let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+            db.get_account_nonce(&boot_code_address.clone().into())
+        })?;
 
         let boot_code_account = boot_code_acc(boot_code_address, boot_code_nonce);
         Ok(boot_code_account)
@@ -815,7 +828,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_account = self
                 .get_boot_code_account()
-                .expect("FATAL: did not get boot account");
+                .expect("FATAL: failed to get boot code account");
 
             // instantiate costs 2 contract...
             let cost_2_code = if mainnet {
@@ -835,7 +848,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             );
 
             let boot_code_address = boot_code_addr(self.mainnet);
-
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let costs_2_contract_tx =
@@ -845,7 +857,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch2_05);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch2_05)?;
                         Ok(())
                     })
                     .unwrap();
@@ -919,9 +931,16 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-            let boot_code_account = self
-                .get_boot_code_account()
-                .expect("FATAL: did not get boot account");
+            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+                db.get_account_nonce(&boot_code_address.clone().into())
+                    .expect("FATAL: Failed to boot account nonce")
+            });
+
+            let boot_code_account = StacksAccount {
+                principal: PrincipalData::Standard(boot_code_address.into()),
+                nonce: boot_code_nonce,
+                stx_balance: STXBalance::zero(),
+            };
 
             /////////////////// .pox-2 ////////////////////////
             let pox_2_code = if mainnet {
@@ -952,7 +971,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch21)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1023,7 +1042,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch21);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch21)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1076,7 +1095,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch22);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch22)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1105,7 +1124,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch23);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch23)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1132,7 +1151,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch24);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch24)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1168,9 +1187,16 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-            let boot_code_account = self
-                .get_boot_code_account()
-                .expect("FATAL: did not get boot account");
+            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+                db.get_account_nonce(&boot_code_address.clone().into())
+                    .expect("FATAL: Failed to boot account nonce")
+            });
+
+            let boot_code_account = StacksAccount {
+                principal: PrincipalData::Standard(boot_code_address.into()),
+                nonce: boot_code_nonce,
+                stx_balance: STXBalance::zero(),
+            };
 
             let pox_3_code = if mainnet {
                 &*POX_3_MAINNET_CODE
@@ -1255,7 +1281,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch25);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch25)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1285,20 +1311,11 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 TransactionVersion::Testnet
             };
 
-            let boot_code_address = boot_code_addr(mainnet);
-
-            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
-
             let boot_code_account = self
                 .get_boot_code_account()
                 .expect("FATAL: did not get boot account");
 
-            let pox_4_code = if mainnet {
-                &*POX_4_MAINNET_CODE
-            } else {
-                &*POX_4_TESTNET_CODE
-            };
-
+            let pox_4_code = &*POX_4_CODE;
             let pox_4_contract_id = boot_code_id(POX_4_NAME, mainnet);
 
             let payload = TransactionPayload::SmartContract(
@@ -1311,31 +1328,40 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 Some(ClarityVersion::Clarity2),
             );
 
+            let boot_code_address = boot_code_addr(mainnet);
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+
             let pox_4_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
             let initialized_agg_key = if !mainnet {
-                self.with_readonly_clarity_env(
-                    false,
-                    self.chain_id,
-                    ClarityVersion::Clarity2,
-                    StacksAddress::burn_address(false).into(),
-                    None,
-                    LimitedCostTracker::Free,
-                    |vm_env| {
-                        vm_env.execute_contract_allow_private(
-                            &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
-                            BOOT_TEST_POX_4_AGG_KEY_FNAME,
-                            &[],
-                            true,
+                let agg_key_value_opt = self
+                    .with_readonly_clarity_env(
+                        false,
+                        self.chain_id,
+                        ClarityVersion::Clarity2,
+                        StacksAddress::burn_address(false).into(),
+                        None,
+                        LimitedCostTracker::Free,
+                        |vm_env| {
+                            vm_env.execute_contract_allow_private(
+                                &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
+                                BOOT_TEST_POX_4_AGG_KEY_FNAME,
+                                &[],
+                                true,
+                            )
+                        },
+                    )
+                    .map(|agg_key_value| {
+                        Ok::<_, InterpreterError>(
+                            Value::buff_from(agg_key_value.expect_buff(33)?)
+                                .expect("failed to reconstruct buffer"),
                         )
-                    },
-                )
-                .ok()
-                .map(|agg_key_value| {
-                    Value::buff_from(agg_key_value.expect_buff(33))
-                        .expect("failed to reconstruct buffer")
-                })
+                    })
+                    .ok()
+                    .transpose()
+                    .expect("FATAL: failed to load aggregate public key");
+                agg_key_value_opt
             } else {
                 None
             };
@@ -1424,6 +1450,79 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 );
             }
 
+            let signers_contract_id = boot_code_id(SIGNERS_NAME, mainnet);
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(SIGNERS_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(SIGNERS_BODY)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity2),
+            );
+
+            let signers_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            let signers_initialization_receipt = self.as_transaction(|tx_conn| {
+                // initialize with a synthetic transaction
+                debug!("Instantiate {} contract", &signers_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &signers_contract_tx,
+                    &boot_code_account,
+                    ASTRules::PrecheckSize,
+                )
+                .expect("FATAL: Failed to process .signers contract initialization");
+                receipt
+            });
+
+            if signers_initialization_receipt.result != Value::okay_true()
+                || signers_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing signers contract initialization: {:#?}",
+                    &signers_initialization_receipt
+                );
+            }
+
+            let signers_voting_code = &*SIGNER_VOTING_CODE;
+            let signers_voting_contract_id = boot_code_id(SIGNERS_VOTING_NAME, mainnet);
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(SIGNERS_VOTING_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(signers_voting_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                Some(ClarityVersion::Clarity2),
+            );
+
+            let signers_contract_tx =
+                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+            let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
+                // initialize with a synthetic transaction
+                debug!("Instantiate {} contract", &signers_voting_contract_id);
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &signers_contract_tx,
+                    &boot_code_account,
+                    ASTRules::PrecheckSize,
+                )
+                .expect("FATAL: Failed to process .signers-voting contract initialization");
+                receipt
+            });
+
+            if signers_voting_initialization_receipt.result != Value::okay_true()
+                || signers_voting_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing signers-voting contract initialization: {:#?}",
+                    &signers_voting_initialization_receipt
+                );
+            }
+
             debug!("Epoch 2.5 initialized");
             (old_cost_tracker, Ok(vec![pox_4_initialization_receipt]))
         })
@@ -1441,7 +1540,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // bump the epoch in the Clarity DB
                 tx_conn
                     .with_clarity_db(|db| {
-                        db.set_clarity_epoch_version(StacksEpochId::Epoch30);
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch30)?;
                         Ok(())
                     })
                     .unwrap();
@@ -1493,7 +1592,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
             let mut tx = self.start_transaction_processing();
             let r = todo(&mut tx);
-            tx.commit();
+            tx.commit()
+                .expect("FATAL: failed to commit unconditional free transaction");
             (old_cost_tracker, r)
         })
     }
@@ -1508,7 +1608,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     {
         let mut tx = self.start_transaction_processing();
         let r = todo(&mut tx);
-        tx.commit();
+        tx.commit()
+            .expect("FATAL: failed to commit unconditional transaction");
         r
     }
 
@@ -1541,7 +1642,8 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
             );
             db.begin();
             let (r, mut db) = to_do(db);
-            db.roll_back();
+            db.roll_back()
+                .expect("FATAL: failed to rollback changes during read-only connection");
             (db.destroy().into(), r)
         })
     }
@@ -1553,7 +1655,8 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
         self.with_analysis_db(|mut db, cost_tracker| {
             db.begin();
             let result = to_do(&mut db);
-            db.roll_back();
+            db.roll_back()
+                .expect("FATAL: failed to rollback changes during read-only connection");
             (cost_tracker, result)
         })
     }
@@ -1592,6 +1695,7 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> bool,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
+        E: From<InterpreterError>,
     {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
@@ -1621,16 +1725,18 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
                 let result = match result {
                     Ok((value, asset_map, events)) => {
                         let aborted = abort_call_back(&asset_map, &mut db);
-                        if aborted {
-                            db.roll_back();
-                        } else {
-                            db.commit();
+                        let db_result = if aborted { db.roll_back() } else { db.commit() };
+                        match db_result {
+                            Ok(_) => Ok((value, asset_map, events, aborted)),
+                            Err(e) => Err(e.into()),
                         }
-                        Ok((value, asset_map, events, aborted))
                     }
                     Err(e) => {
-                        db.roll_back();
-                        Err(e)
+                        let db_result = db.roll_back();
+                        match db_result {
+                            Ok(_) => Err(e),
+                            Err(db_err) => Err(db_err.into()),
+                        }
                     }
                 };
 
@@ -1670,11 +1776,16 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 
             db.begin();
             let result = to_do(&mut db);
-            if result.is_ok() {
-                db.commit();
+            let db_result = if result.is_ok() {
+                db.commit()
             } else {
-                db.roll_back();
-            }
+                db.roll_back()
+            };
+
+            let result = match db_result {
+                Ok(_) => result,
+                Err(e) => Err(e.into()),
+            };
 
             (db.destroy().into(), result)
         })
@@ -1720,7 +1831,7 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
 
     /// Commit the changes from the edit log.
     /// panics if there is more than one open savepoint
-    pub fn commit(mut self) {
+    pub fn commit(mut self) -> Result<(), Error> {
         let log = self
             .log
             .take()
@@ -1732,12 +1843,46 @@ impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
                 rollback_wrapper.depth()
             );
         }
-        rollback_wrapper.commit();
+        rollback_wrapper.commit().map_err(InterpreterError::from)?;
         // now we can reset the memory usage for the edit-log
         self.cost_track
             .as_mut()
             .expect("BUG: Transaction connection lost cost tracker connection.")
             .reset_memory();
+        Ok(())
+    }
+
+    /// Evaluate a method of a clarity contract in a read-only environment.
+    /// This does not check if the method itself attempted to write,
+    ///  but will always rollback any changes.
+    ///
+    /// The method is invoked as if the contract itself is the tx-sender.
+    ///
+    /// This method *is not* free: it will update the cost-tracker of
+    /// the transaction connection. If the transaction connection is a
+    /// free transaction, then these costs will be free, but
+    /// otherwise, the cost tracker will be invoked like normal.
+    pub fn eval_method_read_only(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+        method: &str,
+        args: &[SymbolicExpression],
+    ) -> Result<Value, Error> {
+        let (result, _, _, _) = self.with_abort_callback(
+            |vm_env| {
+                vm_env
+                    .execute_transaction(
+                        PrincipalData::Contract(contract.clone()),
+                        None,
+                        contract.clone(),
+                        method,
+                        args,
+                    )
+                    .map_err(Error::from)
+            },
+            |_, _| true,
+        )?;
+        Ok(result)
     }
 
     /// Evaluate a raw Clarity snippit
@@ -1972,7 +2117,7 @@ mod tests {
                 tx.save_analysis(&contract_identifier, &ct_analysis)
                     .unwrap();
 
-                tx.commit();
+                tx.commit().unwrap();
             }
 
             // should fail since the prior contract
@@ -2005,7 +2150,7 @@ mod tests {
                 )
                 .contains("ContractAlreadyExists"));
 
-                tx.commit();
+                tx.commit().unwrap();
             }
         }
     }

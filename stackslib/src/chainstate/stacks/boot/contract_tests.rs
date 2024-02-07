@@ -29,6 +29,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::util::hash::{to_hex, Sha256Sum, Sha512Trunc256Sum};
 
+use super::SIGNERS_MAX_LIST_SIZE;
 use crate::burnchains::{Burnchain, PoxConstants};
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::address::PoxAddress;
@@ -213,7 +214,7 @@ impl ClarityTestSim {
     ) -> StacksEpochId {
         let mut clarity_db = store.as_clarity_db(headers_db, burn_db);
         clarity_db.begin();
-        let parent_epoch = clarity_db.get_clarity_epoch_version();
+        let parent_epoch = clarity_db.get_clarity_epoch_version().unwrap();
         let sortition_epoch = clarity_db
             .get_stacks_epoch(headers_db.height as u32)
             .unwrap()
@@ -221,10 +222,12 @@ impl ClarityTestSim {
 
         if parent_epoch != sortition_epoch {
             debug!("Set epoch to {}", &sortition_epoch);
-            clarity_db.set_clarity_epoch_version(sortition_epoch);
+            clarity_db
+                .set_clarity_epoch_version(sortition_epoch)
+                .unwrap();
         }
 
-        clarity_db.commit();
+        clarity_db.commit().unwrap();
         sortition_epoch
     }
 
@@ -717,7 +720,7 @@ fn pox_2_contract_caller_units() {
             "After revocation, stack-through still shouldn't be an allowed caller for User 1 in the PoX2 contract",
         );
 
-        let until_height = Value::UInt(burn_height.clone().expect_u128() + 1);
+        let until_height = Value::UInt(burn_height.clone().expect_u128().unwrap() + 1);
 
         assert_eq!(
             env.execute_transaction(
@@ -1691,6 +1694,34 @@ fn test_deploy_smart_contract(
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
     })
+}
+
+#[test]
+// test that the maximum stackerdb list size will fit in a value
+fn max_stackerdb_list() {
+    let signers_list: Vec<_> = (0..SIGNERS_MAX_LIST_SIZE)
+        .into_iter()
+        .map(|signer_ix| {
+            let signer_address = StacksAddress {
+                version: 0,
+                bytes: Hash160::from_data(&signer_ix.to_be_bytes()),
+            };
+            Value::Tuple(
+                TupleData::from_data(vec![
+                    (
+                        "signer".into(),
+                        Value::Principal(PrincipalData::from(signer_address)),
+                    ),
+                    ("num-slots".into(), Value::UInt(1)),
+                ])
+                .expect("BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple"),
+            )
+        })
+        .collect();
+
+    assert_eq!(signers_list.len(), SIGNERS_MAX_LIST_SIZE);
+    Value::cons_list_unsanitized(signers_list)
+        .expect("Failed to construct `(list 4000 { signer: principal, num-slots: u64 })` list");
 }
 
 #[test]

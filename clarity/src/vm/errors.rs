@@ -23,6 +23,7 @@ use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
+use super::ast::errors::ParseErrors;
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
 };
@@ -68,6 +69,7 @@ pub enum InterpreterError {
     InsufficientBalance,
     CostContractLoadFailure,
     DBError(String),
+    Expect(String),
 }
 
 /// RuntimeErrors are errors that smart contracts are expected
@@ -104,6 +106,7 @@ pub enum RuntimeErrorType {
     UnwrapFailure,
     DefunctPoxContract,
     PoxAlreadyLocked,
+    MetadataAlreadySet,
 }
 
 #[derive(Debug, PartialEq)]
@@ -200,7 +203,7 @@ pub type InterpreterResult<R> = Result<R, Error>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
-        false
+        return false;
     }
 }
 
@@ -220,12 +223,14 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::Runtime(ref err, ref stack) => {
-                write!(f, "{}", err)?;
+                match err {
+                    _ => write!(f, "{}", err),
+                }?;
 
                 if let Some(ref stack_trace) = stack {
                     write!(f, "\n Stack Trace: \n")?;
                     for item in stack_trace.iter() {
-                        writeln!(f, "{}", item)?;
+                        write!(f, "{}\n", item)?;
                     }
                 }
                 Ok(())
@@ -253,21 +258,28 @@ impl error::Error for RuntimeErrorType {
     }
 }
 
-impl From<CostErrors> for Error {
-    fn from(err: CostErrors) -> Self {
-        Error::from(CheckErrors::from(err))
-    }
-}
-
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        Error::from(RuntimeErrorType::ASTError(err))
+        match &err.err {
+            ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+                "Unexpected interpreter failure during parsing".into(),
+            )),
+            _ => Error::from(RuntimeErrorType::ASTError(err)),
+        }
     }
 }
 
-impl From<SerdeJSONErr> for Error {
-    fn from(err: SerdeJSONErr) -> Self {
-        Error::from(RuntimeErrorType::JSONParseError(IncomparableError { err }))
+impl From<CostErrors> for Error {
+    fn from(err: CostErrors) -> Self {
+        match err {
+            CostErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+                "Interpreter failure during cost calculation".into(),
+            )),
+            CostErrors::Expect(s) => Error::from(InterpreterError::Expect(format!(
+                "Interpreter failure during cost calculation: {s}"
+            ))),
+            other_err => Error::from(CheckErrors::from(other_err)),
+        }
     }
 }
 
@@ -300,9 +312,9 @@ impl From<Error> for () {
     fn from(err: Error) -> Self {}
 }
 
-impl From<ShortReturnType> for Value {
-    fn from(val: ShortReturnType) -> Self {
-        match val {
+impl Into<Value> for ShortReturnType {
+    fn into(self) -> Value {
+        match self {
             ShortReturnType::ExpectedValue(v) => v,
             ShortReturnType::AssertionFailed(v) => v,
         }

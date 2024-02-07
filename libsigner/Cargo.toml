@@ -17,6 +17,7 @@ path = "./src/libsigner.rs"
 
 [dependencies]
 clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+hashbrown = "0.14"
 libc = "0.2"
 libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
 serde = "1"
@@ -30,6 +31,10 @@ stackslib = { git = "https://github.com/stacks-network/stacks-core.git", branch 
 thiserror = "1.0"
 tiny_http = "0.12"
 wsts = { workspace = true }
+
+[dev-dependencies]
+rand_core = { workspace = true }
+rand = { workspace = true }
 
 [dependencies.serde_json]
 version = "1.0"

@@ -111,7 +111,9 @@ pub fn get_stx_account_at(
 ) -> STXBalance {
     with_clarity_db_ro(peer, tip, |db| {
         db.get_stx_balance_snapshot(account)
+            .unwrap()
             .canonical_balance_repr()
+            .unwrap()
     })
 }
 
@@ -126,7 +128,7 @@ pub fn get_stacking_state_pox(
         let lookup_tuple = Value::Tuple(
             TupleData::from_data(vec![("stacker".into(), account.clone().into())]).unwrap(),
         );
-        let epoch = db.get_clarity_epoch_version();
+        let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(pox_contract, false),
             "stacking-state",
@@ -135,6 +137,7 @@ pub fn get_stacking_state_pox(
         )
         .unwrap()
         .expect_optional()
+        .unwrap()
     })
 }
 
@@ -155,7 +158,7 @@ pub fn check_all_stacker_link_invariants(
     max_cycle_number: u64,
 ) {
     // if PoX-2 hasn't published yet, just return.
-    let epoch = with_clarity_db_ro(peer, tip, |db| db.get_clarity_epoch_version());
+    let epoch = with_clarity_db_ro(peer, tip, |db| db.get_clarity_epoch_version()).unwrap();
     if epoch < StacksEpochId::Epoch21 {
         eprintln!("Skipping invariant checks when PoX-2 has not published yet");
         return;
@@ -219,7 +222,14 @@ pub fn check_pox_print_event(
             data
         );
         assert_eq!(data.key.1, "print");
-        let outer_tuple = data.value.clone().expect_result().unwrap().expect_tuple();
+        let outer_tuple = data
+            .value
+            .clone()
+            .expect_result()
+            .unwrap()
+            .unwrap()
+            .expect_tuple()
+            .unwrap();
         test_debug!(
             "Check name: {:?} =?= {:?}",
             &outer_tuple
@@ -227,7 +237,8 @@ pub fn check_pox_print_event(
                 .get("name")
                 .unwrap()
                 .clone()
-                .expect_ascii(),
+                .expect_ascii()
+                .unwrap(),
             common_data.op_name
         );
         assert_eq!(
@@ -236,7 +247,8 @@ pub fn check_pox_print_event(
                 .get("name")
                 .unwrap()
                 .clone()
-                .expect_ascii(),
+                .expect_ascii()
+                .unwrap(),
             common_data.op_name
         );
         assert_eq!(
@@ -260,7 +272,7 @@ pub fn check_pox_print_event(
             .data_map
             .get("data")
             .expect("The event tuple should have a field named `data`");
-        let inner_tuple = args.clone().expect_tuple();
+        let inner_tuple = args.clone().expect_tuple().unwrap();
 
         test_debug!("Check for ops {:?}", &op_data);
         test_debug!("Inner tuple is {:?}", &inner_tuple);
@@ -313,7 +325,9 @@ pub fn check_stacking_state_invariants(
 ) -> StackingStateCheckData {
     let account_state = with_clarity_db_ro(peer, tip, |db| {
         db.get_stx_balance_snapshot(stacker)
+            .unwrap()
             .canonical_balance_repr()
+            .unwrap()
     });
 
     let tip_burn_height = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
@@ -329,17 +343,19 @@ pub fn check_stacking_state_invariants(
             "Invariant violated: reward-cycle entry has stacker field set, but not present in stacker-state (pox_contract = {})",
             active_pox_contract,
         ))
-        .expect_tuple();
+        .expect_tuple().unwrap();
     let first_cycle = stacking_state_entry
         .get("first-reward-cycle")
         .unwrap()
         .clone()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     let lock_period = stacking_state_entry
         .get("lock-period")
         .unwrap()
         .clone()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     let pox_addr = stacking_state_entry.get("pox-addr").unwrap();
     let pox_addr = PoxAddress::try_from_pox_tuple(false, pox_addr).unwrap();
 
@@ -347,8 +363,9 @@ pub fn check_stacking_state_invariants(
         .get_owned("reward-set-indexes")
         .unwrap()
         .expect_list()
+        .unwrap()
         .into_iter()
-        .map(|x| x.expect_u128())
+        .map(|x| x.expect_u128().unwrap())
         .collect();
 
     let stacking_state_unlock_ht = peer
@@ -385,7 +402,7 @@ pub fn check_stacking_state_invariants(
                 .unwrap(),
             );
             let entry_value = with_clarity_db_ro(peer, tip, |db| {
-                let epoch = db.get_clarity_epoch_version();
+                let epoch = db.get_clarity_epoch_version().unwrap();
                 db.fetch_entry_unknown_descriptor(
                     &boot_code_id(active_pox_contract, false),
                     "reward-cycle-pox-address-list",
@@ -393,17 +410,17 @@ pub fn check_stacking_state_invariants(
                     &epoch,
                 )
                     .unwrap()
-                    .expect_optional()
+                    .expect_optional().unwrap()
                     .expect("Invariant violated: stacking-state.reward-set-indexes pointed at a non-existent entry")
-                    .expect_tuple()
+                    .expect_tuple().unwrap()
             });
 
             let entry_stacker = entry_value.get("stacker")
                 .unwrap()
                 .clone()
-                .expect_optional()
+                .expect_optional().unwrap()
                 .expect("Invariant violated: stacking-state.reward-set-indexes pointed at an entry without a stacker set")
-                .expect_principal();
+                .expect_principal().unwrap();
 
             assert_eq!(
                 &entry_stacker, stacker,
@@ -579,7 +596,7 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
         )])
         .unwrap()
         .into();
-        let epoch = db.get_clarity_epoch_version();
+        let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(active_pox_contract, false),
             "reward-cycle-total-stacked",
@@ -588,11 +605,14 @@ pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_nu
         )
         .map(|v| {
             v.expect_optional()
+                .unwrap()
                 .map(|v| {
                     v.expect_tuple()
+                        .unwrap()
                         .get_owned("total-ustx")
                         .expect("Malformed tuple returned by PoX contract")
                         .expect_u128()
+                        .unwrap()
                 })
                 // if no entry yet, return 0
                 .unwrap_or(0)
@@ -619,7 +639,7 @@ pub fn get_partial_stacked(
         ])
         .unwrap()
         .into();
-        let epoch = db.get_clarity_epoch_version();
+        let epoch = db.get_clarity_epoch_version().unwrap();
         db.fetch_entry_unknown_descriptor(
             &boot_code_id(pox_contract, false),
             "partial-stacked-by-cycle",
@@ -628,13 +648,16 @@ pub fn get_partial_stacked(
         )
         .map(|v| {
             v.expect_optional()
+                .unwrap()
                 .expect("Expected fetch_entry to return a value")
         })
         .unwrap()
         .expect_tuple()
+        .unwrap()
         .get_owned("stacked-amount")
         .expect("Malformed tuple returned by PoX contract")
         .expect_u128()
+        .unwrap()
     })
 }
 
@@ -1251,7 +1274,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
-    );
+    )
+    .unwrap();
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
     while get_tip(peer.sortdb.as_ref()).block_height < height_target {
@@ -1281,7 +1305,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
-    );
+    )
+    .unwrap();
     assert_eq!(bob_bal.amount_locked(), 0);
 
     // but bob's still locked at (height_target): the unlock is accelerated to the "next" burn block
@@ -1295,7 +1320,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         burnchain.pox_constants.v1_unlock_height,
         burnchain.pox_constants.v2_unlock_height,
         burnchain.pox_constants.v3_unlock_height,
-    );
+    )
+    .unwrap();
     assert_eq!(bob_bal.amount_locked(), 0);
 
     // check that the total reward cycle amounts have decremented correctly
@@ -1323,7 +1349,8 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
         &key_to_stacks_addr(&alice).to_account_principal(),
     )
     .expect("Alice should have stacking-state entry")
-    .expect_tuple();
+    .expect_tuple()
+    .unwrap();
     let reward_indexes_str = format!("{}", alice_state.get("reward-set-indexes").unwrap());
     assert_eq!(reward_indexes_str, "(u0 u0 u0 u0 u0 u0)");
 
@@ -1863,7 +1890,9 @@ fn stack_increase() {
     );
 
     assert_eq!(
-        get_stx_account_at(&mut peer, &latest_block, &alice_principal).get_total_balance(),
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal)
+            .get_total_balance()
+            .unwrap(),
         total_balance,
     );
 
@@ -1922,7 +1951,9 @@ fn stack_increase() {
     );
 
     assert_eq!(
-        get_stx_account_at(&mut peer, &latest_block, &alice_principal).get_total_balance(),
+        get_stx_account_at(&mut peer, &latest_block, &alice_principal)
+            .get_total_balance()
+            .unwrap(),
         total_balance,
     );
 
@@ -3562,13 +3593,14 @@ fn test_pox_2_getters() {
     ));
 
     eprintln!("{}", &result);
-    let data = result.expect_tuple().data_map;
+    let data = result.expect_tuple().unwrap().data_map;
 
     let alice_delegation_info = data
         .get("get-delegation-info-alice")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert!(alice_delegation_info.is_none());
 
     let bob_delegation_info = data
@@ -3577,23 +3609,28 @@ fn test_pox_2_getters() {
         .unwrap()
         .expect_optional()
         .unwrap()
+        .unwrap()
         .expect_tuple()
+        .unwrap()
         .data_map;
     let bob_delegation_addr = bob_delegation_info
         .get("delegated-to")
         .cloned()
         .unwrap()
-        .expect_principal();
+        .expect_principal()
+        .unwrap();
     let bob_delegation_amt = bob_delegation_info
         .get("amount-ustx")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     let bob_pox_addr_opt = bob_delegation_info
         .get("pox-addr")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert_eq!(bob_delegation_addr, charlie_address.to_account_principal());
     assert_eq!(bob_delegation_amt, LOCKUP_AMT as u128);
     assert!(bob_pox_addr_opt.is_none());
@@ -3602,27 +3639,30 @@ fn test_pox_2_getters() {
         .get("get-allowance-contract-callers")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert!(allowance.is_none());
 
     let current_num_reward_addrs = data
         .get("get-num-reward-set-pox-addresses-current")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(current_num_reward_addrs, 2);
 
     let future_num_reward_addrs = data
         .get("get-num-reward-set-pox-addresses-future")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(future_num_reward_addrs, 0);
 
     for i in 0..3 {
         let key =
             ClarityName::try_from(format!("get-partial-stacked-by-cycle-bob-{}", &i)).unwrap();
-        let partial_stacked = data.get(&key).cloned().unwrap().expect_optional();
+        let partial_stacked = data.get(&key).cloned().unwrap().expect_optional().unwrap();
         assert!(partial_stacked.is_none());
     }
     let partial_stacked = data
@@ -3631,33 +3671,39 @@ fn test_pox_2_getters() {
         .unwrap()
         .expect_optional()
         .unwrap()
+        .unwrap()
         .expect_tuple()
+        .unwrap()
         .data_map
         .get("stacked-amount")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(partial_stacked, LOCKUP_AMT as u128);
 
     let rejected = data
         .get("get-total-pox-rejection-now")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(rejected, 0);
 
     let rejected = data
         .get("get-total-pox-rejection-next")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(rejected, LOCKUP_AMT as u128);
 
     let rejected = data
         .get("get-total-pox-rejection-future")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     assert_eq!(rejected, 0);
 }
 
@@ -3879,8 +3925,10 @@ fn test_get_pox_addrs() {
             })
             .unwrap()
             .expect_optional()
+            .unwrap()
             .expect("FATAL: expected list")
-            .expect_tuple();
+            .expect_tuple()
+            .unwrap();
 
             eprintln!(
                 "At block height {}: {:?}",
@@ -3892,13 +3940,15 @@ fn test_get_pox_addrs() {
                 .get("addrs")
                 .unwrap()
                 .to_owned()
-                .expect_list();
+                .expect_list()
+                .unwrap();
 
             let payout = addrs_and_payout
                 .get("payout")
                 .unwrap()
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .unwrap();
 
             // there's always some burnchain tokens spent.
             assert!(payout > 0);
@@ -4171,8 +4221,10 @@ fn test_stack_with_segwit() {
             })
             .unwrap()
             .expect_optional()
+            .unwrap()
             .expect("FATAL: expected list")
-            .expect_tuple();
+            .expect_tuple()
+            .unwrap();
 
             eprintln!(
                 "At block height {}: {:?}",
@@ -4184,13 +4236,15 @@ fn test_stack_with_segwit() {
                 .get("addrs")
                 .unwrap()
                 .to_owned()
-                .expect_list();
+                .expect_list()
+                .unwrap();
 
             let payout = addrs_and_payout
                 .get("payout")
                 .unwrap()
                 .to_owned()
-                .expect_u128();
+                .expect_u128()
+                .unwrap();
 
             // there's always some burnchain tokens spent.
             assert!(payout > 0);
@@ -4361,14 +4415,15 @@ fn test_pox_2_delegate_stx_addr_validation() {
     );
 
     eprintln!("{}", &result);
-    let data = result.expect_tuple().data_map;
+    let data = result.expect_tuple().unwrap().data_map;
 
     // bob had an invalid PoX address
     let bob_delegation_info = data
         .get("get-delegation-info-bob")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert!(bob_delegation_info.is_none());
 
     // alice was valid
@@ -4378,23 +4433,28 @@ fn test_pox_2_delegate_stx_addr_validation() {
         .unwrap()
         .expect_optional()
         .unwrap()
+        .unwrap()
         .expect_tuple()
+        .unwrap()
         .data_map;
     let alice_delegation_addr = alice_delegation_info
         .get("delegated-to")
         .cloned()
         .unwrap()
-        .expect_principal();
+        .expect_principal()
+        .unwrap();
     let alice_delegation_amt = alice_delegation_info
         .get("amount-ustx")
         .cloned()
         .unwrap()
-        .expect_u128();
+        .expect_u128()
+        .unwrap();
     let alice_pox_addr_opt = alice_delegation_info
         .get("pox-addr")
         .cloned()
         .unwrap()
-        .expect_optional();
+        .expect_optional()
+        .unwrap();
     assert_eq!(
         alice_delegation_addr,
         charlie_address.to_account_principal()
@@ -5009,14 +5069,33 @@ fn stack_in_both_pox1_and_pox2() {
     }
 
     // alice's and bob's second transactions both failed with runtime errors
-    alice_txs.get(&0).unwrap().result.clone().expect_result_ok();
+    alice_txs
+        .get(&0)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
     alice_txs
         .get(&1)
         .unwrap()
         .result
         .clone()
-        .expect_result_err();
+        .expect_result_err()
+        .unwrap();
 
-    bob_txs.get(&0).unwrap().result.clone().expect_result_ok();
-    bob_txs.get(&1).unwrap().result.clone().expect_result_err();
+    bob_txs
+        .get(&0)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_ok()
+        .unwrap();
+    bob_txs
+        .get(&1)
+        .unwrap()
+        .result
+        .clone()
+        .expect_result_err()
+        .unwrap();
 }

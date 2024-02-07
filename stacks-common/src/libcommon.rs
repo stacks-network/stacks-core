@@ -32,6 +32,8 @@ pub mod address;
 
 pub mod deps_common;
 
+pub mod bitvec;
+
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
 pub mod consts {

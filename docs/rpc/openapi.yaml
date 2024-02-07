@@ -583,3 +583,27 @@ paths:
           application/json:
             example:
               $ref: ./api/core-node/post-block-proposal-req.example.json
+
+  /v2/stacker_set/{cycle_number}:
+    get:
+      summary: Fetch the stacker and signer set information for a given cycle.
+      tags:
+        - Mining
+      operationId: get_stacker_set
+      description: |
+        Used to get stacker and signer set information for a given cycle.
+
+        This will only return information for cycles started in Epoch-2.5 where PoX-4 was active and subsequent cycles.
+      responses:
+        200:
+          description: Information for the given reward cycle
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/get_stacker_set.example.json
+        400:
+          description: Could not fetch the given reward set
+          content:
+            application/json:
+              example:
+                $ref: ./api/core-node/get_stacker_set.400.example.json

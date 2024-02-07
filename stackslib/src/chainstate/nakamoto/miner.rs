@@ -224,11 +224,17 @@ impl NakamotoBlockBuilder {
     ) -> Result<MinerTenureInfo<'a>, Error> {
         debug!("Nakamoto miner tenure begin");
 
-        let burn_tip = SortitionDB::get_canonical_chain_tip_bhh(burn_dbconn.conn())?;
-        let burn_tip_height = u32::try_from(
-            SortitionDB::get_canonical_burn_chain_tip(burn_dbconn.conn())?.block_height,
-        )
-        .expect("block height overflow");
+        // must build off of the header's consensus hash as the burnchain view, not the canonical_tip_bhh:
+        let burn_sn = SortitionDB::get_block_snapshot_consensus(burn_dbconn.conn(), &self.header.consensus_hash)?
+            .ok_or_else(|| {
+                warn!(
+                    "Could not mine. The expected burnchain consensus hash has not been processed by our SortitionDB";
+                    "consensus_hash" => %self.header.consensus_hash
+                );
+                Error::NoSuchBlockError
+            })?;
+        let burn_tip = burn_sn.burn_header_hash;
+        let burn_tip_height = u32::try_from(burn_sn.block_height).expect("block height overflow");
 
         let mainnet = chainstate.config().mainnet;
 
@@ -318,7 +324,7 @@ impl NakamotoBlockBuilder {
 
     /// Finish up mining an epoch's transactions.
     /// Return the ExecutionCost consumed so far.
-    pub fn tenure_finish(self, tx: ClarityTx) -> ExecutionCost {
+    pub fn tenure_finish(self, tx: ClarityTx) -> Result<ExecutionCost, Error> {
         let new_consensus_hash = MINER_BLOCK_CONSENSUS_HASH.clone();
         let new_block_hash = MINER_BLOCK_HEADER_HASH.clone();
 
@@ -326,11 +332,11 @@ impl NakamotoBlockBuilder {
             StacksBlockHeader::make_index_block_hash(&new_consensus_hash, &new_block_hash);
 
         // write out the trie...
-        let consumed = tx.commit_mined_block(&index_block_hash);
+        let consumed = tx.commit_mined_block(&index_block_hash)?;
 
         test_debug!("\n\nFinished mining. Trie is in mined_blocks table.\n",);
 
-        consumed
+        Ok(consumed)
     }
 
     /// Finish constructing a Nakamoto block.
@@ -471,7 +477,7 @@ impl NakamotoBlockBuilder {
         // save the block so we can build microblocks off of it
         let block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.bytes_so_far;
-        let consumed = builder.tenure_finish(tenure_tx);
+        let consumed = builder.tenure_finish(tenure_tx)?;
 
         let ts_end = get_epoch_time_ms();
 

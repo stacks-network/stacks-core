@@ -92,6 +92,7 @@ enum ParseContext {
 
 impl LexMatcher {
     fn new(regex_str: &str, handles: TokenType) -> LexMatcher {
+        #[allow(clippy::unwrap_used)]
         LexMatcher {
             matcher: Regex::new(&format!("^{}", regex_str)).unwrap(),
             handler: handles,
@@ -219,7 +220,9 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
         let current_slice = &input[munch_index..];
         for matcher in lex_matchers.iter() {
             if let Some(captures) = matcher.matcher.captures(current_slice) {
-                let whole_match = captures.get(0).unwrap();
+                let whole_match = captures
+                    .get(0)
+                    .ok_or_else(|| ParseErrors::InterpreterFailure)?;
                 assert_eq!(whole_match.start(), 0);
                 munch_index += whole_match.end();
 

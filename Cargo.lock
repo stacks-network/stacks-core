@@ -1223,6 +1223,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "5.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "907076dfda823b0b36d2a1bb5f90c96660a5bbcd7729e10727f07858f22c4edc"
+dependencies = [
+ "cfg-if 1.0.0",
+ "hashbrown 0.12.3",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "data-encoding"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2358,8 +2371,11 @@ name = "libsigner"
 version = "0.0.1"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "hashbrown 0.14.3",
  "libc",
  "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
  "secp256k1",
  "serde",
  "serde_derive",
@@ -2373,7 +2389,7 @@ dependencies = [
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "thiserror",
  "tiny_http",
- "wsts",
+ "wsts 7.0.0",
 ]
 
 [[package]]
@@ -2396,7 +2412,7 @@ dependencies = [
  "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "thiserror",
  "tiny_http",
- "wsts",
+ "wsts 6.1.0",
 ]
 
 [[package]]
@@ -2448,6 +2464,16 @@ name = "linux-raw-sys"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "01cda141df6706de531b6c46c3a33ecca755538219bd484262fa09410c13539c"
+
+[[package]]
+name = "lock_api"
+version = "0.4.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c168f8615b12bc01f9c17e2eb0cc07dcae1940121185446edc3744920e8ef45"
+dependencies = [
+ "autocfg",
+ "scopeguard",
+]
 
 [[package]]
 name = "log"
@@ -2854,6 +2880,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb813b8af86854136c6922af0598d719255ecb2179515e6e7730d468f05c9cae"
 
 [[package]]
+name = "parking_lot"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3742b2c103b9f06bc9fff0a37ff4912935851bee6d36f3c02bcc755bcfec228f"
+dependencies = [
+ "lock_api",
+ "parking_lot_core",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c42a9226546d68acdd9c0a280d17ce19bfe27a46bf68784e4066115788d008e"
+dependencies = [
+ "cfg-if 1.0.0",
+ "libc",
+ "redox_syscall",
+ "smallvec",
+ "windows-targets 0.48.5",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2884,9 +2933,9 @@ dependencies = [
 
 [[package]]
 name = "pico-args"
-version = "0.3.4"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28b9b4df73455c861d7cbf8be42f01d3b373ed7f02e378d55fa84eafc6f638b1"
+checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 
 [[package]]
 name = "pin-project"
@@ -3651,6 +3700,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
+name = "scopeguard"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
 name = "sct"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3822,6 +3877,31 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serial_test"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "953ad9342b3aaca7cb43c45c097dd008d4907070394bd0751a0aa8817e5a018d"
+dependencies = [
+ "dashmap",
+ "futures",
+ "lazy_static",
+ "log",
+ "parking_lot",
+ "serial_test_derive",
+]
+
+[[package]]
+name = "serial_test_derive"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b93fb4adc70021ac1b47f7d45e8cc4169baaa7ea58483bc5b721d19a26202212"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
 ]
 
 [[package]]
@@ -4075,7 +4155,7 @@ dependencies = [
  "slog-term",
  "time 0.2.27",
  "winapi 0.3.9",
- "wsts",
+ "wsts 7.0.0",
 ]
 
 [[package]]
@@ -4105,7 +4185,7 @@ dependencies = [
  "slog-term",
  "time 0.2.27",
  "winapi 0.3.9",
- "wsts",
+ "wsts 6.1.0",
 ]
 
 [[package]]
@@ -4118,6 +4198,7 @@ dependencies = [
  "base64 0.12.3",
  "chrono",
  "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "hashbrown 0.14.3",
  "http-types",
  "lazy_static",
  "libc",
@@ -4143,7 +4224,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "warp",
- "wsts",
+ "wsts 7.0.0",
 ]
 
 [[package]]
@@ -4151,12 +4232,12 @@ name = "stacks-signer"
 version = "0.0.1"
 dependencies = [
  "backoff",
- "bincode",
  "clap 4.4.18",
  "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "hashbrown 0.14.3",
  "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
  "secp256k1",
@@ -4164,6 +4245,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_stacker",
+ "serial_test",
  "slog",
  "slog-json",
  "slog-term",
@@ -4173,7 +4255,7 @@ dependencies = [
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
- "wsts",
+ "wsts 7.0.0",
 ]
 
 [[package]]
@@ -4203,7 +4285,7 @@ dependencies = [
  "toml 0.5.11",
  "tracing",
  "tracing-subscriber",
- "wsts",
+ "wsts 6.1.0",
 ]
 
 [[package]]
@@ -4217,6 +4299,7 @@ dependencies = [
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
+ "hashbrown 0.14.3",
  "integer-sqrt",
  "lazy_static",
  "libc",
@@ -4251,7 +4334,7 @@ dependencies = [
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
- "wsts",
+ "wsts 7.0.0",
 ]
 
 [[package]]
@@ -4294,7 +4377,7 @@ dependencies = [
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
- "wsts",
+ "wsts 6.1.0",
 ]
 
 [[package]]
@@ -5784,6 +5867,28 @@ name = "wsts"
 version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c7db3d3fe28c359e0cdb7f7ad83e3316bda0ba982b8cd1bf0fbe73ae4127e4b"
+dependencies = [
+ "aes-gcm 0.10.3",
+ "bs58 0.5.0",
+ "hashbrown 0.14.3",
+ "hex",
+ "num-traits",
+ "p256k1 6.0.0",
+ "polynomial",
+ "primitive-types",
+ "rand_core 0.6.4",
+ "serde",
+ "sha2 0.10.8",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "wsts"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c398736468f3322a43b6419be5315e68ae035e6565628603503c2a62ad726f36"
 dependencies = [
  "aes-gcm 0.10.3",
  "bs58 0.5.0",

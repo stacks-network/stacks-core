@@ -31,7 +31,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum};
+use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 
 use crate::burnchains::affirmation::AffirmationMap;
@@ -63,16 +63,23 @@ use crate::net::{
 };
 use crate::util_lib::db::Error as DBError;
 
-/// This enum is used to supply a `reason_code` for validation
-///  rejection responses. This is serialized as an enum with string
-///  type (in jsonschema terminology).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ValidateRejectCode {
-    BadBlockHash,
-    BadTransaction,
-    InvalidBlock,
-    ChainstateError,
-    UnknownParent,
+// This enum is used to supply a `reason_code` for validation
+//  rejection responses. This is serialized as an enum with string
+//  type (in jsonschema terminology).
+define_u8_enum![ValidateRejectCode {
+    BadBlockHash = 0,
+    BadTransaction = 1,
+    InvalidBlock = 2,
+    ChainstateError = 3,
+    UnknownParent = 4
+}];
+
+impl TryFrom<u8> for ValidateRejectCode {
+    type Error = CodecError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::from_u8(value)
+            .ok_or_else(|| CodecError::DeserializeError(format!("Unknown type prefix: {value}")))
+    }
 }
 
 fn hex_ser_block<S: serde::Serializer>(b: &NakamotoBlock, s: S) -> Result<S::Ok, S::Error> {
@@ -90,8 +97,7 @@ fn hex_deser_block<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NakamotoBlo
 ///  that the stacks-node thinks should be rejected.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateReject {
-    #[serde(serialize_with = "hex_ser_block", deserialize_with = "hex_deser_block")]
-    pub block: NakamotoBlock,
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub reason: String,
     pub reason_code: ValidateRejectCode,
 }
@@ -119,8 +125,7 @@ where
 ///  that the stacks-node thinks is acceptable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockValidateOk {
-    #[serde(serialize_with = "hex_ser_block", deserialize_with = "hex_deser_block")]
-    pub block: NakamotoBlock,
+    pub signer_signature_hash: Sha512Trunc256Sum,
     pub cost: ExecutionCost,
     pub size: u64,
 }
@@ -166,7 +171,7 @@ impl NakamotoBlockProposal {
                 let result =
                     self.validate(&sortdb, &mut chainstate)
                         .map_err(|reason| BlockValidateReject {
-                            block: self.block.clone(),
+                            signer_signature_hash: self.block.header.signer_signature_hash(),
                             reason_code: reason.reason_code,
                             reason: reason.reason,
                         });
@@ -286,7 +291,7 @@ impl NakamotoBlockProposal {
 
         let mut block = builder.mine_nakamoto_block(&mut tenure_tx);
         let size = builder.get_bytes_so_far();
-        let cost = builder.tenure_finish(tenure_tx);
+        let cost = builder.tenure_finish(tenure_tx)?;
 
         // Clone signatures from block proposal
         // These have already been validated by `validate_nakamoto_block_burnchain()``
@@ -326,7 +331,11 @@ impl NakamotoBlockProposal {
             })
         );
 
-        Ok(BlockValidateOk { block, cost, size })
+        Ok(BlockValidateOk {
+            signer_signature_hash: block.header.signer_signature_hash(),
+            cost,
+            size,
+        })
     }
 }
 

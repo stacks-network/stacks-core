@@ -180,7 +180,7 @@ impl RPCPoxInfoData {
             .map_err(|_| NetError::NotFoundError)?;
 
         let res = match data {
-            Some(Ok(res)) => res.expect_result_ok().expect_tuple(),
+            Some(Ok(res)) => res.expect_result_ok()?.expect_tuple()?,
             _ => return Err(NetError::DBError(DBError::NotFoundError)),
         };
 
@@ -188,37 +188,37 @@ impl RPCPoxInfoData {
             .get("first-burnchain-block-height")
             .expect(&format!("FATAL: no 'first-burnchain-block-height'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let min_stacking_increment_ustx = res
             .get("min-amount-ustx")
             .expect(&format!("FATAL: no 'min-amount-ustx'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let prepare_cycle_length = res
             .get("prepare-cycle-length")
             .expect(&format!("FATAL: no 'prepare-cycle-length'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let reward_cycle_id = res
             .get("reward-cycle-id")
             .expect(&format!("FATAL: no 'reward-cycle-id'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let reward_cycle_length = res
             .get("reward-cycle-length")
             .expect(&format!("FATAL: no 'reward-cycle-length'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let total_liquid_supply_ustx = res
             .get("total-liquid-supply-ustx")
             .expect(&format!("FATAL: no 'total-liquid-supply-ustx'"))
             .to_owned()
-            .expect_u128() as u64;
+            .expect_u128()? as u64;
 
         let has_rejection_data = pox_contract_name == POX_1_NAME
             || pox_contract_name == POX_2_NAME
@@ -229,13 +229,13 @@ impl RPCPoxInfoData {
                 .get("rejection-fraction")
                 .expect(&format!("FATAL: no 'rejection-fraction'"))
                 .to_owned()
-                .expect_u128() as u64;
+                .expect_u128()? as u64;
 
             let current_rejection_votes = res
                 .get("current-rejection-votes")
                 .expect(&format!("FATAL: no 'current-rejection-votes'"))
                 .to_owned()
-                .expect_u128() as u64;
+                .expect_u128()? as u64;
 
             let total_required = (total_liquid_supply_ustx as u128 / 100)
                 .checked_mul(rejection_fraction as u128)

@@ -58,6 +58,7 @@ wsts = {workspace = true}
 rand_core = {workspace = true}
 p256k1 = "5.5.0"
 clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git" }
+hashbrown = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

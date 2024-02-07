@@ -183,9 +183,9 @@ impl ThresholdSignature {
         self.0.verify(public_key, msg)
     }
 
-    /// Create mock data for testing. Not valid data
-    // TODO: `mock()` should be updated to `empty()` and rustdocs updated
-    pub fn mock() -> Self {
+    /// Create an empty/null signature. This is not valid data, but it is used
+    ///  as a placeholder in the header during mining.
+    pub fn empty() -> Self {
         Self(Secp256k1Signature {
             R: Secp256k1Point::G(),
             z: Secp256k1Scalar::new(),
@@ -201,9 +201,7 @@ impl StacksMessageCodec for TenureChangePayload {
         write_next(fd, &self.previous_tenure_end)?;
         write_next(fd, &self.previous_tenure_blocks)?;
         write_next(fd, &self.cause)?;
-        write_next(fd, &self.pubkey_hash)?;
-        write_next(fd, &self.signature)?;
-        write_next(fd, &self.signers)
+        write_next(fd, &self.pubkey_hash)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
@@ -215,8 +213,6 @@ impl StacksMessageCodec for TenureChangePayload {
             previous_tenure_blocks: read_next(fd)?,
             cause: read_next(fd)?,
             pubkey_hash: read_next(fd)?,
-            signature: read_next(fd)?,
-            signers: read_next(fd)?,
         })
     }
 }
@@ -3782,8 +3778,6 @@ mod test {
                 previous_tenure_blocks: 0,
                 cause: TenureChangeCause::BlockFound,
                 pubkey_hash: Hash160([0x00; 20]),
-                signature: ThresholdSignature::mock(),
-                signers: vec![],
             }),
         );
 

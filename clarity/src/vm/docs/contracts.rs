@@ -48,6 +48,7 @@ pub struct ContractSupportDocs {
     pub skip_func_display: HashSet<&'static str>,
 }
 
+#[allow(clippy::expect_used)]
 pub fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -> FunctionRef {
     let input_type = get_input_type_string(func_type);
     let output_type = get_output_type_string(func_type);
@@ -63,6 +64,7 @@ pub fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &st
 }
 
 #[cfg(feature = "sqlite")]
+#[allow(clippy::expect_used)]
 fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
     let to_eval = format!("{}\n{}", contract_content, var_name);
     doc_execute(&to_eval)
@@ -98,6 +100,7 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
 }
 
 #[cfg(feature = "sqlite")]
+#[allow(clippy::expect_used)]
 pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractRef {
     let (_, contract_analysis) =
         mem_type_check(content, ClarityVersion::latest(), StacksEpochId::latest())
@@ -116,7 +119,7 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
             let description = support_docs
                 .descriptions
                 .get(func_name.as_str())
-                .unwrap_or_else(|| panic!("BUG: no description for {}", func_name.as_str()));
+                .expect(&format!("BUG: no description for {}", func_name.as_str()));
             make_func_ref(func_name, func_type, description)
         })
         .collect();
@@ -128,7 +131,7 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
             let description = support_docs
                 .descriptions
                 .get(func_name.as_str())
-                .unwrap_or_else(|| panic!("BUG: no description for {}", func_name.as_str()));
+                .expect(&format!("BUG: no description for {}", func_name.as_str()));
             make_func_ref(func_name, func_type, description)
         })
         .collect();
@@ -148,7 +151,8 @@ pub fn make_docs(content: &str, support_docs: &ContractSupportDocs) -> ContractR
     let ecode_result = doc_execute(&ecode_to_eval)
         .expect("BUG: failed to evaluate contract for constant value")
         .expect("BUG: failed to return constant value")
-        .expect_tuple();
+        .expect_tuple()
+        .expect("BUG: failed to build tuple");
 
     let error_codes = variable_types
         .iter()
