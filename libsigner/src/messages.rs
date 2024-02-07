@@ -35,6 +35,7 @@ use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
 };
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
@@ -52,26 +53,21 @@ use wsts::state_machine::signer;
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
 
-/// Temporary placeholder for the number of slots allocated to a stacker-db writer. This will be retrieved from the stacker-db instance in the future
-/// See: https://github.com/stacks-network/stacks-blockchain/issues/3921
-/// Is equal to the number of message types
-pub const SIGNER_SLOTS_PER_USER: u32 = 12;
-
 // The slot IDS for each message type
-const DKG_BEGIN_SLOT_ID: u32 = 0;
-const DKG_PRIVATE_BEGIN_SLOT_ID: u32 = 1;
-const DKG_END_BEGIN_SLOT_ID: u32 = 2;
-const DKG_END_SLOT_ID: u32 = 3;
-const DKG_PUBLIC_SHARES_SLOT_ID: u32 = 4;
-const DKG_PRIVATE_SHARES_SLOT_ID: u32 = 5;
-const NONCE_REQUEST_SLOT_ID: u32 = 6;
-const NONCE_RESPONSE_SLOT_ID: u32 = 7;
-const SIGNATURE_SHARE_REQUEST_SLOT_ID: u32 = 8;
-const SIGNATURE_SHARE_RESPONSE_SLOT_ID: u32 = 9;
+const DKG_BEGIN_MSG_ID: u32 = 0;
+const DKG_PRIVATE_BEGIN_MSG_ID: u32 = 1;
+const DKG_END_BEGIN_MSG_ID: u32 = 2;
+const DKG_END_MSG_ID: u32 = 3;
+const DKG_PUBLIC_SHARES_MSG_ID: u32 = 4;
+const DKG_PRIVATE_SHARES_MSG_ID: u32 = 5;
+const NONCE_REQUEST_MSG_ID: u32 = 6;
+const NONCE_RESPONSE_MSG_ID: u32 = 7;
+const SIGNATURE_SHARE_REQUEST_MSG_ID: u32 = 8;
+const SIGNATURE_SHARE_RESPONSE_MSG_ID: u32 = 9;
 /// The slot ID for the block response for miners to observe
-pub const BLOCK_SLOT_ID: u32 = 10;
+pub const BLOCK_MSG_ID: u32 = 10;
 /// The slot ID for the transactions list for miners and signers to observe
-pub const TRANSACTIONS_SLOT_ID: u32 = 11;
+pub const TRANSACTIONS_MSG_ID: u32 = 11;
 
 define_u8_enum!(SignerMessageTypePrefix {
     BlockResponse = 0,
@@ -182,19 +178,19 @@ impl SignerMessage {
     pub fn msg_id(&self) -> u32 {
         let msg_id = match self {
             Self::Packet(packet) => match packet.msg {
-                Message::DkgBegin(_) => DKG_BEGIN_SLOT_ID,
-                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_SLOT_ID,
-                Message::DkgEndBegin(_) => DKG_END_BEGIN_SLOT_ID,
-                Message::DkgEnd(_) => DKG_END_SLOT_ID,
-                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_SLOT_ID,
-                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_SLOT_ID,
-                Message::NonceRequest(_) => NONCE_REQUEST_SLOT_ID,
-                Message::NonceResponse(_) => NONCE_RESPONSE_SLOT_ID,
-                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_SLOT_ID,
-                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_SLOT_ID,
+                Message::DkgBegin(_) => DKG_BEGIN_MSG_ID,
+                Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_MSG_ID,
+                Message::DkgEndBegin(_) => DKG_END_BEGIN_MSG_ID,
+                Message::DkgEnd(_) => DKG_END_MSG_ID,
+                Message::DkgPublicShares(_) => DKG_PUBLIC_SHARES_MSG_ID,
+                Message::DkgPrivateShares(_) => DKG_PRIVATE_SHARES_MSG_ID,
+                Message::NonceRequest(_) => NONCE_REQUEST_MSG_ID,
+                Message::NonceResponse(_) => NONCE_RESPONSE_MSG_ID,
+                Message::SignatureShareRequest(_) => SIGNATURE_SHARE_REQUEST_MSG_ID,
+                Message::SignatureShareResponse(_) => SIGNATURE_SHARE_RESPONSE_MSG_ID,
             },
-            Self::BlockResponse(_) => BLOCK_SLOT_ID,
-            Self::Transactions(_) => TRANSACTIONS_SLOT_ID,
+            Self::BlockResponse(_) => BLOCK_MSG_ID,
+            Self::Transactions(_) => TRANSACTIONS_MSG_ID,
         };
         msg_id
     }
