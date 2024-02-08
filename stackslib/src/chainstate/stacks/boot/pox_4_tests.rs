@@ -1455,7 +1455,7 @@ fn verify_signer_key_sig(
     latest_block: &StacksBlockId,
     reward_cycle: u128,
     period: u128,
-    topic: &str,
+    topic: &Pox4SignatureTopic,
 ) -> Value {
     let result: Value = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
         chainstate
@@ -1473,7 +1473,7 @@ fn verify_signer_key_sig(
                                 "(verify-signer-key-sig {} u{} \"{}\" u{} 0x{} 0x{})",
                                 Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()),
                                 reward_cycle,
-                                topic,
+                                topic.get_name_str(),
                                 period,
                                 to_hex(&signature),
                                 signing_key.to_hex(),
@@ -1555,7 +1555,7 @@ fn verify_signer_key_signatures() {
         &latest_block,
         reward_cycle,
         period,
-        topic.as_str(),
+        &topic,
     );
     assert_eq!(result, expected_error);
 
@@ -1571,7 +1571,7 @@ fn verify_signer_key_signatures() {
         &latest_block,
         reward_cycle,
         period,
-        topic.as_str(),
+        &topic,
     );
 
     assert_eq!(result, expected_error);
@@ -1588,7 +1588,7 @@ fn verify_signer_key_signatures() {
         &latest_block,
         reward_cycle,
         period,
-        topic.as_str(),
+        &topic,
     );
 
     assert_eq!(result, expected_error);
@@ -1609,7 +1609,7 @@ fn verify_signer_key_signatures() {
         &latest_block,
         reward_cycle,
         period,
-        Pox4SignatureTopic::StackExtend.as_str(), // different
+        &Pox4SignatureTopic::StackExtend, // different
     );
 
     assert_eq!(result, expected_error);
@@ -1624,7 +1624,7 @@ fn verify_signer_key_signatures() {
         &latest_block,
         reward_cycle,
         period + 1, // different
-        topic.as_str(),
+        &topic,
     );
 
     assert_eq!(result, expected_error);
@@ -1641,7 +1641,7 @@ fn verify_signer_key_signatures() {
         &latest_block,
         reward_cycle,
         period,
-        topic.as_str(),
+        &topic,
     );
 
     assert_eq!(result, Value::okay_true());

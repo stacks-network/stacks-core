@@ -82,20 +82,15 @@ pub mod pox4 {
         make_structured_data_domain, structured_data_message_hash, MessageSignature, PoxAddress,
         PrivateKey, Sha256Sum, StacksPrivateKey, TupleData, Value,
     };
-    pub enum Pox4SignatureTopic {
+    define_named_enum!(Pox4SignatureTopic {
+        StackStx("stack-stx"),
+        AggregationCommit("agg-commit"),
+        StackExtend("stack-extend"),
+    });
+    pub enum Pox4SignatureTopicOld {
         StackStx,
         AggregationCommit,
         StackExtend,
-    }
-
-    impl Pox4SignatureTopic {
-        pub fn as_str(&self) -> &'static str {
-            match self {
-                Pox4SignatureTopic::StackStx => "stack-stx",
-                Pox4SignatureTopic::AggregationCommit => "agg-commit",
-                Pox4SignatureTopic::StackExtend => "stack-extend",
-            }
-        }
     }
 
     pub fn make_pox_4_signed_data_domain(chain_id: u32) -> Value {
@@ -120,7 +115,7 @@ pub mod pox4 {
                 ("period".into(), Value::UInt(period)),
                 (
                     "topic".into(),
-                    Value::string_ascii_from_bytes(topic.as_str().into()).unwrap(),
+                    Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
                 ),
             ])
             .unwrap(),
