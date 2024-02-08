@@ -393,9 +393,12 @@ fn main() {
 
 #[cfg(test)]
 pub mod tests {
-
-    use blockstack_lib::util_lib::signed_structured_data::pox4::{
-        make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
+    use blockstack_lib::{
+        chainstate::stacks::address::PoxAddress,
+        chainstate::stacks::boot::POX_4_CODE,
+        util_lib::signed_structured_data::pox4::{
+            make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
+        },
     };
     use stacks_common::{
         consts::CHAIN_ID_TESTNET, types::PublicKey, util::secp256k1::Secp256k1PublicKey,
@@ -404,6 +407,97 @@ pub mod tests {
 
     use super::handle_generate_stacking_signature;
     use crate::{Config, GenerateStackingSignatureArgs};
+    use clarity::vm::{execute_v2, Value};
+
+    use super::*;
+
+    fn _get_signer_message_sig_function_str() -> String {
+        let start = 687 - 1;
+        let end = 701;
+        let func = &*POX_4_CODE
+            .lines()
+            .skip(start)
+            .take(end - start + 1)
+            .collect::<String>();
+        func.to_string()
+    }
+
+    fn call_verify_signer_sig(
+        // sim: &mut ClarityTestSim,
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        topic: &Pox4SignatureTopic,
+        lock_period: u128,
+        public_key: &Secp256k1PublicKey,
+        signature: Vec<u8>,
+    ) -> bool {
+        // let func_body = get_signer_message_sig_function_str();
+        let program = format!(
+            r#"
+            {}
+            (verify-signer-key-sig {} u{} "{}" u{} 0x{} 0x{})
+        "#,
+            &*POX_4_CODE,                                               //s
+            Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p
+            reward_cycle,
+            topic.get_name_str(),
+            lock_period,
+            to_hex(signature.as_slice()),
+            to_hex(public_key.to_bytes_compressed().as_slice()),
+        );
+        let result = execute_v2(&program)
+            .expect("FATAL: could not execute program")
+            .expect("Expected result")
+            .expect_result_ok()
+            .expect("Expected ok result")
+            .expect_bool()
+            .expect("Expected buff");
+        result
+    }
+
+    #[test]
+    fn test_stacking_signature_with_pox_code() {
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let btc_address = "bc1p8vg588hldsnv4a558apet4e9ff3pr4awhqj2hy8gy6x2yxzjpmqsvvpta4";
+        let mut args = GenerateStackingSignatureArgs {
+            config: "./src/tests/conf/signer-0.toml".into(),
+            pox_address: parse_pox_addr(btc_address).unwrap(),
+            reward_cycle: 6,
+            method: Pox4SignatureTopic::StackStx.into(),
+            period: 12,
+        };
+
+        let signature = handle_generate_stacking_signature(args.clone(), false);
+        let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
+
+        let valid = call_verify_signer_sig(
+            &args.pox_address,
+            args.reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            args.period.into(),
+            &public_key,
+            signature.to_rsv(),
+        );
+        assert!(valid);
+
+        // change up some args
+        args.period = 6;
+        args.method = Pox4SignatureTopic::AggregationCommit.into();
+        args.reward_cycle = 7;
+
+        let signature = handle_generate_stacking_signature(args.clone(), false);
+        let public_key = Secp256k1PublicKey::from_private(&config.stacks_private_key);
+
+        let valid = call_verify_signer_sig(
+            &args.pox_address,
+            args.reward_cycle.into(),
+            &Pox4SignatureTopic::AggregationCommit,
+            args.period.into(),
+            &public_key,
+            signature.to_rsv(),
+        );
+        assert!(valid);
+    }
 
     #[test]
     fn test_generate_stacking_signature() {
