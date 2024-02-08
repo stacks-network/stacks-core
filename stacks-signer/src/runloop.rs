@@ -80,17 +80,12 @@ impl RunLoop {
     fn get_reward_cycle_config(
         &mut self,
         reward_cycle: u64,
-    ) -> Result<Option<RewardCycleConfig>, backoff::Error<ClientError>> {
-        let reward_set_calculated = self
-            .stacks_client
-            .reward_set_calculated(reward_cycle)
-            .map_err(backoff::Error::transient)?;
+    ) -> Result<Option<RewardCycleConfig>, ClientError> {
+        let reward_set_calculated = self.stacks_client.reward_set_calculated(reward_cycle)?;
         if !reward_set_calculated {
             // Must weight for the reward set calculation to complete
             // Accounts for Pre nakamoto by simply using the second block of a prepare phase as the criteria
-            return Err(backoff::Error::transient(
-                ClientError::RewardSetNotYetCalculated(reward_cycle),
-            ));
+            return Err(ClientError::RewardSetNotYetCalculated(reward_cycle));
         }
         let current_addr = self.stacks_client.get_signer_address();
         let mut current_signer_id = None;
@@ -102,8 +97,7 @@ impl RunLoop {
         // Get the signer writers from the stacker-db to find the signer slot id
         let Some(signer_slot_id) = self
             .stacks_client
-            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)
-            .map_err(backoff::Error::transient)?
+            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?
             .iter()
             .position(|(address, _)| address == current_addr)
             .map(|pos| u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
@@ -115,11 +109,7 @@ impl RunLoop {
         };
 
         // We can only register for a reward cycle if a reward set exists. We know that it should exist due to our earlier check for reward_set_calculated
-        let Some(reward_set_signers) = self
-            .stacks_client
-            .get_reward_set(reward_cycle)
-            .map_err(backoff::Error::transient)?
-            .signers
+        let Some(reward_set_signers) = self.stacks_client.get_reward_set(reward_cycle)?.signers
         else {
             warn!(
                 "No reward set found for reward cycle {reward_cycle}. Must not be a valid Nakamoto reward cycle."
@@ -138,9 +128,9 @@ impl RunLoop {
         for (i, entry) in reward_set_signers.iter().enumerate() {
             let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
             let ecdsa_public_key = ecdsa::PublicKey::try_from(entry.signing_key.as_slice()).map_err(|e| {
-                backoff::Error::transient(ClientError::CorruptedRewardSet(format!(
+                ClientError::CorruptedRewardSet(format!(
                         "Reward cycle {reward_cycle} failed to convert signing key to ecdsa::PublicKey: {e}"
-                    )))
+                    ))
                 })?;
             let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
                 .map_err(|e| {
@@ -149,9 +139,9 @@ impl RunLoop {
                     )))
                 })?;
             let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice()).map_err(|e| {
-                    backoff::Error::transient(ClientError::CorruptedRewardSet(format!(
+                    ClientError::CorruptedRewardSet(format!(
                         "Reward cycle {reward_cycle} failed to convert signing key to StacksPublicKey: {e}"
-                    )))
+                    ))
                 })?;
 
             let stacks_address =
@@ -191,10 +181,7 @@ impl RunLoop {
     }
 
     /// Refresh signer configuration for a specific reward cycle
-    fn refresh_signer_config(
-        &mut self,
-        reward_cycle: u64,
-    ) -> Result<(), backoff::Error<ClientError>> {
+    fn refresh_signer_config(&mut self, reward_cycle: u64) -> Result<(), ClientError> {
         let reward_index = reward_cycle % 2;
         let mut needs_refresh = false;
         if let Some(stacks_signer) = self.stacks_signers.get_mut(&reward_index) {
@@ -234,9 +221,39 @@ impl RunLoop {
                 .stacks_client
                 .get_current_reward_cycle()
                 .map_err(backoff::Error::transient)?;
-            let next_reward_cycle = current_reward_cycle.wrapping_add(1);
-            self.refresh_signer_config(current_reward_cycle)?;
-            self.refresh_signer_config(next_reward_cycle)?;
+            let next_reward_cycle = current_reward_cycle.saturating_add(1);
+            match self.refresh_signer_config(current_reward_cycle) {
+                Ok(_) => {
+                    debug!("Signer is registered for the current reward cycle {current_reward_cycle}. Checking next reward cycle...");
+                }
+                Err(e) => match e {
+                    ClientError::NotRegistered => {
+                        debug!("Signer is NOT registered for the current reward cycle {current_reward_cycle}.");
+                    }
+                    ClientError::RewardSetNotYetCalculated(_) => {
+                        debug!("Current reward cycle {current_reward_cycle} reward set is not yet calculated. Let's retry...");
+                        return Err(backoff::Error::transient(e));
+                    }
+                    e => return Err(backoff::Error::transient(e)),
+                },
+            }
+            let next_result = self.refresh_signer_config(next_reward_cycle);
+            match next_result {
+                Ok(_) => {
+                    debug!("Signer is registered for the next reward cycle {next_reward_cycle}");
+                }
+                Err(ClientError::RewardSetNotYetCalculated(_)) => {
+                    debug!(
+                        "Next reward cycle {next_reward_cycle} reward set is not yet calculated."
+                    );
+                }
+                Err(ClientError::NotRegistered) => {
+                    debug!(
+                        "Signer is NOT registered for the next reward cycle {next_reward_cycle}."
+                    );
+                }
+                Err(e) => Err(e)?,
+            }
             for stacks_signer in self.stacks_signers.values_mut() {
                 debug!("Signer #{}: Checking DKG...", stacks_signer.signer_id);
                 stacks_signer
