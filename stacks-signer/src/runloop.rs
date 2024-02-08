@@ -120,7 +120,7 @@ impl RunLoop {
         let mut weight_end = 1;
         // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
         let mut coordinator_key_ids = HashMap::with_capacity(4000);
-        let mut signer_key_ids = Vec::with_capacity(4000);
+        let mut signer_key_ids = HashMap::with_capacity(reward_set_signers.len());
         let mut signer_addresses = HashSet::with_capacity(reward_set_signers.len());
         let mut public_keys = PublicKeys {
             signers: HashMap::with_capacity(reward_set_signers.len()),
@@ -162,7 +162,10 @@ impl RunLoop {
                     .entry(signer_id)
                     .or_insert(HashSet::with_capacity(entry.slots as usize))
                     .insert(key_id);
-                signer_key_ids.push(key_id);
+                signer_key_ids
+                    .entry(signer_id)
+                    .or_insert(Vec::with_capacity(entry.slots as usize))
+                    .push(key_id);
             }
         }
         let Some(signer_id) = current_signer_id else {
@@ -172,12 +175,14 @@ impl RunLoop {
         debug!(
             "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
         );
+        let key_ids = signer_key_ids.get(&signer_id).cloned().unwrap_or_default();
         Ok(Some(RewardCycleConfig {
             reward_cycle,
             signer_id,
             signer_slot_id,
             signer_set,
             signer_addresses,
+            key_ids,
             coordinator_key_ids,
             signer_key_ids,
             public_keys,
