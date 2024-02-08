@@ -127,8 +127,6 @@ pub struct Signer {
     pub commands: VecDeque<Command>,
     /// The stackerdb client
     pub stackerdb: StackerDB,
-    /// The stacks client
-    pub stacks_client: StacksClient,
     /// Whether the signer is a mainnet signer or not
     pub is_mainnet: bool,
     /// The signer id
@@ -143,7 +141,6 @@ impl Signer {
     /// Create a new stacks signer
     pub fn from_configs(config: &GlobalConfig, reward_cycle_config: RewardCycleConfig) -> Self {
         let stackerdb = StackerDB::from_configs(config, &reward_cycle_config);
-        let stacks_client = StacksClient::from(config);
 
         let num_signers = u32::try_from(reward_cycle_config.public_keys.signers.len())
             .expect("FATAL: Too many registered signers to fit in a u32");
@@ -191,8 +188,7 @@ impl Signer {
             blocks: HashMap::new(),
             commands: VecDeque::new(),
             stackerdb,
-            stacks_client,
-            is_mainnet: config.network.is_mainnet(), // will be updated on .initialize()
+            is_mainnet: config.network.is_mainnet(),
             signer_id: reward_cycle_config.signer_id,
             signer_addresses: reward_cycle_config.signer_addresses,
             reward_cycle: reward_cycle_config.reward_cycle,
@@ -202,16 +198,6 @@ impl Signer {
     /// Execute the given command and update state accordingly
     /// Returns true when it is successfully executed, else false
     fn execute_command(&mut self, command: &Command) -> bool {
-        let (coordinator_id, _) = self
-            .stacks_client
-            .calculate_coordinator(&self.signing_round.public_keys);
-        if coordinator_id != self.signer_id {
-            warn!(
-                "Signer #{}: Not the coordinator. Ignoring command {command:?}.",
-                self.signer_id
-            );
-            return false;
-        }
         match command {
             Command::Dkg => {
                 info!("Signer #{}: Starting DKG", self.signer_id);
@@ -278,9 +264,19 @@ impl Signer {
     }
 
     /// Attempt to process the next command in the queue, and update state accordingly
-    pub fn process_next_command(&mut self) {
+    pub fn process_next_command(&mut self, stacks_client: &StacksClient) {
         match self.state {
             State::Idle => {
+                let (coordinator_id, _) =
+                    stacks_client.calculate_coordinator(&self.signing_round.public_keys);
+                if coordinator_id != self.signer_id {
+                    warn!(
+                        "Signer #{}: Not the coordinator. Will not process any commands...",
+                        self.signer_id
+                    );
+                    return;
+                }
+
                 if let Some(command) = self.commands.pop_front() {
                     while !self.execute_command(&command) {
                         warn!(
@@ -316,6 +312,7 @@ impl Signer {
     /// Handle the block validate response returned from our prior calls to submit a block for validation
     fn handle_block_validate_response(
         &mut self,
+        stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
         res: Sender<Vec<OperationResult>>,
     ) {
@@ -328,7 +325,7 @@ impl Signer {
                     debug!("Received a block validate response for a block we have not seen before. Ignoring...");
                     return;
                 };
-                let is_valid = self.verify_transactions(&block_info.block);
+                let is_valid = self.verify_transactions(stacks_client, &block_info.block);
                 block_info.valid = Some(is_valid);
                 info!(
                     "Signer #{}: Treating block validation for block {} as valid: {:?}",
@@ -374,11 +371,10 @@ impl Signer {
                 msg: Message::NonceRequest(nonce_request),
                 sig: vec![],
             };
-            self.handle_packets(res, &[packet]);
+            self.handle_packets(stacks_client, res, &[packet]);
         } else {
-            let (coordinator_id, _) = self
-                .stacks_client
-                .calculate_coordinator(&self.signing_round.public_keys);
+            let (coordinator_id, _) =
+                stacks_client.calculate_coordinator(&self.signing_round.public_keys);
             if block_info.valid.unwrap_or(false)
                 && !block_info.signed_over
                 && coordinator_id == self.signer_id
@@ -409,12 +405,12 @@ impl Signer {
     /// Handle signer messages submitted to signers stackerdb
     fn handle_signer_messages(
         &mut self,
+        stacks_client: &StacksClient,
         res: Sender<Vec<OperationResult>>,
         messages: &[SignerMessage],
     ) {
-        let (coordinator_id, coordinator_public_key) = self
-            .stacks_client
-            .calculate_coordinator(&self.signing_round.public_keys);
+        let (coordinator_id, coordinator_public_key) =
+            stacks_client.calculate_coordinator(&self.signing_round.public_keys);
         debug!(
             "Signer #{}: coordinator is signer #{} public key {}",
             self.signer_id, coordinator_id, &coordinator_public_key
@@ -424,15 +420,15 @@ impl Signer {
             .filter_map(|msg| match msg {
                 SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
                 SignerMessage::Packet(packet) => {
-                    self.verify_packet(packet.clone(), &coordinator_public_key)
+                    self.verify_packet(stacks_client, packet.clone(), &coordinator_public_key)
                 }
             })
             .collect();
-        self.handle_packets(res, &packets);
+        self.handle_packets(stacks_client, res, &packets);
     }
 
     /// Handle proposed blocks submitted by the miners to stackerdb
-    fn handle_proposed_blocks(&mut self, blocks: &[NakamotoBlock]) {
+    fn handle_proposed_blocks(&mut self, stacks_client: &StacksClient, blocks: &[NakamotoBlock]) {
         for block in blocks {
             // Store the block in our cache
             self.blocks.insert(
@@ -440,7 +436,7 @@ impl Signer {
                 BlockInfo::new(block.clone()),
             );
             // Submit the block for validation
-            self.stacks_client
+            stacks_client
                 .submit_block_for_validation(block.clone())
                 .unwrap_or_else(|e| {
                     warn!("Failed to submit block for validation: {e:?}");
@@ -450,7 +446,12 @@ impl Signer {
 
     /// Process inbound packets as both a signer and a coordinator
     /// Will send outbound packets and operation results as appropriate
-    fn handle_packets(&mut self, res: Sender<Vec<OperationResult>>, packets: &[Packet]) {
+    fn handle_packets(
+        &mut self,
+        stacks_client: &StacksClient,
+        res: Sender<Vec<OperationResult>>,
+        packets: &[Packet],
+    ) {
         let signer_outbound_messages = self
             .signing_round
             .process_inbound_messages(packets)
@@ -472,7 +473,7 @@ impl Signer {
             // We have finished a signing or DKG round, either successfully or due to error.
             // Regardless of the why, update our state to Idle as we should not expect the operation to continue.
             self.state = State::Idle;
-            self.process_operation_results(&operation_results);
+            self.process_operation_results(stacks_client, &operation_results);
             self.send_operation_results(res, operation_results);
         }
         self.send_outbound_messages(signer_outbound_messages);
@@ -533,7 +534,11 @@ impl Signer {
     /// If the request is for a block, we will update the request message
     /// as either a hash indicating a vote no or the signature hash indicating a vote yes
     /// Returns whether the request is valid or not
-    fn validate_nonce_request(&mut self, nonce_request: &mut NonceRequest) -> bool {
+    fn validate_nonce_request(
+        &mut self,
+        stacks_client: &StacksClient,
+        nonce_request: &mut NonceRequest,
+    ) -> bool {
         let Some(block) = read_next::<NakamotoBlock, _>(&mut &nonce_request.message[..]).ok()
         else {
             // We currently reject anything that is not a block
@@ -552,7 +557,7 @@ impl Signer {
                 signer_signature_hash,
                 BlockInfo::new_with_request(block.clone(), nonce_request.clone()),
             );
-            self.stacks_client
+            stacks_client
                 .submit_block_for_validation(block)
                 .unwrap_or_else(|e| {
                     warn!(
@@ -575,8 +580,8 @@ impl Signer {
     }
 
     /// Verify the transactions in a block are as expected
-    fn verify_transactions(&mut self, block: &NakamotoBlock) -> bool {
-        if let Ok(expected_transactions) = self.get_expected_transactions() {
+    fn verify_transactions(&mut self, stacks_client: &StacksClient, block: &NakamotoBlock) -> bool {
+        if let Ok(expected_transactions) = self.get_expected_transactions(stacks_client) {
             //It might be worth building a hashset of the blocks' txids and checking that against the expected transaction's txid.
             let block_tx_hashset = block.txs.iter().map(|tx| tx.txid()).collect::<HashSet<_>>();
             // Ensure the block contains the transactions we expect
@@ -644,7 +649,10 @@ impl Signer {
     }
 
     /// Get the transactions we expect to see in the next block
-    fn get_expected_transactions(&mut self) -> Result<Vec<StacksTransaction>, ClientError> {
+    fn get_expected_transactions(
+        &mut self,
+        stacks_client: &StacksClient,
+    ) -> Result<Vec<StacksTransaction>, ClientError> {
         let signer_ids = self
             .signing_round
             .public_keys
@@ -658,7 +666,7 @@ impl Signer {
                     // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
                     let origin_address = transaction.origin_address();
                     let origin_nonce = transaction.get_origin_nonce();
-                    let Ok(account_nonce) = self.stacks_client.get_account_nonce(&origin_address) else {
+                    let Ok(account_nonce) = stacks_client.get_account_nonce(&origin_address) else {
                         warn!("Signer #{}: Unable to get account for address: {origin_address}. Ignoring it for this block...", self.signer_id);
                         return None;
                     };
@@ -734,6 +742,7 @@ impl Signer {
     /// agreed upon and to support the case where the signer wishes to reject a block by voting no
     fn verify_packet(
         &mut self,
+        stacks_client: &StacksClient,
         mut packet: Packet,
         coordinator_public_key: &PublicKey,
     ) -> Option<Packet> {
@@ -746,7 +755,7 @@ impl Signer {
                     }
                 }
                 Message::NonceRequest(request) => {
-                    if !self.validate_nonce_request(request) {
+                    if !self.validate_nonce_request(stacks_client, request) {
                         return None;
                     }
                 }
@@ -766,7 +775,11 @@ impl Signer {
 
     /// Processes the operation results, broadcasting block acceptance or rejection messages
     /// and DKG vote results accordingly
-    fn process_operation_results(&mut self, operation_results: &[OperationResult]) {
+    fn process_operation_results(
+        &mut self,
+        stacks_client: &StacksClient,
+        operation_results: &[OperationResult],
+    ) {
         for operation_result in operation_results {
             // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
             match operation_result {
@@ -779,8 +792,7 @@ impl Signer {
                 }
                 OperationResult::Dkg(point) => {
                     // Broadcast via traditional methods to the stacks node if we are pre nakamoto or we cannot determine our Epoch
-                    let epoch = self
-                        .stacks_client
+                    let epoch = stacks_client
                         .get_node_epoch()
                         .unwrap_or(EpochId::UnsupportedEpoch);
                     let new_transaction = match epoch {
@@ -791,7 +803,7 @@ impl Signer {
                         EpochId::Epoch25 => {
                             debug!("Signer #{}: Received a DKG result, but are in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
                             match retry_with_exponential_backoff(|| {
-                                self.stacks_client
+                                stacks_client
                                     .cast_vote_for_aggregate_public_key(
                                         self.reward_cycle,
                                         self.stackerdb.get_signer_slot_id(),
@@ -815,7 +827,7 @@ impl Signer {
                         EpochId::Epoch30 => {
                             debug!("Signer #{}: Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.", self.signer_id);
                             match retry_with_exponential_backoff(|| {
-                                self.stacks_client
+                                stacks_client
                                     .build_vote_for_aggregate_public_key(
                                         self.reward_cycle,
                                         self.stackerdb.get_signer_slot_id(),
@@ -842,7 +854,7 @@ impl Signer {
                     let mut new_transactions: Vec<_> = old_transactions.into_iter().filter_map(|transaction|  {
                         let origin_address = transaction.origin_address();
                         let origin_nonce = transaction.get_origin_nonce();
-                        let Ok(account_nonce) = retry_with_exponential_backoff(|| self.stacks_client.get_account_nonce(&origin_address).map_err(backoff::Error::transient)) else {
+                        let Ok(account_nonce) = retry_with_exponential_backoff(|| stacks_client.get_account_nonce(&origin_address).map_err(backoff::Error::transient)) else {
                             warn!("Signer #{}: Unable to get account for address: {origin_address}. Removing {} from our stored transactions.", self.signer_id, transaction.txid());
                             return None;
                         };
@@ -1040,14 +1052,12 @@ impl Signer {
     }
 
     /// Update the DKG for the provided signer info, triggering it if required
-    pub fn update_dkg(&mut self) -> Result<(), ClientError> {
-        debug!("Signer #{}: Checking DKG...", self.signer_id);
+    pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
-        let aggregate_public_key = self.stacks_client.get_aggregate_public_key(reward_cycle)?;
+        let aggregate_public_key = stacks_client.get_aggregate_public_key(reward_cycle)?;
         self.coordinator
             .set_aggregate_public_key(aggregate_public_key);
-        let coordinator_id = self
-            .stacks_client
+        let coordinator_id = stacks_client
             .calculate_coordinator(&self.signing_round.public_keys)
             .0;
         if aggregate_public_key.is_none()
@@ -1069,11 +1079,12 @@ impl Signer {
     /// Process the event
     pub fn process_event(
         &mut self,
+        stacks_client: &StacksClient,
         event: Option<&SignerEvent>,
         res: Sender<Vec<OperationResult>>,
     ) -> Result<(), ClientError> {
         let current_reward_cycle = retry_with_exponential_backoff(|| {
-            self.stacks_client
+            stacks_client
                 .get_current_reward_cycle()
                 .map_err(backoff::Error::transient)
         })?;
@@ -1093,7 +1104,7 @@ impl Signer {
                     "Signer #{}: Received a block proposal result from the stacks node...",
                     self.signer_id
                 );
-                self.handle_block_validate_response(block_validate_response, res)
+                self.handle_block_validate_response(stacks_client, block_validate_response, res)
             }
             Some(SignerEvent::SignerMessages(signer_set, messages)) => {
                 if *signer_set != self.stackerdb.get_signer_set() {
@@ -1105,7 +1116,7 @@ impl Signer {
                     self.signer_id,
                     messages.len()
                 );
-                self.handle_signer_messages(res, messages);
+                self.handle_signer_messages(stacks_client, res, messages);
             }
             Some(SignerEvent::ProposedBlocks(blocks)) => {
                 if current_reward_cycle != self.reward_cycle {
@@ -1118,7 +1129,7 @@ impl Signer {
                     self.signer_id,
                     blocks.len()
                 );
-                self.handle_proposed_blocks(blocks);
+                self.handle_proposed_blocks(stacks_client, blocks);
             }
             Some(SignerEvent::StatusCheck) => {
                 debug!("Signer #{}: Received a status check event.", self.signer_id)
@@ -1171,6 +1182,7 @@ mod tests {
                     .expect("Failed to create public key."),
             ),
         );
+        let stacks_client = StacksClient::from(&config);
         let mut signer = Signer::from_configs(&config, reward_cycle_info);
 
         let signer_private_key = config.stacks_private_key;
@@ -1266,7 +1278,7 @@ mod tests {
         ];
         let num_transactions = transactions.len();
 
-        let h = spawn(move || signer.get_expected_transactions().unwrap());
+        let h = spawn(move || signer.get_expected_transactions(&stacks_client).unwrap());
 
         // Simulate the response to the request for transactions
         let signer_message = SignerMessage::Transactions(transactions);
@@ -1326,6 +1338,7 @@ mod tests {
                     .expect("Failed to create public key."),
             ),
         );
+        let stacks_client = StacksClient::from(&config);
         let mut signer = Signer::from_configs(&config, reward_cycle_info);
 
         let signer_private_key = config.stacks_private_key;
@@ -1380,7 +1393,7 @@ mod tests {
             BlockInfo::new(block.clone()),
         );
 
-        let h = spawn(move || signer.verify_transactions(&block));
+        let h = spawn(move || signer.verify_transactions(&stacks_client, &block));
 
         // Simulate the response to the request for transactions with the expected transaction
         let signer_message = SignerMessage::Transactions(vec![valid_tx]);
