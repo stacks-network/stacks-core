@@ -107,7 +107,7 @@ impl RawRewardSetEntry {
             .expect("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address)");
 
         let reward_address = PoxAddress::try_from_pox_tuple(is_mainnet, &pox_addr_tuple)
-            .expect(&format!("FATAL: not a valid PoX address: {pox_addr_tuple}"));
+            .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {pox_addr_tuple}"));
 
         let total_ustx = tuple_data
             .remove("total-ustx")
@@ -192,10 +192,12 @@ impl NakamotoSigners {
                     ],
                 )?
                 .expect_optional()?
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    index, list_length, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        index, list_length, reward_cycle
+                    )
+                })
                 .expect_tuple()?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
