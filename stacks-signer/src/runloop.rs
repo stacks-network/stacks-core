@@ -118,7 +118,9 @@ impl RunLoop {
         };
 
         let mut weight_end = 1;
-        let mut signer_key_ids = HashMap::with_capacity(4000);
+        // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
+        let mut coordinator_key_ids = HashMap::with_capacity(4000);
+        let mut signer_key_ids = Vec::with_capacity(4000);
         let mut signer_addresses = HashSet::with_capacity(reward_set_signers.len());
         let mut public_keys = PublicKeys {
             signers: HashMap::with_capacity(reward_set_signers.len()),
@@ -134,9 +136,9 @@ impl RunLoop {
                 })?;
             let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
                 .map_err(|e| {
-                    backoff::Error::transient(ClientError::CorruptedRewardSet(format!(
+                    ClientError::CorruptedRewardSet(format!(
                         "Reward cycle {reward_cycle} failed to convert signing key to Point: {e}"
-                    )))
+                    ))
                 })?;
             let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice()).map_err(|e| {
                     ClientError::CorruptedRewardSet(format!(
@@ -156,10 +158,11 @@ impl RunLoop {
             for key_id in weight_start..weight_end {
                 public_keys.key_ids.insert(key_id, ecdsa_public_key);
                 public_keys.signers.insert(signer_id, ecdsa_public_key);
-                signer_key_ids
+                coordinator_key_ids
                     .entry(signer_id)
                     .or_insert(HashSet::with_capacity(entry.slots as usize))
                     .insert(key_id);
+                signer_key_ids.push(key_id);
             }
         }
         let Some(signer_id) = current_signer_id else {
@@ -175,6 +178,7 @@ impl RunLoop {
             signer_slot_id,
             signer_set,
             signer_addresses,
+            coordinator_key_ids,
             signer_key_ids,
             public_keys,
             signer_public_keys,
@@ -256,7 +260,6 @@ impl RunLoop {
                 Err(e) => Err(e)?,
             }
             for stacks_signer in self.stacks_signers.values_mut() {
-                debug!("Signer #{}: Checking DKG...", stacks_signer.signer_id);
                 stacks_signer
                     .update_dkg(&self.stacks_client)
                     .map_err(backoff::Error::transient)?;

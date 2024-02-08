@@ -273,7 +273,8 @@ pub(crate) mod tests {
         let rng = &mut OsRng;
         let num_keys = num_keys / num_signers;
         let remaining_keys = num_keys % num_signers;
-        let mut signer_key_ids = HashMap::new();
+        let mut coordinator_key_ids = HashMap::new();
+        let mut signer_key_ids = vec![];
         let mut addresses = vec![];
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
@@ -300,10 +301,11 @@ pub(crate) mod tests {
                     public_keys.signers.insert(signer_id, signer_key.clone());
                     for k in start_key_id..end_key_id {
                         public_keys.key_ids.insert(k, signer_key);
-                        signer_key_ids
+                        coordinator_key_ids
                             .entry(signer_id)
                             .or_insert(HashSet::new())
                             .insert(k);
+                        signer_key_ids.push(k);
                     }
                     start_key_id = end_key_id;
                     continue;
@@ -317,10 +319,11 @@ pub(crate) mod tests {
             public_keys.signers.insert(signer_id, public_key.clone());
             for k in start_key_id..end_key_id {
                 public_keys.key_ids.insert(k, public_key);
-                signer_key_ids
+                coordinator_key_ids
                     .entry(signer_id)
                     .or_insert(HashSet::new())
                     .insert(k);
+                signer_key_ids.push(k);
             }
             let address = StacksAddress::p2pkh(
                 false,
@@ -334,6 +337,7 @@ pub(crate) mod tests {
             RewardCycleConfig {
                 public_keys,
                 signer_key_ids,
+                coordinator_key_ids,
                 signer_slot_id: 0,
                 signer_id: 0,
                 signer_set,
