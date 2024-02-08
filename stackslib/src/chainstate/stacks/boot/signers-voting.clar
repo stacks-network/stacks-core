@@ -42,11 +42,11 @@
 (define-read-only (get-tally (reward-cycle uint) (round uint) (aggregate-public-key (buff 33)))
     (map-get? tally {reward-cycle: reward-cycle, round: round, aggregate-public-key: aggregate-public-key}))
 
-(define-read-only (get-current-signer-slots (signer-index uint))
+(define-read-only (get-current-signer-weight (signer-index uint))
     (let ((cycle (+ u1 (burn-height-to-reward-cycle burn-block-height))))
-      (get-signer-slots signer-index cycle)))
+      (get-signer-weight signer-index cycle)))
 
-(define-read-only (get-signer-slots (signer-index uint) (reward-cycle uint))
+(define-read-only (get-signer-weight (signer-index uint) (reward-cycle uint))
     (let ((details (unwrap! (try! (contract-call? .signers get-signer-by-index reward-cycle signer-index)) (err (to-uint ERR_INVALID_SIGNER_INDEX)))))
         (asserts! (is-eq (get signer details) tx-sender) (err (to-uint ERR_SIGNER_INDEX_MISMATCH)))
         (ok (get weight details))))
@@ -71,7 +71,7 @@
     (let ((reward-cycle (+ u1 (burn-height-to-reward-cycle burn-block-height)))
             (tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; one slot, one vote
-            (num-slots (try! (get-current-signer-slots signer-index)))
+            (num-slots (try! (get-current-signer-weight signer-index)))
             (new-total (+ num-slots (default-to u0 (map-get? tally tally-key)))))
         (asserts! (is-in-voting-window burn-block-height reward-cycle) (err (to-uint ERR_OUT_OF_VOTING_WINDOW)))
         (asserts! (>= round (default-to u0 (map-get? rounds reward-cycle))) (err (to-uint ERR_OLD_ROUND)))
