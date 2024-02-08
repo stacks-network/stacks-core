@@ -279,26 +279,30 @@ impl StacksClient {
     }
 
     /// Retrieve the last DKG vote round number for the current reward cycle
-    pub fn get_last_round(&self, reward_cycle: u64) -> Result<u64, ClientError> {
+    pub fn get_last_round(&self, reward_cycle: u64) -> Result<Option<u64>, ClientError> {
         debug!("Getting the last DKG vote round of reward cycle {reward_cycle}...");
         let contract_addr = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
         let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
         let function_name = ClarityName::from("get-last-round");
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
-        let last_round = u64::try_from(
-            self.read_only_contract_call(
+        let opt_value = self
+            .read_only_contract_call(
                 &contract_addr,
                 &contract_name,
                 &function_name,
                 function_args,
             )?
-            .expect_result_ok()?
-            .expect_u128()?,
-        )
-        .map_err(|e| {
-            ClientError::MalformedContractData(format!("Failed to convert vote round to u64: {e}"))
-        })?;
-        Ok(last_round)
+            .expect_optional()?;
+        let round = if let Some(value) = opt_value {
+            Some(u64::try_from(value.expect_u128()?).map_err(|e| {
+                ClientError::MalformedContractData(format!(
+                    "Failed to convert vote round to u64: {e}"
+                ))
+            })?)
+        } else {
+            None
+        };
+        Ok(round)
     }
 
     /// Retrieve the vote of the signer for the given round
@@ -431,13 +435,12 @@ impl StacksClient {
     /// Cast a vote for the given aggregate public key by broadcasting it to the mempool
     pub fn cast_vote_for_aggregate_public_key(
         &self,
-        reward_cycle: u64,
         signer_index: u32,
+        round: u64,
         point: Point,
     ) -> Result<StacksTransaction, ClientError> {
+        let signed_tx = self.build_vote_for_aggregate_public_key(signer_index, round, point)?;
         debug!("Casting vote for aggregate public key to the mempool...");
-        let signed_tx =
-            self.build_vote_for_aggregate_public_key(reward_cycle, signer_index, point)?;
         self.submit_tx(&signed_tx)?;
         Ok(signed_tx)
     }
@@ -445,28 +448,27 @@ impl StacksClient {
     /// Helper function to create a stacks transaction for a modifying contract call
     pub fn build_vote_for_aggregate_public_key(
         &self,
-        reward_cycle: u64,
         signer_index: u32,
+        round: u64,
         point: Point,
     ) -> Result<StacksTransaction, ClientError> {
         debug!("Building {VOTE_FUNCTION_NAME} transaction...");
-        let round = self.get_last_round(reward_cycle)?;
         // TODO: this nonce should be calculated on the side as we may have pending transactions that are not yet confirmed...
         let nonce = self.get_account_nonce(&self.stacks_address)?;
         let contract_address = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
-        let contract_name = ContractName::from(POX_4_NAME); //TODO update this to POX_4_VOTE_NAME when the contract is deployed
+        let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
         let function_name = ClarityName::from(VOTE_FUNCTION_NAME);
-        let function_args = &[
+        let function_args = vec![
             ClarityValue::UInt(signer_index as u128),
+            ClarityValue::buff_from(point.compress().data.to_vec())?,
             ClarityValue::UInt(round as u128),
-            ClarityValue::buff_from(point.compress().as_bytes().to_vec())?,
         ];
 
         let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
             address: contract_address,
             contract_name,
             function_name,
-            function_args: function_args.to_vec(),
+            function_args,
         });
         let public_key = StacksPublicKey::from_private(&self.stacks_private_key);
         let tx_auth = TransactionAuth::Standard(
@@ -508,7 +510,10 @@ impl StacksClient {
                 .header("Content-Type", "application/octet-stream")
                 .body(tx.clone())
                 .send()
-                .map_err(backoff::Error::transient)
+                .map_err(|e| {
+                    debug!("Failed to submit transaction to the Stacks node: {e:?}");
+                    backoff::Error::transient(e)
+                })
         };
         let response = retry_with_exponential_backoff(send_request)?;
         if !response.status().is_success() {
@@ -904,14 +909,10 @@ mod tests {
     fn build_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let round = rand::thread_rng().next_u64();
-        let round_response = build_get_last_round_response(round);
         let nonce = thread_rng().next_u64();
         let account_nonce_response = build_account_nonce_response(nonce);
 
         let h = spawn(move || mock.client.build_vote_for_aggregate_public_key(0, 0, point));
-        write_response(mock.server, round_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
         write_response(mock.server, account_nonce_response.as_bytes());
         assert!(h.join().unwrap().is_ok());
     }
@@ -922,14 +923,10 @@ mod tests {
     fn cast_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let round = rand::thread_rng().next_u64();
-        let round_response = build_get_last_round_response(round);
         let nonce = thread_rng().next_u64();
         let account_nonce_response = build_account_nonce_response(nonce);
 
         let h = spawn(move || mock.client.cast_vote_for_aggregate_public_key(0, 0, point));
-        write_response(mock.server, round_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
         write_response(mock.server, account_nonce_response.as_bytes());
         let mock = MockServerClient::from_config(mock.config);
         write_response(
@@ -1177,7 +1174,7 @@ mod tests {
         let h = spawn(move || mock.client.get_last_round(0));
 
         write_response(mock.server, response.as_bytes());
-        assert_eq!(h.join().unwrap().unwrap(), round);
+        assert_eq!(h.join().unwrap().unwrap().unwrap(), round);
     }
 
     #[test]

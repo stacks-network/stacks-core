@@ -229,7 +229,7 @@ pub(crate) mod tests {
 
     /// Build a response for the get_last_round request
     pub fn build_get_last_round_response(round: u64) -> String {
-        let value = ClarityValue::okay(ClarityValue::UInt(round as u128))
+        let value = ClarityValue::some(ClarityValue::UInt(round as u128))
             .expect("Failed to create response");
         build_read_only_response(&value)
     }

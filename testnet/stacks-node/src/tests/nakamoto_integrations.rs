@@ -374,10 +374,10 @@ pub fn boot_to_epoch_3(
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
-    let epoch_30_start_height = epoch_3.start_height - 1;
+    let epoch_30_boundary = epoch_3.start_height - 1;
     info!(
         "Chain bootstrapped to bitcoin block 201, starting Epoch 2x miner";
-        "Epoch 3.0 Boundary" => epoch_30_start_height,
+        "Epoch 3.0 Boundary" => epoch_30_boundary,
     );
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
@@ -435,11 +435,75 @@ pub fn boot_to_epoch_3(
     run_until_burnchain_height(
         btc_regtest_controller,
         &blocks_processed,
-        epoch_30_start_height,
+        epoch_30_boundary,
         &naka_conf,
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
+}
+
+///
+/// * `stacker_sks` - must be a private key for sending a large `stack-stx` transaction in order
+///   for pox-4 to activate
+/// * `signer_pks` - must be the same size as `stacker_sks`
+pub fn boot_to_epoch_3_reward_set(
+    naka_conf: &Config,
+    blocks_processed: &RunLoopCounter,
+    stacker_sks: &[Secp256k1PrivateKey],
+    signer_pks: &[StacksPublicKey],
+    btc_regtest_controller: &mut BitcoinRegtestController,
+) {
+    assert_eq!(stacker_sks.len(), signer_pks.len());
+
+    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length;
+    let epoch_30_reward_set_calculation = epoch_3.start_height - prepare_phase_len as u64;
+    info!(
+        "Chain bootstrapped to bitcoin block 201, starting Epoch 2x miner";
+        "Epoch 3.0 Reward Set Calculation Height" => epoch_30_reward_set_calculation,
+    );
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+    // first mined stacks block
+    next_block_and_wait(btc_regtest_controller, &blocks_processed);
+
+    // stack enough to activate pox-4
+    let pox_addr_tuple = clarity::vm::tests::execute(&format!(
+        "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
+        to_hex(&[0; 20]),
+        AddressHashMode::SerializeP2PKH as u8,
+    ));
+
+    for (stacker_sk, signer_pk) in stacker_sks.iter().zip(signer_pks.iter()) {
+        let stacking_tx = tests::make_contract_call(
+            &stacker_sk,
+            0,
+            1000,
+            &StacksAddress::burn_address(false),
+            "pox-4",
+            "stack-stx",
+            &[
+                clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
+                pox_addr_tuple.clone(),
+                clarity::vm::Value::UInt(205),
+                clarity::vm::Value::UInt(12),
+                clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            ],
+        );
+
+        submit_tx(&http_origin, &stacking_tx);
+    }
+
+    run_until_burnchain_height(
+        btc_regtest_controller,
+        &blocks_processed,
+        epoch_30_reward_set_calculation,
+        &naka_conf,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 reward set calculation height.");
 }
 
 #[test]

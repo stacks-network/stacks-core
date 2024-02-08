@@ -19,7 +19,9 @@ use clarity::vm::types::PrincipalData;
 use rand::prelude::SliceRandom;
 use rand::{thread_rng, Rng, RngCore};
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
-use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use stacks_common::consts::{
+    FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH, SIGNER_SLOTS_PER_USER,
+};
 use stacks_common::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
@@ -54,11 +56,7 @@ use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 
 /// Bring a TestPeer into the Nakamoto Epoch
-fn advance_to_nakamoto(
-    peer: &mut TestPeer,
-    test_signers: &TestSigners,
-    test_stackers: &[TestStacker],
-) {
+fn advance_to_nakamoto(peer: &mut TestPeer, test_stackers: &[TestStacker]) {
     let mut peer_nonce = 0;
     let private_key = peer.config.private_key.clone();
     let addr = StacksAddress::from_public_keys(
@@ -110,7 +108,6 @@ fn advance_to_nakamoto(
     // peer is at the start of cycle 8
 }
 
-use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 /// Make a peer and transition it into the Nakamoto epoch.
 /// The node needs to be stacking; otherwise, Nakamoto won't activate.
 pub fn boot_nakamoto<'a>(
@@ -169,7 +166,7 @@ pub fn boot_nakamoto<'a>(
     peer_config.test_stackers = Some(test_stackers.to_vec());
     let mut peer = TestPeer::new_with_observer(peer_config, observer);
 
-    advance_to_nakamoto(&mut peer, &test_signers, test_stackers);
+    advance_to_nakamoto(&mut peer, test_stackers);
 
     peer
 }
@@ -185,11 +182,7 @@ fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     let test_stackers = replay_config.test_stackers.clone().unwrap_or(vec![]);
     let mut replay_peer = TestPeer::new(replay_config);
     let observer = TestEventObserver::new();
-    advance_to_nakamoto(
-        &mut replay_peer,
-        &TestSigners::default(),
-        test_stackers.as_slice(),
-    );
+    advance_to_nakamoto(&mut replay_peer, test_stackers.as_slice());
 
     // sanity check
     let replay_tip = {
