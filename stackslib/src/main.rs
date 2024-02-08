@@ -861,25 +861,34 @@ simulating a miner.
     }
 
     if argv[1] == "replay-block" {
-        if argv.len() < 3 {
+        if argv.len() < 2 {
             eprintln!(
-                "Usage: {} chainstate_path index-block-hash-prefix",
+                "Usage: {} <chainstate_path> [--prefix <index-block-hash-prefix>] [--last <block_count>]",
                 &argv[0]
             );
             process::exit(1);
         }
         let stacks_path = &argv[2];
-        let index_block_hash_prefix = &argv[3];
-        let staging_blocks_db_path = format!("{}/mainnet/chainstate/vm/index.sqlite", stacks_path);
+        let mode = argv.get(3).map(String::as_str);
+        let staging_blocks_db_path = format!("{stacks_path}/mainnet/chainstate/vm/index.sqlite");
         let conn =
             Connection::open_with_flags(&staging_blocks_db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
                 .unwrap();
-        let mut stmt = conn
-            .prepare(&format!(
+
+        let query = match mode {
+            Some("--prefix") => format!(
                 "SELECT index_block_hash FROM staging_blocks WHERE index_block_hash LIKE \"{}%\"",
-                index_block_hash_prefix
-            ))
-            .unwrap();
+                argv[4]
+            ),
+            Some("--last") => format!(
+                "SELECT index_block_hash FROM staging_blocks ORDER BY height DESC LIMIT {}",
+                argv[4]
+            ),
+            // Default to ALL blocks
+            _ => "SELECT index_block_hash FROM staging_blocks".into(),
+        };
+
+        let mut stmt = conn.prepare(&query).unwrap();
         let mut hashes_set = stmt.query(rusqlite::NO_PARAMS).unwrap();
 
         let mut index_block_hashes: Vec<String> = vec![];
@@ -888,13 +897,11 @@ simulating a miner.
         }
 
         let total = index_block_hashes.len();
-        let mut i = 1;
-        println!("Will check {} blocks.", total);
-        for index_block_hash in index_block_hashes.iter() {
+        println!("Will check {total} blocks");
+        for (i, index_block_hash) in index_block_hashes.iter().enumerate() {
             if i % 100 == 0 {
-                println!("Checked {}...", i);
+                println!("Checked {i}...");
             }
-            i += 1;
             replay_block(stacks_path, index_block_hash);
         }
         println!("Finished!");
@@ -1561,19 +1568,14 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         &next_staging_block.anchored_block_hash,
     )
     .unwrap()
-    .unwrap_or(vec![]);
+    .unwrap_or_default();
 
-    let next_microblocks = match StacksChainState::find_parent_microblock_stream(
-        &chainstate_tx.tx,
-        &next_staging_block,
-    )
-    .unwrap()
-    {
-        Some(x) => x,
-        None => {
-            println!("No microblock stream found for {}", index_block_hash_hex);
-            return;
-        }
+    let Some(next_microblocks) =
+        StacksChainState::find_parent_microblock_stream(&chainstate_tx.tx, &next_staging_block)
+            .unwrap()
+    else {
+        println!("No microblock stream found for {index_block_hash_hex}");
+        return;
     };
 
     let (burn_header_hash, burn_header_height, burn_header_timestamp, _winning_block_txid) =
@@ -1607,33 +1609,30 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         &next_staging_block.parent_microblock_hash,
     );
 
-    let parent_header_info =
-        match StacksChainState::get_parent_header_info(&mut chainstate_tx, &next_staging_block)
-            .unwrap()
-        {
-            Some(hinfo) => hinfo,
-            None => {
-                println!(
-                    "Failed to load parent head info for block: {}",
-                    index_block_hash_hex
-                );
-                return;
-            }
-        };
+    let Some(parent_header_info) =
+        StacksChainState::get_parent_header_info(&mut chainstate_tx, &next_staging_block).unwrap()
+    else {
+        println!("Failed to load parent head info for block: {index_block_hash_hex}");
+        return;
+    };
 
     let block = StacksChainState::extract_stacks_block(&next_staging_block).unwrap();
     let block_size = next_staging_block.block_data.len() as u64;
 
-    if !StacksChainState::check_block_attachment(&parent_header_info.anchored_header, &block.header)
-    {
+    let parent_block_header = match &parent_header_info.anchored_header {
+        StacksBlockHeaderTypes::Epoch2(bh) => bh,
+        StacksBlockHeaderTypes::Nakamoto(_) => panic!("Nakamoto blocks not supported yet"),
+    };
+
+    if !StacksChainState::check_block_attachment(&parent_block_header, &block.header) {
         let msg = format!(
             "Invalid stacks block {}/{} -- does not attach to parent {}/{}",
             &next_staging_block.consensus_hash,
             block.block_hash(),
-            parent_header_info.anchored_header.block_hash(),
+            parent_block_header.block_hash(),
             &parent_header_info.consensus_hash
         );
-        println!("{}", &msg);
+        println!("{msg}");
         return;
     }
 
@@ -1678,7 +1677,7 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
 
     let pox_constants = sort_tx.context.pox_constants.clone();
 
-    let epoch_receipt = match StacksChainState::append_block(
+    match StacksChainState::append_block(
         &mut chainstate_tx,
         clarity_instance,
         &mut sort_tx,
@@ -1698,13 +1697,11 @@ fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
         true,
     ) {
         Ok((_receipt, _)) => {
-            info!("Block processed successfully! block = {}", index_block_hash);
+            info!("Block processed successfully! block = {index_block_hash}");
         }
         Err(e) => {
-            println!(
-                "Failed processing block! block = {}, error = {:?}",
-                index_block_hash, e
-            );
+            println!("Failed processing block! block = {index_block_hash}, error = {e:?}");
+            process::exit(1);
         }
     };
 }
