@@ -242,19 +242,13 @@ impl StackerDBConfig {
         let mut total_num_slots = 0u32;
         let mut ret = vec![];
         for slot_value in slot_list.into_iter() {
-            let slot_data = slot_value.expect_tuple()?;
-            let signer_principal = slot_data
-                .get("signer")
-                .expect("FATAL: no 'signer'")
-                .clone()
-                .expect_principal()?;
-            let num_slots_uint = slot_data
-                .get("num-slots")
-                .expect("FATAL: no 'num-slots'")
-                .clone()
-                .expect_u128()?;
+            let (addr, num_slots) =
+                Self::parse_slot_entry(slot_value, contract_id).map_err(|e| {
+                    warn!("Failed to parse StackerDB slot entry: {}", &e);
+                    NetError::InvalidStackerDBContract(contract_id.clone(), e)
+                })?;
 
-            if num_slots_uint > (STACKERDB_INV_MAX as u128) {
+            if num_slots > STACKERDB_INV_MAX {
                 let reason = format!(
                     "Contract {} stipulated more than maximum number of slots for one signer ({})",
                     contract_id, STACKERDB_INV_MAX
@@ -265,7 +259,7 @@ impl StackerDBConfig {
                     reason,
                 ));
             }
-            let num_slots = num_slots_uint as u32;
+
             total_num_slots =
                 total_num_slots
                     .checked_add(num_slots)
@@ -285,22 +279,6 @@ impl StackerDBConfig {
                     reason,
                 ));
             }
-
-            // standard principals only
-            let addr = match signer_principal {
-                PrincipalData::Contract(..) => {
-                    let reason = format!("Contract {} stipulated a contract principal as a writer, which is not supported", contract_id);
-                    warn!("{}", &reason);
-                    return Err(NetError::InvalidStackerDBContract(
-                        contract_id.clone(),
-                        reason,
-                    ));
-                }
-                PrincipalData::Standard(StandardPrincipalData(version, bytes)) => StacksAddress {
-                    version,
-                    bytes: Hash160(bytes),
-                },
-            };
 
             ret.push((addr, num_slots));
         }
