@@ -103,7 +103,6 @@ impl BurnchainStateTransition {
     ) -> Result<BurnchainStateTransition, burnchain_error> {
         // block commits and support burns discovered in this block.
         let mut block_commits: Vec<LeaderBlockCommitOp> = vec![];
-        let mut user_burns: Vec<UserBurnSupportOp> = vec![];
         let mut accepted_ops = Vec::with_capacity(block_ops.len());
 
         assert!(Burnchain::ops_are_sorted(block_ops));
@@ -141,7 +140,6 @@ impl BurnchainStateTransition {
                     // we don't know yet which user burns are going to be accepted until we have
                     // the burn distribution, so just account for them for now.
                     all_user_burns.insert(op.txid.clone(), op.clone());
-                    user_burns.push(op.clone());
                 }
             };
         }

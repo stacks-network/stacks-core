@@ -1212,7 +1212,6 @@ simulating a miner.
             }
 
             // process all new blocks
-            let mut epoch_receipts = vec![];
             loop {
                 let sortition_tip =
                     SortitionDB::get_canonical_burn_chain_tip(new_sortition_db.conn())
@@ -1230,11 +1229,6 @@ simulating a miner.
                     .unwrap();
                 if receipts.len() == 0 {
                     break;
-                }
-                for (epoch_receipt_opt, _) in receipts.into_iter() {
-                    if let Some(epoch_receipt) = epoch_receipt_opt {
-                        epoch_receipts.push(epoch_receipt);
-                    }
                 }
             }
         }
