@@ -12,6 +12,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - New RPC endpoint `/v2/stacker_set/{cycle_number}` to fetch stacker sets in PoX-4
 - New `/new_pox_anchor` endpoint for broadcasting PoX anchor block processing.
 - Stacker bitvec in NakamotoBlock
+- New [`pox-4` contract](./stackslib/src/chainstate/stacks/boot/pox-4.clar) that reflects changes in how Stackers are signers in Nakamoto:
+  - `stack-stx`, `stack-extend`, and `stack-aggregation-commit` now include a `signer-key` parameter, which represents the public key used by the Signer. This key is used for determining the signer set in Nakamoto.
+  - Functions that include a `signer-key` parameter also include a `signer-sig` parameter to demonstrate that the owner of `signer-key` is approving that particular Stacking operation. For more details, refer to the `verify-signer-key-sig` method in the `pox-4` contract.
 
 ### Modified
 
