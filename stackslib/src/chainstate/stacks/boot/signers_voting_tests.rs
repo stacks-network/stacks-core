@@ -155,7 +155,6 @@ fn vote_for_aggregate_public_key_in_first_block() {
     );
 
     // create vote txs
-
     let signer_nonce = 0;
     let signer_key = &stacker_1.signer_private_key;
     let signer_address = key_to_stacks_addr(signer_key);
@@ -213,7 +212,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
         tx2.result,
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::UInt(7)) // err-duplicate-vote
+            data: Box::new(Value::UInt(7)) // ERR_DUPLICATE_VOTE
         })
     );
 }
@@ -352,7 +351,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
         tx2.result,
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::UInt(7)) // err-duplicate-vote
+            data: Box::new(Value::UInt(7)) // ERR_DUPLICATE_VOTE
         })
     );
 
@@ -368,7 +367,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
         tx1.result,
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::UInt(2)) // err-out-of-voting-window
+            data: Box::new(Value::UInt(2)) // ERR_INVALID_SIGNER_INDEX
         })
     );
 }

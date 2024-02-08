@@ -67,18 +67,30 @@
         (and (is-eq last-cycle reward-cycle)
             (is-in-prepare-phase height))))
 
+;; Signer vote for the aggregate public key of the next reward cycle
+;;  The vote happens in the prepare phase of the current reward cycle but may be ran more than
+;;  once resulting in different 'rounds.' Each signer vote is based on the weight of stacked
+;;  stx tokens & fetched from the .signers contract. The vote is ran until the consensus 
+;;  threshold of 70% for a specific aggregate public key is reached. 
 (define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint))
     (let ((reward-cycle (+ u1 (burn-height-to-reward-cycle burn-block-height)))
             (tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
-            ;; one slot, one vote
-            (num-slots (try! (get-current-signer-weight signer-index)))
-            (new-total (+ num-slots (default-to u0 (map-get? tally tally-key)))))
+            ;; vote by signer weight
+            (num-weight (try! (get-current-signer-weight signer-index)))
+            (new-total (+ num-weight (default-to u0 (map-get? tally tally-key)))))
+        ;; Check we're in the prepare phase
         (asserts! (is-in-voting-window burn-block-height reward-cycle) (err (to-uint ERR_OUT_OF_VOTING_WINDOW)))
+        ;; Check that vote is for latest round in reward cycle
         (asserts! (>= round (default-to u0 (map-get? rounds reward-cycle))) (err (to-uint ERR_OLD_ROUND)))
+        ;; Check that the aggregate public key is correct length
         (asserts! (is-eq (len key) u33) (err (to-uint ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY)))
+        ;; Check that aggregate public key has not been used before
         (asserts! (is-valid-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) (err (to-uint ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY)))
-        (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-slots}) (err (to-uint ERR_DUPLICATE_VOTE)))
+        ;; Check that signer hasn't voted in reward-cycle & round
+        (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-weight}) (err (to-uint ERR_DUPLICATE_VOTE)))
+        ;; Update tally aggregate public key candidate
         (map-set tally tally-key new-total)
+        ;; Update used aggregate public keys
         (map-set used-aggregate-public-keys key {reward-cycle: reward-cycle, round: round})
         (update-last-round reward-cycle round)
         (print { 
