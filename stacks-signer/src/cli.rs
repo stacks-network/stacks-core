@@ -193,7 +193,7 @@ impl From<Pox4SignatureTopic> for StackingSignatureMethod {
 
 impl ValueEnum for StackingSignatureMethod {
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        Some(clap::builder::PossibleValue::new(self.0.as_str()))
+        Some(clap::builder::PossibleValue::new(self.0.get_name_str()))
     }
 
     fn value_variants<'a>() -> &'a [Self] {
