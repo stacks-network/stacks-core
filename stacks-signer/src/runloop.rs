@@ -211,11 +211,13 @@ impl RunLoop {
         if needs_refresh {
             let new_reward_cycle_config = self.get_reward_cycle_config(reward_cycle)?;
             if let Some(new_reward_cycle_config) = new_reward_cycle_config {
-                debug!("Signer is registered for reward cycle {reward_cycle}. Initializing signer state.");
+                let signer_id = new_reward_cycle_config.signer_id;
+                debug!("Signer is registered for reward cycle {reward_cycle} as signer #{signer_id}. Initializing signer state.");
                 self.stacks_signers.insert(
                     reward_index,
                     Signer::from_configs(&self.config, new_reward_cycle_config),
                 );
+                debug!("Signer #{signer_id} for reward cycle {reward_cycle} initialized. Initialized {} signers", self.stacks_signers.len());
             } else {
                 // Nothing to initialize. Signer is not registered for this reward cycle
                 debug!("Signer is not registered for reward cycle {reward_cycle}. Nothing to initialize.");
@@ -236,8 +238,9 @@ impl RunLoop {
             self.refresh_signer_config(current_reward_cycle)?;
             self.refresh_signer_config(next_reward_cycle)?;
             for stacks_signer in self.stacks_signers.values_mut() {
+                debug!("Signer #{}: Checking DKG...", stacks_signer.signer_id);
                 stacks_signer
-                    .update_dkg()
+                    .update_dkg(&self.stacks_client)
                     .map_err(backoff::Error::transient)?;
             }
             if self.stacks_signers.is_empty() {
@@ -315,14 +318,16 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
         }
         for stacks_signer in self.stacks_signers.values_mut() {
-            if let Err(e) = stacks_signer.process_event(event.as_ref(), res.clone()) {
+            if let Err(e) =
+                stacks_signer.process_event(&self.stacks_client, event.as_ref(), res.clone())
+            {
                 error!(
                     "Signer #{} for reward cycle {} errored processing event: {e}",
                     stacks_signer.signer_id, stacks_signer.reward_cycle
                 );
             }
             // After processing event, run the next command for each signer
-            stacks_signer.process_next_command();
+            stacks_signer.process_next_command(&self.stacks_client);
         }
         // Cleanup any stale signers
         self.cleanup_stale_signers();
