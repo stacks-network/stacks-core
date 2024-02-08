@@ -87,11 +87,6 @@ pub mod pox4 {
         AggregationCommit("agg-commit"),
         StackExtend("stack-extend"),
     });
-    pub enum Pox4SignatureTopicOld {
-        StackStx,
-        AggregationCommit,
-        StackExtend,
-    }
 
     pub fn make_pox_4_signed_data_domain(chain_id: u32) -> Value {
         make_structured_data_domain("pox-4-signer", "1.0.0", chain_id)
