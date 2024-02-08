@@ -37,7 +37,7 @@ use stacks_common::util::sleep_ms;
 use wsts::net::{DkgBegin, Packet};
 
 use crate::events::SignerEvent;
-use crate::messages::{PacketMetadata, SignerMessage};
+use crate::messages::{PacketMessage, SignerMessage};
 use crate::{CoordinatorMetadata, Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
@@ -107,7 +107,7 @@ fn test_simple_signer() {
     for i in 0..max_events {
         let privk = Secp256k1PrivateKey::new();
         let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
-        let message = SignerMessage::Packet(PacketMetadata {
+        let message = SignerMessage::Packet(PacketMessage {
             packet: Packet { msg, sig: vec![] },
             coordinator_metadata: CoordinatorMetadata {
                 stacks_consensus_hash: ConsensusHash([0u8; 20]),

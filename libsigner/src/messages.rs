@@ -175,7 +175,7 @@ pub enum SignerMessage {
     /// The signed/validated Nakamoto block for miners to observe
     BlockResponse(BlockResponse),
     /// DKG and Signing round data for other signers to observe
-    Packet(PacketMetadata),
+    Packet(PacketMessage),
     /// The list of transactions for miners and signers to observe that this signer cares about
     Transactions(Vec<StacksTransaction>),
     /// NACK messages to signers with outdated view of the chain
@@ -186,7 +186,7 @@ impl SignerMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
     pub fn msg_id(&self) -> u32 {
         let msg_id = match self {
-            Self::Packet(packet_metadata) => match packet_metadata.packet.msg {
+            Self::Packet(packet_message) => match packet_message.packet.msg {
                 Message::DkgBegin(_) => DKG_BEGIN_MSG_ID,
                 Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_MSG_ID,
                 Message::DkgEndBegin(_) => DKG_END_BEGIN_MSG_ID,
@@ -231,8 +231,8 @@ impl StacksMessageCodec for SignerMessage {
         let type_prefix = SignerMessageTypePrefix::try_from(type_prefix_byte)?;
         let message = match type_prefix {
             SignerMessageTypePrefix::Packet => {
-                let packet_metadata = PacketMetadata::inner_consensus_deserialize(fd)?;
-                SignerMessage::Packet(packet_metadata)
+                let packet_message = PacketMessage::inner_consensus_deserialize(fd)?;
+                SignerMessage::Packet(packet_message)
             }
             SignerMessageTypePrefix::BlockResponse => {
                 let block_response = read_next::<BlockResponse, _>(fd)?;
@@ -829,7 +829,7 @@ impl StacksMessageCodecExtensions for Packet {
     }
 }
 
-impl StacksMessageCodecExtensions for PacketMetadata {
+impl StacksMessageCodecExtensions for PacketMessage {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.packet.inner_consensus_serialize(fd)?;
         self.coordinator_metadata.inner_consensus_serialize(fd)?;
@@ -839,7 +839,7 @@ impl StacksMessageCodecExtensions for PacketMetadata {
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let packet = Packet::inner_consensus_deserialize(fd)?;
         let coordinator_metadata = CoordinatorMetadata::inner_consensus_deserialize(fd)?;
-        Ok(PacketMetadata {
+        Ok(PacketMessage {
             packet,
             coordinator_metadata,
         })
@@ -1081,9 +1081,9 @@ impl std::fmt::Display for RejectCode {
     }
 }
 
-impl From<PacketMetadata> for SignerMessage {
-    fn from(packet_metadata: PacketMetadata) -> Self {
-        Self::Packet(packet_metadata)
+impl From<PacketMessage> for SignerMessage {
+    fn from(packet_message: PacketMessage) -> Self {
+        Self::Packet(packet_message)
     }
 }
 impl From<NackMessage> for SignerMessage {
@@ -1113,17 +1113,17 @@ impl From<BlockValidateReject> for SignerMessage {
 /// Signed network packets sent by signers along with their view
 /// of stacks tip consensus hash and block height for
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PacketMetadata {
+pub struct PacketMessage {
     /// Signed network packet
     pub packet: Packet,
     /// The signer's view of coordinator metadata including stacks tip consensus hash and block height
     pub coordinator_metadata: CoordinatorMetadata,
 }
 
-impl PacketMetadata {
-    /// Create a new PacketMetadata
+impl PacketMessage {
+    /// Create a new PacketMessage
     pub fn new(packet: Packet, coordinator_metadata: CoordinatorMetadata) -> Self {
-        PacketMetadata {
+        PacketMessage {
             packet,
             coordinator_metadata,
         }
@@ -1145,6 +1145,15 @@ impl CoordinatorMetadata {
         Self {
             stacks_consensus_hash,
             stacks_block_height,
+        }
+    }
+}
+impl Default for CoordinatorMetadata {
+    /// Create a default `CoordinatorMetadata` instance
+    fn default() -> Self {
+        Self {
+            stacks_consensus_hash: ConsensusHash([0u8; 20]),
+            stacks_block_height: 0,
         }
     }
 }
@@ -1496,7 +1505,7 @@ mod test {
     #[test]
     fn serde_signer_message() {
         let rng = &mut OsRng;
-        let signer_message = SignerMessage::Packet(PacketMetadata {
+        let signer_message = SignerMessage::Packet(PacketMessage {
             packet: Packet {
                 msg: Message::DkgBegin(DkgBegin { dkg_id: 0 }),
                 sig: vec![1u8; 20],
