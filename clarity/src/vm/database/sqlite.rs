@@ -35,6 +35,7 @@ use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm;
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 
@@ -105,7 +106,7 @@ pub fn sqlite_insert_metadata(
     contract: &QualifiedContractIdentifier,
     key: &str,
     value: &str,
-) {
+) -> std::result::Result<(), vm::errors::Error> {
     let bhh = store.get_open_chain_tip();
     SqliteConnection::insert_metadata(
         store.get_side_store(),
@@ -127,7 +128,7 @@ pub fn sqlite_get_metadata(
         &bhh,
         &contract.to_string(),
         key,
-    ))
+    )?)
 }
 
 pub fn sqlite_get_metadata_manual(
@@ -145,7 +146,7 @@ pub fn sqlite_get_metadata_manual(
         &bhh,
         &contract.to_string(),
         key,
-    ))
+    )?)
 }
 
 impl SqliteConnection {
@@ -322,12 +323,15 @@ impl ClarityBackingStore for MemoryBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> Option<String> {
+    fn get(&mut self, key: &str) -> std::result::Result<Option<String>, vm::errors::Error> {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Option<(String, Vec<u8>)> {
-        SqliteConnection::get(self.get_side_store(), key).map(|x| (x, vec![]))
+    fn get_with_proof(&mut self, key: &str) -> std::result::Result<Option<(String, Vec<u8>)>, vm::errors::Error> {
+        let tmp = SqliteConnection::get(self.get_side_store(), key)
+            .map(|x| (x, vec![]))?;
+
+        Ok(Some(tmp))
     }
 
     fn get_side_store(&mut self) -> &Connection {
@@ -358,10 +362,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         None
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) {
+    fn put_all(&mut self, items: Vec<(String, String)>) -> std::result::Result<(), vm::errors::Error> {
         for (key, value) in items.into_iter() {
-            SqliteConnection::put(self.get_side_store(), &key, &value);
+            SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }
+        Ok(())
     }
 
     fn get_contract_hash(
@@ -371,7 +376,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         sqlite_get_contract_hash(self, contract)
     }
 
-    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) -> std::result::Result<(), vm::errors::Error> {
         sqlite_insert_metadata(self, contract, key, value)
     }
 

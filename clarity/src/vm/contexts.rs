@@ -1269,6 +1269,7 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.caller.clone(),
                 self.sponsor.clone(),
             );
+            let res = function.execute_apply(args, &mut nested_env);
 
             #[cfg(not(feature = "canonical"))]
             let mut nested_env = Environment::new(
@@ -1334,6 +1335,8 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
         ast_rules: ASTRules,
     ) -> Result<()> {
+        use super::database::clarity_store::MemoryBackingStore;
+
         let clarity_version = self.contract_context.clarity_version.clone();
 
         let clarity_version = self.contract_context.clarity_version.clone();
@@ -1362,7 +1365,8 @@ impl<'a, 'b> Environment<'a, 'b> {
         self.initialize_contract_from_ast(
             contract_identifier,
             clarity_version,
-            &contract_ast,
+            &mut contract_ast,
+            &contract_analysis,
             &contract_content,
         )
     }

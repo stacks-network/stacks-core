@@ -388,7 +388,6 @@ fn create_event_info_data_code(
                         .map(|boxed_value| *boxed_value)
                         .unwrap()
                         .expect_tuple()
-                        .expect("FATAL: unexpected clarity value")
                         .get("delegated-to")
                         .unwrap()
                 )
@@ -475,11 +474,9 @@ pub fn synthesize_pox_event_info(
 
                 // merge them
                 let base_event_tuple = base_event_info
-                    .expect_tuple()
-                    .expect("FATAL: unexpected clarity value");
+                    .expect_tuple();
                 let data_tuple = data_event_info
-                    .expect_tuple()
-                    .expect("FATAL: unexpected clarity value");
+                    .expect_tuple();
                 let event_tuple =
                     TupleData::shallow_merge(base_event_tuple, data_tuple).map_err(|e| {
                         error!("Failed to merge data-info and event-info: {:?}", &e);

@@ -16,6 +16,7 @@ name = "libsigner"
 path = "./src/libsigner.rs"
 
 [dependencies]
+stackslib = { path = "../stackslib" }
 clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
 libc = "0.2"
 libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }

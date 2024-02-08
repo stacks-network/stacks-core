@@ -77,12 +77,12 @@ pub fn handle_contract_call_special_cases(
             && global_context.database.get_v1_unlock_height()
                 <= global_context
                     .database
-                    .get_current_burnchain_block_height()?
+                    .get_current_burnchain_block_height()
         {
             // NOTE: get-pox-info is read-only, so it can call old pox v1 stuff
             warn!("PoX-1 function call attempted on an account after v1 unlock height";
                   "v1_unlock_ht" => global_context.database.get_v1_unlock_height(),
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
@@ -96,8 +96,8 @@ pub fn handle_contract_call_special_cases(
         if !pox_2::is_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch22
         {
             warn!("PoX-2 function call attempted on an account after Epoch 2.2";
-                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height()?,
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
+                  "v2_unlock_ht" => global_context.database.get_v2_unlock_height(),
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
@@ -119,8 +119,8 @@ pub fn handle_contract_call_special_cases(
         if !pox_3::is_read_only(function_name) && global_context.epoch_id >= StacksEpochId::Epoch25
         {
             warn!("PoX-3 function call attempted on an account after Epoch 2.5";
-                  "v3_unlock_ht" => global_context.database.get_v3_unlock_height()?,
-                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height()?,
+                  "v3_unlock_ht" => global_context.database.get_v3_unlock_height(),
+                  "current_burn_ht" => global_context.database.get_current_burnchain_block_height(),
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );

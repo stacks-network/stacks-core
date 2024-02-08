@@ -636,6 +636,7 @@ mod test {
             DefineType::Private,
             &"do_work".into(),
             &"",
+            None
         );
 
         let context = LocalContext::new();

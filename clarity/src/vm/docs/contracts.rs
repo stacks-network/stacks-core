@@ -49,7 +49,7 @@ pub struct ContractSupportDocs {
 }
 
 #[allow(clippy::expect_used)]
-fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -> FunctionRef {
+pub fn make_func_ref(func_name: &str, func_type: &FunctionType, description: &str) -> FunctionRef {
     let input_type = get_input_type_string(func_type);
     let output_type = get_output_type_string(func_type);
     let signature = get_signature(func_name, func_type)

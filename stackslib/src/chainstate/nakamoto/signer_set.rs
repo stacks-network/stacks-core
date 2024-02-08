@@ -26,7 +26,6 @@ use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
-use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, write_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN,
     MAX_PAYLOAD_LEN,
@@ -44,7 +43,6 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
-use wsts::curve::point::Point;
 
 use crate::burnchains::{Burnchain, PoxConstants, Txid};
 use crate::chainstate::burn::db::sortdb::{
@@ -114,19 +112,18 @@ impl RawRewardSetEntry {
             .expect(
                 "FATAL: no 'total-ustx' in return value from (pox-4.get-reward-set-pox-address)",
             )
-            .expect_u128()?;
+            .expect_u128();
 
         let stacker = tuple_data
             .remove("stacker")
             .expect("FATAL: no 'stacker' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_optional()?
-            .map(|value| value.expect_principal())
-            .transpose()?;
+            .expect_optional()
+            .map(|value| value.expect_principal());
 
         let signer = tuple_data
             .remove("signer")
             .expect("FATAL: no 'signer' in return value from (pox-4.get-reward-set-pox-address)")
-            .expect_buff(SIGNERS_PK_LEN)?;
+            .expect_buff(SIGNERS_PK_LEN);
 
         // (buff 33) only enforces max size, not min size, so we need to do a len check
         let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
@@ -178,7 +175,7 @@ impl NakamotoSigners {
                     reward_cycle.into(),
                 ))],
             )?
-            .expect_u128()?;
+            .expect_u128();
 
         let mut slots = vec![];
         for index in 0..list_length {
@@ -191,12 +188,9 @@ impl NakamotoSigners {
                         SymbolicExpression::atom_value(Value::UInt(index)),
                     ],
                 )?
-                .expect_optional()?
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    index, list_length, reward_cycle
-                ))
-                .expect_tuple()?;
+                .expect_optional()
+                .expect("Expected an optional value from `get-reward-set-pox-address`")
+                .expect_tuple();
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(is_mainnet, tuple)?;
 

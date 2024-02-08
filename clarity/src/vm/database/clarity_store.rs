@@ -315,10 +315,6 @@ impl ClarityBackingStore for MemoryBackingStore {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
-    fn get_side_store(&mut self) -> &Connection {
-        &self.side_store
-    }
-
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         if height == 0 {
             Some(StacksBlockId([255; 32]))
