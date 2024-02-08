@@ -329,10 +329,9 @@ impl StacksClient {
             // We are not in the prepare phase of the reward cycle as the upcoming cycle nor are we in the current reward cycle...
             return Ok(false);
         }
-        let peer_info = self.get_peer_info()?;
-        let stacks_tip_height = peer_info.stacks_tip_height;
+        let burn_block_height = self.get_burn_block_height()?;
         // Have we passed the first block of the new reward cycle's prepare phase?
-        Ok(pox_info.next_cycle.prepare_phase_start_block_height < stacks_tip_height)
+        Ok(pox_info.next_cycle.prepare_phase_start_block_height < burn_block_height)
     }
 
     /// Get the reward set from the stacks node for the given reward cycle
@@ -944,7 +943,7 @@ mod tests {
     fn core_info_call_for_consensus_hash_should_succeed() {
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_stacks_tip_consensus_hash());
-        let (response, peer_info) = build_get_peer_info_response(None, None, None);
+        let (response, peer_info) = build_get_peer_info_response(None, None);
         write_response(mock.server, response.as_bytes());
         let consensus_hash = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(consensus_hash, peer_info.stacks_tip_consensus_hash);
@@ -965,7 +964,7 @@ mod tests {
     fn core_info_call_for_burn_block_height_should_succeed() {
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_burn_block_height());
-        let (response, peer_info) = build_get_peer_info_response(None, None, None);
+        let (response, peer_info) = build_get_peer_info_response(None, None);
         write_response(mock.server, response.as_bytes());
         let burn_block_height = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(burn_block_height, peer_info.burn_block_height);
@@ -1030,7 +1029,7 @@ mod tests {
             None,
         )
         .0;
-        let peer_response = build_get_peer_info_response(None, Some(burn_block_height), None).0;
+        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
         let h = spawn(move || mock.client.get_node_epoch());
         write_response(mock.server, pox_response.as_bytes());
         let mock = MockServerClient::from_config(mock.config);
@@ -1040,7 +1039,7 @@ mod tests {
 
         // The burn block height is the same as the activation height of 2.5, therefore is 2.5
         let pox_response = build_get_pox_data_response(None, None, Some(burn_block_height), None).0;
-        let peer_response = build_get_peer_info_response(None, Some(burn_block_height), None).0;
+        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
         let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_node_epoch());
         write_response(mock.server, pox_response.as_bytes());
@@ -1057,7 +1056,7 @@ mod tests {
             Some(burn_block_height.saturating_add(1)),
         )
         .0;
-        let peer_response = build_get_peer_info_response(None, Some(burn_block_height), None).0;
+        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
         let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_node_epoch());
         write_response(mock.server, pox_response.as_bytes());
@@ -1074,7 +1073,7 @@ mod tests {
             Some(burn_block_height),
         )
         .0;
-        let peer_response = build_get_peer_info_response(None, Some(burn_block_height), None).0;
+        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
         let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_node_epoch());
         write_response(mock.server, pox_response.as_bytes());
@@ -1092,7 +1091,7 @@ mod tests {
         )
         .0;
         let peer_response =
-            build_get_peer_info_response(None, Some(burn_block_height.saturating_add(1)), None).0;
+            build_get_peer_info_response(Some(burn_block_height.saturating_add(1)), None).0;
         let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_node_epoch());
         write_response(mock.server, pox_response.as_bytes());
@@ -1164,7 +1163,7 @@ mod tests {
     #[test]
     fn get_peer_info_should_succeed() {
         let mock = MockServerClient::new();
-        let (response, peer_info) = build_get_peer_info_response(None, None, None);
+        let (response, peer_info) = build_get_peer_info_response(None, None);
         let h = spawn(move || mock.client.get_peer_info());
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), peer_info);
@@ -1238,7 +1237,7 @@ mod tests {
             build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
                 .0;
         let peer_response =
-            build_get_peer_info_response(Some(prepare_phase_start.saturating_add(1)), None, None).0;
+            build_get_peer_info_response(Some(prepare_phase_start.saturating_add(1)), None).0;
         let h = spawn(move || {
             mock.client
                 .reward_set_calculated(reward_cycle.saturating_add(1))
@@ -1263,7 +1262,7 @@ mod tests {
         let pox_response =
             build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
                 .0;
-        let peer_response = build_get_peer_info_response(Some(prepare_phase_start), None, None).0;
+        let peer_response = build_get_peer_info_response(Some(prepare_phase_start), None).0;
         let h = spawn(move || {
             mock.client
                 .reward_set_calculated(reward_cycle.saturating_add(1))
@@ -1282,7 +1281,7 @@ mod tests {
 
         for _ in 0..number_of_tests {
             let mock = MockServerClient::new();
-            let response = build_get_peer_info_response(None, None, None).0;
+            let response = build_get_peer_info_response(None, None).0;
             let generated_public_keys = generated_public_keys.clone();
             let h = spawn(move || mock.client.calculate_coordinator(&generated_public_keys));
             write_response(mock.server, response.as_bytes());
@@ -1319,7 +1318,7 @@ mod tests {
         for _ in 0..count {
             let mock = MockServerClient::new();
             let generated_public_keys = generated_public_keys.clone();
-            let response = build_get_peer_info_response(None, None, hash).0;
+            let response = build_get_peer_info_response(None, hash).0;
             let h = spawn(move || mock.client.calculate_coordinator(&generated_public_keys));
             write_response(mock.server, response.as_bytes());
             let result = h.join().unwrap();
