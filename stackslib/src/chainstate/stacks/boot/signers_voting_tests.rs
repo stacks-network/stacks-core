@@ -30,7 +30,6 @@ use clarity::vm::eval;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::tests::{execute, is_committed, is_err_code, symbols_from_values};
-use clarity::vm::types::Value::Response;
 use clarity::vm::types::{
     BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     StacksAddressExtensions, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature,
@@ -201,23 +200,14 @@ fn vote_for_aggregate_public_key_in_first_block() {
     // ignore tenure coinbase tx
 
     // first vote should succeed
-    let tx1 = &receipts[receipts.len() - 2];
-    assert_eq!(
-        tx1.result,
-        Value::Response(ResponseData {
-            committed: true,
-            data: Box::new(Value::Bool(true))
-        })
-    );
+    let alice_first_vote_tx = &receipts[2];
+    assert_eq!(alice_first_vote_tx.result, Value::okay_true());
 
     // second vote should fail with duplicate vote error
-    let tx2 = &receipts[receipts.len() - 1];
+    let alice_second_vote_tx = &receipts[3];
     assert_eq!(
-        tx2.result,
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::UInt(10006)) // err-duplicate-vote
-        })
+        alice_second_vote_tx.result,
+        Value::err_uint(10006) // err-duplicate-vote
     );
 }
 
@@ -269,7 +259,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let signer_1_principal = PrincipalData::from(signer_1_address);
     let signer_1_index = get_signer_index(&mut peer, latest_block_id, signer_1_address);
 
-    let txs_1 = vec![
+    let txs_block_1 = vec![
         // cast a vote for the aggregate public key
         make_signers_vote_for_aggregate_public_key(
             signer_1_key,
@@ -303,7 +293,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let signer_2_principal = PrincipalData::from(signer_2_address);
     let signer_2_index = get_signer_index(&mut peer, latest_block_id, signer_2_address);
 
-    let txs_2 = vec![
+    let txs_block_2 = vec![
         // cast a vote for the aggregate public key
         make_signers_vote_for_aggregate_public_key(
             signer_2_key,
@@ -337,7 +327,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let blocks_and_sizes = nakamoto_tenure(
         &mut peer,
         &mut test_signers,
-        vec![txs_1, txs_2],
+        vec![txs_block_1, txs_block_2],
         signer_1_key,
     );
 
@@ -349,34 +339,19 @@ fn vote_for_aggregate_public_key_in_last_block() {
     assert_eq!(receipts.len(), 5);
 
     // first vote should succeed
-    let tx1 = &receipts[receipts.len() - 3];
-    assert_eq!(
-        tx1.result,
-        Value::Response(ResponseData {
-            committed: true,
-            data: Box::new(Value::Bool(true))
-        })
-    );
+    let alice_first_vote_tx = &receipts[2];
+    assert_eq!(alice_first_vote_tx.result, Value::okay_true());
 
     // second vote should fail with duplicate vote error
-    let tx2 = &receipts[receipts.len() - 2];
+    let alice_second_vote_tx = &receipts[3];
     assert_eq!(
-        tx2.result,
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::UInt(10006)) // err-duplicate-vote
-        })
+        alice_second_vote_tx.result,
+        Value::err_uint(10006) // err-duplicate-vote
     );
 
     // third vote should succeed even though it is on an old round
-    let tx3 = &receipts[receipts.len() - 1];
-    assert_eq!(
-        tx3.result,
-        Value::Response(ResponseData {
-            committed: true,
-            data: Box::new(Value::Bool(true))
-        })
-    );
+    let alice_third_vote_tx = &receipts[4];
+    assert_eq!(alice_third_vote_tx.result, Value::okay_true());
 
     // bob's block
     let block = blocks.last().unwrap().clone();
@@ -384,13 +359,10 @@ fn vote_for_aggregate_public_key_in_last_block() {
     assert_eq!(receipts.len(), 1);
 
     // vote should succeed
-    let tx1_bob = &receipts[receipts.len() - 1];
+    let tx1_bob = &receipts[0];
     assert_eq!(
         tx1_bob.result,
-        Value::Response(ResponseData {
-            committed: false,
-            data: Box::new(Value::UInt(10002)) // err-out-of-voting-window
-        })
+        Value::err_uint(10002) // err-out-of-voting-window
     );
 }
 
