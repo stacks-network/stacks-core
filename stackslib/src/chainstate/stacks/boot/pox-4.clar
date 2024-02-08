@@ -688,24 +688,17 @@
                                                (reward-cycle uint)
                                                (topic (string-ascii 12))
                                                (period uint))
-  (let
-    (
-      (domain { name: "pox-4-signer", version: "1.0.0", chain-id: chain-id })
-      (data-hash (sha256 (unwrap-panic
+  (sha256 (concat
+    SIP018_MSG_PREFIX
+    (concat 
+      (sha256 (unwrap-panic (to-consensus-buff? { name: "pox-4-signer", version: "1.0.0", chain-id: chain-id })))
+      (sha256 (unwrap-panic
         (to-consensus-buff? { 
           pox-addr: pox-addr, 
           reward-cycle: reward-cycle,
           topic: topic,
           period: period,
-        }))))
-      (domain-hash (sha256 (unwrap-panic (to-consensus-buff? domain))))
-    )
-    (sha256 (concat
-      SIP018_MSG_PREFIX
-      (concat domain-hash
-      data-hash)))
-  )
-)
+        })))))))
 
 ;; Verify a signature from the signing key for this specific stacker.
 ;; See `get-signer-key-message-hash` for details on the message hash.
@@ -719,17 +712,13 @@
                                          (period uint)
                                          (signer-sig (buff 65))
                                          (signer-key (buff 33)))
-  (begin
-    (asserts! 
-      (is-eq 
-        (unwrap! (secp256k1-recover? 
-          (get-signer-key-message-hash pox-addr reward-cycle topic period) 
-          signer-sig) (err ERR_INVALID_SIGNATURE_RECOVER)) 
-        signer-key) 
-      (err ERR_INVALID_SIGNATURE_PUBKEY))
-    (ok true)
-  )
-)
+  (ok (asserts! 
+    (is-eq 
+      (unwrap! (secp256k1-recover? 
+        (get-signer-key-message-hash pox-addr reward-cycle topic period) 
+        signer-sig) (err ERR_INVALID_SIGNATURE_RECOVER)) 
+      signer-key) 
+    (err ERR_INVALID_SIGNATURE_PUBKEY))))
 
 ;; Commit partially stacked STX and allocate a new PoX reward address slot.
 ;;   This allows a stacker/delegate to lock fewer STX than the minimal threshold in multiple transactions,
