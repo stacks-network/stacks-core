@@ -50,7 +50,9 @@ use stacks::util_lib::signed_structured_data::pox4::{
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
-use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::chainstate::{
+    BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+};
 use stacks_common::types::PrivateKey;
 use stacks_common::util::hash::{to_hex, Sha512Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
@@ -61,8 +63,8 @@ use crate::mockamoto::signer::SelfSigner;
 use crate::neon::{Counters, RunLoopCounter};
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
-    get_account, get_pox_info, next_block_and_wait, run_until_burnchain_height, submit_tx,
-    test_observer, wait_for_runloop,
+    get_account, get_chain_info_result, get_pox_info, next_block_and_wait,
+    run_until_burnchain_height, submit_tx, test_observer, wait_for_runloop,
 };
 use crate::tests::{make_stacks_transfer, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
@@ -752,6 +754,9 @@ fn mine_multiple_per_tenure_integration() {
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
 
+        let mut last_tip = BlockHeaderHash([0x00; 32]);
+        let mut last_tip_height = 0;
+
         // mine the interim blocks
         for interim_block_ix in 0..inter_blocks_per_tenure {
             let blocks_processed_before = coord_channel
@@ -774,6 +779,13 @@ fn mine_multiple_per_tenure_integration() {
                 }
                 thread::sleep(Duration::from_millis(100));
             }
+
+            let info = get_chain_info_result(&naka_conf).unwrap();
+            assert_ne!(info.stacks_tip, last_tip);
+            assert_ne!(info.stacks_tip_height, last_tip_height);
+
+            last_tip = info.stacks_tip;
+            last_tip_height = info.stacks_tip_height;
         }
 
         let start_time = Instant::now();
