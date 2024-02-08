@@ -1994,6 +1994,8 @@ pub struct MinerConfig {
     /// When selecting the "nicest" tip, do not consider tips that are more than this many blocks
     /// behind the highest tip.
     pub max_reorg_depth: u64,
+    /// Amount of time while mining in nakamoto to wait for signers to respond to a proposed block
+    pub wait_on_signers: Duration,
 }
 
 impl Default for MinerConfig {
@@ -2022,6 +2024,8 @@ impl Default for MinerConfig {
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
+            // TODO: update to a sane value based on stackerdb benchmarking
+            wait_on_signers: Duration::from_millis(10_000),
         }
     }
 }
@@ -2346,6 +2350,7 @@ pub struct MinerConfigFile {
     pub txs_to_consider: Option<String>,
     pub filter_origins: Option<String>,
     pub max_reorg_depth: Option<u64>,
+    pub wait_on_signers_ms: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -2446,6 +2451,10 @@ impl MinerConfigFile {
             max_reorg_depth: self
                 .max_reorg_depth
                 .unwrap_or(miner_default_config.max_reorg_depth),
+            wait_on_signers: self
+                .wait_on_signers_ms
+                .map(Duration::from_millis)
+                .unwrap_or(miner_default_config.wait_on_signers),
         })
     }
 }

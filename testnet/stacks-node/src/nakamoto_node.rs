@@ -93,7 +93,8 @@ pub enum Error {
     BadVrfConstruction,
     CannotSelfSign,
     MiningFailure(ChainstateError),
-    SigningError(&'static str),
+    MinerSignatureError(&'static str),
+    SignerSignatureError(&'static str),
     // The thread that we tried to send to has closed
     ChannelClosed,
 }

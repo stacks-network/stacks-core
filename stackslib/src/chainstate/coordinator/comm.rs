@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard, RwLock, TryLockResult};
 use std::time::{Duration, Instant};
 use std::{process, thread};
@@ -58,6 +58,8 @@ pub struct CoordinatorChannels {
     stacks_blocks_processed: Arc<AtomicU64>,
     /// how many sortitions have been processed by this Coordinator thread since startup?
     sortitions_processed: Arc<AtomicU64>,
+    /// Does the StackerDB need to be refreshed?
+    refresh_stacker_db: Arc<AtomicBool>,
 }
 
 /// Notification struct for communicating to
@@ -81,6 +83,8 @@ pub struct CoordinatorReceivers {
     signal_wakeup: Arc<Condvar>,
     pub stacks_blocks_processed: Arc<AtomicU64>,
     pub sortitions_processed: Arc<AtomicU64>,
+    /// Does the StackerDB need to be refreshed?
+    pub refresh_stacker_db: Arc<AtomicBool>,
 }
 
 /// Static struct used to hold all the static methods
@@ -154,6 +158,15 @@ impl CoordinatorChannels {
         false
     }
 
+    pub fn need_stackerdb_update(&self) -> bool {
+        self.refresh_stacker_db.load(Ordering::SeqCst)
+    }
+
+    pub fn set_stackerdb_update(&self, needs_update: bool) {
+        self.refresh_stacker_db
+            .store(needs_update, Ordering::SeqCst)
+    }
+
     pub fn is_stopped(&self) -> bool {
         let bools = self.signal_bools.lock().unwrap();
         bools.stop.clone()
@@ -222,6 +235,7 @@ impl CoordinatorCommunication {
 
         let stacks_blocks_processed = Arc::new(AtomicU64::new(0));
         let sortitions_processed = Arc::new(AtomicU64::new(0));
+        let refresh_stacker_db = Arc::new(AtomicBool::new(false));
 
         let senders = CoordinatorChannels {
             signal_bools: signal_bools.clone(),
@@ -229,6 +243,7 @@ impl CoordinatorCommunication {
             stacks_blocks_processed: stacks_blocks_processed.clone(),
 
             sortitions_processed: sortitions_processed.clone(),
+            refresh_stacker_db: refresh_stacker_db.clone(),
         };
 
         let rcvrs = CoordinatorReceivers {
@@ -236,6 +251,7 @@ impl CoordinatorCommunication {
             signal_wakeup: signal_wakeup,
             stacks_blocks_processed,
             sortitions_processed,
+            refresh_stacker_db,
         };
 
         (rcvrs, senders)

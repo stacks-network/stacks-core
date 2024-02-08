@@ -220,6 +220,8 @@ pub struct StacksEpochReceipt {
     /// in.
     pub evaluated_epoch: StacksEpochId,
     pub epoch_transition: bool,
+    /// Was .signers updated during this block?
+    pub signers_updated: bool,
 }
 
 /// Headers we serve over the network

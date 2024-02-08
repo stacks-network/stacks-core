@@ -16,8 +16,8 @@ name = "libsigner"
 path = "./src/libsigner.rs"
 
 [dependencies]
-bincode = "1.3.3"
 clarity = { path = "../clarity" }
+hashbrown = "0.14"
 libc = "0.2"
 libstackerdb = { path = "../libstackerdb" }
 serde = "1"
@@ -31,6 +31,10 @@ stackslib = { path = "../stackslib"}
 thiserror = "1.0"
 tiny_http = "0.12"
 wsts = { workspace = true }
+
+[dev-dependencies]
+rand_core = { workspace = true }
+rand = { workspace = true }
 
 [dependencies.serde_json]
 version = "1.0"
