@@ -123,8 +123,10 @@ pub struct RewardCycleConfig {
     pub signer_id: u32,
     /// The reward cycle of the configuration
     pub reward_cycle: u64,
-    /// The signer to key ids mapping
-    pub signer_key_ids: HashMap<u32, HashSet<u32>>,
+    /// The signer to key ids mapping for the coordinator
+    pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
+    /// The signer to key ids mapping for the signers
+    pub signer_key_ids: Vec<u32>,
     /// The signer addresses
     pub signer_addresses: HashSet<StacksAddress>,
     /// The public keys for the reward cycle
