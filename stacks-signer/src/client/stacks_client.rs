@@ -284,7 +284,7 @@ impl StacksClient {
         debug!("Parsing signer slots...");
         // Due to .signers definition, the  signer slots is always an OK result of a list of tuples of signer addresses and the number of slots they have
         // If this fails, we have bigger problems than the signer crashing...
-        let value = value.clone().expect_result_ok()?;
+        let value = value.expect_result_ok()?;
         let values = value.expect_list()?;
         let mut signer_slots = Vec::with_capacity(values.len());
         for value in values {
