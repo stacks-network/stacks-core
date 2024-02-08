@@ -26,6 +26,7 @@ use libsigner::{BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMe
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::{debug, error, info, warn};
 use wsts::common::{MerkleRoot, Signature};
@@ -40,8 +41,7 @@ use wsts::state_machine::{OperationResult, SignError};
 use wsts::v2;
 
 use crate::client::{
-    retry_with_exponential_backoff, ClientError, EpochId, StackerDB, StacksClient,
-    VOTE_FUNCTION_NAME,
+    retry_with_exponential_backoff, ClientError, StackerDB, StacksClient, VOTE_FUNCTION_NAME,
 };
 use crate::config::{GlobalConfig, RewardCycleConfig};
 
@@ -787,13 +787,9 @@ impl Signer {
                     // Broadcast via traditional methods to the stacks node if we are pre nakamoto or we cannot determine our Epoch
                     let epoch = stacks_client
                         .get_node_epoch()
-                        .unwrap_or(EpochId::UnsupportedEpoch);
+                        .unwrap_or(StacksEpochId::Epoch24);
                     let new_transaction = match epoch {
-                        EpochId::UnsupportedEpoch => {
-                            debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the result.", self.signer_id);
-                            continue;
-                        }
-                        EpochId::Epoch25 => {
+                        StacksEpochId::Epoch25 => {
                             debug!("Signer #{}: Received a DKG result, but are in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
                             match retry_with_exponential_backoff(|| {
                                 stacks_client
@@ -817,7 +813,7 @@ impl Signer {
                                 }
                             }
                         }
-                        EpochId::Epoch30 => {
+                        StacksEpochId::Epoch30 => {
                             debug!("Signer #{}: Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.", self.signer_id);
                             match retry_with_exponential_backoff(|| {
                                 stacks_client
@@ -834,6 +830,10 @@ impl Signer {
                                     continue;
                                 }
                             }
+                        }
+                        _ => {
+                            debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the result.", self.signer_id);
+                            continue;
                         }
                     };
                     let old_transactions = self

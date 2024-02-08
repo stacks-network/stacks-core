@@ -21,10 +21,6 @@ use blockstack_lib::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSpendingCondition, TransactionVersion,
 };
-use blockstack_lib::core::{
-    BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT, BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
-    BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT, BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
-};
 use blockstack_lib::net::api::callreadonly::CallReadOnlyResponse;
 use blockstack_lib::net::api::getaccount::AccountEntryResponse;
 use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
@@ -42,6 +38,7 @@ use stacks_common::debug;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha256Sum;
 use wsts::curve::ecdsa;
 use wsts::curve::point::{Compressed, Point};
@@ -70,17 +67,6 @@ pub struct StacksClient {
     stacks_node_client: reqwest::blocking::Client,
     /// The stx transaction fee to use in microstacks
     tx_fee: u64,
-}
-
-/// The supported epoch IDs
-#[derive(Debug, PartialEq)]
-pub enum EpochId {
-    /// The mainnet epoch ID
-    Epoch30,
-    /// The testnet epoch ID
-    Epoch25,
-    /// Unsuporrted epoch ID
-    UnsupportedEpoch,
 }
 
 impl From<&GlobalConfig> for StacksClient {
@@ -201,28 +187,32 @@ impl StacksClient {
     }
 
     /// Determine the stacks node current epoch
-    pub fn get_node_epoch(&self) -> Result<EpochId, ClientError> {
-        let is_mainnet = self.chain_id == CHAIN_ID_MAINNET;
+    pub fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
+        let pox_info = self.get_pox_data()?;
         let burn_block_height = self.get_burn_block_height()?;
 
-        let (epoch25_activation_height, epoch_30_activation_height) = if is_mainnet {
-            (
-                BITCOIN_MAINNET_STACKS_25_BURN_HEIGHT,
-                BITCOIN_MAINNET_STACKS_30_BURN_HEIGHT,
-            )
-        } else {
-            (
-                BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
-                BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT,
-            )
-        };
+        let epoch_25 = pox_info
+            .epochs
+            .iter()
+            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
+            .ok_or(ClientError::UnsupportedStacksFeature(
+                "/v2/pox must report epochs".into(),
+            ))?;
 
-        if burn_block_height < epoch25_activation_height {
-            Ok(EpochId::UnsupportedEpoch)
-        } else if burn_block_height < epoch_30_activation_height {
-            Ok(EpochId::Epoch25)
+        let epoch_30 = pox_info
+            .epochs
+            .iter()
+            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch30)
+            .ok_or(ClientError::UnsupportedStacksFeature(
+                "/v2/pox mut report epochs".into(),
+            ))?;
+
+        if burn_block_height < epoch_25.start_height {
+            Ok(StacksEpochId::Epoch24)
+        } else if burn_block_height < epoch_30.start_height {
+            Ok(StacksEpochId::Epoch25)
         } else {
-            Ok(EpochId::Epoch30)
+            Ok(StacksEpochId::Epoch30)
         }
     }
 
@@ -677,7 +667,7 @@ mod tests {
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
-    use stacks_common::types::StacksPublicKeyBuffer;
+    use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
     use stacks_common::util::hash::{Hash160, Sha256Sum, Sha512Trunc256Sum};
     use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::scalar::Scalar;
@@ -1060,7 +1050,7 @@ mod tests {
             b"HTTP/1.1 200 OK\n\n{\"burn_block_height\":2575799,\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
         );
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, EpochId::UnsupportedEpoch);
+        assert_eq!(epoch, StacksEpochId::Epoch24);
 
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_node_epoch());
@@ -1069,7 +1059,7 @@ mod tests {
 
         write_response(mock.server, response_bytes.as_bytes());
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, EpochId::Epoch25);
+        assert_eq!(epoch, StacksEpochId::Epoch25);
 
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_node_epoch());
@@ -1077,7 +1067,7 @@ mod tests {
         let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"burn_block_height\":{height},\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}");
         write_response(mock.server, response_bytes.as_bytes());
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, EpochId::Epoch30);
+        assert_eq!(epoch, StacksEpochId::Epoch30);
     }
 
     #[test]

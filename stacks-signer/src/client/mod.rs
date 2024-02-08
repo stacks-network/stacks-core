@@ -102,6 +102,9 @@ pub enum ClientError {
     /// Reward set contained corrupted data
     #[error("{0}")]
     CorruptedRewardSet(String),
+    /// Stacks node does not support a feature we need
+    #[error("Stacks node does not support a required feature: {0}")]
+    UnsupportedStacksFeature(String),
 }
 
 /// Retry a function F with an exponential backoff and notification on transient failure
