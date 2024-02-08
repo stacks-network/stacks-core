@@ -1095,8 +1095,8 @@ impl Signer {
                 );
                 self.handle_block_validate_response(block_validate_response, res)
             }
-            Some(SignerEvent::SignerMessages(reward_index, messages)) => {
-                if *reward_index != self.stackerdb.get_signer_set() {
+            Some(SignerEvent::SignerMessages(signer_set, messages)) => {
+                if *signer_set != self.stackerdb.get_signer_set() {
                     debug!("Signer #{}: Received a signer message for a reward cycle that do not belong to this signer. Ignoring...", self.signer_id);
                     return Ok(());
                 }
