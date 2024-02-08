@@ -44,8 +44,8 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_3, naka_neon_integration_conf, next_block_and, next_block_and_mine_commit,
-    POX_4_DEFAULT_STACKER_BALANCE,
+    boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
+    next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{next_block_and_wait, test_observer, wait_for_runloop};
 use crate::tests::to_addr;
@@ -263,8 +263,8 @@ fn setup_stx_btc_node(
     info!("Mine third block...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    info!("Boot to epoch 3.0 to activate pox-4...");
-    boot_to_epoch_3(
+    info!("Boot to epoch 2.5 to activate pox-4...");
+    boot_to_epoch_3_reward_set(
         &naka_conf,
         &blocks_processed,
         signer_stacks_private_keys,
@@ -272,7 +272,7 @@ fn setup_stx_btc_node(
         &mut btc_regtest_controller,
     );
 
-    info!("Pox 4 activated and ready for signers to perform DKG and Sign!");
+    info!("Pox 4 activated and Nakamoto's first reward set calculated! Ready for signers to perform DKG!");
     RunningNodes {
         btcd_controller,
         btc_regtest_controller,

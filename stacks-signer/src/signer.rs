@@ -189,26 +189,30 @@ impl Signer {
     }
 
     /// Execute the given command and update state accordingly
-    /// Returns true when it is successfully executed, else false
-    fn execute_command(&mut self, command: &Command) -> bool {
+    fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
         match command {
             Command::Dkg => {
-                info!("Signer #{}: Starting DKG", self.signer_id);
+                let vote_round = match retry_with_exponential_backoff(|| {
+                    stacks_client
+                        .get_last_round(self.reward_cycle)
+                        .map_err(backoff::Error::transient)
+                }) {
+                    Ok(last_round) => last_round,
+                    Err(e) => {
+                        error!("Signer #{}: Unable to perform DKG. Failed to get last round from stacks node: {e:?}", self.signer_id);
+                        return;
+                    }
+                };
+                // The dkg id will increment internally following "start_dkg_round" so do not increment it here
+                self.coordinator.current_dkg_id = vote_round.unwrap_or(0);
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
                         self.state = State::Dkg;
-                        true
                     }
                     Err(e) => {
                         error!("Signer #{}: Failed to start DKG: {e:?}", self.signer_id);
-                        warn!(
-                            "Signer #{}: Resetting coordinator's internal state.",
-                            self.signer_id
-                        );
-                        self.coordinator.reset();
-                        false
                     }
                 }
             }
@@ -224,7 +228,7 @@ impl Signer {
                     .or_insert_with(|| BlockInfo::new(block.clone()));
                 if block_info.signed_over {
                     debug!("Signer #{}: Received a sign command for a block we are already signing over. Ignore it.", self.signer_id);
-                    return false;
+                    return;
                 }
                 info!("Signer #{}: Signing block: {block:?}", self.signer_id);
                 match self.coordinator.start_signing_round(
@@ -237,19 +241,12 @@ impl Signer {
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
                         self.state = State::Sign;
                         block_info.signed_over = true;
-                        true
                     }
                     Err(e) => {
                         error!(
                             "Signer #{}: Failed to start signing message: {e:?}",
                             self.signer_id
                         );
-                        warn!(
-                            "Signer #{}: Resetting coordinator's internal state.",
-                            self.signer_id
-                        );
-                        self.coordinator.reset();
-                        false
                     }
                 }
             }
@@ -271,12 +268,7 @@ impl Signer {
                 }
 
                 if let Some(command) = self.commands.pop_front() {
-                    while !self.execute_command(&command) {
-                        warn!(
-                            "Signer #{}: Failed to execute command. Retrying...",
-                            self.signer_id
-                        );
-                    }
+                    self.execute_command(stacks_client, &command);
                 } else {
                     debug!(
                         "Signer #{}: Nothing to process. Waiting for command...",
@@ -794,8 +786,8 @@ impl Signer {
                             match retry_with_exponential_backoff(|| {
                                 stacks_client
                                     .cast_vote_for_aggregate_public_key(
-                                        self.reward_cycle,
                                         self.stackerdb.get_signer_slot_id(),
+                                        self.coordinator.current_dkg_id,
                                         *point,
                                     )
                                     .map_err(backoff::Error::transient)
@@ -818,8 +810,8 @@ impl Signer {
                             match retry_with_exponential_backoff(|| {
                                 stacks_client
                                     .build_vote_for_aggregate_public_key(
-                                        self.reward_cycle,
                                         self.stackerdb.get_signer_slot_id(),
+                                        self.coordinator.current_dkg_id,
                                         *point,
                                     )
                                     .map_err(backoff::Error::transient)
@@ -1066,6 +1058,7 @@ impl Signer {
         if new_aggregate_public_key.is_none()
             && self.signer_id == coordinator_id
             && self.coordinator.state == CoordinatorState::Idle
+        // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle
         {
             info!("Signer #{} is the current coordinator for {reward_cycle}. Triggering a DKG round...", self.signer_id);
             if self.commands.back() != Some(&Command::Dkg) {
