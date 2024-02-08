@@ -132,11 +132,24 @@ pub(crate) mod tests {
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpListener};
 
+    use blockstack_lib::chainstate::stacks::boot::POX_4_NAME;
+    use blockstack_lib::net::api::getaccount::AccountEntryResponse;
+    use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
+    use blockstack_lib::net::api::getpoxinfo::{
+        RPCPoxCurrentCycleInfo, RPCPoxEpoch, RPCPoxInfoData, RPCPoxNextCycleInfo,
+    };
+    use blockstack_lib::util_lib::boot::boot_code_id;
+    use clarity::vm::costs::ExecutionCost;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
-    use rand::thread_rng;
+    use rand::distributions::Standard;
+    use rand::{thread_rng, Rng};
     use rand_core::{OsRng, RngCore};
-    use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
+    use stacks_common::types::chainstate::{
+        BlockHeaderHash, ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    };
+    use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
+    use stacks_common::util::hash::{Hash160, Sha256Sum};
     use wsts::curve::ecdsa;
     use wsts::curve::point::{Compressed, Point};
     use wsts::curve::scalar::Scalar;
@@ -206,6 +219,14 @@ pub(crate) mod tests {
         request_bytes
     }
 
+    pub fn generate_random_consensus_hash() -> ConsensusHash {
+        let rng = rand::thread_rng();
+        let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
+        let mut hash = [0u8; 20];
+        hash.copy_from_slice(&bytes);
+        ConsensusHash(hash)
+    }
+
     /// Build a response for the get_last_round request
     pub fn build_get_last_round_response(round: u64) -> String {
         let value = ClarityValue::okay(ClarityValue::UInt(round as u128))
@@ -215,15 +236,98 @@ pub(crate) mod tests {
 
     /// Build a response for the get_account_nonce request
     pub fn build_account_nonce_response(nonce: u64) -> String {
-        format!("HTTP/1.1 200 OK\n\n{{\"nonce\":{nonce},\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}}")
+        let account_nonce_entry = AccountEntryResponse {
+            nonce,
+            balance: "0x00000000000000000000000000000000".to_string(),
+            locked: "0x00000000000000000000000000000000".to_string(),
+            unlock_height: thread_rng().next_u64(),
+            balance_proof: None,
+            nonce_proof: None,
+        };
+        let account_nonce_entry_json = serde_json::to_string(&account_nonce_entry)
+            .expect("Failed to serialize account nonce entry");
+        format!("HTTP/1.1 200 OK\n\n{account_nonce_entry_json}")
     }
 
     /// Build a response to get_pox_data where it returns a specific reward cycle id and block height
     pub fn build_get_pox_data_response(
-        reward_cycle: u64,
-        prepare_phase_start_block_height: u64,
-    ) -> String {
-        format!("HTTP/1.1 200 Ok\n\n{{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true}},\"next_cycle\":{{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":{prepare_phase_start_block_height},\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304}},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":{reward_cycle},\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0}},{{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403}},{{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}}]}}")
+        reward_cycle: Option<u64>,
+        prepare_phase_start_height: Option<u64>,
+        epoch_25_activation_height: Option<u64>,
+        epoch_30_activation_height: Option<u64>,
+    ) -> (String, RPCPoxInfoData) {
+        // Populate some random data!
+        let epoch_25_start = epoch_25_activation_height.unwrap_or(thread_rng().next_u64());
+        let epoch_30_start =
+            epoch_30_activation_height.unwrap_or(epoch_25_start.saturating_add(1000));
+        let current_id = reward_cycle.unwrap_or(thread_rng().next_u64());
+        let next_id = current_id.saturating_add(1);
+        let pox_info = RPCPoxInfoData {
+            contract_id: boot_code_id(POX_4_NAME, false).to_string(),
+            pox_activation_threshold_ustx: thread_rng().next_u64(),
+            first_burnchain_block_height: thread_rng().next_u64(),
+            current_burnchain_block_height: thread_rng().next_u64(),
+            prepare_phase_block_length: thread_rng().next_u64(),
+            reward_phase_block_length: thread_rng().next_u64(),
+            reward_slots: thread_rng().next_u64(),
+            rejection_fraction: None,
+            total_liquid_supply_ustx: thread_rng().next_u64(),
+            current_cycle: RPCPoxCurrentCycleInfo {
+                id: current_id,
+                min_threshold_ustx: thread_rng().next_u64(),
+                stacked_ustx: thread_rng().next_u64(),
+                is_pox_active: true,
+            },
+            next_cycle: RPCPoxNextCycleInfo {
+                id: next_id,
+                min_threshold_ustx: thread_rng().next_u64(),
+                min_increment_ustx: thread_rng().next_u64(),
+                stacked_ustx: thread_rng().next_u64(),
+                prepare_phase_start_block_height: prepare_phase_start_height
+                    .unwrap_or(thread_rng().next_u64()),
+                blocks_until_prepare_phase: thread_rng().next_u32() as i64,
+                reward_phase_start_block_height: thread_rng().next_u64(),
+                blocks_until_reward_phase: thread_rng().next_u64(),
+                ustx_until_pox_rejection: None,
+            },
+            min_amount_ustx: thread_rng().next_u64(),
+            prepare_cycle_length: thread_rng().next_u64(),
+            reward_cycle_id: current_id,
+            epochs: vec![
+                RPCPoxEpoch {
+                    start_height: epoch_25_start,
+                    end_height: epoch_30_start,
+                    block_limit: ExecutionCost {
+                        write_length: thread_rng().next_u64(),
+                        write_count: thread_rng().next_u64(),
+                        read_length: thread_rng().next_u64(),
+                        read_count: thread_rng().next_u64(),
+                        runtime: thread_rng().next_u64(),
+                    },
+                    epoch_id: StacksEpochId::Epoch25,
+                    network_epoch: 0,
+                },
+                RPCPoxEpoch {
+                    start_height: epoch_30_start,
+                    end_height: epoch_30_start.saturating_add(1000),
+                    block_limit: ExecutionCost {
+                        write_length: thread_rng().next_u64(),
+                        write_count: thread_rng().next_u64(),
+                        read_length: thread_rng().next_u64(),
+                        read_count: thread_rng().next_u64(),
+                        runtime: thread_rng().next_u64(),
+                    },
+                    epoch_id: StacksEpochId::Epoch30,
+                    network_epoch: 0,
+                },
+            ],
+            reward_cycle_length: thread_rng().next_u64(),
+            rejection_votes_left_required: None,
+            next_reward_cycle_in: thread_rng().next_u64(),
+            contract_versions: vec![],
+        };
+        let pox_info_json = serde_json::to_string(&pox_info).expect("Failed to serialize pox info");
+        (format!("HTTP/1.1 200 Ok\n\n{pox_info_json}"), pox_info)
     }
 
     /// Build a response for the get_aggregate_public_key request
@@ -237,10 +341,49 @@ pub(crate) mod tests {
     }
 
     /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
-    pub fn build_get_peer_info_response(stacks_tip_height: u64, consensus_hash: String) -> String {
-        format!(
-            "HTTP/1.1 200 OK\n\n{{\"stacks_tip_height\":{stacks_tip_height},\"stacks_tip_consensus_hash\":\"{consensus_hash}\",\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"burn_block_height\":2575799,\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}",
-        )
+    pub fn build_get_peer_info_response(
+        stacks_tip_height: Option<u64>,
+        burn_block_height: Option<u64>,
+        stacks_tip_consensus_hash: Option<ConsensusHash>,
+    ) -> (String, RPCPeerInfoData) {
+        // Generate some random info
+        let private_key = StacksPrivateKey::new();
+        let public_key = StacksPublicKey::from_private(&private_key);
+        let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
+        let public_key_hash = Hash160::from_node_public_key(&public_key);
+        let stackerdb_contract_ids =
+            vec![boot_code_id("fake", false), boot_code_id("fake_2", false)];
+        let peer_info = RPCPeerInfoData {
+            peer_version: thread_rng().next_u32(),
+            pox_consensus: generate_random_consensus_hash(),
+            burn_block_height: burn_block_height.unwrap_or(thread_rng().next_u64()),
+            stable_pox_consensus: generate_random_consensus_hash(),
+            stable_burn_block_height: 2,
+            server_version: "fake version".to_string(),
+            network_id: thread_rng().next_u32(),
+            parent_network_id: thread_rng().next_u32(),
+            stacks_tip_height: stacks_tip_height.unwrap_or(thread_rng().next_u64()),
+            stacks_tip: BlockHeaderHash([0x06; 32]),
+            stacks_tip_consensus_hash: stacks_tip_consensus_hash
+                .unwrap_or(generate_random_consensus_hash()),
+            unanchored_tip: None,
+            unanchored_seq: Some(0),
+            exit_at_block_height: None,
+            genesis_chainstate_hash: Sha256Sum::zero(),
+            node_public_key: Some(public_key_buf),
+            node_public_key_hash: Some(public_key_hash),
+            affirmations: None,
+            last_pox_anchor: None,
+            stackerdbs: Some(
+                stackerdb_contract_ids
+                    .into_iter()
+                    .map(|cid| format!("{}", cid))
+                    .collect(),
+            ),
+        };
+        let peer_info_json =
+            serde_json::to_string(&peer_info).expect("Failed to serialize peer info");
+        (format!("HTTP/1.1 200 OK\n\n{peer_info_json}"), peer_info)
     }
 
     /// Build a response to a read only clarity contract call
