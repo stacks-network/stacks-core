@@ -1047,13 +1047,23 @@ impl Signer {
     /// Update the DKG for the provided signer info, triggering it if required
     pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
-        let aggregate_public_key = stacks_client.get_aggregate_public_key(reward_cycle)?;
-        self.coordinator
-            .set_aggregate_public_key(aggregate_public_key);
+        let new_aggregate_public_key = stacks_client.get_aggregate_public_key(reward_cycle)?;
+        let old_aggregate_public_key = self.coordinator.get_aggregate_public_key();
+        if new_aggregate_public_key.is_some()
+            && old_aggregate_public_key != new_aggregate_public_key
+        {
+            debug!(
+                "Signer #{}: Received a new aggregate public key ({new_aggregate_public_key:?}) for reward cycle {reward_cycle}. Overwriting its internal aggregate key ({old_aggregate_public_key:?})",
+                self.signer_id
+            );
+            self.coordinator
+                .set_aggregate_public_key(new_aggregate_public_key);
+        }
         let coordinator_id = stacks_client
             .calculate_coordinator(&self.signing_round.public_keys)
             .0;
-        if aggregate_public_key.is_none()
+        // TOOD: should check if we have an aggregate key before we trigger another round. may have a delay between us calculating a key, broadcasting to the contract, and it being confirmed by the miner.
+        if new_aggregate_public_key.is_none()
             && self.signer_id == coordinator_id
             && self.coordinator.state == CoordinatorState::Idle
         {
@@ -1063,7 +1073,7 @@ impl Signer {
             }
         } else {
             debug!("Signer #{}: Not triggering a DKG round.", self.signer_id;
-                "aggregate_public_key" => aggregate_public_key.is_some(),
+                "aggregate_public_key" => new_aggregate_public_key.is_some(),
                 "coordinator_id" => coordinator_id,
                 "coordinator_idle" => self.coordinator.state == CoordinatorState::Idle,
             );
