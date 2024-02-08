@@ -155,6 +155,7 @@ impl RunLoop {
             weight_end = weight_start + entry.slots;
             for key_id in weight_start..weight_end {
                 public_keys.key_ids.insert(key_id, ecdsa_public_key);
+                public_keys.signers.insert(signer_id, ecdsa_public_key);
                 signer_key_ids
                     .entry(signer_id)
                     .or_insert(HashSet::with_capacity(entry.slots as usize))
