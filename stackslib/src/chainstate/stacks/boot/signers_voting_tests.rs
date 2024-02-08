@@ -213,7 +213,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
         tx2.result,
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::UInt(10006)) // err-duplicate-vote
+            data: Box::new(Value::UInt(7)) // err-duplicate-vote
         })
     );
 }
@@ -352,7 +352,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
         tx2.result,
         Value::Response(ResponseData {
             committed: false,
-            data: Box::new(Value::UInt(10006)) // err-duplicate-vote
+            data: Box::new(Value::UInt(7)) // err-duplicate-vote
         })
     );
 

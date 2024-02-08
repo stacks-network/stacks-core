@@ -9,14 +9,14 @@
 ;; maps aggregate public keys to rewards cycles and rounds
 (define-map used-aggregate-public-keys (buff 33) {reward-cycle: uint, round: uint})
 
-(define-constant err-signer-index-mismatch (err u10000))
-(define-constant err-invalid-signer-index (err u10001))
-(define-constant err-out-of-voting-window (err u10002))
-(define-constant err-old-round (err u10003))
-(define-constant err-ill-formed-aggregate-public-key (err u10004))
-(define-constant err-duplicate-aggregate-public-key (err u10005))
-(define-constant err-duplicate-vote (err u10006))
-(define-constant err-invalid-burn-block-height (err u10007))
+(define-constant ERR_SIGNER_INDEX_MISMATCH 1)
+(define-constant ERR_INVALID_SIGNER_INDEX 2)
+(define-constant ERR_OUT_OF_VOTING_WINDOW 3)
+(define-constant ERR_OLD_ROUND 4)
+(define-constant ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY 5)
+(define-constant ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY 6)
+(define-constant ERR_DUPLICATE_VOTE 7)
+(define-constant ERR_INVALID_BURN_BLOCK_HEIGHT 8)
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
@@ -31,7 +31,7 @@
 
 ;; get voting info by burn block height
 (define-read-only (get-info (height uint))
-    (ok (at-block (unwrap! (get-block-info? id-header-hash height) err-invalid-burn-block-height) (get-current-info))))
+    (ok (at-block (unwrap! (get-block-info? id-header-hash height) (err ERR_INVALID_BURN_BLOCK_HEIGHT)) (get-current-info))))
 
 ;; get current voting info
 (define-read-only (get-current-info)
@@ -60,8 +60,8 @@
       (get-signer-slots signer-index cycle)))
 
 (define-read-only (get-signer-slots (signer-index uint) (reward-cycle uint))
-    (let ((details (unwrap! (try! (contract-call? .signers get-signer-by-index reward-cycle signer-index)) err-invalid-signer-index)))
-        (asserts! (is-eq (get signer details) tx-sender) err-signer-index-mismatch)
+    (let ((details (unwrap! (try! (contract-call? .signers get-signer-by-index reward-cycle signer-index)) (err (to-uint ERR_INVALID_SIGNER_INDEX)))))
+        (asserts! (is-eq (get signer details) tx-sender) (err (to-uint ERR_SIGNER_INDEX_MISMATCH)))
         (ok (get weight details))))
 
 ;; aggregate public key must be unique and can be used only in a single cycle-round pair
@@ -86,11 +86,11 @@
             ;; one slot, one vote
             (num-slots (try! (get-current-signer-slots signer-index)))
             (new-total (+ num-slots (default-to u0 (map-get? tally tally-key)))))
-        (asserts! (is-in-voting-window burn-block-height reward-cycle) err-out-of-voting-window)
-        (asserts! (>= round (default-to u0 (map-get? rounds reward-cycle))) err-old-round)
-        (asserts! (is-eq (len key) u33) err-ill-formed-aggregate-public-key)
-        (asserts! (is-valid-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) err-duplicate-aggregate-public-key)
-        (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-slots}) err-duplicate-vote)
+        (asserts! (is-in-voting-window burn-block-height reward-cycle) (err (to-uint ERR_OUT_OF_VOTING_WINDOW)))
+        (asserts! (>= round (default-to u0 (map-get? rounds reward-cycle))) (err (to-uint ERR_OLD_ROUND)))
+        (asserts! (is-eq (len key) u33) (err (to-uint ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY)))
+        (asserts! (is-valid-aggregated-public-key key {reward-cycle: reward-cycle, round: round}) (err (to-uint ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY)))
+        (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-slots}) (err (to-uint ERR_DUPLICATE_VOTE)))
         (map-set tally tally-key new-total)
         (map-set used-aggregate-public-keys key {reward-cycle: reward-cycle, round: round})
         (update-last-round reward-cycle round)
