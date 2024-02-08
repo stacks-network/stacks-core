@@ -652,7 +652,6 @@ impl StacksClient {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Write as FmtWrite;
     use std::io::{BufWriter, Write};
     use std::thread::spawn;
 
@@ -660,15 +659,14 @@ mod tests {
     use blockstack_lib::chainstate::stacks::address::PoxAddress;
     use blockstack_lib::chainstate::stacks::boot::{NakamotoSignerEntry, PoxStartCycleInfo};
     use blockstack_lib::chainstate::stacks::ThresholdSignature;
-    use rand::distributions::Standard;
-    use rand::{thread_rng, Rng};
+    use rand::thread_rng;
     use rand_core::RngCore;
     use serial_test::serial;
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
-    use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
-    use stacks_common::types::{StacksEpochId, StacksPublicKeyBuffer};
-    use stacks_common::util::hash::{Hash160, Sha256Sum, Sha512Trunc256Sum};
+    use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
+    use stacks_common::types::StacksEpochId;
+    use stacks_common::util::hash::Sha512Trunc256Sum;
     use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::scalar::Scalar;
 
@@ -676,7 +674,8 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_aggregate_public_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        build_read_only_response, generate_reward_cycle_config, write_response, MockServerClient,
+        build_read_only_response, generate_random_consensus_hash, generate_reward_cycle_config,
+        write_response, MockServerClient,
     };
 
     #[test]
@@ -779,14 +778,11 @@ mod tests {
     #[test]
     fn valid_reward_cycle_should_succeed() {
         let mock = MockServerClient::new();
-        let reward_cycle = thread_rng().next_u64();
-        let prepare_phase_start_block_height = thread_rng().next_u64();
-        let pox_data_response =
-            build_get_pox_data_response(reward_cycle, prepare_phase_start_block_height);
+        let (pox_data_response, pox_data) = build_get_pox_data_response(None, None, None, None);
         let h = spawn(move || mock.client.get_current_reward_cycle());
         write_response(mock.server, pox_data_response.as_bytes());
         let current_cycle_id = h.join().unwrap().unwrap();
-        assert_eq!(reward_cycle, current_cycle_id);
+        assert_eq!(current_cycle_id, pox_data.reward_cycle_id);
     }
 
     #[test]
@@ -796,18 +792,6 @@ mod tests {
         write_response(
             mock.server,
             b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"id\":\"fake id\", \"is_pox_active\":false}}",
-        );
-        let res = h.join().unwrap();
-        assert!(matches!(res, Err(ClientError::ReqwestError(_))));
-    }
-
-    #[test]
-    fn missing_reward_cycle_should_fail() {
-        let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_current_reward_cycle());
-        write_response(
-            mock.server,
-            b"HTTP/1.1 200 Ok\n\n{\"current_cycle\":{\"is_pox_active\":false}}",
         );
         let res = h.join().unwrap();
         assert!(matches!(res, Err(ClientError::ReqwestError(_))));
@@ -960,15 +944,10 @@ mod tests {
     fn core_info_call_for_consensus_hash_should_succeed() {
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_stacks_tip_consensus_hash());
-        write_response(
-            mock.server,
-            b"HTTP/1.1 200 OK\n\n{\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"burn_block_height\":2575799,\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
-        );
+        let (response, peer_info) = build_get_peer_info_response(None, None, None);
+        write_response(mock.server, response.as_bytes());
         let consensus_hash = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(
-            consensus_hash.to_hex(),
-            "64c8c3049ff6b939c65828e3168210e6bb32d880"
-        );
+        assert_eq!(consensus_hash, peer_info.stacks_tip_consensus_hash);
     }
 
     #[test]
@@ -986,12 +965,10 @@ mod tests {
     fn core_info_call_for_burn_block_height_should_succeed() {
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_burn_block_height());
-        write_response(
-            mock.server,
-            b"HTTP/1.1 200 OK\n\n{\"burn_block_height\":2575799,\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
-        );
+        let (response, peer_info) = build_get_peer_info_response(None, None, None);
+        write_response(mock.server, response.as_bytes());
         let burn_block_height = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(burn_block_height, 2575799);
+        assert_eq!(burn_block_height, peer_info.burn_block_height);
     }
 
     #[test]
@@ -1044,28 +1021,83 @@ mod tests {
     #[test]
     fn get_node_epoch_should_succeed() {
         let mock = MockServerClient::new();
+        // The burn block height is one BEHIND the activation height of 2.5, therefore is 2.4
+        let burn_block_height: u64 = 100;
+        let pox_response = build_get_pox_data_response(
+            None,
+            None,
+            Some(burn_block_height.saturating_add(1)),
+            None,
+        )
+        .0;
+        let peer_response = build_get_peer_info_response(None, Some(burn_block_height), None).0;
         let h = spawn(move || mock.client.get_node_epoch());
-        write_response(
-            mock.server,
-            b"HTTP/1.1 200 OK\n\n{\"burn_block_height\":2575799,\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}",
-        );
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, StacksEpochId::Epoch24);
 
-        let mock = MockServerClient::new();
+        // The burn block height is the same as the activation height of 2.5, therefore is 2.5
+        let pox_response = build_get_pox_data_response(None, None, Some(burn_block_height), None).0;
+        let peer_response = build_get_peer_info_response(None, Some(burn_block_height), None).0;
+        let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_node_epoch());
-        let height = BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT;
-        let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"burn_block_height\":{height},\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}");
-
-        write_response(mock.server, response_bytes.as_bytes());
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, StacksEpochId::Epoch25);
 
-        let mock = MockServerClient::new();
+        // The burn block height is the AFTER as the activation height of 2.5 but BEFORE the activation height of 3.0, therefore is 2.5
+        let pox_response = build_get_pox_data_response(
+            None,
+            None,
+            Some(burn_block_height.saturating_sub(1)),
+            Some(burn_block_height.saturating_add(1)),
+        )
+        .0;
+        let peer_response = build_get_peer_info_response(None, Some(burn_block_height), None).0;
+        let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_node_epoch());
-        let height = BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT;
-        let response_bytes = format!("HTTP/1.1 200 OK\n\n{{\"burn_block_height\":{height},\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"stacks_tip_consensus_hash\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}");
-        write_response(mock.server, response_bytes.as_bytes());
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
+        let epoch = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(epoch, StacksEpochId::Epoch25);
+
+        // The burn block height is the AFTER as the activation height of 2.5 and the SAME as the activation height of 3.0, therefore is 3.0
+        let pox_response = build_get_pox_data_response(
+            None,
+            None,
+            Some(burn_block_height.saturating_sub(1)),
+            Some(burn_block_height),
+        )
+        .0;
+        let peer_response = build_get_peer_info_response(None, Some(burn_block_height), None).0;
+        let mock = MockServerClient::from_config(mock.config);
+        let h = spawn(move || mock.client.get_node_epoch());
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
+        let epoch = h.join().unwrap().expect("Failed to deserialize response");
+        assert_eq!(epoch, StacksEpochId::Epoch30);
+
+        // The burn block height is the AFTER as the activation height of 2.5 and AFTER the activation height of 3.0, therefore is 3.0
+        let pox_response = build_get_pox_data_response(
+            None,
+            None,
+            Some(burn_block_height.saturating_sub(1)),
+            Some(burn_block_height),
+        )
+        .0;
+        let peer_response =
+            build_get_peer_info_response(None, Some(burn_block_height.saturating_add(1)), None).0;
+        let mock = MockServerClient::from_config(mock.config);
+        let h = spawn(move || mock.client.get_node_epoch());
+        write_response(mock.server, pox_response.as_bytes());
+        let mock = MockServerClient::from_config(mock.config);
+        write_response(mock.server, peer_response.as_bytes());
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
         assert_eq!(epoch, StacksEpochId::Epoch30);
     }
@@ -1132,42 +1164,7 @@ mod tests {
     #[test]
     fn get_peer_info_should_succeed() {
         let mock = MockServerClient::new();
-        let private_key = StacksPrivateKey::new();
-        let public_key = StacksPublicKey::from_private(&private_key);
-        let public_key_buf = StacksPublicKeyBuffer::from_public_key(&public_key);
-        let public_key_hash = Hash160::from_node_public_key(&public_key);
-        let stackerdb_contract_ids = vec![boot_code_id("fake", false)];
-
-        let peer_info = RPCPeerInfoData {
-            peer_version: 1,
-            pox_consensus: ConsensusHash([0x04; 20]),
-            burn_block_height: 200,
-            stable_pox_consensus: ConsensusHash([0x05; 20]),
-            stable_burn_block_height: 2,
-            server_version: "fake version".to_string(),
-            network_id: 0,
-            parent_network_id: 1,
-            stacks_tip_height: 20,
-            stacks_tip: BlockHeaderHash([0x06; 32]),
-            stacks_tip_consensus_hash: ConsensusHash([0x07; 20]),
-            unanchored_tip: None,
-            unanchored_seq: Some(1),
-            exit_at_block_height: None,
-            genesis_chainstate_hash: Sha256Sum::zero(),
-            node_public_key: Some(public_key_buf),
-            node_public_key_hash: Some(public_key_hash),
-            affirmations: None,
-            last_pox_anchor: None,
-            stackerdbs: Some(
-                stackerdb_contract_ids
-                    .into_iter()
-                    .map(|cid| format!("{}", cid))
-                    .collect(),
-            ),
-        };
-        let peer_info_json =
-            serde_json::to_string(&peer_info).expect("Failed to serialize peer info");
-        let response = format!("HTTP/1.1 200 OK\n\n{peer_info_json}");
+        let (response, peer_info) = build_get_peer_info_response(None, None, None);
         let h = spawn(move || mock.client.get_peer_info());
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), peer_info);
@@ -1216,27 +1213,36 @@ mod tests {
     #[test]
     #[serial]
     fn get_reward_set_calculated() {
-        let consensus_hash = "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string();
-
         // Should return TRUE as the passed in reward cycle is older than the current reward cycle of the node
         let mock = MockServerClient::new();
-        let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || mock.client.reward_set_calculated(0));
+        let reward_cycle = 10;
+        let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
+        let h = spawn(move || {
+            mock.client
+                .reward_set_calculated(reward_cycle.saturating_sub(1))
+        });
         write_response(mock.server, pox_response.as_bytes());
         assert!(h.join().unwrap().unwrap());
 
         // Should return TRUE as the passed in reward cycle is the same as the current reward cycle
         let mock = MockServerClient::from_config(mock.config);
-        let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || mock.client.reward_set_calculated(2));
+        let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
+        let h = spawn(move || mock.client.reward_set_calculated(reward_cycle));
         write_response(mock.server, pox_response.as_bytes());
         assert!(h.join().unwrap().unwrap());
 
         // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
         let mock = MockServerClient::from_config(mock.config);
-        let pox_response = build_get_pox_data_response(2, 10);
-        let peer_response = build_get_peer_info_response(11, consensus_hash.clone());
-        let h = spawn(move || mock.client.reward_set_calculated(3));
+        let prepare_phase_start = 10;
+        let pox_response =
+            build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
+                .0;
+        let peer_response =
+            build_get_peer_info_response(Some(prepare_phase_start.saturating_add(1)), None, None).0;
+        let h = spawn(move || {
+            mock.client
+                .reward_set_calculated(reward_cycle.saturating_add(1))
+        });
         write_response(mock.server, pox_response.as_bytes());
         let mock = MockServerClient::from_config(mock.config);
         write_response(mock.server, peer_response.as_bytes());
@@ -1244,52 +1250,39 @@ mod tests {
 
         // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
         let mock = MockServerClient::from_config(mock.config);
-        let pox_response = build_get_pox_data_response(2, 10);
-        let h = spawn(move || mock.client.reward_set_calculated(4));
+        let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
+        let h = spawn(move || {
+            mock.client
+                .reward_set_calculated(reward_cycle.saturating_add(2))
+        });
         write_response(mock.server, pox_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
 
         // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT the prepare phase is in its FIRST block
         let mock = MockServerClient::from_config(mock.config);
-        let pox_response = build_get_pox_data_response(2, 11);
-        let peer_response = build_get_peer_info_response(11, consensus_hash);
-        let h = spawn(move || mock.client.reward_set_calculated(3));
+        let pox_response =
+            build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
+                .0;
+        let peer_response = build_get_peer_info_response(Some(prepare_phase_start), None, None).0;
+        let h = spawn(move || {
+            mock.client
+                .reward_set_calculated(reward_cycle.saturating_add(1))
+        });
         write_response(mock.server, pox_response.as_bytes());
         let mock = MockServerClient::from_config(mock.config);
         write_response(mock.server, peer_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
     }
 
-    fn generate_random_consensus_hash() -> String {
-        let rng = rand::thread_rng();
-        let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
-        let hex_string = bytes.iter().fold(String::new(), |mut acc, &b| {
-            write!(&mut acc, "{:02x}", b).expect("Error writing to string");
-            acc
-        });
-        hex_string
-    }
-
-    fn build_get_stacks_tip_consensus_hash(random_consensus: bool) -> String {
-        let consensus_hash = match random_consensus {
-            true => generate_random_consensus_hash(),
-            false => "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string(),
-        };
-
-        println!("{}", consensus_hash);
-        let stacks_tip_height = thread_rng().next_u64();
-        build_get_peer_info_response(stacks_tip_height, consensus_hash)
-    }
-
     #[test]
-    fn calculate_coordinator_should_produce_unique_results() {
+    fn calculate_coordinator_different_consensus_hashes_produces_unique_results() {
         let number_of_tests = 5;
         let generated_public_keys = generate_reward_cycle_config(10, 4000, None).0.public_keys;
         let mut results = Vec::new();
 
         for _ in 0..number_of_tests {
             let mock = MockServerClient::new();
-            let response = build_get_stacks_tip_consensus_hash(true);
+            let response = build_get_peer_info_response(None, None, None).0;
             let generated_public_keys = generated_public_keys.clone();
             let h = spawn(move || mock.client.calculate_coordinator(&generated_public_keys));
             write_response(mock.server, response.as_bytes());
@@ -1311,13 +1304,22 @@ mod tests {
         );
     }
 
-    fn generate_test_results(random_consensus: bool, count: usize) -> Vec<(u32, ecdsa::PublicKey)> {
+    fn generate_calculate_coordinator_test_results(
+        random_consensus: bool,
+        count: usize,
+    ) -> Vec<(u32, ecdsa::PublicKey)> {
         let mut results = Vec::new();
+        let same_hash = generate_random_consensus_hash();
+        let hash = if random_consensus {
+            None
+        } else {
+            Some(same_hash)
+        };
         let generated_public_keys = generate_reward_cycle_config(10, 4000, None).0.public_keys;
         for _ in 0..count {
             let mock = MockServerClient::new();
             let generated_public_keys = generated_public_keys.clone();
-            let response = build_get_stacks_tip_consensus_hash(random_consensus);
+            let response = build_get_peer_info_response(None, None, hash).0;
             let h = spawn(move || mock.client.calculate_coordinator(&generated_public_keys));
             write_response(mock.server, response.as_bytes());
             let result = h.join().unwrap();
@@ -1328,7 +1330,7 @@ mod tests {
 
     #[test]
     fn calculate_coordinator_results_should_vary_or_match_based_on_hash() {
-        let results_with_random_hash = generate_test_results(true, 5);
+        let results_with_random_hash = generate_calculate_coordinator_test_results(true, 5);
         let all_ids_same = results_with_random_hash
             .iter()
             .all(|&(id, _)| id == results_with_random_hash[0].0);
@@ -1341,7 +1343,7 @@ mod tests {
             "Not all coordinator public keys should be the same"
         );
 
-        let results_with_static_hash = generate_test_results(false, 5);
+        let results_with_static_hash = generate_calculate_coordinator_test_results(false, 5);
         let all_ids_same = results_with_static_hash
             .iter()
             .all(|&(id, _)| id == results_with_static_hash[0].0);
