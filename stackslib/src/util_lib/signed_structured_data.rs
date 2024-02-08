@@ -146,6 +146,183 @@ pub mod pox4 {
             make_pox_4_signer_key_message_hash(pox_addr, reward_cycle, topic, chain_id, period);
         signer_key.sign(msg_hash.as_bytes())
     }
+
+    #[cfg(test)]
+    mod tests {
+        use clarity::vm::{
+            ast::ASTRules,
+            clarity::{ClarityConnection, TransactionConnection},
+            costs::LimitedCostTracker,
+            types::{PrincipalData, StandardPrincipalData},
+            ClarityVersion,
+        };
+        use stacks_common::{
+            address::AddressHashMode, consts::CHAIN_ID_TESTNET, types::chainstate::StacksAddress,
+            util::secp256k1::Secp256k1PublicKey,
+        };
+
+        use crate::{
+            chainstate::stacks::boot::{contract_tests::ClarityTestSim, POX_4_CODE, POX_4_NAME},
+            util_lib::boot::boot_code_id,
+        };
+
+        use super::*;
+
+        fn call_get_signer_message_hash(
+            sim: &mut ClarityTestSim,
+            pox_addr: &PoxAddress,
+            reward_cycle: u128,
+            topic: &Pox4SignatureTopic,
+            lock_period: u128,
+            sender: &PrincipalData,
+        ) -> Vec<u8> {
+            let pox_contract_id = boot_code_id(POX_4_NAME, false);
+            sim.execute_next_block_as_conn(|conn| {
+                let result = conn.with_readonly_clarity_env(
+                    false,
+                    CHAIN_ID_TESTNET,
+                    ClarityVersion::Clarity2,
+                    sender.clone(),
+                    None,
+                    LimitedCostTracker::new_free(),
+                    |env| {
+                        let program = format!(
+                            "(get-signer-key-message-hash {} u{} \"{}\" u{})",
+                            Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p
+                            reward_cycle,
+                            topic.get_name_str(),
+                            lock_period
+                        );
+                        env.eval_read_only(&pox_contract_id, &program)
+                    },
+                );
+                result
+                    .expect("FATAL: failed to execute contract call")
+                    .expect_buff(32 as usize)
+                    .expect("FATAL: expected buff result")
+            })
+        }
+
+        #[test]
+        fn test_make_pox_4_message_hash() {
+            let mut sim = ClarityTestSim::new();
+            sim.epoch_bounds = vec![0, 1, 2];
+
+            // Test setup
+            sim.execute_next_block(|_env| {});
+            sim.execute_next_block(|_env| {});
+            sim.execute_next_block(|_env| {});
+
+            let body = &*POX_4_CODE;
+            let pox_contract_id = boot_code_id(POX_4_NAME, false);
+
+            sim.execute_next_block_as_conn(|conn| {
+                conn.as_transaction(|clarity_db| {
+                    let clarity_version = ClarityVersion::Clarity2;
+                    let (ast, analysis) = clarity_db
+                        .analyze_smart_contract(
+                            &pox_contract_id,
+                            clarity_version,
+                            &body,
+                            ASTRules::PrecheckSize,
+                        )
+                        .unwrap();
+                    clarity_db
+                        .initialize_smart_contract(
+                            &pox_contract_id,
+                            clarity_version,
+                            &ast,
+                            &body,
+                            None,
+                            |_, _| false,
+                        )
+                        .unwrap();
+                    clarity_db
+                        .save_analysis(&pox_contract_id, &analysis)
+                        .expect("FATAL: failed to store contract analysis");
+                });
+            });
+
+            let pubkey = Secp256k1PublicKey::new();
+            let stacks_addr = StacksAddress::p2pkh(false, &pubkey);
+            let pubkey = Secp256k1PublicKey::new();
+            let principal = PrincipalData::from(stacks_addr.clone());
+            let pox_addr =
+                PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, stacks_addr.bytes.clone());
+            let reward_cycle: u128 = 1;
+            let topic = Pox4SignatureTopic::StackStx;
+            let lock_period = 12;
+
+            let expected_hash_vec = make_pox_4_signer_key_message_hash(
+                &pox_addr,
+                reward_cycle,
+                &Pox4SignatureTopic::StackStx,
+                CHAIN_ID_TESTNET,
+                lock_period,
+            );
+            let expected_hash = expected_hash_vec.as_bytes();
+
+            // Test 1: valid result
+
+            let result = call_get_signer_message_hash(
+                &mut sim,
+                &pox_addr,
+                reward_cycle,
+                &topic,
+                lock_period,
+                &principal,
+            );
+            assert_eq!(expected_hash.clone(), result.as_slice());
+
+            // Test 2: invalid pox address
+            let other_pox_address = PoxAddress::from_legacy(
+                AddressHashMode::SerializeP2PKH,
+                StacksAddress::p2pkh(false, &Secp256k1PublicKey::new()).bytes,
+            );
+            let result = call_get_signer_message_hash(
+                &mut sim,
+                &other_pox_address,
+                reward_cycle,
+                &topic,
+                lock_period,
+                &principal,
+            );
+            assert_ne!(expected_hash.clone(), result.as_slice());
+
+            // Test 3: invalid reward cycle
+            let result = call_get_signer_message_hash(
+                &mut sim,
+                &pox_addr,
+                0,
+                &topic,
+                lock_period,
+                &principal,
+            );
+            assert_ne!(expected_hash.clone(), result.as_slice());
+
+            // Test 4: invalid topic
+            let result = call_get_signer_message_hash(
+                &mut sim,
+                &pox_addr,
+                reward_cycle,
+                &Pox4SignatureTopic::AggregationCommit,
+                lock_period,
+                &principal,
+            );
+            assert_ne!(expected_hash.clone(), result.as_slice());
+
+            // Test 5: invalid lock period
+            let result = call_get_signer_message_hash(
+                &mut sim,
+                &pox_addr,
+                reward_cycle,
+                &topic,
+                0,
+                &principal,
+            );
+            assert_ne!(expected_hash.clone(), result.as_slice());
+        }
+    }
 }
 
 #[cfg(test)]
