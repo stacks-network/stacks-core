@@ -343,8 +343,11 @@ fn process_stackerdb_event(
     } else if event.contract_id.name.to_string().starts_with(SIGNERS_NAME)
         && event.contract_id.issuer.1 == [0u8; 20]
     {
-        // TODO: check contract id first u8 to determine if its even or odd reward cycle
-        let reward_cycle_modulus = 0;
+        let Some((signer_set, _)) =
+            get_signers_db_signer_set_message_id(event.contract_id.name.as_str())
+        else {
+            return Err(EventError::UnrecognizedStackerDBContract(event.contract_id));
+        };
         // signer-XXX-YYY boot contract
         let signer_messages: Vec<SignerMessage> = event
             .modified_slots
@@ -352,7 +355,7 @@ fn process_stackerdb_event(
             .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
             .collect();
         //
-        SignerEvent::SignerMessages(reward_cycle_modulus, signer_messages)
+        SignerEvent::SignerMessages(signer_set, signer_messages)
     } else {
         info!(
             "[{:?}] next_event got event from an unexpected contract id {}, return OK so other side doesn't keep sending this",
@@ -396,4 +399,37 @@ fn process_proposal_response(mut request: HttpRequest) -> Result<SignerEvent, Ev
     }
 
     Ok(SignerEvent::BlockValidationResponse(event))
+}
+
+fn get_signers_db_signer_set_message_id(name: &str) -> Option<(u32, u32)> {
+    // Splitting the string by '-'
+    let parts: Vec<&str> = name.split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    // Extracting message ID and slot ID
+    let signer_set = parts[1].parse::<u32>().ok()?;
+    let message_id = parts[2].parse::<u32>().ok()?;
+    Some((signer_set, message_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_signers_db_signer_set_message_id() {
+        let name = "signer-1-1";
+        let (signer_set, message_id) = get_signers_db_signer_set_message_id(name).unwrap();
+        assert_eq!(signer_set, 1);
+        assert_eq!(message_id, 1);
+
+        let name = "signer-0-2";
+        let (signer_set, message_id) = get_signers_db_signer_set_message_id(name).unwrap();
+        assert_eq!(signer_set, 0);
+        assert_eq!(message_id, 2);
+
+        let name = "signer--2";
+        assert!(get_signers_db_signer_set_message_id(name).is_none());
+    }
 }
