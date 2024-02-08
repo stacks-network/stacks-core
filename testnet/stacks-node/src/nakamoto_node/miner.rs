@@ -28,8 +28,9 @@ use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
+use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use stacks::chainstate::stacks::boot::{make_signers_db_name, MINERS_NAME};
+use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
     CoinbasePayload, Error as ChainstateError, StacksTransaction, StacksTransactionSigner,
@@ -270,11 +271,9 @@ impl BlockMinerThread {
             .block_height_to_reward_cycle(self.burn_block.block_height)
             .expect("FATAL: no reward cycle for burn block");
 
-        let signers_contract_id = boot_code_id(
-            &make_signers_db_name(
-                u32::try_from(reward_cycle % 2).expect("FATAL: infallible"),
-                BLOCK_MSG_ID,
-            ),
+        let signers_contract_id = NakamotoSigners::make_signers_db_contract_id(
+            reward_cycle,
+            BLOCK_MSG_ID,
             self.config.is_mainnet(),
         );
         if !stackerdb_contracts.contains(&signers_contract_id) {

@@ -219,7 +219,7 @@ impl StackerDBConfig {
             burn_dbconn,
             tip,
             contract_id,
-            "(stackerdb-get-signer-slots)",
+            &format!("({STACKERDB_SLOTS_FUNCTION})"),
         )?;
 
         let result = value.expect_result()?;

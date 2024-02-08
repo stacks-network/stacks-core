@@ -12,8 +12,9 @@ use libsigner::{
     BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
+use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
-use stacks::chainstate::stacks::boot::{make_signers_db_name, SIGNERS_NAME};
+use stacks::chainstate::stacks::boot::SIGNERS_NAME;
 use stacks::chainstate::stacks::{
     StacksPrivateKey, StacksTransaction, ThresholdSignature, TransactionAnchorMode,
     TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
@@ -251,8 +252,8 @@ fn setup_stx_btc_node(
 
     for signer_set in 0..2 {
         for message_id in 0..SIGNER_SLOTS_PER_USER {
-            let contract_name = make_signers_db_name(signer_set, message_id);
-            let contract_id = boot_code_id(contract_name.as_str(), false);
+            let contract_id =
+                NakamotoSigners::make_signers_db_contract_id(signer_set, message_id, false);
             if !naka_conf.node.stacker_dbs.contains(&contract_id) {
                 debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
                 naka_conf.node.stacker_dbs.push(contract_id);
@@ -724,7 +725,9 @@ fn stackerdb_block_proposal_missing_transactions() {
         .node
         .stacker_dbs
         .iter()
-        .find(|id| id.name.to_string() == make_signers_db_name(1, TRANSACTIONS_MSG_ID))
+        .find(|id| {
+            id.name.to_string() == NakamotoSigners::make_signers_db_name(1, TRANSACTIONS_MSG_ID)
+        })
         .unwrap()
         .clone();
 

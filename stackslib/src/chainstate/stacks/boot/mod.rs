@@ -162,10 +162,6 @@ pub fn make_contract_id(addr: &StacksAddress, name: &str) -> QualifiedContractId
     )
 }
 
-pub fn make_signers_db_name(signer_set: u32, message_id: u32) -> String {
-    format!("{}-{}-{}", &SIGNERS_NAME, signer_set, message_id)
-}
-
 #[derive(Clone, Debug)]
 pub struct RawRewardSetEntry {
     pub reward_address: PoxAddress,

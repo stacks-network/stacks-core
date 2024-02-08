@@ -1,7 +1,3 @@
-use std::net::SocketAddr;
-
-use blockstack_lib::chainstate::stacks::boot::make_signers_db_name;
-use blockstack_lib::chainstate::stacks::StacksTransaction;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -17,6 +13,11 @@ use blockstack_lib::chainstate::stacks::StacksTransaction;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//
+use std::net::SocketAddr;
+
+use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::ContractName;
 use hashbrown::HashMap;
@@ -57,12 +58,14 @@ impl From<&Config> for StackerDB {
         for signer_set in 0..2 {
             for msg_id in 0..SIGNER_SLOTS_PER_USER {
                 signers_message_stackerdb_sessions.insert(
-                    (signer_set, msg_id),
+                    (signer_set as u32, msg_id),
                     StackerDBSession::new(
                         config.node_host.clone(),
                         QualifiedContractIdentifier::new(
                             config.stackerdb_contract_id.issuer.clone(),
-                            ContractName::from(make_signers_db_name(signer_set, msg_id).as_str()),
+                            ContractName::from(
+                                NakamotoSigners::make_signers_db_name(signer_set, msg_id).as_str(),
+                            ),
                         ),
                     ),
                 );
@@ -94,12 +97,14 @@ impl StackerDB {
         for signer_set in 0..2 {
             for msg_id in 0..SIGNER_SLOTS_PER_USER {
                 signers_message_stackerdb_sessions.insert(
-                    (signer_set, msg_id),
+                    (signer_set as u32, msg_id),
                     StackerDBSession::new(
                         host.clone(),
                         QualifiedContractIdentifier::new(
                             stackerdb_contract_id.issuer.clone(),
-                            ContractName::from(make_signers_db_name(signer_set, msg_id).as_str()),
+                            ContractName::from(
+                                NakamotoSigners::make_signers_db_name(signer_set, msg_id).as_str(),
+                            ),
                         ),
                     ),
                 );

@@ -43,13 +43,14 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::{Burnchain, PoxConstants};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
-    make_signers_db_name, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME,
-    COSTS_2_NAME, COSTS_3_NAME, MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE,
-    POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY,
-    SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_NAME, SIGNER_VOTING_CODE,
+    BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
+    BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
+    BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
+    MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
+    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY,
+    SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_NAME, SIGNER_VOTING_CODE,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1487,8 +1488,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             // stackerdb contracts for each message type
             for signer_set in 0..2 {
                 for message_id in 0..SIGNER_SLOTS_PER_USER {
-                    let signers_name = make_signers_db_name(signer_set, message_id);
-                    let signers_contract_id = boot_code_id(&signers_name, mainnet);
+                    let signers_name =
+                        NakamotoSigners::make_signers_db_name(signer_set, message_id);
                     let body = if signer_set == 0 {
                         SIGNERS_DB_0_BODY
                     } else {

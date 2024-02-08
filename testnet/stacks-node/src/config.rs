@@ -12,7 +12,8 @@ use lazy_static::lazy_static;
 use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
-use stacks::chainstate::stacks::boot::{make_signers_db_name, MINERS_NAME};
+use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use stacks::chainstate::stacks::miner::{BlockBuilderSettings, MinerStatus};
@@ -973,8 +974,9 @@ impl Config {
         if (node.stacker || node.miner) && burnchain.mode == "nakamoto-neon" {
             for signer_set in 0..2 {
                 for message_id in 0..SIGNER_SLOTS_PER_USER {
-                    let contract_name = make_signers_db_name(signer_set, message_id);
-                    let contract_id = boot_code_id(contract_name.as_str(), is_mainnet);
+                    let contract_id = NakamotoSigners::make_signers_db_contract_id(
+                        signer_set, message_id, is_mainnet,
+                    );
                     if !node.stacker_dbs.contains(&contract_id) {
                         debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
                         node.stacker_dbs.push(contract_id);

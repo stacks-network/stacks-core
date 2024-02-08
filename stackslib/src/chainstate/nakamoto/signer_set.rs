@@ -20,8 +20,10 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{BurnStateDB, ClarityDatabase};
 use clarity::vm::events::StacksTransactionEvent;
-use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
-use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
+use clarity::vm::types::{
+    PrincipalData, QualifiedContractIdentifier, StacksAddressExtensions, TupleData,
+};
+use clarity::vm::{ClarityVersion, ContractName, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
@@ -425,5 +427,20 @@ impl NakamotoSigners {
                 )
             })
             .map(|calculation| Some(calculation))
+    }
+
+    /// Make the contract name for a signers DB contract
+    pub fn make_signers_db_name(reward_cycle: u64, message_id: u32) -> String {
+        format!("{}-{}-{}", &SIGNERS_NAME, reward_cycle % 2, message_id)
+    }
+
+    /// Make the contract ID for a signers DB contract
+    pub fn make_signers_db_contract_id(
+        reward_cycle: u64,
+        message_id: u32,
+        mainnet: bool,
+    ) -> QualifiedContractIdentifier {
+        let name = Self::make_signers_db_name(reward_cycle, message_id);
+        boot_code_id(&name, mainnet)
     }
 }
