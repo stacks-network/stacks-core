@@ -148,13 +148,6 @@ impl Signer {
             .expect("FATAL: Too many key ids to fit in a u32");
         let threshold = num_keys * 7 / 10;
         let dkg_threshold = num_keys * 9 / 10;
-        // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
-        let signer_key_ids: Vec<u32> = reward_cycle_config
-            .public_keys
-            .key_ids
-            .keys()
-            .cloned()
-            .collect();
 
         let coordinator_config = CoordinatorConfig {
             threshold,
@@ -167,8 +160,8 @@ impl Signer {
             dkg_end_timeout: config.dkg_end_timeout,
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
-            signer_key_ids: reward_cycle_config.signer_key_ids.clone(),
-            signer_public_keys: reward_cycle_config.signer_public_keys.clone(),
+            signer_key_ids: reward_cycle_config.coordinator_key_ids,
+            signer_public_keys: reward_cycle_config.signer_public_keys,
         };
 
         let coordinator = FireCoordinator::new(coordinator_config);
@@ -177,7 +170,7 @@ impl Signer {
             num_signers,
             num_keys,
             reward_cycle_config.signer_id,
-            signer_key_ids,
+            reward_cycle_config.signer_key_ids,
             config.ecdsa_private_key,
             reward_cycle_config.public_keys,
         );
@@ -1064,8 +1057,10 @@ impl Signer {
             && self.signer_id == coordinator_id
             && self.coordinator.state == CoordinatorState::Idle
         {
-            info!("Signer #{}: Is the current coordinator for {reward_cycle}. Triggering a DKG round...", self.signer_id);
-            self.commands.push_back(Command::Dkg);
+            info!("Signer #{} is the current coordinator for {reward_cycle}. Triggering a DKG round...", self.signer_id);
+            if self.commands.back() != Some(&Command::Dkg) {
+                self.commands.push_back(Command::Dkg);
+            }
         } else {
             debug!("Signer #{}: Not triggering a DKG round.", self.signer_id;
                 "aggregate_public_key" => aggregate_public_key.is_some(),
