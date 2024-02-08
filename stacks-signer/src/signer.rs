@@ -170,7 +170,7 @@ impl Signer {
             num_signers,
             num_keys,
             reward_cycle_config.signer_id,
-            reward_cycle_config.signer_key_ids,
+            reward_cycle_config.key_ids,
             config.ecdsa_private_key,
             reward_cycle_config.public_keys,
         );
