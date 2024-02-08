@@ -342,7 +342,6 @@ pub(crate) mod tests {
 
     /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
-        stacks_tip_height: Option<u64>,
         burn_block_height: Option<u64>,
         stacks_tip_consensus_hash: Option<ConsensusHash>,
     ) -> (String, RPCPeerInfoData) {
@@ -362,7 +361,7 @@ pub(crate) mod tests {
             server_version: "fake version".to_string(),
             network_id: thread_rng().next_u32(),
             parent_network_id: thread_rng().next_u32(),
-            stacks_tip_height: stacks_tip_height.unwrap_or(thread_rng().next_u64()),
+            stacks_tip_height: thread_rng().next_u64(),
             stacks_tip: BlockHeaderHash([0x06; 32]),
             stacks_tip_consensus_hash: stacks_tip_consensus_hash
                 .unwrap_or(generate_random_consensus_hash()),
