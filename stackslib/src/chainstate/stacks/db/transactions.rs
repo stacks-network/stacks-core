@@ -88,8 +88,8 @@ impl StacksTransactionReceipt {
         cost: ExecutionCost,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
-            events: events,
-            result: result,
+            events,
+            result,
             stx_burned: 0,
             post_condition_aborted: false,
             contract_analysis: None,

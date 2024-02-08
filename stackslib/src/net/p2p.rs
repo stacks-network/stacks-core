@@ -5212,6 +5212,21 @@ impl PeerNetwork {
         &self.stacker_db_configs
     }
 
+    /// Reload StackerDB configs from chainstate
+    pub fn refresh_stacker_db_configs(
+        &mut self,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<(), net_error> {
+        let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
+        self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
+            chainstate,
+            sortdb,
+            stacker_db_configs,
+        )?;
+        Ok(())
+    }
+
     /// Refresh view of burnchain, if needed.
     /// If the burnchain view changes, then take the following additional steps:
     /// * hint to the inventory sync state-machine to restart, since we potentially have a new
@@ -5309,12 +5324,7 @@ impl PeerNetwork {
                 .unwrap_or(Txid([0x00; 32]));
 
             // refresh stackerdb configs
-            let stacker_db_configs = mem::replace(&mut self.stacker_db_configs, HashMap::new());
-            self.stacker_db_configs = self.stackerdbs.create_or_reconfigure_stackerdbs(
-                chainstate,
-                sortdb,
-                stacker_db_configs,
-            )?;
+            self.refresh_stacker_db_configs(sortdb, chainstate)?;
         }
 
         if sn.canonical_stacks_tip_hash != self.burnchain_tip.canonical_stacks_tip_hash

@@ -202,6 +202,24 @@ impl PeerThread {
         }
     }
 
+    /// Check if the StackerDB config needs to be updated (by looking
+    ///  at the signal in `self.globals`), and if so, refresh the
+    ///  StackerDB config
+    fn refresh_stackerdb(&mut self) {
+        if !self.globals.coord_comms.need_stackerdb_update() {
+            return;
+        }
+
+        if let Err(e) = self
+            .net
+            .refresh_stacker_db_configs(&self.sortdb, &mut self.chainstate)
+        {
+            warn!("Failed to update StackerDB configs: {e}");
+        }
+
+        self.globals.coord_comms.set_stackerdb_update(false);
+    }
+
     /// Run one pass of the p2p/http state machine
     /// Return true if we should continue running passes; false if not
     pub(crate) fn run_one_pass<B: BurnchainHeaderReader>(
@@ -227,6 +245,8 @@ impl PeerThread {
         } else {
             self.poll_timeout
         };
+
+        self.refresh_stackerdb();
 
         // do one pass
         let p2p_res = {
