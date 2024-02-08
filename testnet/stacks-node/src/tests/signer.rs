@@ -496,28 +496,6 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Setup -------------------------");
     let mut signer_test = SignerTest::new(5, 5);
 
-    let mut aggregate_public_key = None;
-    let recv = signer_test
-        .result_receivers
-        .last()
-        .expect("Failed to get coordinator recv");
-    let results = recv
-        .recv_timeout(Duration::from_secs(30))
-        .expect("failed to recv dkg results");
-    for result in results {
-        match result {
-            OperationResult::Dkg(point) => {
-                info!("Received aggregate_group_key {point}");
-                aggregate_public_key = Some(point);
-                break;
-            }
-            _ => {
-                panic!("Received Unexpected result");
-            }
-        }
-    }
-    let aggregate_public_key = aggregate_public_key.expect("Failed to get aggregate public key");
-
     let (vrfs_submitted, commits_submitted) = (
         signer_test.running_nodes.vrfs_submitted.clone(),
         signer_test.running_nodes.commits_submitted.clone(),
@@ -555,6 +533,28 @@ fn stackerdb_block_proposal() {
         &commits_submitted,
     )
     .unwrap();
+
+    let mut aggregate_public_key = None;
+    let recv = signer_test
+        .result_receivers
+        .last()
+        .expect("Failed to get recv");
+    let results = recv
+        .recv_timeout(Duration::from_secs(30))
+        .expect("failed to recv dkg results");
+    for result in results {
+        match result {
+            OperationResult::Dkg(point) => {
+                info!("Received aggregate_group_key {point}");
+                aggregate_public_key = Some(point);
+                break;
+            }
+            _ => {
+                panic!("Received Unexpected result");
+            }
+        }
+    }
+    let aggregate_public_key = aggregate_public_key.expect("Failed to get aggregate public key");
 
     info!("------------------------- Test Block Processed -------------------------");
     let recv = signer_test
