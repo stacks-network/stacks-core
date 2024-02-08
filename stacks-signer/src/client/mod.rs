@@ -274,7 +274,7 @@ pub(crate) mod tests {
         let num_keys = num_keys / num_signers;
         let remaining_keys = num_keys % num_signers;
         let mut coordinator_key_ids = HashMap::new();
-        let mut signer_key_ids = vec![];
+        let mut signer_key_ids = HashMap::new();
         let mut addresses = vec![];
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
@@ -300,7 +300,10 @@ pub(crate) mod tests {
                             .entry(signer_id)
                             .or_insert(HashSet::new())
                             .insert(k);
-                        signer_key_ids.push(k);
+                        signer_key_ids
+                            .entry(signer_id)
+                            .or_insert(Vec::new())
+                            .push(k);
                     }
                     start_key_id = end_key_id;
                     continue;
@@ -315,7 +318,10 @@ pub(crate) mod tests {
                     .entry(signer_id)
                     .or_insert(HashSet::new())
                     .insert(k);
-                signer_key_ids.push(k);
+                signer_key_ids
+                    .entry(signer_id)
+                    .or_insert(Vec::new())
+                    .push(k);
             }
             let address = StacksAddress::p2pkh(
                 false,
@@ -328,6 +334,7 @@ pub(crate) mod tests {
         (
             RewardCycleConfig {
                 public_keys,
+                key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
                 signer_key_ids,
                 coordinator_key_ids,
                 signer_slot_id: 0,

@@ -32,9 +32,6 @@ use stacks_common::types::PrivateKey;
 use wsts::curve::scalar::Scalar;
 use wsts::state_machine::PublicKeys;
 
-/// List of key_ids for each signer_id
-pub type SignerKeyIds = HashMap<u32, Vec<u32>>;
-
 const EVENT_TIMEOUT_MS: u64 = 5000;
 //TODO: make this zero once special cased transactions are allowed in the stacks node
 const TX_FEE_MS: u64 = 10_000;
@@ -126,11 +123,13 @@ pub struct RewardCycleConfig {
     /// The signer to key ids mapping for the coordinator
     pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
     /// The signer to key ids mapping for the signers
-    pub signer_key_ids: Vec<u32>,
+    pub signer_key_ids: HashMap<u32, Vec<u32>>,
     /// The signer addresses
     pub signer_addresses: HashSet<StacksAddress>,
     /// The public keys for the reward cycle
     pub public_keys: PublicKeys,
+    /// This signer's key ids
+    pub key_ids: Vec<u32>,
 }
 
 /// The parsed configuration for the signer
