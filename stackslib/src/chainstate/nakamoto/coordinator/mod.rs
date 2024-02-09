@@ -100,9 +100,9 @@ impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
                 &format!("(map-get? cycle-set-height u{})", cycle),
             )?
             .expect_optional()
-            //.map_err(|e| Error::ChainstateError(e.into()))?
+            .map_err(|e| Error::ChainstateError(e.into()))?
             .map(|x| {
-                let as_u128 = x.expect_u128();
+                let as_u128 = x.expect_u128()?;
                 Ok(u64::try_from(as_u128).expect("FATAL: block height exceeded u64"))
             })
             .transpose()

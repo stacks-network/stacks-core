@@ -1335,9 +1335,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         contract_content: &str,
         ast_rules: ASTRules,
     ) -> Result<()> {
-        use super::database::clarity_store::MemoryBackingStore;
-
-        let clarity_version = self.contract_context.clarity_version.clone();
+        use super::database::MemoryBackingStore;
 
         let clarity_version = self.contract_context.clarity_version.clone();
 

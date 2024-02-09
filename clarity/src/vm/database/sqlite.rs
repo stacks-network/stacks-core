@@ -89,13 +89,13 @@ pub fn sqlite_get_contract_hash(
 ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
     let key = make_contract_hash_key(contract);
     let contract_commitment = store
-        .get(&key)
+        .get(&key)?
         .map(|x| ContractCommitment::deserialize(&x))
         .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
     let ContractCommitment {
         block_height,
         hash: contract_hash,
-    } = contract_commitment;
+    } = contract_commitment?;
     let bhh = store.get_block_at_height(block_height)
         .expect("Should always be able to map from height to block hash when looking up contract information.");
     Ok((bhh, contract_hash))
@@ -328,10 +328,12 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_with_proof(&mut self, key: &str) -> std::result::Result<Option<(String, Vec<u8>)>, vm::errors::Error> {
-        let tmp = SqliteConnection::get(self.get_side_store(), key)
-            .map(|x| (x, vec![]))?;
+        let result = SqliteConnection::get(self.get_side_store(), key)?;
 
-        Ok(Some(tmp))
+        match result {
+            Some(x) => Ok(Some((x, vec![]))),
+            None => Ok(None),
+        }
     }
 
     fn get_side_store(&mut self) -> &Connection {

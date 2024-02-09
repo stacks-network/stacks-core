@@ -26,7 +26,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::{Address, StacksEpoch};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::vrf::VRFProof;
-//use wsts::curve::point::Point;
+use wsts::curve::point::Point;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
