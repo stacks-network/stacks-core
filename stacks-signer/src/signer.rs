@@ -1099,7 +1099,7 @@ impl Signer {
                         && round == self.coordinator.current_dkg_id as u128
                     {
                         debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction for aggregate public key {point:?} for round {round}...", self.signer_id);
-                        continue;
+                        return Ok(());
                     }
                 } else {
                     error!("BUG: Signer #{}: Received an unrecognized transaction ({}) in an already filtered list: {transaction:?}", self.signer_id, transaction.txid());
@@ -1110,12 +1110,6 @@ impl Signer {
             if self.commands.back() != Some(&Command::Dkg) {
                 self.commands.push_back(Command::Dkg);
             }
-        } else {
-            debug!("Signer #{}: Not triggering a DKG round.", self.signer_id;
-                "aggregate_public_key" => new_aggregate_public_key.is_some(),
-                "coordinator_id" => coordinator_id,
-                "coordinator_idle" => self.coordinator.state == CoordinatorState::Idle,
-            );
         }
         Ok(())
     }
