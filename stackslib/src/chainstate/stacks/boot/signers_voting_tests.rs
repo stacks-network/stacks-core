@@ -135,6 +135,153 @@ pub fn prepare_pox4_test<'a>(
     )
 }
 
+/// In this test case, Alice and Bob both successfully vote for the same key
+/// and the key is accepted.
+#[test]
+fn vote_for_aggregate_public_key_success() {
+    let alice = TestStacker::from_seed(&[3, 4]);
+    let bob = TestStacker::from_seed(&[5, 6]);
+    let observer = TestEventObserver::new();
+
+    let alice_nonce = 0;
+    let alice_key = &alice.signer_private_key;
+    let alice_address = key_to_stacks_addr(alice_key);
+    let alice_principal = PrincipalData::from(alice_address);
+
+    let bob_nonce = 0;
+    let bob_key = &bob.signer_private_key;
+    let bob_address = key_to_stacks_addr(bob_key);
+    let bob_principal = PrincipalData::from(bob_address);
+
+    let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
+        function_name!(),
+        vec![
+            (alice_principal.clone(), 1000),
+            (bob_principal.clone(), 1000),
+        ],
+        &[alice.clone(), bob.clone()],
+        Some(&observer),
+    );
+
+    let cycle_id = current_reward_cycle;
+
+    // create vote txs
+    let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
+    let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
+
+    let aggregate_public_key: Point = Point::new();
+    let aggregate_public_key_value =
+        Value::buff_from(aggregate_public_key.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
+
+    let txs = vec![
+        // Alice casts a vote for the aggregate public key
+        make_signers_vote_for_aggregate_public_key(
+            alice_key,
+            alice_nonce,
+            alice_index,
+            &aggregate_public_key,
+            0,
+        ),
+        // Bob casts a vote for the aggregate public key
+        make_signers_vote_for_aggregate_public_key(
+            bob_key,
+            bob_nonce,
+            bob_index,
+            &aggregate_public_key,
+            0,
+        ),
+    ];
+
+    //
+    // vote in the first burn block of prepare phase
+    //
+    let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs]);
+
+    // check the last two txs in the last block
+    let block = observer.get_blocks().last().unwrap().clone();
+    let receipts = block.receipts.as_slice();
+    assert_eq!(receipts.len(), 4);
+    // ignore tenure change tx
+    // ignore tenure coinbase tx
+
+    // first vote should succeed
+    let alice_vote_tx = &receipts[2];
+    assert_eq!(alice_vote_tx.result, Value::okay_true());
+    assert_eq!(alice_vote_tx.events.len(), 1);
+    let alice_vote_event = &alice_vote_tx.events[0];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = alice_vote_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
+                        .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key_value.clone()),
+                ("new-total".into(), Value::UInt(2)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
+                ("signer".into(), Value::Principal(alice_principal.clone())),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", alice_vote_event);
+    }
+
+    // second vote should fail with duplicate vote error
+    let bob_vote_tx = &receipts[3];
+    assert_eq!(bob_vote_tx.result, Value::okay_true());
+    assert_eq!(bob_vote_tx.events.len(), 2);
+    let bob_vote_event = &bob_vote_tx.events[0];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = bob_vote_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
+                        .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key_value.clone()),
+                ("new-total".into(), Value::UInt(4)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
+                ("signer".into(), Value::Principal(bob_principal.clone())),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", bob_vote_event);
+    }
+
+    let approve_event = &bob_vote_tx.events[1];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = approve_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes(
+                        "approved-aggregate-public-key".as_bytes().to_vec()
+                    )
+                    .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key_value.clone()),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", approve_event);
+    }
+}
+
 /// In this test case, Alice votes in the first block of the first tenure of the prepare phase.
 /// Alice can vote successfully.
 /// A second vote on the same key and round fails with "duplicate vote" error
@@ -186,7 +333,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
     //
     // vote in the first burn block of prepare phase
     //
-    let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs], signer_key);
+    let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs]);
 
     // check the last two txs in the last block
     let block = observer.get_blocks().last().unwrap().clone();
@@ -304,28 +451,14 @@ fn vote_for_aggregate_public_key_in_last_block() {
     // vote in the last burn block of prepare phase
     //
 
-    nakamoto_tenure(
-        &mut peer,
-        &mut test_signers,
-        vec![vec![dummy_tx_1]],
-        signer_1_key,
-    );
+    nakamoto_tenure(&mut peer, &mut test_signers, vec![vec![dummy_tx_1]]);
 
-    nakamoto_tenure(
-        &mut peer,
-        &mut test_signers,
-        vec![vec![dummy_tx_2]],
-        signer_1_key,
-    );
+    nakamoto_tenure(&mut peer, &mut test_signers, vec![vec![dummy_tx_2]]);
 
     // alice votes in first block of tenure
     // bob votes in second block of tenure
-    let blocks_and_sizes = nakamoto_tenure(
-        &mut peer,
-        &mut test_signers,
-        vec![txs_block_1, txs_block_2],
-        signer_1_key,
-    );
+    let blocks_and_sizes =
+        nakamoto_tenure(&mut peer, &mut test_signers, vec![txs_block_1, txs_block_2]);
 
     // check alice's and bob's txs
     let blocks = observer.get_blocks();
@@ -367,7 +500,6 @@ fn nakamoto_tenure(
     peer: &mut TestPeer,
     test_signers: &mut TestSigners,
     txs_of_blocks: Vec<Vec<StacksTransaction>>,
-    stacker_private_key: &StacksPrivateKey,
 ) -> Vec<(NakamotoBlock, u64, ExecutionCost)> {
     let current_height = peer.get_burnchain_view().unwrap().burn_block_height;
 
