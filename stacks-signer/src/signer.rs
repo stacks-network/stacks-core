@@ -207,6 +207,12 @@ impl Signer {
                 };
                 // The dkg id will increment internally following "start_dkg_round" so do not increment it here
                 self.coordinator.current_dkg_id = vote_round.unwrap_or(0);
+                info!(
+                    "Signer #{}: Starting DKG vote round {}, for reward cycle {}",
+                    self.signer_id,
+                    self.coordinator.current_dkg_id.wrapping_add(1),
+                    self.reward_cycle
+                );
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
@@ -1106,9 +1112,9 @@ impl Signer {
                     continue;
                 }
             }
-            info!("Signer #{} is the current coordinator for {reward_cycle}. Triggering a DKG round...", self.signer_id);
-            if self.commands.back() != Some(&Command::Dkg) {
-                self.commands.push_back(Command::Dkg);
+            if self.commands.front() != Some(&Command::Dkg) {
+                info!("Signer #{} is the current coordinator for {reward_cycle} and must trigger DKG. Queuing DKG command...", self.signer_id);
+                self.commands.push_front(Command::Dkg);
             }
         }
         Ok(())
