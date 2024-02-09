@@ -34,7 +34,7 @@ use stacks_common::types::{
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
-use super::key_value_wrapper::ValueResult;
+pub use super::key_value_wrapper::ValueResult;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
@@ -465,6 +465,19 @@ impl<'a> ClarityDatabase<'a> {
     /// Drop current key-value wrapper layer
     pub fn roll_back(&mut self) -> Result<()> {
         self.store.rollback().map_err(|e| e.into())
+    }
+
+    pub fn execute<F, T, E>(&mut self, f: F) -> std::result::Result<T, E>
+    where
+        F: FnOnce(&mut Self) -> std::result::Result<T, E>,
+    {
+        self.begin();
+        let result = f(self).or_else(|e| {
+            self.roll_back();
+            Err(e)
+        })?;
+        self.commit();
+        Ok(result)
     }
 
     pub fn set_block_hash(

@@ -35,10 +35,9 @@ rand = "0.7.3"
 rand_chacha = "=0.2.2"
 serde = "1"
 serde_derive = "1"
-serde_stacker = "0.1"
 sha3 = "0.10.1"
 ripemd = "0.1.1"
-regex = "1"
+regex = "1.9.3"
 mio = "0.6"
 lazy_static = "1.4.0"
 url = "2.1.0"
@@ -50,14 +49,16 @@ slog-term = "2.6.0"
 slog-json = { version = "2.3.0", optional = true }
 chrono = "0.4.19"
 libc = "0.2.82"
-clarity = { path = "../clarity" }
-stacks-common = { path = "../stacks-common" }
-pox-locking = { path = "../pox-locking" }
-libstackerdb = { path = "../libstackerdb" }
+clarity = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+stacks-common = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+pox-locking = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+libstackerdb = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
 siphasher = "0.3.7"
 wsts = {workspace = true}
 rand_core = {workspace = true}
 hashbrown = "0.14"
+p256k1 = "5.5.0"
+clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git" }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -77,7 +78,7 @@ version = "0.24.3"
 features = ["serde", "recovery"]
 
 [dependencies.rusqlite]
-version = "=0.24.2"
+version = "=0.28.0"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.ed25519-dalek]
@@ -96,9 +97,9 @@ features = ["std"]
 assert-json-diff = "1.0.0"
 criterion = "0.3.5"
 stdext = "0.3.1"
-stx-genesis = { path = "../stx-genesis"}
-clarity = { features = ["default", "testing"], path = "../clarity" }
-stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
+stx-genesis = { git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+clarity = { features = ["default", "testing"], git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
+stacks-common = { features = ["default", "testing"], git = "https://github.com/stacks-network/stacks-core.git", branch = "feat/clarity-wasm-next" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 
@@ -106,7 +107,7 @@ rstest_reuse = "0.5.0"
 default = []
 profile-sqlite = []
 disable-costs = []
-developer-mode = ["clarity/developer-mode"]
+developer-mode = ["clarity/developer-mode", "clar2wasm/developer-mode"]
 monitoring_prom = ["prometheus"]
 slog_json = ["slog-json", "stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
 testing = []

@@ -2,7 +2,6 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
-use clarity::vm::analysis::mem_type_check;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -16,6 +15,7 @@ use clarity::vm::errors::{
 use clarity::vm::eval;
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::tooling::mem_type_check;
 use clarity::vm::types::Value::Response;
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -1680,9 +1680,17 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) =
+        let (mut ast, analysis) =
             tx.analyze_smart_contract(&contract_id, version, content, ASTRules::PrecheckSize)?;
-        tx.initialize_smart_contract(&contract_id, version, &ast, content, None, |_, _| false)?;
+        tx.initialize_smart_contract(
+            &contract_id,
+            version,
+            &mut ast,
+            &analysis,
+            content,
+            None,
+            |_, _| false,
+        )?;
         tx.save_analysis(&contract_id, &analysis)?;
         return Ok(());
     })

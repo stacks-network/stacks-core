@@ -19,7 +19,6 @@ use std::convert::{TryFrom, TryInto};
 use std::{cmp, fmt};
 
 use lazy_static::lazy_static;
-use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
@@ -342,6 +341,14 @@ impl CostErrors {
         }
     }
 }
+
+impl fmt::Display for CostErrors {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for CostErrors {}
 
 fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
@@ -1161,6 +1168,7 @@ impl fmt::Display for ExecutionCost {
     }
 }
 
+<<<<<<< HEAD
 impl ToSql for ExecutionCost {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
         let val = serde_json::to_string(self)
@@ -1178,6 +1186,8 @@ impl FromSql for ExecutionCost {
     }
 }
 
+=======
+>>>>>>> feat/clarity-wasm-next
 pub trait CostOverflowingMath<T> {
     fn cost_overflow_mul(self, other: T) -> Result<T>;
     fn cost_overflow_add(self, other: T) -> Result<T>;

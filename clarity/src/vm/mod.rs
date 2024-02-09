@@ -24,6 +24,9 @@ pub mod types;
 
 pub mod contracts;
 
+#[cfg(feature = "canonical")]
+pub mod clarity_wasm;
+
 pub mod ast;
 pub mod contexts;
 pub mod database;
@@ -40,6 +43,9 @@ pub mod version;
 pub mod coverage;
 
 pub mod events;
+
+#[cfg(feature = "sqlite")]
+pub mod tooling;
 
 #[cfg(any(test, feature = "testing"))]
 pub mod tests;
@@ -59,6 +65,7 @@ use self::analysis::ContractAnalysis;
 use self::ast::{ASTRules, ContractAST};
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
+use self::events::StacksTransactionEvent;
 use crate::vm::callables::CallableType;
 use crate::vm::contexts::GlobalContext;
 pub use crate::vm::contexts::{
@@ -116,7 +123,7 @@ pub enum EvaluationResult {
 #[derive(Debug, Clone)]
 pub struct ExecutionResult {
     pub result: EvaluationResult,
-    pub events: Vec<serde_json::Value>,
+    pub events: Vec<StacksTransactionEvent>,
     pub cost: Option<CostSynthesis>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -628,7 +635,8 @@ mod test {
             func_body,
             DefineType::Private,
             &"do_work".into(),
-            &"",
+            "",
+            Some(TypeSignature::IntType),
         );
 
         let context = LocalContext::new();

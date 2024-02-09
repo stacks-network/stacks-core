@@ -15,8 +15,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::error::Error as ErrorTrait;
+use std::string::FromUtf8Error;
 use std::{error, fmt};
 
+#[cfg(feature = "sqlite")]
 use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
@@ -28,7 +30,7 @@ pub use crate::vm::analysis::errors::{
 use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
-use crate::vm::types::{TypeSignature, Value};
+use crate::vm::types::Value;
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
@@ -44,6 +46,7 @@ pub enum Error {
     Interpreter(InterpreterError),
     Runtime(RuntimeErrorType, Option<StackTrace>),
     ShortReturn(ShortReturnType),
+    Wasm(WasmError),
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -56,6 +59,7 @@ pub enum InterpreterError {
     UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
+    #[cfg(feature = "sqlite")]
     SqliteError(IncomparableError<SqliteError>),
     BadFileName,
     FailedToCreateDataDirectory,
@@ -110,6 +114,90 @@ pub enum ShortReturnType {
     ExpectedValue(Value),
     AssertionFailed(Value),
 }
+
+/// WasmErrors are errors that *should never* occur.
+/// Test executions may trigger these errors, but if they show up in normal
+/// execution, it indicates a bug in the Wasm compiler or runtime.
+#[derive(Debug)]
+pub enum WasmError {
+    WasmGeneratorError(String),
+    ModuleNotFound,
+    DefinesNotFound,
+    TopLevelNotFound,
+    MemoryNotFound,
+    #[cfg(feature = "canonical")]
+    WasmCompileFailed(wasmtime::Error),
+    #[cfg(feature = "canonical")]
+    UnableToLoadModule(wasmtime::Error),
+    #[cfg(feature = "canonical")]
+    UnableToLinkHostFunction(String, wasmtime::Error),
+    UnableToReadIdentifier(FromUtf8Error),
+    UnableToRetrieveIdentifier(i32),
+    InvalidClarityName(String),
+    StackPointerNotFound,
+    #[cfg(feature = "canonical")]
+    UnableToWriteStackPointer(wasmtime::Error),
+    #[cfg(feature = "canonical")]
+    UnableToReadMemory(wasmtime::Error),
+    #[cfg(feature = "canonical")]
+    UnableToWriteMemory(wasmtime::Error),
+    ValueTypeMismatch,
+    InvalidNoTypeInValue,
+    InvalidFunctionKind(i32),
+    DefineFunctionCalledInRunMode,
+    ExpectedReturnValue,
+    InvalidIndicator(i32),
+    #[cfg(feature = "canonical")]
+    Runtime(wasmtime::Error),
+}
+
+impl fmt::Display for WasmError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            WasmError::WasmGeneratorError(e) => write!(f, "Wasm generator error: {e}"),
+            WasmError::ModuleNotFound => write!(f, "Module not found"),
+            WasmError::DefinesNotFound => write!(f, "Defines function not found"),
+            WasmError::TopLevelNotFound => write!(f, "Top level function not found"),
+            WasmError::MemoryNotFound => write!(f, "Memory not found"),
+            #[cfg(feature = "canonical")]
+            WasmError::WasmCompileFailed(e) => write!(f, "Wasm compile failed: {e}"),
+            #[cfg(feature = "canonical")]
+            WasmError::UnableToLoadModule(e) => write!(f, "Unable to load module: {e}"),
+            #[cfg(feature = "canonical")]
+            WasmError::UnableToLinkHostFunction(name, e) => {
+                write!(f, "Unable to link host function {name}: {e}")
+            }
+            WasmError::UnableToReadIdentifier(e) => write!(f, "Unable to read identifier: {e}"),
+            WasmError::UnableToRetrieveIdentifier(id) => {
+                write!(f, "Unable to retrieve identifier: {id}")
+            }
+            WasmError::InvalidClarityName(name) => write!(f, "Invalid Clarity name: {name}"),
+            WasmError::StackPointerNotFound => write!(f, "Stack pointer not found"),
+            #[cfg(feature = "canonical")]
+            WasmError::UnableToWriteStackPointer(e) => {
+                write!(f, "Unable to write stack pointer: {e}")
+            }
+            #[cfg(feature = "canonical")]
+            WasmError::UnableToReadMemory(e) => write!(f, "Unable to read memory: {e}"),
+            #[cfg(feature = "canonical")]
+            WasmError::UnableToWriteMemory(e) => write!(f, "Unable to write memory: {e}"),
+            WasmError::ValueTypeMismatch => write!(f, "Value type mismatch"),
+            WasmError::InvalidNoTypeInValue => write!(f, "Invalid no type in value"),
+            WasmError::InvalidFunctionKind(kind) => write!(f, "Invalid function kind: {kind}"),
+            WasmError::DefineFunctionCalledInRunMode => {
+                write!(f, "Define function called in run mode")
+            }
+            WasmError::ExpectedReturnValue => write!(f, "Expected return value"),
+            WasmError::InvalidIndicator(indicator) => {
+                write!(f, "Invalid response/optional indicator: {indicator}")
+            }
+            #[cfg(feature = "canonical")]
+            WasmError::Runtime(e) => write!(f, "Runtime error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for WasmError {}
 
 pub type InterpreterResult<R> = Result<R, Error>;
 
@@ -243,7 +331,7 @@ mod test {
     fn error_formats() {
         let t = "(/ 10 0)";
         let expected = "DivisionByZero
- Stack Trace: 
+ Stack Trace:
 _native_:native_div
 ";
 

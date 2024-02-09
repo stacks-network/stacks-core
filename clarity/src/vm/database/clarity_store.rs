@@ -17,15 +17,18 @@
 use std::convert::TryInto;
 use std::path::PathBuf;
 
+#[cfg(feature = "sqlite")]
 use rusqlite::Connection;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::contexts::GlobalContext;
+#[cfg(feature = "sqlite")]
+use crate::vm::database::SqliteConnection;
 use crate::vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
-    SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
+    NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
@@ -84,6 +87,7 @@ pub trait ClarityBackingStore {
 
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
+    #[cfg(feature = "sqlite")]
     fn get_side_store(&mut self) -> &Connection;
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
@@ -107,6 +111,7 @@ pub trait ClarityBackingStore {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
+<<<<<<< HEAD
     ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
         let key = make_contract_hash_key(contract);
         let contract_commitment = self
@@ -137,21 +142,31 @@ pub trait ClarityBackingStore {
             value,
         )
     }
+=======
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)>;
+
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str);
+>>>>>>> feat/clarity-wasm-next
 
     fn get_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
+<<<<<<< HEAD
     ) -> Result<Option<String>> {
         let (bhh, _) = self.get_contract_hash(contract)?;
         SqliteConnection::get_metadata(self.get_side_store(), &bhh, &contract.to_string(), key)
     }
+=======
+    ) -> Result<Option<String>>;
+>>>>>>> feat/clarity-wasm-next
 
     fn get_metadata_manual(
         &mut self,
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
+<<<<<<< HEAD
     ) -> Result<Option<String>> {
         let bhh = self.get_block_at_height(at_height)
             .ok_or_else(|| {
@@ -160,6 +175,9 @@ pub trait ClarityBackingStore {
             })?;
         SqliteConnection::get_metadata(self.get_side_store(), &bhh, &contract.to_string(), key)
     }
+=======
+    ) -> Result<Option<String>>;
+>>>>>>> feat/clarity-wasm-next
 
     fn put_all_metadata(
         &mut self,
@@ -241,6 +259,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't retrieve data")
     }
 
+    #[cfg(feature = "sqlite")]
     fn get_side_store(&mut self) -> &Connection {
         panic!("NullBackingStore has no side store")
     }
@@ -264,12 +283,15 @@ impl ClarityBackingStore for NullBackingStore {
     fn put_all(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
         panic!("NullBackingStore cannot put")
     }
-}
 
-pub struct MemoryBackingStore {
-    side_store: Connection,
-}
+    fn get_contract_hash(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+        panic!("NullBackingStore cannot get_contract_hash")
+    }
 
+<<<<<<< HEAD
 impl Default for MemoryBackingStore {
     fn default() -> Self {
         MemoryBackingStore::new()
@@ -343,5 +365,31 @@ impl ClarityBackingStore for MemoryBackingStore {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }
         Ok(())
+=======
+    fn insert_metadata(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+        _value: &str,
+    ) {
+        panic!("NullBackingStore cannot insert_metadata")
+    }
+
+    fn get_metadata(
+        &mut self,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+    ) -> Result<Option<String>> {
+        panic!("NullBackingStore cannot get_metadata")
+    }
+
+    fn get_metadata_manual(
+        &mut self,
+        _at_height: u32,
+        _contract: &QualifiedContractIdentifier,
+        _key: &str,
+    ) -> Result<Option<String>> {
+        panic!("NullBackingStore cannot get_metadata_manual")
+>>>>>>> feat/clarity-wasm-next
     }
 }

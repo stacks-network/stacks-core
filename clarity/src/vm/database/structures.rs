@@ -58,7 +58,12 @@ macro_rules! clarity_serializable {
             }
         }
         impl ClarityDeserializable<$Name> for $Name {
+<<<<<<< HEAD
             fn deserialize(json: &str) -> Result<Self> {
+=======
+            #[cfg(not(feature = "wasm"))]
+            fn deserialize(json: &str) -> Self {
+>>>>>>> feat/clarity-wasm-next
                 let mut deserializer = serde_json::Deserializer::from_str(&json);
                 // serde's default 128 depth limit can be exhausted
                 //  by a 64-stack-depth AST, so disable the recursion limit
@@ -69,6 +74,10 @@ macro_rules! clarity_serializable {
                 Deserialize::deserialize(deserializer).map_err(|_| {
                     InterpreterError::Expect("Failed to deserialize vm.Value".into()).into()
                 })
+            }
+            #[cfg(feature = "wasm")]
+            fn deserialize(json: &str) -> Self {
+                serde_json::from_str(json).expect("Failed to serialize vm.Value")
             }
         }
     };

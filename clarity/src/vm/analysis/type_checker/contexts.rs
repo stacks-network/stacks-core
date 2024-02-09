@@ -20,7 +20,9 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::types::signatures::CallableSubtype;
-use crate::vm::types::{TraitIdentifier, TypeSignature};
+use crate::vm::types::{
+    ListTypeData, SequenceSubtype, TraitIdentifier, TupleTypeSignature, TypeSignature,
+};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -64,6 +66,20 @@ impl TypeMap {
 
     pub fn get_type(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
         self.map.get(&expr.id)
+    }
+
+    /// Concretize tries to [concretize] all the types in the TypeMap.
+    ///
+    /// This is needed for Clarity-Wasm where all types should have a defined representation
+    /// in memory. Since [ListUnionType] doesn't have one, we need to concretize it.
+    ///
+    /// [concretize]: TypeSignature::concretize
+    /// [ListUnionType]: TypeSignature::ListUnionType
+    pub fn concretize(&mut self) -> CheckResult<()> {
+        for ty in self.map.values_mut() {
+            *ty = ty.clone().concretize_deep()?;
+        }
+        Ok(())
     }
 }
 

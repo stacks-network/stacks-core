@@ -25,7 +25,7 @@ use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
 use rusqlite::types::{FromSql, FromSqlError};
-use rusqlite::{params, Connection, OptionalExtension, ToSql, NO_PARAMS};
+use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use sha2::{Digest as Sha2Digest, Sha512_256};
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
@@ -216,7 +216,7 @@ lazy_static! {
                      header_type TEXT NOT NULL,
                      -- hash of the block
                      block_hash TEXT NOT NULL,
-                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it, 
+                     -- index_block_hash is the hash of the block hash and consensus hash of the burn block that selected it,
                      -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                      -- index_block_hash is the block hash fed into the MARF index.
                      index_block_hash TEXT NOT NULL,
@@ -1258,7 +1258,7 @@ impl NakamotoChainState {
                        AND processed = 0
                      ORDER BY height ASC";
         staging_db_conn
-            .query_row_and_then(query, NO_PARAMS, |row| {
+            .query_row_and_then(query, [], |row| {
                 let data: Vec<u8> = row.get("data")?;
                 let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
                 Ok(Some((
@@ -1785,7 +1785,7 @@ impl NakamotoChainState {
                 ).optional()?.is_some()
                 && staging_db_tx.query_row(
                     "SELECT 1 FROM nakamoto_block_headers LIMIT 1",
-                    rusqlite::NO_PARAMS,
+                    [],
                     |_row| Ok(())
                 ).optional()?.is_none()
                );
@@ -1907,7 +1907,7 @@ impl NakamotoChainState {
         let qry = "SELECT DISTINCT tenure_id_consensus_hash AS consensus_hash FROM nakamoto_tenures WHERE coinbase_height = ?1";
 
         let candidate_chs: Vec<ConsensusHash> =
-            query_rows(tx.tx(), qry, &[u64_to_sql(coinbase_height)?])?;
+            query_rows(tx.tx(), qry, [u64_to_sql(coinbase_height)?])?;
 
         if candidate_chs.len() == 0 {
             // no nakamoto_tenures at that tenure height, check if there's a stack block header where
@@ -3284,7 +3284,7 @@ impl NakamotoChainState {
         // mainnet
         let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
         clarity_tx.connection().as_transaction(|clarity| {
-            let (ast, analysis) = clarity
+            let (mut ast, analysis) = clarity
                 .analyze_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
@@ -3296,7 +3296,8 @@ impl NakamotoChainState {
                 .initialize_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_content,
                     None,
                     |_, _| false,

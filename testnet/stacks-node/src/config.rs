@@ -1363,6 +1363,7 @@ pub const EPOCH_CONFIG_3_0_0: &'static str = "3.0";
 #[derive(Clone, Deserialize, Default, Debug)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
+    pub chain_id: Option<u32>,
     pub burn_fee_cap: Option<u64>,
     pub mode: Option<String>,
     pub commit_anchor_block_within: Option<u64>,

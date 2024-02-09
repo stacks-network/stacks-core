@@ -359,7 +359,7 @@ impl ClarityInstance {
 
         let use_mainnet = self.mainnet;
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("costs", use_mainnet),
                     ClarityVersion::Clarity1,
@@ -371,7 +371,8 @@ impl ClarityInstance {
                 .initialize_smart_contract(
                     &boot_code_id("costs", use_mainnet),
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     BOOT_CODE_COSTS,
                     None,
                     |_, _| false,
@@ -380,7 +381,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
@@ -392,7 +393,8 @@ impl ClarityInstance {
                 .initialize_smart_contract(
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &*BOOT_CODE_COST_VOTING,
                     None,
                     |_, _| false,
@@ -405,7 +407,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
@@ -417,7 +419,8 @@ impl ClarityInstance {
                 .initialize_smart_contract(
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &*BOOT_CODE_POX_TESTNET,
                     None,
                     |_, _| false,
@@ -456,7 +459,7 @@ impl ClarityInstance {
         let use_mainnet = self.mainnet;
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("costs-2", use_mainnet),
                     ClarityVersion::Clarity1,
@@ -468,7 +471,8 @@ impl ClarityInstance {
                 .initialize_smart_contract(
                     &boot_code_id("costs-2", use_mainnet),
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     BOOT_CODE_COSTS_2,
                     None,
                     |_, _| false,
@@ -477,7 +481,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("costs-3", use_mainnet),
                     ClarityVersion::Clarity2,
@@ -489,7 +493,8 @@ impl ClarityInstance {
                 .initialize_smart_contract(
                     &boot_code_id("costs-3", use_mainnet),
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     BOOT_CODE_COSTS_3,
                     None,
                     |_, _| false,
@@ -498,7 +503,7 @@ impl ClarityInstance {
         });
 
         conn.as_transaction(|clarity_db| {
-            let (ast, _analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
@@ -510,7 +515,8 @@ impl ClarityInstance {
                 .initialize_smart_contract(
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &*POX_2_TESTNET_CODE,
                     None,
                     |_, _| false,
@@ -1911,7 +1917,6 @@ mod tests {
     use clarity::vm::database::{ClarityBackingStore, STXBalance};
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
     use clarity::vm::types::{StandardPrincipalData, Value};
-    use rusqlite::NO_PARAMS;
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::chainstate::ConsensusHash;
 
@@ -2008,7 +2013,7 @@ mod tests {
                 )";
 
             conn.as_transaction(|conn| {
-                let (ct_ast, ct_analysis) = conn
+                let (mut ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2019,7 +2024,8 @@ mod tests {
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2061,7 +2067,7 @@ mod tests {
             {
                 let mut tx = conn.start_transaction_processing();
 
-                let (ct_ast, ct_analysis) = tx
+                let (mut ct_ast, ct_analysis) = tx
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2072,7 +2078,8 @@ mod tests {
                 tx.initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2089,7 +2096,7 @@ mod tests {
 
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
-                let (ct_ast, ct_analysis) = tx
+                let (mut ct_ast, ct_analysis) = tx
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2100,7 +2107,8 @@ mod tests {
                 tx.initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2119,7 +2127,7 @@ mod tests {
 
                 let contract = "(define-public (foo (x int) (y int)) (ok (+ x y)))";
 
-                let (ct_ast, _ct_analysis) = tx
+                let (mut ct_ast, ct_analysis) = tx
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2132,7 +2140,8 @@ mod tests {
                     tx.initialize_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
-                        &ct_ast,
+                        &mut ct_ast,
+                        &ct_analysis,
                         &contract,
                         None,
                         |_, _| false
@@ -2173,7 +2182,7 @@ mod tests {
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
 
             conn.as_transaction(|conn| {
-                let (ct_ast, ct_analysis) = conn
+                let (mut ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2184,7 +2193,8 @@ mod tests {
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2233,7 +2243,7 @@ mod tests {
             let contract = "(define-public (foo (x int)) (ok (+ x x)))";
 
             conn.as_transaction(|conn| {
-                let (ct_ast, ct_analysis) = conn
+                let (mut ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2244,7 +2254,8 @@ mod tests {
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2269,8 +2280,7 @@ mod tests {
         // sqlite only have entries
         assert_eq!(
             0,
-            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", NO_PARAMS, |row| row
-                .get(0))
+            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM data_table", [], |row| row.get(0))
                 .unwrap()
         );
     }
@@ -2307,11 +2317,9 @@ mod tests {
 
         let genesis_metadata_entries = marf
             .sql_conn()
-            .query_row::<u32, _, _>(
-                "SELECT COUNT(value) FROM metadata_table",
-                NO_PARAMS,
-                |row| row.get(0),
-            )
+            .query_row::<u32, _, _>("SELECT COUNT(value) FROM metadata_table", [], |row| {
+                row.get(0)
+            })
             .unwrap();
 
         let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
@@ -2325,7 +2333,7 @@ mod tests {
             );
 
             conn.as_transaction(|conn| {
-                let (ct_ast, ct_analysis) = conn
+                let (mut ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2336,7 +2344,8 @@ mod tests {
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2416,12 +2425,9 @@ mod tests {
         // sqlite only have any metadata entries from the genesis block
         assert_eq!(
             genesis_metadata_entries,
-            sql.query_row::<u32, _, _>(
-                "SELECT COUNT(value) FROM metadata_table",
-                NO_PARAMS,
-                |row| row.get(0)
-            )
-            .unwrap()
+            sql.query_row::<u32, _, _>("SELECT COUNT(value) FROM metadata_table", [], |row| row
+                .get(0))
+                .unwrap()
         );
     }
 
@@ -2456,7 +2462,7 @@ mod tests {
               (begin (var-set bar (/ x y)) (ok (var-get bar))))";
 
             conn.as_transaction(|conn| {
-                let (ct_ast, ct_analysis) = conn
+                let (mut ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2467,7 +2473,8 @@ mod tests {
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
@@ -2832,7 +2839,7 @@ mod tests {
             ";
 
             conn.as_transaction(|conn| {
-                let (ct_ast, ct_analysis) = conn
+                let (mut ct_ast, ct_analysis) = conn
                     .analyze_smart_contract(
                         &contract_identifier,
                         ClarityVersion::Clarity1,
@@ -2843,7 +2850,8 @@ mod tests {
                 conn.initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity1,
-                    &ct_ast,
+                    &mut ct_ast,
+                    &ct_analysis,
                     &contract,
                     None,
                     |_, _| false,
