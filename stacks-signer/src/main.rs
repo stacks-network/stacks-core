@@ -411,19 +411,7 @@ pub mod tests {
 
     use super::*;
 
-    fn _get_signer_message_sig_function_str() -> String {
-        let start = 687 - 1;
-        let end = 701;
-        let func = &*POX_4_CODE
-            .lines()
-            .skip(start)
-            .take(end - start + 1)
-            .collect::<String>();
-        func.to_string()
-    }
-
     fn call_verify_signer_sig(
-        // sim: &mut ClarityTestSim,
         pox_addr: &PoxAddress,
         reward_cycle: u128,
         topic: &Pox4SignatureTopic,
@@ -431,7 +419,6 @@ pub mod tests {
         public_key: &Secp256k1PublicKey,
         signature: Vec<u8>,
     ) -> bool {
-        // let func_body = get_signer_message_sig_function_str();
         let program = format!(
             r#"
             {}
