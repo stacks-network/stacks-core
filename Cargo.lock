@@ -965,21 +965,17 @@ dependencies = [
 
 [[package]]
 name = "crypto-mac"
-<<<<<<< HEAD
-version = "0.10.0"
-=======
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b584a330336237c1eecd3e94266efb216c56ed91225d634cb2991c5f3fd1aeab"
 dependencies = [
- "generic-array 0.14.6",
+ "generic-array 0.14.7",
  "subtle",
 ]
 
 [[package]]
 name = "crypto-mac"
-version = "0.10.1"
->>>>>>> 3b2600d9f (chore: rebase clarinet wasm changes onto next)
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4857fd85a0c34b3c3297875b747c1e02e06b6a0ea32dd892d8192b9ce0813ea6"
 dependencies = [
@@ -1654,7 +1650,7 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1441c6b1e930e2817404b5046f1f989899143a12bf92de603b69f4e0aee1e15"
 dependencies = [
- "crypto-mac 0.10.1",
+ "crypto-mac 0.10.0",
  "digest 0.9.0",
 ]
 
@@ -1665,7 +1661,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17ea0a1394df5b6574da6e0c1ade9e78868c9fb0a4e5ef4428e32da4676b85b1"
 dependencies = [
  "digest 0.9.0",
- "generic-array 0.14.6",
+ "generic-array 0.14.7",
  "hmac 0.8.1",
 ]
 
@@ -2158,15 +2154,9 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-<<<<<<< HEAD
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
-=======
-version = "2.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f665ee40bc4a3c5590afb1e9677db74a508659dfd71e126420da8274909a0167"
->>>>>>> 3b2600d9f (chore: rebase clarinet wasm changes onto next)
 
 [[package]]
 name = "memoffset"
@@ -2931,7 +2921,6 @@ dependencies = [
 
 [[package]]
 name = "regex"
-<<<<<<< HEAD
 version = "1.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b62dbe01f0b06f9d8dc7d49e05a0785f153b00b2c227856282f671e0318c9b15"
@@ -2939,15 +2928,6 @@ dependencies = [
  "aho-corasick",
  "memchr",
  "regex-automata 0.4.5",
-=======
-version = "1.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "380b951a9c5e80ddfd6136919eef32310721aa4aacd4889a8d39124b026ab343"
-dependencies = [
- "aho-corasick",
- "memchr",
- "regex-automata 0.4.3",
->>>>>>> 3b2600d9f (chore: rebase clarinet wasm changes onto next)
  "regex-syntax 0.8.2",
 ]
 
@@ -2957,24 +2937,14 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c230d73fb8d8c1b9c0b3135c5142a8acee3a0558fb8db5cf1cb65f8d7862132"
 dependencies = [
-<<<<<<< HEAD
  "regex-syntax 0.6.29",
-=======
- "regex-syntax 0.6.28",
->>>>>>> 3b2600d9f (chore: rebase clarinet wasm changes onto next)
 ]
 
 [[package]]
 name = "regex-automata"
-<<<<<<< HEAD
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5bb987efffd3c6d0d8f5f89510bb458559eab11e4f869acb20bf845e016259cd"
-=======
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f804c7828047e88b2d32e2d7fe5a105da8ee3264f01902f796c8e067dc2483f"
->>>>>>> 3b2600d9f (chore: rebase clarinet wasm changes onto next)
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -2986,12 +2956,6 @@ name = "regex-syntax"
 version = "0.6.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
-
-[[package]]
-name = "regex-syntax"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 
 [[package]]
 name = "regex-syntax"
@@ -3751,12 +3715,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
-<<<<<<< HEAD
- "serde_stacker",
  "sha2 0.10.8",
-=======
- "sha2 0.10.6",
->>>>>>> 3b2600d9f (chore: rebase clarinet wasm changes onto next)
  "sha3",
  "slog",
  "slog-json",
