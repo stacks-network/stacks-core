@@ -19,10 +19,11 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
 use libsigner::{
     BlockResponse, RejectCode, SignerMessage, SignerSession, StackerDBSession, BLOCK_MSG_ID,
+    TRANSACTIONS_MSG_ID,
 };
 use stacks::burnchains::{Burnchain, BurnchainParameters};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
@@ -160,7 +161,7 @@ impl BlockMinerThread {
         // now, actually run this tenure
         loop {
             let new_block = loop {
-                match self.mine_block() {
+                match self.mine_block(&stackerdbs) {
                     Ok(x) => break Some(x),
                     Err(NakamotoNodeError::MiningFailure(ChainstateError::MinerAborted)) => {
                         info!("Miner interrupted while mining, will try again");
@@ -256,12 +257,11 @@ impl BlockMinerThread {
         }
     }
 
-    fn wait_for_signer_signature(
+    fn get_stackerdb_contract_and_slots(
         &self,
         stackerdbs: &StackerDBs,
-        aggregate_public_key: &Point,
-        signer_signature_hash: &Sha512Trunc256Sum,
-    ) -> Result<ThresholdSignature, NakamotoNodeError> {
+        msg_id: u32,
+    ) -> Result<(QualifiedContractIdentifier, Vec<u32>), NakamotoNodeError> {
         let stackerdb_contracts = stackerdbs
             .get_stackerdb_contract_ids()
             .expect("FATAL: could not get the stacker DB contract ids");
@@ -273,7 +273,7 @@ impl BlockMinerThread {
 
         let signers_contract_id = NakamotoSigners::make_signers_db_contract_id(
             reward_cycle,
-            BLOCK_MSG_ID,
+            msg_id,
             self.config.is_mainnet(),
         );
         if !stackerdb_contracts.contains(&signers_contract_id) {
@@ -291,6 +291,55 @@ impl BlockMinerThread {
                 u32::try_from(id).expect("FATAL: too many signers to fit into u32 range")
             })
             .collect::<Vec<u32>>();
+        Ok((signers_contract_id, slot_ids))
+    }
+
+    fn get_signer_transactions(
+        &self,
+        stackerdbs: &StackerDBs,
+    ) -> Result<Vec<StacksTransaction>, NakamotoNodeError> {
+        let (signers_contract_id, slot_ids) =
+            self.get_stackerdb_contract_and_slots(stackerdbs, TRANSACTIONS_MSG_ID)?;
+        // Get the transactions from the signers for the next block
+        let signer_chunks = stackerdbs
+            .get_latest_chunks(&signers_contract_id, &slot_ids)
+            .expect("FATAL: could not get latest chunks from stacker DB");
+        let signer_messages: Vec<(u32, SignerMessage)> = slot_ids
+            .iter()
+            .zip(signer_chunks.into_iter())
+            .filter_map(|(slot_id, chunk)| {
+                chunk.and_then(|chunk| {
+                    read_next::<SignerMessage, _>(&mut &chunk[..])
+                        .ok()
+                        .map(|msg| (*slot_id, msg))
+                })
+            })
+            .collect();
+
+        // There may be more than signer messages, but odds are there is only one transacton per signer
+        let mut transactions_to_include = Vec::with_capacity(signer_messages.len());
+        for (_slot, signer_message) in signer_messages {
+            match signer_message {
+                SignerMessage::Transactions(transactions) => {
+                    // TODO: filter out transactons that are not valid and that do not come from the signers
+                    // TODO: move this filter function from stacks-signer and make it globally available perhaps?
+                    transactions_to_include.extend(transactions);
+                }
+                _ => {} // Any other message is ignored
+            }
+        }
+        debug!("MINER IS INCLUDING TRANSACTIONS FROM SIGNERS: {transactions_to_include:?}");
+        Ok(transactions_to_include)
+    }
+
+    fn wait_for_signer_signature(
+        &self,
+        stackerdbs: &StackerDBs,
+        aggregate_public_key: &Point,
+        signer_signature_hash: &Sha512Trunc256Sum,
+    ) -> Result<ThresholdSignature, NakamotoNodeError> {
+        let (signers_contract_id, slot_ids) =
+            self.get_stackerdb_contract_and_slots(stackerdbs, BLOCK_MSG_ID)?;
 
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
         let rejection_threshold = slot_ids.len() / 10 * 7;
@@ -630,7 +679,7 @@ impl BlockMinerThread {
 
     /// Try to mine a Stacks block by assembling one from mempool transactions and sending a
     /// burnchain block-commit transaction.  If we succeed, then return the assembled block.
-    fn mine_block(&mut self) -> Result<NakamotoBlock, NakamotoNodeError> {
+    fn mine_block(&mut self, stackerdbs: &StackerDBs) -> Result<NakamotoBlock, NakamotoNodeError> {
         debug!("block miner thread ID is {:?}", thread::current().id());
 
         let burn_db_path = self.config.get_burn_db_file_path();
@@ -703,6 +752,9 @@ impl BlockMinerThread {
         let block_num = u64::try_from(self.mined_blocks.len())
             .map_err(|_| NakamotoNodeError::UnexpectedChainState)?
             .saturating_add(1);
+
+        let signer_transactions = self.get_signer_transactions(&stackerdbs)?;
+
         // build the block itself
         let (mut block, _, _) = NakamotoBlockBuilder::build_nakamoto_block(
             &chain_state,
@@ -718,6 +770,7 @@ impl BlockMinerThread {
                 self.globals.get_miner_status(),
             ),
             Some(&self.event_dispatcher),
+            signer_transactions,
         )
         .map_err(|e| {
             if !matches!(
