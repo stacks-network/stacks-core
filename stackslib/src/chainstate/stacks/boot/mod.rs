@@ -1910,7 +1910,7 @@ pub mod test {
         signer_index: u128,
         aggregate_public_key: &Point,
         round: u128,
-        cycle: u128,
+        cycle: u128
     ) -> StacksTransaction {
         let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
@@ -1922,7 +1922,7 @@ pub mod test {
                 Value::UInt(signer_index),
                 aggregate_public_key,
                 Value::UInt(round),
-                Value::UInt(cycle),
+                Value::UInt(cycle)
             ],
         )
         .unwrap();

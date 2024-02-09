@@ -104,7 +104,7 @@
 ;;  The vote happens in the prepare phase of the current reward cycle but may be ran more than
 ;;  once resulting in different 'rounds.' Each signer vote is based on the weight of stacked
 ;;  stx tokens & fetched from the .signers contract. The vote is ran until the consensus 
-;;  threshold of 70% for a specific aggregate public key is reached.
+;;  threshold of 70% for a specific aggregate public key is reached. 
 (define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint) (reward-cycle uint))
     (let ((tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; vote by signer weight
