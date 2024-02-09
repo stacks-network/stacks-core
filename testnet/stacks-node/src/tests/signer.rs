@@ -20,6 +20,7 @@ use stacks::chainstate::stacks::{
     TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
     TransactionVersion,
 };
+use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
@@ -28,6 +29,7 @@ use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
 };
+use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
@@ -47,7 +49,9 @@ use crate::tests::nakamoto_integrations::{
     boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
     next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
 };
-use crate::tests::neon_integrations::{next_block_and_wait, test_observer, wait_for_runloop};
+use crate::tests::neon_integrations::{
+    next_block_and_wait, run_until_burnchain_height, test_observer, wait_for_runloop,
+};
 use crate::tests::to_addr;
 use crate::{BitcoinRegtestController, BurnchainController};
 
@@ -339,22 +343,11 @@ fn stackerdb_dkg_sign() {
     info!("------------------------- Test DKG -------------------------");
     info!("signer_runloop: spawn send commands to do dkg");
     let dkg_now = Instant::now();
-    let dkg_command = RunLoopCommand {
-        reward_cycle: 0,
-        command: SignerCommand::Dkg,
-    };
-    for cmd_sender in signer_test.signer_cmd_senders.values() {
-        cmd_sender
-            .send(dkg_command.clone())
-            .expect("failed to send Dkg command");
-    }
     let mut key = Point::default();
     for recv in signer_test.result_receivers.iter() {
         let mut aggregate_public_key = None;
         loop {
-            let results = recv
-                .recv_timeout(Duration::from_secs(100))
-                .expect("failed to recv dkg results");
+            let results = recv.recv().expect("failed to recv dkg results");
             for result in results {
                 match result {
                     OperationResult::Sign(sig) => {
@@ -375,19 +368,20 @@ fn stackerdb_dkg_sign() {
                     }
                 }
             }
-            if aggregate_public_key.is_some() || dkg_now.elapsed() > Duration::from_secs(100) {
+            if aggregate_public_key.is_some() || dkg_now.elapsed() > Duration::from_secs(200) {
                 break;
             }
         }
-        key = aggregate_public_key.expect("Failed to get aggregate public key within 100 seconds");
+        key = aggregate_public_key.expect("Failed to get aggregate public key within 200 seconds");
     }
     let dkg_elapsed = dkg_now.elapsed();
 
+    // We can't sign a block
     info!("------------------------- Test Sign -------------------------");
     let sign_now = Instant::now();
     info!("signer_runloop: spawn send commands to do dkg and then sign");
     let sign_command = RunLoopCommand {
-        reward_cycle: 0,
+        reward_cycle: 11,
         command: SignerCommand::Sign {
             block: block.clone(),
             is_taproot: false,
@@ -395,7 +389,7 @@ fn stackerdb_dkg_sign() {
         },
     };
     let sign_taproot_command = RunLoopCommand {
-        reward_cycle: 0,
+        reward_cycle: 11,
         command: SignerCommand::Sign {
             block: block.clone(),
             is_taproot: true,
@@ -414,9 +408,7 @@ fn stackerdb_dkg_sign() {
         let mut frost_signature = None;
         let mut schnorr_proof = None;
         loop {
-            let results = recv
-                .recv_timeout(Duration::from_secs(30))
-                .expect("failed to recv signature results");
+            let results = recv.recv().expect("failed to recv signature results");
             for result in results {
                 match result {
                     OperationResult::Sign(sig) => {
@@ -439,7 +431,7 @@ fn stackerdb_dkg_sign() {
                 }
             }
             if (frost_signature.is_some() && schnorr_proof.is_some())
-                || sign_now.elapsed() > Duration::from_secs(100)
+                || sign_now.elapsed() > Duration::from_secs(200)
             {
                 break;
             }
@@ -496,34 +488,75 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Setup -------------------------");
     let mut signer_test = SignerTest::new(5, 5);
 
-    let (vrfs_submitted, commits_submitted) = (
+    let (_vrfs_submitted, commits_submitted) = (
         signer_test.running_nodes.vrfs_submitted.clone(),
         signer_test.running_nodes.commits_submitted.clone(),
     );
+    info!("------------------------- Wait for DKG -------------------------");
+    info!("signer_runloop: spawn send commands to do dkg");
+    let dkg_now = Instant::now();
+    let mut key = Point::default();
+    for recv in signer_test.result_receivers.iter() {
+        let mut aggregate_public_key = None;
+        loop {
+            let results = recv
+                .recv_timeout(Duration::from_secs(60))
+                .expect("failed to recv dkg results");
+            for result in results {
+                match result {
+                    OperationResult::Sign(sig) => {
+                        panic!("Received Signature ({},{})", &sig.R, &sig.z);
+                    }
+                    OperationResult::SignTaproot(proof) => {
+                        panic!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
+                    }
+                    OperationResult::DkgError(dkg_error) => {
+                        panic!("Received DkgError {:?}", dkg_error);
+                    }
+                    OperationResult::SignError(sign_error) => {
+                        panic!("Received SignError {}", sign_error);
+                    }
+                    OperationResult::Dkg(point) => {
+                        info!("Received aggregate_group_key {point}");
+                        aggregate_public_key = Some(point);
+                    }
+                }
+            }
+            if aggregate_public_key.is_some() || dkg_now.elapsed() > Duration::from_secs(200) {
+                break;
+            }
+        }
+        key = aggregate_public_key.expect("Failed to get aggregate public key within 200 seconds");
+    }
+    let dkg_elapsed = dkg_now.elapsed();
 
-    info!("Mining a Nakamoto tenure...");
+    let epochs = signer_test
+        .running_nodes
+        .conf
+        .burnchain
+        .epochs
+        .clone()
+        .unwrap();
+    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
 
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(
+    let epoch_30_boundary = epoch_3.start_height - 1;
+    info!(
+        "Advancing to Epoch 3.0 Boundary";
+        "Epoch 3.0 Boundary" => epoch_30_boundary,
+    );
+
+    // Advance to epoch 3.0
+    run_until_burnchain_height(
         &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-            Ok(vrf_count >= 1)
-        },
-    )
-    .unwrap();
+        &signer_test.running_nodes.blocks_processed,
+        epoch_30_boundary,
+        &signer_test.running_nodes.conf,
+    );
 
-    // second block should confirm the VRF register, wait until a block commit is submitted
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= 1)
-        },
-    )
-    .unwrap();
+    info!("Avanced to Nakamoto! Ready to Sign Blocks!");
+
+    info!("------------------------- Test Block Processed -------------------------");
+    let sign_now = Instant::now();
 
     // Mine 1 nakamoto tenure
     next_block_and_mine_commit(
@@ -534,29 +567,6 @@ fn stackerdb_block_proposal() {
     )
     .unwrap();
 
-    let mut aggregate_public_key = None;
-    let recv = signer_test
-        .result_receivers
-        .last()
-        .expect("Failed to get recv");
-    let results = recv
-        .recv_timeout(Duration::from_secs(30))
-        .expect("failed to recv dkg results");
-    for result in results {
-        match result {
-            OperationResult::Dkg(point) => {
-                info!("Received aggregate_group_key {point}");
-                aggregate_public_key = Some(point);
-                break;
-            }
-            _ => {
-                panic!("Received Unexpected result");
-            }
-        }
-    }
-    let aggregate_public_key = aggregate_public_key.expect("Failed to get aggregate public key");
-
-    info!("------------------------- Test Block Processed -------------------------");
     let recv = signer_test
         .result_receivers
         .last()
@@ -572,11 +582,22 @@ fn stackerdb_block_proposal() {
                 signature = Some(sig);
                 break;
             }
-            _ => {
-                panic!("Unexpected operation result");
+            OperationResult::Dkg(point) => {
+                debug!("Received a dkg result {point:?}");
+                continue;
+            }
+            OperationResult::DkgError(dkg_error) => {
+                panic!("Received DkgError {:?}", dkg_error);
+            }
+            OperationResult::SignError(sign_error) => {
+                panic!("Received SignError {}", sign_error);
+            }
+            OperationResult::SignTaproot(proof) => {
+                panic!("Received SchnorrProof ({},{})", &proof.r, &proof.s);
             }
         }
     }
+    let sign_elapsed = sign_now.elapsed();
     let signature = signature.expect("Failed to get signature");
     // Wait for the block to show up in the test observer (Don't have to wait long as if we have received a signature,
     // we know that the signers have already received their block proposal events via their event observers)
@@ -595,10 +616,7 @@ fn stackerdb_block_proposal() {
             _ => panic!("Unexpected response"),
         };
     assert!(
-        signature.verify(
-            &aggregate_public_key,
-            proposed_signer_signature_hash.0.as_slice()
-        ),
+        signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),
         "Signature verification failed"
     );
     // Verify that the signers broadcasted a signed NakamotoBlock back to the .signers contract
@@ -642,6 +660,9 @@ fn stackerdb_block_proposal() {
         panic!("Received unexpected message");
     }
     signer_test.shutdown();
+
+    info!("DKG Time Elapsed: {:.2?}", dkg_elapsed);
+    info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
 }
 
 #[test]
@@ -774,7 +795,7 @@ fn stackerdb_block_proposal_missing_transactions() {
     // TODO: remove this forcibly running DKG once we have casting of the vote automagically happening during epoch 2.5
     info!("signer_runloop: spawn send commands to do dkg");
     let dkg_command = RunLoopCommand {
-        reward_cycle: 0,
+        reward_cycle: 11,
         command: SignerCommand::Dkg,
     };
     for cmd_sender in signer_test.signer_cmd_senders.values() {

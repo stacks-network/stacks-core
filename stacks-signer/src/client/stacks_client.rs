@@ -29,17 +29,17 @@ use blockstack_lib::net::api::getstackers::GetStackersResponse;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityName, ContractName, Value as ClarityValue, Value};
+use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use serde_json::json;
-use slog::slog_debug;
+use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::CHAIN_ID_MAINNET;
-use stacks_common::debug;
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha256Sum;
+use stacks_common::{debug, warn};
 use wsts::curve::ecdsa;
 use wsts::curve::point::{Compressed, Point};
 use wsts::state_machine::PublicKeys;
@@ -145,7 +145,7 @@ impl StacksClient {
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
         let function_name_str = "stackerdb-get-signer-slots-page";
         let function_name = ClarityName::from(function_name_str);
-        let function_args = &[Value::UInt(page.into())];
+        let function_args = &[ClarityValue::UInt(page.into())];
         let value = self.read_only_contract_call(
             &stackerdb_contract.issuer.clone().into(),
             &stackerdb_contract.name,
@@ -186,8 +186,23 @@ impl StacksClient {
         Ok(peer_info.stacks_tip_consensus_hash)
     }
 
+    /// Retrieve the stacks node current epoch on a retry
+    /// Will default to Epoch 2.4 if the node does not support the Epoch endpoint
+    pub fn get_node_epoch_with_retry(&self) -> Result<StacksEpochId, ClientError> {
+        retry_with_exponential_backoff(|| match self.get_node_epoch() {
+            Ok(epoch) => Ok(epoch),
+            Err(e) => match e {
+                ClientError::UnsupportedStacksFeature(_) => {
+                    warn!("Stacks Node does not support Epoch endpoint");
+                    Err(backoff::Error::permanent(e))
+                }
+                e => Err(backoff::Error::transient(e)),
+            },
+        })
+    }
+
     /// Determine the stacks node current epoch
-    pub fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
+    fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
         let pox_info = self.get_pox_data()?;
         let burn_block_height = self.get_burn_block_height()?;
 
@@ -432,19 +447,6 @@ impl StacksClient {
         Ok(Some(point))
     }
 
-    /// Cast a vote for the given aggregate public key by broadcasting it to the mempool
-    pub fn cast_vote_for_aggregate_public_key(
-        &self,
-        signer_index: u32,
-        round: u64,
-        point: Point,
-    ) -> Result<StacksTransaction, ClientError> {
-        let signed_tx = self.build_vote_for_aggregate_public_key(signer_index, round, point)?;
-        debug!("Casting vote for aggregate public key to the mempool...");
-        self.submit_tx(&signed_tx)?;
-        Ok(signed_tx)
-    }
-
     /// Helper function to create a stacks transaction for a modifying contract call
     pub fn build_vote_for_aggregate_public_key(
         &self,
@@ -501,7 +503,7 @@ impl StacksClient {
     }
 
     /// Helper function to submit a transaction to the Stacks node
-    fn submit_tx(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
+    pub fn broadcast_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
         let send_request = || {
@@ -886,7 +888,7 @@ mod tests {
             + 1;
 
         let tx_clone = tx.clone();
-        let h = spawn(move || mock.client.submit_tx(&tx_clone));
+        let h = spawn(move || mock.client.broadcast_transaction(&tx_clone));
 
         let request_bytes = write_response(
             mock.server,
@@ -920,13 +922,20 @@ mod tests {
     #[ignore]
     #[test]
     #[serial]
-    fn cast_vote_for_aggregate_public_key_should_succeed() {
+    fn broadcast_vote_for_aggregate_public_key_should_succeed() {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let nonce = thread_rng().next_u64();
         let account_nonce_response = build_account_nonce_response(nonce);
 
-        let h = spawn(move || mock.client.cast_vote_for_aggregate_public_key(0, 0, point));
+        let h = spawn(move || {
+            let tx = mock
+                .client
+                .clone()
+                .build_vote_for_aggregate_public_key(0, 0, point)
+                .unwrap();
+            mock.client.broadcast_transaction(&tx)
+        });
         write_response(mock.server, account_nonce_response.as_bytes());
         let mock = MockServerClient::from_config(mock.config);
         write_response(
