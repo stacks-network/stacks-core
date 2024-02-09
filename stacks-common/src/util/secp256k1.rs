@@ -109,6 +109,11 @@ impl MessageSignature {
             Err(_) => None,
         }
     }
+
+    /// Convert from VRS to RSV
+    pub fn to_rsv(&self) -> Vec<u8> {
+        [&self.0[1..], &self.0[0..1]].concat()
+    }
 }
 
 #[cfg(any(test, feature = "testing"))]

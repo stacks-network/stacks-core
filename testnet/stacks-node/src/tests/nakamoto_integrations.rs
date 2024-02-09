@@ -28,6 +28,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
@@ -43,9 +44,12 @@ use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
 };
 use stacks::util_lib::boot::boot_code_id;
+use stacks::util_lib::signed_structured_data::pox4::{
+    make_pox_4_signer_key_signature, Pox4SignatureTopic,
+};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::STACKS_EPOCH_MAX;
+use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
@@ -373,13 +377,30 @@ pub fn boot_to_epoch_3(
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
 
     // stack enough to activate pox-4
-    let pox_addr_tuple = clarity::vm::tests::execute(&format!(
-        "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
-        to_hex(&[0; 20]),
-        AddressHashMode::SerializeP2PKH as u8,
-    ));
+
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
 
     for (stacker_sk, signer_pk) in stacker_sks.iter().zip(signer_pks.iter()) {
+        let pox_addr = PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            tests::to_addr(&stacker_sk).bytes,
+        );
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        let signature = make_pox_4_signer_key_signature(
+            &pox_addr,
+            stacker_sk,
+            reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            12_u128,
+        )
+        .unwrap()
+        .to_rsv();
         let stacking_tx = tests::make_contract_call(
             &stacker_sk,
             0,
@@ -392,10 +413,10 @@ pub fn boot_to_epoch_3(
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(205),
                 clarity::vm::Value::UInt(12),
+                clarity::vm::Value::buff_from(signature).unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
             ],
         );
-
         submit_tx(&http_origin, &stacking_tx);
     }
 
@@ -431,7 +452,7 @@ fn simple_neon_integration() {
     let sender_sk = Secp256k1PrivateKey::new();
     // setup sender + recipient for a test stx transfer
     let sender_addr = tests::to_addr(&sender_sk);
-    let sender_signer_key = StacksPublicKey::new();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
@@ -471,8 +492,8 @@ fn simple_neon_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &vec![stacker_sk],
-        &vec![sender_signer_key],
+        &[stacker_sk],
+        &[StacksPublicKey::from_private(&sender_signer_sk)],
         &mut btc_regtest_controller,
     );
 
@@ -643,7 +664,7 @@ fn mine_multiple_per_tenure_integration() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let sender_sk = Secp256k1PrivateKey::new();
-    let sender_signer_key = StacksPublicKey::new();
+    let sender_signer_key = Secp256k1PrivateKey::new();
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -691,8 +712,8 @@ fn mine_multiple_per_tenure_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &vec![stacker_sk],
-        &vec![sender_signer_key],
+        &[stacker_sk],
+        &[StacksPublicKey::from_private(&sender_signer_key)],
         &mut btc_regtest_controller,
     );
 
@@ -927,17 +948,30 @@ fn correct_burn_outs() {
                 continue;
             };
 
-            let pox_addr_tuple = clarity::vm::tests::execute(&format!(
-                "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
-                tests::to_addr(&account.0).bytes.to_hex(),
-                AddressHashMode::SerializeP2PKH as u8,
-            ));
+            let pox_addr = PoxAddress::from_legacy(
+                AddressHashMode::SerializeP2PKH,
+                tests::to_addr(&account.0).bytes,
+            );
+            let pox_addr_tuple: clarity::vm::Value =
+                pox_addr.clone().as_clarity_tuple().unwrap().into();
             // create a new SK, mixing in the nonce, because signing keys cannot (currently)
             //  be reused.
             let mut seed_inputs = account.0.to_bytes();
             seed_inputs.extend_from_slice(&account.2.nonce.to_be_bytes());
             let new_sk = StacksPrivateKey::from_seed(Sha512Sum::from_data(&seed_inputs).as_bytes());
             let pk_bytes = StacksPublicKey::from_private(&new_sk).to_bytes_compressed();
+
+            let reward_cycle = pox_info.current_cycle.id;
+            let signature = make_pox_4_signer_key_signature(
+                &pox_addr,
+                &new_sk,
+                reward_cycle.into(),
+                &Pox4SignatureTopic::StackStx,
+                CHAIN_ID_TESTNET,
+                1_u128,
+            )
+            .unwrap()
+            .to_rsv();
 
             let stacking_tx = tests::make_contract_call(
                 &account.0,
@@ -951,6 +985,7 @@ fn correct_burn_outs() {
                     pox_addr_tuple,
                     clarity::vm::Value::UInt(pox_info.current_burnchain_block_height.into()),
                     clarity::vm::Value::UInt(1),
+                    clarity::vm::Value::buff_from(signature).unwrap(),
                     clarity::vm::Value::buff_from(pk_bytes).unwrap(),
                 ],
             );
@@ -1110,8 +1145,8 @@ fn block_proposal_api_endpoint() {
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &vec![stacker_sk],
-        &vec![StacksPublicKey::new()],
+        &[stacker_sk],
+        &[StacksPublicKey::default()],
         &mut btc_regtest_controller,
     );
 
@@ -1453,8 +1488,8 @@ fn miner_writes_proposed_block_to_stackerdb() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &vec![stacker_sk],
-        &vec![StacksPublicKey::new()],
+        &[stacker_sk],
+        &[StacksPublicKey::default()],
         &mut btc_regtest_controller,
     );
 

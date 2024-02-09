@@ -1333,7 +1333,9 @@ pub mod test {
     use clarity::vm::contracts::Contract;
     use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
-    use stacks_common::util::hash::to_hex;
+    use stacks_common::types::PrivateKey;
+    use stacks_common::util::hash::Sha256Sum;
+    use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
     use stacks_common::util::*;
 
     use super::*;
@@ -1352,6 +1354,12 @@ pub mod test {
     use crate::core::{StacksEpochId, *};
     use crate::net::test::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
+    use crate::util_lib::signed_structured_data::pox4::{
+        make_pox_4_signer_key_signature, Pox4SignatureTopic,
+    };
+    use crate::util_lib::signed_structured_data::{
+        make_structured_data_domain, sign_structured_data,
+    };
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
@@ -1841,6 +1849,7 @@ pub mod test {
         lock_period: u128,
         signer_key: StacksPublicKey,
         burn_ht: u64,
+        signature: Vec<u8>,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
@@ -1852,6 +1861,7 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
+                Value::buff_from(signature).unwrap(),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -1990,6 +2000,7 @@ pub mod test {
         addr: PoxAddress,
         lock_period: u128,
         signer_key: StacksPublicKey,
+        signature: Vec<u8>,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
@@ -1999,6 +2010,7 @@ pub mod test {
             vec![
                 Value::UInt(lock_period),
                 addr_tuple,
+                Value::buff_from(signature).unwrap(),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -2090,17 +2102,22 @@ pub mod test {
     pub fn make_pox_4_aggregation_commit_indexed(
         key: &StacksPrivateKey,
         nonce: u64,
-        amount: u128,
-        delegate_to: PrincipalData,
-        until_burn_ht: Option<u128>,
-        pox_addr: PoxAddress,
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        signature: Vec<u8>,
+        signer_key: &Secp256k1PublicKey,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-aggregation-commit-indexed",
-            vec![addr_tuple, Value::UInt(amount)],
+            vec![
+                addr_tuple,
+                Value::UInt(reward_cycle),
+                Value::buff_from(signature).unwrap(),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
         )
         .unwrap();
 
@@ -2155,6 +2172,26 @@ pub mod test {
         .unwrap();
 
         make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_signer_key_signature(
+        pox_addr: &PoxAddress,
+        signer_key: &StacksPrivateKey,
+        reward_cycle: u128,
+        topic: &Pox4SignatureTopic,
+        period: u128,
+    ) -> Vec<u8> {
+        let signature = make_pox_4_signer_key_signature(
+            pox_addr,
+            signer_key,
+            reward_cycle,
+            topic,
+            CHAIN_ID_TESTNET,
+            period,
+        )
+        .unwrap();
+
+        signature.to_rsv()
     }
 
     fn make_tx(
@@ -2477,6 +2514,14 @@ pub mod test {
             }
         };
         parent_tip
+    }
+
+    pub fn get_current_reward_cycle(peer: &TestPeer, burnchain: &Burnchain) -> u128 {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap() as u128
     }
 
     #[test]
