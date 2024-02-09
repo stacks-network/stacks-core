@@ -369,6 +369,8 @@ A non-exhaustive list of examples of consensus-critical changes include:
 
 * Every consensus-critical change needs an integration test to verify that the feature activates only when the hard fork activates.
 
+* **Mutation testing should evaluate the tests' quality** of the functions added or modified. It is complementary to code coverage.
+
 PRs must include test coverage. However, if your PR includes large tests or tests which cannot run in parallel
 (which is the default operation of the `cargo test` command), these tests should be decorated with `#[ignore]`.
 
