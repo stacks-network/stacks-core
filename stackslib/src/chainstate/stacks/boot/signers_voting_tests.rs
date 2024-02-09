@@ -182,6 +182,7 @@ fn vote_for_aggregate_public_key_success() {
             alice_index,
             &aggregate_public_key,
             0,
+            cycle_id
         ),
         // Bob casts a vote for the aggregate public key
         make_signers_vote_for_aggregate_public_key(
@@ -190,6 +191,7 @@ fn vote_for_aggregate_public_key_success() {
             bob_index,
             &aggregate_public_key,
             0,
+            cycle_id
         ),
     ];
 
@@ -319,6 +321,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_index,
             &aggregate_public_key,
             0,
+            cycle_id
         ),
         // cast the vote twice
         make_signers_vote_for_aggregate_public_key(
@@ -327,6 +330,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_index,
             &aggregate_public_key,
             0,
+            cycle_id
         ),
     ];
 
@@ -410,6 +414,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_1,
             1,
+            cycle_id
         ),
         // cast the vote twice
         make_signers_vote_for_aggregate_public_key(
@@ -418,6 +423,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_1,
             1,
+            cycle_id
         ),
         // cast a vote for old round
         make_signers_vote_for_aggregate_public_key(
@@ -426,6 +432,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_2,
             0,
+            cycle_id
         ),
     ];
 
@@ -444,6 +451,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_2_index,
             &aggregate_public_key_1,
             0,
+            cycle_id
         ),
     ];
 

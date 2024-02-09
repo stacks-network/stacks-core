@@ -105,15 +105,14 @@
 ;;  once resulting in different 'rounds.' Each signer vote is based on the weight of stacked
 ;;  stx tokens & fetched from the .signers contract. The vote is ran until the consensus 
 ;;  threshold of 70% for a specific aggregate public key is reached. 
-(define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint))
-    (let ((reward-cycle (+ u1 (burn-height-to-reward-cycle burn-block-height)))
-            (tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
+(define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint) (reward-cycle uint))
+    (let ((tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; vote by signer weight
             (signer-weight (try! (get-current-signer-weight signer-index)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
             (total-weight (try! (get-total-weight reward-cycle))))
-        ;; Check we're in the prepare phase
-        (asserts! (is-in-voting-window burn-block-height reward-cycle) (err ERR_OUT_OF_VOTING_WINDOW))
+        ;; Check that key isn't already set
+        (asserts! (is-none (map-get? aggregate-public-keys reward-cycle)) (err ERR_OUT_OF_VOTING_WINDOW))
         ;; Check that the aggregate public key is correct length
         (asserts! (is-eq (len key) u33) (err ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY))
         ;; Check that aggregate public key has not been used before
