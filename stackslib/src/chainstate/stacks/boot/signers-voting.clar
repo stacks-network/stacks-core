@@ -9,14 +9,14 @@
 ;; maps aggregate public keys to rewards cycles and rounds
 (define-map used-aggregate-public-keys (buff 33) {reward-cycle: uint, round: uint})
 
-(define-constant ERR_SIGNER_INDEX_MISMATCH 1)
-(define-constant ERR_INVALID_SIGNER_INDEX 2)
-(define-constant ERR_OUT_OF_VOTING_WINDOW 3)
-(define-constant ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY 5)
-(define-constant ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY 6)
-(define-constant ERR_DUPLICATE_VOTE 7)
-(define-constant ERR_INVALID_BURN_BLOCK_HEIGHT 8)
-(define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS 9)
+(define-constant ERR_SIGNER_INDEX_MISMATCH u1)
+(define-constant ERR_INVALID_SIGNER_INDEX u2)
+(define-constant ERR_OUT_OF_VOTING_WINDOW u3)
+(define-constant ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY u5)
+(define-constant ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY u6)
+(define-constant ERR_DUPLICATE_VOTE u7)
+(define-constant ERR_INVALID_BURN_BLOCK_HEIGHT u8)
+(define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS u9)
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
@@ -58,8 +58,8 @@
       (get-signer-weight signer-index cycle)))
 
 (define-read-only (get-signer-weight (signer-index uint) (reward-cycle uint))
-    (let ((details (unwrap! (try! (contract-call? .signers get-signer-by-index reward-cycle signer-index)) (err (to-uint ERR_INVALID_SIGNER_INDEX)))))
-        (asserts! (is-eq (get signer details) tx-sender) (err (to-uint ERR_SIGNER_INDEX_MISMATCH)))
+    (let ((details (unwrap! (try! (contract-call? .signers get-signer-by-index reward-cycle signer-index)) (err ERR_INVALID_SIGNER_INDEX))))
+        (asserts! (is-eq (get signer details) tx-sender) (err ERR_SIGNER_INDEX_MISMATCH))
         (ok (get weight details))))
 
 ;; aggregate public key must be unique and can be used only in a single cycle-round pair
@@ -91,7 +91,7 @@
     (match (map-get? cycle-total-weight reward-cycle)
         total (ok total)
         (let (
-                (signers (unwrap! (contract-call? .signers get-signers reward-cycle) (err (to-uint ERR_FAILED_TO_RETRIEVE_SIGNERS))))
+                (signers (unwrap! (contract-call? .signers get-signers reward-cycle) (err ERR_FAILED_TO_RETRIEVE_SIGNERS)))
                 (total (fold sum-weights signers u0))
             )
             (map-set cycle-total-weight reward-cycle total)
@@ -113,13 +113,13 @@
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
             (total-weight (try! (get-total-weight reward-cycle))))
         ;; Check we're in the prepare phase
-        (asserts! (is-in-voting-window burn-block-height reward-cycle) (err (to-uint ERR_OUT_OF_VOTING_WINDOW)))
+        (asserts! (is-in-voting-window burn-block-height reward-cycle) (err ERR_OUT_OF_VOTING_WINDOW))
         ;; Check that the aggregate public key is correct length
-        (asserts! (is-eq (len key) u33) (err (to-uint ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY)))
+        (asserts! (is-eq (len key) u33) (err ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY))
         ;; Check that aggregate public key has not been used before
-        (asserts! (is-valid-aggregate-public-key key {reward-cycle: reward-cycle, round: round}) (err (to-uint ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY)))
+        (asserts! (is-valid-aggregate-public-key key {reward-cycle: reward-cycle, round: round}) (err ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY))
         ;; Check that signer hasn't voted in reward-cycle & round
-        (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, signer-weight: signer-weight}) (err (to-uint ERR_DUPLICATE_VOTE)))
+        (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, signer-weight: signer-weight}) (err ERR_DUPLICATE_VOTE))
         ;; Update tally aggregate public key candidate
         (map-set tally tally-key new-total)
         ;; Update used aggregate public keys
