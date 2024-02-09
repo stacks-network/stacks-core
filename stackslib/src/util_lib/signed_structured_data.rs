@@ -152,12 +152,17 @@ pub mod pox4 {
             ClarityVersion,
         };
         use stacks_common::{
-            address::AddressHashMode, consts::CHAIN_ID_TESTNET, types::chainstate::StacksAddress,
-            util::secp256k1::Secp256k1PublicKey,
+            address::AddressHashMode,
+            consts::CHAIN_ID_TESTNET,
+            types::chainstate::StacksAddress,
+            util::{hash::to_hex, secp256k1::Secp256k1PublicKey},
         };
 
         use crate::{
-            chainstate::stacks::boot::{contract_tests::ClarityTestSim, POX_4_CODE, POX_4_NAME},
+            chainstate::stacks::{
+                address::pox_addr_b58_serialize,
+                boot::{contract_tests::ClarityTestSim, POX_4_CODE, POX_4_NAME},
+            },
             util_lib::boot::boot_code_id,
         };
 
@@ -242,8 +247,7 @@ pub mod pox4 {
             let stacks_addr = StacksAddress::p2pkh(false, &pubkey);
             let pubkey = Secp256k1PublicKey::new();
             let principal = PrincipalData::from(stacks_addr.clone());
-            let pox_addr =
-                PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, stacks_addr.bytes.clone());
+            let pox_addr = PoxAddress::standard_burn_address(false);
             let reward_cycle: u128 = 1;
             let topic = Pox4SignatureTopic::StackStx;
             let lock_period = 12;
@@ -255,6 +259,15 @@ pub mod pox4 {
                 CHAIN_ID_TESTNET,
                 lock_period,
             );
+            println!(
+                "Hash: 0x{}",
+                to_hex(expected_hash_vec.as_bytes().as_slice())
+            );
+            println!(
+                "Pubkey: {}",
+                to_hex(pubkey.to_bytes_compressed().as_slice())
+            );
+            // println!("PoxAddr: {}", pox_addr_b58_serialize(&pox_addr).unwrap());
             let expected_hash = expected_hash_vec.as_bytes();
 
             // Test 1: valid result
@@ -316,6 +329,27 @@ pub mod pox4 {
                 &principal,
             );
             assert_ne!(expected_hash.clone(), result.as_slice());
+        }
+
+        #[test]
+        /// Fixture message hash to test against in other libraries
+        fn test_sig_hash_fixture() {
+            let fixture = "3dd864afd98609df3911a7ab6f0338ace129e56ad394d85866d298a7eda3ad98";
+            let pox_addr = PoxAddress::standard_burn_address(false);
+            let pubkey_hex = "0206952cd8813a64f7b97144c984015490a8f9c5778e8f928fbc8aa6cbf02f48e6";
+            let pubkey = Secp256k1PublicKey::from_hex(pubkey_hex).unwrap();
+            let reward_cycle: u128 = 1;
+            let lock_period = 12;
+
+            let message_hash = make_pox_4_signer_key_message_hash(
+                &pox_addr,
+                reward_cycle,
+                &Pox4SignatureTopic::StackStx,
+                CHAIN_ID_TESTNET,
+                lock_period,
+            );
+
+            assert_eq!(to_hex(message_hash.as_bytes()), fixture);
         }
     }
 }
