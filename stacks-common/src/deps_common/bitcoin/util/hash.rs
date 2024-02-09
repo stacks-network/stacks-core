@@ -21,6 +21,7 @@ use std::default::Default;
 use std::io::{Cursor, Write};
 use std::{error, fmt, mem};
 
+use ripemd::digest::crypto_common::KeyInit;
 use ripemd::Ripemd160;
 #[cfg(feature = "serde")]
 use serde;
