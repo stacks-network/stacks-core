@@ -114,17 +114,7 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-<<<<<<< HEAD
-version = "0.4.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0453232ace82dee0dd0b4c87a59bd90f7b53b314f3e0f61fe2ee7c8a16482289"
-
-[[package]]
-name = "ahash"
 version = "0.8.7"
-=======
-version = "0.8.3"
->>>>>>> 8f638bb4a (chore: update rusqlite)
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77c3a9648d43b9cd48db467b3f87fdd6e146bcc88ab0180006cef2179fe11d01"
 dependencies = [
@@ -1037,7 +1027,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
 dependencies = [
  "cfg-if 1.0.0",
- "hashbrown 0.14.3",
+ "hashbrown",
  "lock_api",
  "once_cell",
  "parking_lot_core",
@@ -1549,28 +1539,11 @@ checksum = "eabb4a44450da02c90444cf74558da904edde8fb4e9035a9a6a4e15445af0bd7"
 
 [[package]]
 name = "hashbrown"
-<<<<<<< HEAD
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
-dependencies = [
- "ahash 0.4.8",
-]
-
-[[package]]
-name = "hashbrown"
 version = "0.14.3"
-=======
-version = "0.12.3"
->>>>>>> 8f638bb4a (chore: update rusqlite)
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
 dependencies = [
-<<<<<<< HEAD
- "ahash 0.8.7",
-=======
  "ahash",
->>>>>>> 8f638bb4a (chore: update rusqlite)
  "allocator-api2",
  "serde",
 ]
@@ -1581,7 +1554,7 @@ version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8094feaf31ff591f651a2664fb9cfd92bba7a60ce3197265e9482ebe753c8f7"
 dependencies = [
- "hashbrown 0.14.0",
+ "hashbrown",
 ]
 
 [[package]]
@@ -1831,7 +1804,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "824b2ae422412366ba479e8111fd301f7b5faece8149317bb81925979a53f520"
 dependencies = [
  "equivalent",
- "hashbrown 0.14.3",
+ "hashbrown",
 ]
 
 [[package]]
@@ -2009,7 +1982,7 @@ name = "libsigner"
 version = "0.0.1"
 dependencies = [
  "clarity",
- "hashbrown 0.14.3",
+ "hashbrown",
  "libc",
  "libstackerdb",
  "rand 0.8.5",
@@ -3657,11 +3630,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_stacker",
-<<<<<<< HEAD
  "sha2 0.10.8",
-=======
- "sha2 0.10.6",
->>>>>>> 8f638bb4a (chore: update rusqlite)
  "sha3",
  "slog",
  "slog-json",
@@ -3681,7 +3650,7 @@ dependencies = [
  "base64 0.12.3",
  "chrono",
  "clarity",
- "hashbrown 0.14.3",
+ "hashbrown",
  "http-types",
  "lazy_static",
  "libc",
@@ -3717,7 +3686,7 @@ dependencies = [
  "backoff",
  "clap 4.5.0",
  "clarity",
- "hashbrown 0.14.3",
+ "hashbrown",
  "libsigner",
  "libstackerdb",
  "rand 0.8.5",
@@ -3751,7 +3720,7 @@ dependencies = [
  "criterion",
  "curve25519-dalek",
  "ed25519-dalek",
- "hashbrown 0.14.3",
+ "hashbrown",
  "integer-sqrt",
  "lazy_static",
  "libc",
@@ -4859,7 +4828,7 @@ checksum = "c398736468f3322a43b6419be5315e68ae035e6565628603503c2a62ad726f36"
 dependencies = [
  "aes-gcm 0.10.3",
  "bs58 0.5.0",
- "hashbrown 0.14.3",
+ "hashbrown",
  "hex",
  "num-traits",
  "p256k1",
