@@ -21,6 +21,7 @@ use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use blockstack_lib::util_lib::boot::boot_code_id;
+use clarity::vm::Value as ClarityValue;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -31,6 +32,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::{debug, error, info, warn};
 use wsts::common::{MerkleRoot, Signature};
 use wsts::curve::keys::PublicKey;
+use wsts::curve::point::{Compressed, Point};
 use wsts::net::{Message, NonceRequest, Packet, SignatureShareRequest};
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{
@@ -221,6 +223,13 @@ impl Signer {
                 is_taproot,
                 merkle_root,
             } => {
+                let epoch = stacks_client
+                    .get_node_epoch_with_retry()
+                    .unwrap_or(StacksEpochId::Epoch24);
+                if epoch != StacksEpochId::Epoch30 {
+                    debug!("Signer #{}: cannot sign blocks in pre Epoch 3.0. Ignoring the sign command.", self.signer_id);
+                    return;
+                };
                 let signer_signature_hash = block.header.signer_signature_hash();
                 let block_info = self
                     .blocks
@@ -651,10 +660,6 @@ impl Signer {
                     // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
                     let origin_address = transaction.origin_address();
                     let origin_nonce = transaction.get_origin_nonce();
-                    let Ok(account_nonce) = stacks_client.get_account_nonce(&origin_address) else {
-                        warn!("Signer #{}: Unable to get account for address: {origin_address}. Ignoring it for this block...", self.signer_id);
-                        return None;
-                    };
                     let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.is_mainnet);
                     match &transaction.payload {
                         TransactionPayload::ContractCall(payload) => {
@@ -662,10 +667,19 @@ impl Signer {
                                 // This is not a special cased transaction. We don't care if its in the next block
                                 debug!("Signer #{}: Received an unrecognized transaction. Ignoring it.", self.signer_id;
                                     "origin_address" => origin_address.to_string(),
-                                    "orign_nonce" => origin_nonce,
                                     "txid" => transaction.txid().to_string(),
                                     "contract_id" => payload.contract_identifier().to_string(),
                                     "function_name" => payload.function_name.to_string(),
+                                    "function_args" => format!("{:?}", payload.function_args),
+                                );
+                                return None;
+                            }
+                            if Self::parse_function_args(&payload.function_args).is_none() {
+                                // This is not a special cased transaction. We don't care if its in the next block
+                                debug!("Signer #{}: Received a transaction with invalid function arguments. Ignoring it.", self.signer_id;
+                                    "origin_address" => origin_address.to_string(),
+                                    "txid" => transaction.txid().to_string(),
+                                    "function_args" => format!("{:?}", payload.function_args),
                                 );
                                 return None;
                             }
@@ -674,20 +688,23 @@ impl Signer {
                             // This is not a special cased transaction.
                             debug!("Signer #{}: Received an unrecognized transaction. Ignoring it.", self.signer_id;
                             "origin_address" => origin_address.to_string(),
-                            "orign_nonce" => origin_nonce,
+                            "origin_nonce" => origin_nonce,
                             "txid" => transaction.txid().to_string(),
                             "payload" => format!("{:?}", transaction.payload),
                         );
                             return None;
                         }
                     }
-                    if !self.signer_addresses.contains(&origin_address) || origin_nonce < account_nonce {
-                        debug!("Signer #{}: Received a transaction from either an unrecognized address or with an invalid nonce. Ignoring it.", self.signer_id;
-                            "txid" => transaction.txid().to_string(),
-                            "origin_address" => origin_address.to_string(),
-                            "origin_nonce" => origin_nonce,
-                            "account_nonce" => account_nonce,
-                        );
+                    if !self.signer_addresses.contains(&origin_address) {
+                        debug!("Signer #{}: Received a transaction ({}) from an unrecognized address ({origin_address}). Ignoring it.", self.signer_id, transaction.txid());
+                        return None;
+                    }
+                    let Ok(account_nonce) = stacks_client.get_account_nonce(&origin_address) else {
+                        warn!("Signer #{}: Unable to get account for address: {origin_address}. Ignoring this transaction for this block...", self.signer_id);
+                        return None;
+                    };
+                    if origin_nonce < account_nonce {
+                        debug!("Signer #{}: Transaction {} has an outdated nonce ({account_nonce} < {origin_nonce}). Ignoring it for this block...", self.signer_id, transaction.txid());
                         return None;
                     }
                     debug!("Signer #{}: Expect transaction {} ({transaction:?})", self.signer_id, transaction.txid());
@@ -776,88 +793,7 @@ impl Signer {
                     debug!("Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.signer_id);
                 }
                 OperationResult::Dkg(point) => {
-                    // Broadcast via traditional methods to the stacks node if we are pre nakamoto or we cannot determine our Epoch
-                    let epoch = stacks_client
-                        .get_node_epoch()
-                        .unwrap_or(StacksEpochId::Epoch24);
-                    let new_transaction = match epoch {
-                        StacksEpochId::Epoch25 => {
-                            debug!("Signer #{}: Received a DKG result, but are in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
-                            match retry_with_exponential_backoff(|| {
-                                stacks_client
-                                    .cast_vote_for_aggregate_public_key(
-                                        self.stackerdb.get_signer_slot_id(),
-                                        self.coordinator.current_dkg_id,
-                                        *point,
-                                    )
-                                    .map_err(backoff::Error::transient)
-                            }) {
-                                Ok(transaction) => {
-                                    debug!("Signer #{}: Successfully cast aggregate public key vote: {:?}",
-                                        self.signer_id,
-                                        transaction.txid()
-                                    );
-                                    transaction
-                                }
-                                Err(e) => {
-                                    warn!("Signer #{}: Failed to cast aggregate public key vote: {e:?}", self.signer_id);
-                                    continue;
-                                }
-                            }
-                        }
-                        StacksEpochId::Epoch30 => {
-                            debug!("Signer #{}: Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.", self.signer_id);
-                            match retry_with_exponential_backoff(|| {
-                                stacks_client
-                                    .build_vote_for_aggregate_public_key(
-                                        self.stackerdb.get_signer_slot_id(),
-                                        self.coordinator.current_dkg_id,
-                                        *point,
-                                    )
-                                    .map_err(backoff::Error::transient)
-                            }) {
-                                Ok(transaction) => transaction,
-                                Err(e) => {
-                                    warn!("Signer #{}: Failed to build a cast aggregate public key vote transaction: {e:?}", self.signer_id);
-                                    continue;
-                                }
-                            }
-                        }
-                        _ => {
-                            debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the result.", self.signer_id);
-                            continue;
-                        }
-                    };
-                    let old_transactions = self
-                        .stackerdb
-                        .get_signer_transactions_with_retry(&[self.signer_id])
-                        .map_err(|e| {
-                            error!("Failed to get old transactions from stackerdb: {e:?}");
-                        })
-                        .unwrap_or_default();
-                    // Filter out our old transactions that are no longer valid
-                    let mut new_transactions: Vec<_> = old_transactions.into_iter().filter_map(|transaction|  {
-                        let origin_address = transaction.origin_address();
-                        let origin_nonce = transaction.get_origin_nonce();
-                        let Ok(account_nonce) = retry_with_exponential_backoff(|| stacks_client.get_account_nonce(&origin_address).map_err(backoff::Error::transient)) else {
-                            warn!("Signer #{}: Unable to get account for address: {origin_address}. Removing {} from our stored transactions.", self.signer_id, transaction.txid());
-                            return None;
-                        };
-                        if origin_nonce < account_nonce {
-                            debug!("Signer #{}: Transaction {} has an outdated nonce. Removing it from our stored transactions.", self.signer_id, transaction.txid());
-                            return None;
-                        }
-                        Some(transaction)
-                    }).collect();
-                    info!("Signer #{}: Writing DKG vote transaction {} to stackerdb for other signers and the miner to observe.", new_transaction.txid(), self.signer_id);
-                    new_transactions.push(new_transaction);
-                    let signer_message = SignerMessage::Transactions(new_transactions);
-                    if let Err(e) = self.stackerdb.send_message_with_retry(signer_message) {
-                        warn!(
-                            "Signer #{}: Failed to update transactions in stacker-db: {e:?}",
-                            self.signer_id
-                        );
-                    }
+                    self.process_dkg(stacks_client, point);
                 }
                 OperationResult::SignError(e) => {
                     self.process_sign_error(e);
@@ -867,6 +803,82 @@ impl Signer {
                 }
             }
         }
+    }
+
+    /// Process a dkg result by broadcasting a vote to the stacks node
+    fn process_dkg(&mut self, stacks_client: &StacksClient, point: &Point) {
+        match retry_with_exponential_backoff(|| {
+            stacks_client
+                .build_vote_for_aggregate_public_key(
+                    self.stackerdb.get_signer_slot_id(),
+                    self.coordinator.current_dkg_id,
+                    *point,
+                )
+                .map_err(backoff::Error::transient)
+        }) {
+            Ok(transaction) => {
+                if let Err(e) = self.broadcast_dkg_vote(stacks_client, transaction) {
+                    warn!(
+                        "Signer #{}: Failed to broadcast DKG vote ({point:?}): {e:?}",
+                        self.signer_id
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Signer #{}: Failed to build DKG vote ({point:?}) transaction: {e:?}.",
+                    self.signer_id
+                );
+            }
+        }
+    }
+
+    /// broadcast the dkg vote transaction according to the current epoch
+    fn broadcast_dkg_vote(
+        &mut self,
+        stacks_client: &StacksClient,
+        new_transaction: StacksTransaction,
+    ) -> Result<(), ClientError> {
+        let epoch = stacks_client
+            .get_node_epoch_with_retry()
+            .unwrap_or(StacksEpochId::Epoch24);
+        match epoch {
+            StacksEpochId::Epoch25 => {
+                debug!("Signer #{}: Received a DKG result, but are in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
+                stacks_client.broadcast_transaction(&new_transaction)?;
+            }
+            StacksEpochId::Epoch30 => {
+                debug!("Signer #{}: Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.", self.signer_id);
+                let old_transactions = self
+                    .stackerdb
+                    .get_signer_transactions_with_retry(&[self.signer_id])
+                    .map_err(|e| {
+                        warn!("Signer #{}: Failed to get old transactions from stackerdb: {e:?}. May overwrite pending transactions.", self.signer_id);
+                    })
+                    .unwrap_or_default();
+                // Filter out our old transactions that are no longer valid
+                let mut new_transactions: Vec<_> = old_transactions.into_iter().filter_map(|transaction|  {
+                    let origin_address = transaction.origin_address();
+                    let origin_nonce = transaction.get_origin_nonce();
+                    let Ok(account_nonce) = retry_with_exponential_backoff(|| stacks_client.get_account_nonce(&origin_address).map_err(backoff::Error::transient)) else {
+                        warn!("Signer #{}: Unable to get account for address: {origin_address}. Removing {} from our stored transactions.", self.signer_id, transaction.txid());
+                        return None;
+                    };
+                    if origin_nonce < account_nonce {
+                        debug!("Signer #{}: Transaction {} has an outdated nonce. Removing it from our stored transactions.", self.signer_id, transaction.txid());
+                        return None;
+                    }
+                    Some(transaction)
+                }).collect();
+                new_transactions.push(new_transaction);
+                let signer_message = SignerMessage::Transactions(new_transactions);
+                self.stackerdb.send_message_with_retry(signer_message)?;
+            }
+            _ => {
+                debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the result.", self.signer_id);
+            }
+        }
+        Ok(())
     }
 
     /// Process a signature from a signing round by deserializing the signature and
@@ -1054,12 +1066,46 @@ impl Signer {
         let coordinator_id = stacks_client
             .calculate_coordinator(&self.signing_round.public_keys)
             .0;
-        // TOOD: should check if we have an aggregate key before we trigger another round. may have a delay between us calculating a key, broadcasting to the contract, and it being confirmed by the miner.
         if new_aggregate_public_key.is_none()
             && self.signer_id == coordinator_id
             && self.coordinator.state == CoordinatorState::Idle
-        // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle
         {
+            // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
+            let old_transactions = self
+                .stackerdb
+                .get_signer_transactions_with_retry(&[self.signer_id])
+                .map_err(|e| {
+                    error!("Failed to get old transactions from stackerdb: {e:?}");
+                })
+                .unwrap_or_default();
+            // Check if we have an existing vote transaction for the same round and reward cycle
+            for transaction in old_transactions.iter() {
+                let origin_address = transaction.origin_address();
+                if &origin_address != stacks_client.get_signer_address() {
+                    continue;
+                }
+                let TransactionPayload::ContractCall(payload) = &transaction.payload else {
+                    error!("BUG: Signer #{}: Received an unrecognized transaction ({}) in an already filtered list: {transaction:?}", self.signer_id, transaction.txid());
+                    continue;
+                };
+                if payload.function_name == VOTE_FUNCTION_NAME.into() {
+                    let Some((_signer_index, point, round)) =
+                        Self::parse_function_args(&payload.function_args)
+                    else {
+                        error!("BUG: Signer #{}: Received an unrecognized transaction ({}) in an already filtered list: {transaction:?}", self.signer_id, transaction.txid());
+                        continue;
+                    };
+                    if Some(point) == self.coordinator.aggregate_public_key
+                        && round == self.coordinator.current_dkg_id as u128
+                    {
+                        debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction for aggregate public key {point:?} for round {round}...", self.signer_id);
+                        continue;
+                    }
+                } else {
+                    error!("BUG: Signer #{}: Received an unrecognized transaction ({}) in an already filtered list: {transaction:?}", self.signer_id, transaction.txid());
+                    continue;
+                }
+            }
             info!("Signer #{} is the current coordinator for {reward_cycle}. Triggering a DKG round...", self.signer_id);
             if self.commands.back() != Some(&Command::Dkg) {
                 self.commands.push_back(Command::Dkg);
@@ -1106,7 +1152,7 @@ impl Signer {
             }
             Some(SignerEvent::SignerMessages(signer_set, messages)) => {
                 if *signer_set != self.stackerdb.get_signer_set() {
-                    debug!("Signer #{}: Received a signer message for a reward cycle that do not belong to this signer. Ignoring...", self.signer_id);
+                    debug!("Signer #{}: Received a signer message for a reward cycle that does not belong to this signer. Ignoring...", self.signer_id);
                     return Ok(());
                 }
                 debug!(
@@ -1139,6 +1185,21 @@ impl Signer {
         }
         Ok(())
     }
+
+    fn parse_function_args(function_args: &[ClarityValue]) -> Option<(u128, Point, u128)> {
+        if function_args.len() != 3 {
+            return None;
+        }
+        let signer_index_value = function_args.first()?;
+        let signer_index = signer_index_value.clone().expect_u128().ok()?;
+        let point_value = function_args.get(1)?;
+        let point_bytes = point_value.clone().expect_buff(33).ok()?;
+        let compressed_data = Compressed::try_from(point_bytes.as_slice()).ok()?;
+        let point = Point::try_from(&compressed_data).ok()?;
+        let round_value = function_args.get(2)?;
+        let round = round_value.clone().expect_u128().ok()?;
+        Some((signer_index, point, round))
+    }
 }
 
 #[cfg(test)]
@@ -1149,7 +1210,10 @@ mod tests {
     use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
     use blockstack_lib::chainstate::stacks::{ThresholdSignature, TransactionVersion};
     use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
+    use clarity::vm::Value;
     use libsigner::SignerMessage;
+    use rand::thread_rng;
+    use rand_core::RngCore;
     use serial_test::serial;
     use stacks_common::bitvec::BitVec;
     use stacks_common::codec::StacksMessageCodec;
@@ -1159,6 +1223,8 @@ mod tests {
     use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
     use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::ecdsa;
+    use wsts::curve::point::Point;
+    use wsts::curve::scalar::Scalar;
 
     use crate::client::tests::{
         generate_reward_cycle_config, mock_server_from_config, write_response,
@@ -1189,12 +1255,21 @@ mod tests {
         let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.is_mainnet);
         let contract_addr = vote_contract_id.issuer.into();
         let contract_name = vote_contract_id.name.clone();
+        let index = thread_rng().next_u64() as u128;
+        let point = Point::from(Scalar::random(&mut thread_rng()));
+        let round = thread_rng().next_u64() as u128;
+        let valid_function_args = vec![
+            Value::UInt(index),
+            Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
+            Value::UInt(round),
+        ];
+
         // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
         let valid_tx = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             VOTE_FUNCTION_NAME.into(),
-            &[],
+            &valid_function_args,
             &signer_private_key,
             TransactionVersion::Testnet,
             config.network.to_chain_id(),
@@ -1202,23 +1277,11 @@ mod tests {
             10,
         )
         .unwrap();
-        let invalid_tx_bad_signer = StacksClient::build_signed_contract_call_transaction(
-            &contract_addr,
-            contract_name.clone(),
-            VOTE_FUNCTION_NAME.into(),
-            &[],
-            &non_signer_private_key,
-            TransactionVersion::Testnet,
-            config.network.to_chain_id(),
-            0,
-            10,
-        )
-        .unwrap();
         let invalid_tx_outdated_nonce = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             VOTE_FUNCTION_NAME.into(),
-            &[],
+            &valid_function_args,
             &signer_private_key,
             TransactionVersion::Testnet,
             config.network.to_chain_id(),
@@ -1226,12 +1289,24 @@ mod tests {
             5,
         )
         .unwrap();
+        let invalid_tx_bad_signer = StacksClient::build_signed_contract_call_transaction(
+            &contract_addr,
+            contract_name.clone(),
+            VOTE_FUNCTION_NAME.into(),
+            &valid_function_args,
+            &non_signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            0,
+            10,
+        )
+        .unwrap();
         let bad_contract_addr = boot_code_addr(true);
         let invalid_tx_bad_contract_addr = StacksClient::build_signed_contract_call_transaction(
             &bad_contract_addr,
             contract_name.clone(),
             VOTE_FUNCTION_NAME.into(),
-            &[],
+            &valid_function_args,
             &signer_private_key,
             TransactionVersion::Testnet,
             config.network.to_chain_id(),
@@ -1244,7 +1319,7 @@ mod tests {
             &contract_addr,
             "wrong".into(),
             VOTE_FUNCTION_NAME.into(),
-            &[],
+            &valid_function_args,
             &signer_private_key,
             TransactionVersion::Testnet,
             config.network.to_chain_id(),
@@ -1257,6 +1332,19 @@ mod tests {
             &contract_addr,
             contract_name.clone(),
             "fake-function".into(),
+            &valid_function_args,
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            1,
+            5,
+        )
+        .unwrap();
+
+        let invalid_tx_bad_function_args = StacksClient::build_signed_contract_call_transaction(
+            &contract_addr,
+            contract_name.clone(),
+            VOTE_FUNCTION_NAME.into(),
             &[],
             &signer_private_key,
             TransactionVersion::Testnet,
@@ -1273,8 +1361,8 @@ mod tests {
             invalid_tx_bad_contract_addr,
             invalid_tx_bad_contract_name,
             invalid_tx_bad_function,
+            invalid_tx_bad_function_args,
         ];
-        let num_transactions = transactions.len();
 
         let h = spawn(move || signer.get_expected_transactions(&stacks_client).unwrap());
 
@@ -1314,11 +1402,14 @@ mod tests {
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, response_bytes.as_slice());
 
-        for _ in 0..num_transactions {
-            let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
-            let mock_server = mock_server_from_config(&config);
-            write_response(mock_server, nonce_response);
-        }
+        // Only the first two transactions need a nonce check
+        let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, nonce_response);
+
+        let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
+        let mock_server = mock_server_from_config(&config);
+        write_response(mock_server, nonce_response);
 
         let filtered_txs = h.join().unwrap();
         assert_eq!(filtered_txs, vec![valid_tx]);
@@ -1343,12 +1434,20 @@ mod tests {
         let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.is_mainnet);
         let contract_addr = vote_contract_id.issuer.into();
         let contract_name = vote_contract_id.name.clone();
+        let index = thread_rng().next_u64() as u128;
+        let point = Point::from(Scalar::random(&mut thread_rng()));
+        let round = thread_rng().next_u64() as u128;
+        let valid_function_args = vec![
+            Value::UInt(index),
+            Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
+            Value::UInt(round),
+        ];
         // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
         let valid_tx = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             VOTE_FUNCTION_NAME.into(),
-            &[],
+            &valid_function_args,
             &signer_private_key,
             TransactionVersion::Testnet,
             config.network.to_chain_id(),
