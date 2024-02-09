@@ -832,15 +832,18 @@ impl StacksMessageCodecExtensions for Packet {
 impl StacksMessageCodecExtensions for PacketMessage {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         self.packet.inner_consensus_serialize(fd)?;
+        write_next(fd, &self.packet_signer_id)?;
         self.coordinator_metadata.inner_consensus_serialize(fd)?;
         Ok(())
     }
 
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
         let packet = Packet::inner_consensus_deserialize(fd)?;
+        let packet_signer_id = read_next::<u32, _>(fd)?;
         let coordinator_metadata = CoordinatorMetadata::inner_consensus_deserialize(fd)?;
         Ok(PacketMessage {
             packet,
+            packet_signer_id,
             coordinator_metadata,
         })
     }
@@ -848,15 +851,18 @@ impl StacksMessageCodecExtensions for PacketMessage {
 
 impl StacksMessageCodecExtensions for NackMessage {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        write_next(fd, &self.signer_id)?;
+        write_next(fd, &self.sender_signer_id)?;
+        write_next(fd, &self.target_signer_id)?;
         self.coordinator_metadata.inner_consensus_serialize(fd)?;
         Ok(())
     }
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let signer_id = read_next::<u32, _>(fd)?;
+        let sender_signer_id = read_next::<u32, _>(fd)?;
+        let target_signer_id = read_next::<u32, _>(fd)?;
         let coordinator_metadata = CoordinatorMetadata::inner_consensus_deserialize(fd)?;
         Ok(NackMessage {
-            signer_id,
+            sender_signer_id,
+            target_signer_id,
             coordinator_metadata,
         })
     }
@@ -1116,15 +1122,22 @@ impl From<BlockValidateReject> for SignerMessage {
 pub struct PacketMessage {
     /// Signed network packet
     pub packet: Packet,
+    /// The signer's id
+    pub packet_signer_id: u32,
     /// The signer's view of coordinator metadata including stacks tip consensus hash and block height
     pub coordinator_metadata: CoordinatorMetadata,
 }
 
 impl PacketMessage {
     /// Create a new PacketMessage
-    pub fn new(packet: Packet, coordinator_metadata: CoordinatorMetadata) -> Self {
+    pub fn new(
+        packet: Packet,
+        packet_signer_id: u32,
+        coordinator_metadata: CoordinatorMetadata,
+    ) -> Self {
         PacketMessage {
             packet,
+            packet_signer_id,
             coordinator_metadata,
         }
     }
@@ -1162,16 +1175,23 @@ impl Default for CoordinatorMetadata {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NackMessage {
     /// The reporting signer_id having a more updated chain view
-    pub signer_id: u32,
+    pub sender_signer_id: u32,
+    /// The target signer_id having a stale chain view
+    pub target_signer_id: u32,
     /// The signer's view of coordinator metadata including consensus-hash and block-height based on its view of the chain
     pub coordinator_metadata: CoordinatorMetadata,
 }
 
 impl NackMessage {
     /// Creates a new `NackMessage` with the given coordinator information
-    pub fn new(signer_id: u32, coordinator_metadata: CoordinatorMetadata) -> Self {
+    pub fn new(
+        sender_signer_id: u32,
+        target_signer_id: u32,
+        coordinator_metadata: CoordinatorMetadata,
+    ) -> Self {
         Self {
-            signer_id,
+            sender_signer_id,
+            target_signer_id,
             coordinator_metadata,
         }
     }
@@ -1510,6 +1530,7 @@ mod test {
                 msg: Message::DkgBegin(DkgBegin { dkg_id: 0 }),
                 sig: vec![1u8; 20],
             },
+            packet_signer_id: 0,
             coordinator_metadata: CoordinatorMetadata {
                 stacks_consensus_hash: ConsensusHash([0u8; 20]),
                 stacks_block_height: 0,

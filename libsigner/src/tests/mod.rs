@@ -109,6 +109,7 @@ fn test_simple_signer() {
         let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
         let message = SignerMessage::Packet(PacketMessage {
             packet: Packet { msg, sig: vec![] },
+            packet_signer_id: 0,
             coordinator_metadata: CoordinatorMetadata {
                 stacks_consensus_hash: ConsensusHash([0u8; 20]),
                 stacks_block_height: 0,
