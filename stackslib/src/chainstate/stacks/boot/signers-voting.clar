@@ -3,7 +3,7 @@
 ;;
 
 ;; maps dkg round and signer to proposed aggregate public key
-(define-map votes {reward-cycle: uint, round: uint, signer: principal} {aggregate-public-key: (buff 33), reward-slots: uint})
+(define-map votes {reward-cycle: uint, round: uint, signer: principal} {aggregate-public-key: (buff 33), signer-weight: uint})
 ;; maps dkg round and aggregate public key to weights of signers supporting this key so far
 (define-map tally {reward-cycle: uint, round: uint, aggregate-public-key: (buff 33)} uint)
 ;; maps aggregate public keys to rewards cycles and rounds
@@ -16,12 +16,24 @@
 (define-constant ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY 6)
 (define-constant ERR_DUPLICATE_VOTE 7)
 (define-constant ERR_INVALID_BURN_BLOCK_HEIGHT 8)
+(define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS 9)
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
 
+;; Threshold consensus (in 3 digit %)
+(define-constant threshold-consensus u700)
+
 ;; maps reward-cycle ids to last round
 (define-map rounds uint uint)
+
+;; Maps reward-cycle ids to aggregate public key.
+(define-map aggregate-public-keys uint (buff 33))
+
+;; Maps reward-cycle id to the total weight of signers. This map is used to
+;; cache the total weight of signers for a given reward cycle, so it is not
+;; necessary to recalculate it on every vote.
+(define-map cycle-total-weight uint uint)
 
 (define-read-only (burn-height-to-reward-cycle (height uint))
     (/ (- height (get first-burnchain-block-height pox-info)) (get reward-cycle-length pox-info)))
@@ -61,10 +73,32 @@
             )
         (get prepare-cycle-length pox-info)))
 
+;; get the aggregate public key for the given reward cycle (or none)
+(define-read-only (get-approved-aggregate-key (reward-cycle uint))
+    (map-get? aggregate-public-keys reward-cycle)
+)
+
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
         (and (is-eq last-cycle reward-cycle)
             (is-in-prepare-phase height))))
+
+(define-private (sum-weights (signer { signer: principal, weight: uint }) (acc uint))
+    (+ acc (get weight signer))
+)
+
+(define-private (get-total-weight (reward-cycle uint))
+    (match (map-get? cycle-total-weight reward-cycle)
+        total (ok total)
+        (let (
+                (signers (unwrap! (contract-call? .signers get-signers reward-cycle) (err (to-uint ERR_FAILED_TO_RETRIEVE_SIGNERS))))
+                (total (fold sum-weights signers u0))
+            )
+            (map-set cycle-total-weight reward-cycle total)
+            (ok total)
+        )
+    )
+)
 
 ;; Signer vote for the aggregate public key of the next reward cycle
 ;;  The vote happens in the prepare phase of the current reward cycle but may be ran more than
@@ -75,8 +109,9 @@
     (let ((reward-cycle (+ u1 (burn-height-to-reward-cycle burn-block-height)))
             (tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; vote by signer weight
-            (num-weight (try! (get-current-signer-weight signer-index)))
-            (new-total (+ num-weight (default-to u0 (map-get? tally tally-key)))))
+            (signer-weight (try! (get-current-signer-weight signer-index)))
+            (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
+            (total-weight (try! (get-total-weight reward-cycle))))
         ;; Check we're in the prepare phase
         (asserts! (is-in-voting-window burn-block-height reward-cycle) (err (to-uint ERR_OUT_OF_VOTING_WINDOW)))
         ;; Check that the aggregate public key is correct length
@@ -84,19 +119,39 @@
         ;; Check that aggregate public key has not been used before
         (asserts! (is-valid-aggregate-public-key key {reward-cycle: reward-cycle, round: round}) (err (to-uint ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY)))
         ;; Check that signer hasn't voted in reward-cycle & round
-        (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, reward-slots: num-weight}) (err (to-uint ERR_DUPLICATE_VOTE)))
+        (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, signer-weight: signer-weight}) (err (to-uint ERR_DUPLICATE_VOTE)))
         ;; Update tally aggregate public key candidate
         (map-set tally tally-key new-total)
         ;; Update used aggregate public keys
         (map-set used-aggregate-public-keys key {reward-cycle: reward-cycle, round: round})
         (update-last-round reward-cycle round)
-        (print { 
-            event: "voted", 
-            signer: tx-sender, 
-            reward-cycle: reward-cycle, 
-            round: round, 
-            key: key, 
-            new-total: new-total })
+        (print {
+            event: "voted",
+            signer: tx-sender,
+            reward-cycle: reward-cycle,
+            round: round,
+            key: key,
+            new-total: new-total,
+        })
+        ;; Check if consensus has been reached
+        (and
+            ;; If we already have consensus, skip this
+            (is-none (map-get? aggregate-public-keys reward-cycle))
+            ;; If the new total weight is greater than or equal to the threshold consensus
+            (>= (/ (* new-total u1000) total-weight) threshold-consensus)
+            ;; Save this approved aggregate public key for this reward cycle
+            (map-set aggregate-public-keys reward-cycle key)
+            ;; Create an event for the approved aggregate public key
+            (begin
+                (print {
+                    event: "approved-aggregate-public-key",
+                    reward-cycle: reward-cycle,
+                    key: key,
+                })
+                true
+            )
+        )
+
         (ok true)))
 
 (define-private (update-last-round (reward-cycle uint) (round uint))
