@@ -2372,9 +2372,9 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "p256k1"
-version = "6.0.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5afcf536d20c074ef45371ee9a654dcfc46fb2dde18ecc54ec30c936eb850fa2"
+checksum = "3a64d160b891178fb9d43d1a58ddcafb6502daeb54d810e5e92a7c3c9bfacc07"
 dependencies = [
  "bindgen",
  "bitvec",
@@ -4791,9 +4791,9 @@ dependencies = [
 
 [[package]]
 name = "wsts"
-version = "7.0.0"
+version = "8.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c398736468f3322a43b6419be5315e68ae035e6565628603503c2a62ad726f36"
+checksum = "06eee6f3bb38f8c8dca03053572130be2e5006a31dc7e5d8c62e375952b2ff38"
 dependencies = [
  "aes-gcm 0.10.2",
  "bs58 0.5.0",
