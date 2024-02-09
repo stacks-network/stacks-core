@@ -193,12 +193,6 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;
-    conf.node
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, conf.is_mainnet()));
-    conf.node
-        .stacker_dbs
-        .push(boot_code_id(SIGNERS_NAME, conf.is_mainnet()));
     conf.burnchain.burn_fee_cap = 20000;
 
     conf.burnchain.username = Some("neon-tester".into());
@@ -207,6 +201,8 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
     conf.burnchain.local_mining_public_key =
         Some(keychain.generate_op_signer().get_public_key().to_hex());
     conf.burnchain.commit_anchor_block_within = 0;
+    conf.node.add_signers_stackerdbs(false);
+    conf.node.add_miner_stackerdb(false);
 
     // test to make sure config file parsing is correct
     let mut cfile = ConfigFile::xenon();
