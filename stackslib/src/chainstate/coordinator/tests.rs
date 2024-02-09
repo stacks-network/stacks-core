@@ -4914,7 +4914,7 @@ fn get_total_stacked_info(
                         reward_cycle
                     );
 
-                    let result = env.eval_raw(&eval_str).map(|v| v.expect_u128().unwrap());
+                    let result = env.eval_raw(&eval_str).map(|v| v.expect_u128());
                     Ok(result)
                 },
             )

@@ -1618,7 +1618,7 @@ pub mod test {
     use stacks_common::util::secp256k1::*;
     use stacks_common::util::uint::*;
     use stacks_common::util::vrf::*;
-    use wsts::curve::point::Point;
+    use wsts::Point;
     use {mio, rand};
 
     use super::*;

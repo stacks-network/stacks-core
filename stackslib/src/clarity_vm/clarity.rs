@@ -593,9 +593,9 @@ impl ClarityInstance {
             let mut db = datastore.as_clarity_db(header_db, burn_state_db);
             db.begin();
             let result = db.get_clarity_epoch_version();
-            db.roll_back()?;
+            db.roll_back();
             result
-        }?;
+        };
 
         Ok(ClarityReadOnlyConnection {
             datastore,
@@ -628,7 +628,7 @@ impl ClarityInstance {
             let result = clarity_db.get_clarity_epoch_version();
             clarity_db.roll_back()?;
             result
-        }?;
+        };
 
         let mut env = OwnedEnvironment::new_free(self.mainnet, self.chain_id, clarity_db, epoch_id);
         env.eval_read_only_with_rules(contract, program, ast_rules)

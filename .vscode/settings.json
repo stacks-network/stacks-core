@@ -2,7 +2,8 @@
     "lldb.adapterType": "native",
     "lldb.launch.sourceLanguages": ["rust"],
     "rust-analyzer.cargo.noDefaultFeatures": true,
-    "rust-analyzer.cargo.features": ["wasm"],
+    "rust-analyzer.cargo.features": "all",
+    "rust-analyzer.check.features": "all",
     "rust-analyzer.linkedProjects": [
         "Cargo.toml",
     ],

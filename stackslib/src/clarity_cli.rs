@@ -363,9 +363,7 @@ where
     let (headers_return, result) = {
         let marf_tx = marf_kv.begin(&from, &to);
         let (headers_return, marf_return, result) = f(headers_db, marf_tx);
-        marf_return
-            .commit_to(&to)
-            .expect("FATAL: failed to commit block");
+        marf_return.commit_to(&to);
         (headers_return, result)
     };
     (headers_return, marf_kv, result)
@@ -847,8 +845,6 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                     res
                 },
             )
-            .unwrap()
-            .0
             .unwrap();
     }
 
@@ -944,7 +940,7 @@ pub fn add_assets(result: &mut serde_json::Value, assets: bool, asset_map: Asset
 
 pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
     let result_raw = {
-        let bytes = (&value).serialize_to_vec().unwrap();
+        let bytes = (&value).serialize_to_vec();
         bytes_to_hex(&bytes)
     };
     result["output_serialized"] = serde_json::to_value(result_raw.as_str()).unwrap();
@@ -1035,15 +1031,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     db.begin();
                     for (principal, amount) in allocations.iter() {
                         let balance = STXBalance::initial(*amount as u128);
-                        let total_balance = balance.get_total_balance().unwrap();
+                        let total_balance = balance.get_total_balance();
 
-                        let mut snapshot = db.get_stx_balance_snapshot_genesis(principal).unwrap();
+                        let mut snapshot = db.get_stx_balance_snapshot_genesis(principal);
                         snapshot.set_balance(balance);
-                        snapshot.save().unwrap();
+                        snapshot.save();
 
                         println!("{} credited: {} uSTX", principal, total_balance);
                     }
-                    db.commit().unwrap();
+                    db.commit();
                 };
                 (header_db, kv, ())
             });
@@ -1204,8 +1200,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if output_analysis {
                 result["analysis"] =
-                    serde_json::to_value(&build_contract_interface(&contract_analysis).unwrap())
-                        .unwrap();
+                    serde_json::to_value(&build_contract_interface(&contract_analysis)).unwrap();
             }
             (0, Some(result))
         }
@@ -1689,14 +1684,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     save_coverage(coverage_folder, coverage, "launch");
 
                     if output_analysis {
-                        result["analysis"] = serde_json::to_value(
-                            &build_contract_interface(&contract_analysis).unwrap(),
-                        )
-                        .unwrap();
+                        result["analysis"] =
+                            serde_json::to_value(&build_contract_interface(&contract_analysis))
+                                .unwrap();
                     }
                     let events_json: Vec<_> = events
                         .into_iter()
-                        .map(|event| event.json_serialize(0, &Txid([0u8; 32]), true).unwrap())
+                        .map(|event| event.json_serialize(0, &Txid([0u8; 32]), true))
                         .collect();
 
                     result["events"] = serde_json::Value::Array(events_json);
@@ -1830,9 +1824,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
                             let events_json: Vec<_> = events
                                 .into_iter()
-                                .map(|event| {
-                                    event.json_serialize(0, &Txid([0u8; 32]), true).unwrap()
-                                })
+                                .map(|event| event.json_serialize(0, &Txid([0u8; 32]), true))
                                 .collect();
 
                             result["events"] = serde_json::Value::Array(events_json);
