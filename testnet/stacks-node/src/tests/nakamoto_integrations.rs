@@ -357,11 +357,11 @@ pub fn setup_stacker(naka_conf: &mut Config) -> Secp256k1PrivateKey {
 pub fn boot_to_epoch_3(
     naka_conf: &Config,
     blocks_processed: &RunLoopCounter,
-    stacker_sks: &[Secp256k1PrivateKey],
-    signer_pks: &[StacksPublicKey],
+    stacker_sks: &[StacksPrivateKey],
+    signer_sks: &[StacksPrivateKey],
     btc_regtest_controller: &mut BitcoinRegtestController,
 ) {
-    assert_eq!(stacker_sks.len(), signer_pks.len());
+    assert_eq!(stacker_sks.len(), signer_sks.len());
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
@@ -384,7 +384,7 @@ pub fn boot_to_epoch_3(
         .block_height_to_reward_cycle(block_height)
         .unwrap();
 
-    for (stacker_sk, signer_pk) in stacker_sks.iter().zip(signer_pks.iter()) {
+    for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
             tests::to_addr(&stacker_sk).bytes,
@@ -393,7 +393,7 @@ pub fn boot_to_epoch_3(
             pox_addr.clone().as_clarity_tuple().unwrap().into();
         let signature = make_pox_4_signer_key_signature(
             &pox_addr,
-            stacker_sk,
+            &signer_sk,
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
             CHAIN_ID_TESTNET,
@@ -401,6 +401,9 @@ pub fn boot_to_epoch_3(
         )
         .unwrap()
         .to_rsv();
+
+        let signer_pk = StacksPublicKey::from_private(signer_sk);
+
         let stacking_tx = tests::make_contract_call(
             &stacker_sk,
             0,
@@ -493,7 +496,7 @@ fn simple_neon_integration() {
         &naka_conf,
         &blocks_processed,
         &[stacker_sk],
-        &[StacksPublicKey::from_private(&sender_signer_sk)],
+        &[sender_signer_sk],
         &mut btc_regtest_controller,
     );
 
@@ -713,7 +716,7 @@ fn mine_multiple_per_tenure_integration() {
         &naka_conf,
         &blocks_processed,
         &[stacker_sk],
-        &[StacksPublicKey::from_private(&sender_signer_key)],
+        &[sender_signer_key],
         &mut btc_regtest_controller,
     );
 
@@ -1146,7 +1149,7 @@ fn block_proposal_api_endpoint() {
         &conf,
         &blocks_processed,
         &[stacker_sk],
-        &[StacksPublicKey::default()],
+        &[StacksPrivateKey::default()],
         &mut btc_regtest_controller,
     );
 
@@ -1489,7 +1492,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         &naka_conf,
         &blocks_processed,
         &[stacker_sk],
-        &[StacksPublicKey::default()],
+        &[StacksPrivateKey::default()],
         &mut btc_regtest_controller,
     );
 

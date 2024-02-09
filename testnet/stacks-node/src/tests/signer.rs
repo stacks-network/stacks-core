@@ -223,11 +223,6 @@ fn setup_stx_btc_node(
         });
     }
 
-    let signer_stacks_pubks: Vec<_> = signer_stacks_private_keys
-        .iter()
-        .map(|pk| StacksPublicKey::from_private(pk))
-        .collect();
-
     // Spawn a test observer for verification purposes
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -309,7 +304,7 @@ fn setup_stx_btc_node(
         &naka_conf,
         &blocks_processed,
         signer_stacks_private_keys,
-        &signer_stacks_pubks,
+        &[StacksPrivateKey::default()],
         &mut btc_regtest_controller,
     );
 
