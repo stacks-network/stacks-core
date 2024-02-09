@@ -140,12 +140,9 @@ impl RPCPeerInfoData {
             server_version,
             network_id: network.local_peer.network_id,
             parent_network_id: network.local_peer.parent_network_id,
-            stacks_tip_height: network.burnchain_tip.canonical_stacks_tip_height,
-            stacks_tip: network.burnchain_tip.canonical_stacks_tip_hash.clone(),
-            stacks_tip_consensus_hash: network
-                .burnchain_tip
-                .canonical_stacks_tip_consensus_hash
-                .clone(),
+            stacks_tip_height: network.stacks_tip.2,
+            stacks_tip: network.stacks_tip.1.clone(),
+            stacks_tip_consensus_hash: network.stacks_tip.0.clone(),
             unanchored_tip: unconfirmed_tip,
             unanchored_seq: unconfirmed_seq,
             exit_at_block_height: exit_at_block_height,

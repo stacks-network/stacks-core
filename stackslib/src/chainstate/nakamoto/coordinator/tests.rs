@@ -30,13 +30,13 @@ use wsts::curve::point::Point;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::coordinator::tests::p2pkh_from;
+use crate::chainstate::coordinator::tests::{p2pkh_from, pox_addr_from};
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup,
+    key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup, make_signer_key_signature,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
@@ -51,6 +51,7 @@ use crate::net::relay::Relayer;
 use crate::net::stackerdb::StackerDBConfig;
 use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 
 /// Bring a TestPeer into the Nakamoto Epoch
 fn advance_to_nakamoto(
@@ -75,19 +76,28 @@ fn advance_to_nakamoto(
             test_stackers
                 .iter()
                 .map(|test_stacker| {
+                    let pox_addr = PoxAddress::from_legacy(
+                        AddressHashMode::SerializeP2PKH,
+                        addr.bytes.clone(),
+                    );
+                    let signature = make_signer_key_signature(
+                        &pox_addr,
+                        &test_stacker.signer_private_key,
+                        6,
+                        &Pox4SignatureTopic::StackStx,
+                        12_u128,
+                    );
                     let signing_key =
                         StacksPublicKey::from_private(&test_stacker.signer_private_key);
                     make_pox_4_lockup(
                         &test_stacker.stacker_private_key,
                         0,
                         test_stacker.amount,
-                        PoxAddress::from_legacy(
-                            AddressHashMode::SerializeP2PKH,
-                            addr.bytes.clone(),
-                        ),
+                        pox_addr.clone(),
                         12,
                         signing_key,
                         34,
+                        signature,
                     )
                 })
                 .collect()
