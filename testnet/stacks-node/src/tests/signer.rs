@@ -304,7 +304,7 @@ fn setup_stx_btc_node(
         &naka_conf,
         &blocks_processed,
         signer_stacks_private_keys,
-        &[StacksPrivateKey::default()],
+        signer_stacks_private_keys,
         &mut btc_regtest_controller,
     );
 

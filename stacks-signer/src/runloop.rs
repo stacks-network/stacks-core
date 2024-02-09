@@ -1088,7 +1088,12 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
         // TODO: This should be called every time as DKG can change at any time...but until we have the node
         // set up to receive cast votes...just do on initialization.
         if self.state == State::Uninitialized {
-            let request_fn = || self.initialize().map_err(backoff::Error::transient);
+            let request_fn = || {
+                self.initialize().map_err(|e| {
+                    warn!("Failed to initialize: {:?}", &e);
+                    backoff::Error::transient(e)
+                })
+            };
             retry_with_exponential_backoff(request_fn)
                 .expect("Failed to connect to initialize due to timeout. Stacks node may be down.");
         }

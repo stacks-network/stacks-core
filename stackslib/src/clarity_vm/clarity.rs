@@ -1510,7 +1510,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
 
                     let signers_db_receipt = self.as_transaction(|tx_conn| {
                         // initialize with a synthetic transaction
-                        debug!("Instantiate {} contract", &signers_contract_id);
+                        debug!("Instantiate .{} contract", &signers_name);
                         let receipt = StacksChainState::process_transaction_payload(
                             tx_conn,
                             &signers_contract_tx,
