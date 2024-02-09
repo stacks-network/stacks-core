@@ -27,7 +27,7 @@ hashbrown = "0.14"
 libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
 rand_core = "0.6"
-reqwest = { version = "0.11.22", features = ["blocking", "json"] }
+reqwest = { version = "0.11.22", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
