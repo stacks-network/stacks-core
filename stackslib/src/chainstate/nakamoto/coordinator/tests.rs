@@ -133,16 +133,6 @@ pub fn boot_nakamoto<'a>(
     // reward cycle 6 instantiates pox-3
     // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
     peer_config.aggregate_public_key = Some(aggregate_public_key.clone());
-    peer_config
-        .stacker_dbs
-        .push(boot_code_id(MINERS_NAME, false));
-    for signer_set in 0..2 {
-        for message_id in 0..SIGNER_SLOTS_PER_USER {
-            let contract_name = NakamotoSigners::make_signers_db_name(signer_set, message_id);
-            let contract_id = boot_code_id(contract_name.as_str(), false);
-            peer_config.stacker_dbs.push(contract_id);
-        }
-    }
     peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(37));
     peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
 
