@@ -453,12 +453,18 @@ pub fn boot_to_epoch_3_reward_set(
 
     let epochs = naka_conf.burnchain.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length;
-    let epoch_30_reward_set_calculation = epoch_3.start_height - prepare_phase_len as u64;
-    info!(
-        "Chain bootstrapped to bitcoin block 201, starting Epoch 2x miner";
-        "Epoch 3.0 Reward Set Calculation Height" => epoch_30_reward_set_calculation,
+    let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
+    let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
+    assert!(
+        epoch_3.start_height > 0,
+        "Epoch 3 start height must be greater than 0"
     );
+    let epoch_3_reward_cycle_boundary = epoch_3.start_height;
+    let epoch_3_reward_cycle_boundary = epoch_3_reward_cycle_boundary
+        .saturating_sub(epoch_3_reward_cycle_boundary % reward_cycle_len);
+    let epoch_3_reward_set_calculation_boundary =
+        epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
+    let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(1);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
@@ -511,11 +517,11 @@ pub fn boot_to_epoch_3_reward_set(
     run_until_burnchain_height(
         btc_regtest_controller,
         &blocks_processed,
-        epoch_30_reward_set_calculation,
+        epoch_3_reward_set_calculation,
         &naka_conf,
     );
 
-    info!("Bootstrapped to Epoch-3.0 reward set calculation height.");
+    info!("Bootstrapped to Epoch 3.0 reward set calculation height: {epoch_3_reward_set_calculation}.");
 }
 
 #[test]
