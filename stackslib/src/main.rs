@@ -863,7 +863,7 @@ simulating a miner.
     if argv[1] == "replay-block" {
         if argv.len() < 2 {
             eprintln!(
-                "Usage: {} <chainstate_path> [--prefix <index-block-hash-prefix>] [--last <block_count>]",
+                "Usage: {} <chainstate_path> [--prefix <index-block-hash-prefix>] [<--last|--first> <block_count>]",
                 &argv[0]
             );
             process::exit(1);
@@ -878,6 +878,10 @@ simulating a miner.
         let query = match mode {
             Some("--prefix") => format!(
                 "SELECT index_block_hash FROM staging_blocks WHERE index_block_hash LIKE \"{}%\"",
+                argv[4]
+            ),
+            Some("--first") => format!(
+                "SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {}",
                 argv[4]
             ),
             Some("--last") => format!(
@@ -1533,9 +1537,9 @@ simulating a miner.
 
 fn replay_block(stacks_path: &str, index_block_hash_hex: &str) {
     let index_block_hash = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
-    let chain_state_path = format!("{}/mainnet/chainstate/", stacks_path);
-    let sort_db_path = format!("{}/mainnet/burnchain/sortition", stacks_path);
-    let burn_db_path = format!("{}/mainnet/burnchain/burnchain.sqlite", stacks_path);
+    let chain_state_path = format!("{stacks_path}/mainnet/chainstate/");
+    let sort_db_path = format!("{stacks_path}/mainnet/burnchain/sortition");
+    let burn_db_path = format!("{stacks_path}/mainnet/burnchain/burnchain.sqlite");
     let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
     let (mut chainstate, _) =
