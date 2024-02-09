@@ -232,11 +232,8 @@ impl RunLoop {
                 .get_current_reward_cycle()
                 .map_err(backoff::Error::transient)?;
             let next_reward_cycle = current_reward_cycle.saturating_add(1);
-            match self.refresh_signer_config(current_reward_cycle) {
-                Ok(_) => {
-                    debug!("Signer is registered for the current reward cycle {current_reward_cycle}. Checking next reward cycle...");
-                }
-                Err(e) => match e {
+            if let Err(e) = self.refresh_signer_config(current_reward_cycle) {
+                match e {
                     ClientError::NotRegistered => {
                         debug!("Signer is NOT registered for the current reward cycle {current_reward_cycle}.");
                     }
@@ -244,25 +241,19 @@ impl RunLoop {
                         debug!("Current reward cycle {current_reward_cycle} reward set is not yet calculated. Let's retry...");
                         return Err(backoff::Error::transient(e));
                     }
-                    e => return Err(backoff::Error::transient(e)),
-                },
+                    _ => return Err(backoff::Error::transient(e)),
+                }
             }
-            let next_result = self.refresh_signer_config(next_reward_cycle);
-            match next_result {
-                Ok(_) => {
-                    debug!("Signer is registered for the next reward cycle {next_reward_cycle}");
+            if let Err(e) = self.refresh_signer_config(next_reward_cycle) {
+                match e {
+                    ClientError::NotRegistered => {
+                        debug!("Signer is NOT registered for the next reward cycle {next_reward_cycle}.");
+                    }
+                    ClientError::RewardSetNotYetCalculated(_) => {
+                        debug!("Next reward cycle {next_reward_cycle} reward set is not yet calculated.");
+                    }
+                    _ => return Err(backoff::Error::transient(e)),
                 }
-                Err(ClientError::RewardSetNotYetCalculated(_)) => {
-                    debug!(
-                        "Next reward cycle {next_reward_cycle} reward set is not yet calculated."
-                    );
-                }
-                Err(ClientError::NotRegistered) => {
-                    debug!(
-                        "Signer is NOT registered for the next reward cycle {next_reward_cycle}."
-                    );
-                }
-                Err(e) => Err(e)?,
             }
             for stacks_signer in self.stacks_signers.values_mut() {
                 stacks_signer
@@ -270,7 +261,7 @@ impl RunLoop {
                     .map_err(backoff::Error::transient)?;
             }
             if self.stacks_signers.is_empty() {
-                info!("Signer is not registered for the current or next reward cycle. Waiting for confirmed registration...");
+                info!("Signer is not registered for the current {current_reward_cycle} or next {next_reward_cycle} reward cycles. Waiting for confirmed registration...");
                 return Err(backoff::Error::transient(ClientError::NotRegistered));
             } else {
                 info!("Runloop successfully initialized!");
