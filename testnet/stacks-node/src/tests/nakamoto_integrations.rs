@@ -466,13 +466,28 @@ pub fn boot_to_epoch_3_reward_set(
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
 
     // stack enough to activate pox-4
-    let pox_addr_tuple = clarity::vm::tests::execute(&format!(
-        "{{ hashbytes: 0x{}, version: 0x{:02x} }}",
-        to_hex(&[0; 20]),
-        AddressHashMode::SerializeP2PKH as u8,
-    ));
-
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
     for (stacker_sk, signer_pk) in stacker_sks.iter().zip(signer_pks.iter()) {
+        let pox_addr = PoxAddress::from_legacy(
+            AddressHashMode::SerializeP2PKH,
+            tests::to_addr(&stacker_sk).bytes,
+        );
+        let pox_addr_tuple: clarity::vm::Value =
+            pox_addr.clone().as_clarity_tuple().unwrap().into();
+        let signature = make_pox_4_signer_key_signature(
+            &pox_addr,
+            stacker_sk,
+            reward_cycle.into(),
+            &Pox4SignatureTopic::StackStx,
+            CHAIN_ID_TESTNET,
+            12_u128,
+        )
+        .unwrap()
+        .to_rsv();
         let stacking_tx = tests::make_contract_call(
             &stacker_sk,
             0,
@@ -485,6 +500,7 @@ pub fn boot_to_epoch_3_reward_set(
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(205),
                 clarity::vm::Value::UInt(12),
+                clarity::vm::Value::buff_from(signature).unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
             ],
         );
