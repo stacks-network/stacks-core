@@ -65,8 +65,6 @@ pub struct StacksClient {
     chain_id: u32,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
-    /// The stx transaction fee to use in microstacks
-    tx_fee: u64,
 }
 
 impl From<&GlobalConfig> for StacksClient {
@@ -78,7 +76,6 @@ impl From<&GlobalConfig> for StacksClient {
             tx_version: config.network.to_transaction_version(),
             chain_id: config.network.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
-            tx_fee: config.tx_fee,
         }
     }
 }
@@ -475,6 +472,7 @@ impl StacksClient {
         signer_index: u32,
         round: u64,
         point: Point,
+        tx_fee: Option<u64>,
     ) -> Result<StacksTransaction, ClientError> {
         debug!("Building {VOTE_FUNCTION_NAME} transaction...");
         // TODO: this nonce should be calculated on the side as we may have pending transactions that are not yet confirmed...
@@ -505,7 +503,9 @@ impl StacksClient {
         );
 
         let mut unsigned_tx = StacksTransaction::new(self.tx_version, tx_auth, tx_payload);
-        unsigned_tx.set_tx_fee(self.tx_fee);
+        if let Some(tx_fee) = tx_fee {
+            unsigned_tx.set_tx_fee(tx_fee);
+        }
         unsigned_tx.set_origin_nonce(nonce);
 
         unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
@@ -524,8 +524,8 @@ impl StacksClient {
             ))
     }
 
-    /// Helper function to submit a transaction to the Stacks node
-    pub fn broadcast_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
+    /// Helper function to submit a transaction to the Stacks mempool
+    pub fn submit_transaction(&self, tx: &StacksTransaction) -> Result<Txid, ClientError> {
         let txid = tx.txid();
         let tx = tx.serialize_to_vec();
         let send_request = || {
@@ -906,7 +906,7 @@ mod tests {
             + 1;
 
         let tx_clone = tx.clone();
-        let h = spawn(move || mock.client.broadcast_transaction(&tx_clone));
+        let h = spawn(move || mock.client.submit_transaction(&tx_clone));
 
         let request_bytes = write_response(
             mock.server,
@@ -932,7 +932,10 @@ mod tests {
         let nonce = thread_rng().next_u64();
         let account_nonce_response = build_account_nonce_response(nonce);
 
-        let h = spawn(move || mock.client.build_vote_for_aggregate_public_key(0, 0, point));
+        let h = spawn(move || {
+            mock.client
+                .build_vote_for_aggregate_public_key(0, 0, point, None)
+        });
         write_response(mock.server, account_nonce_response.as_bytes());
         assert!(h.join().unwrap().is_ok());
     }
@@ -950,9 +953,9 @@ mod tests {
             let tx = mock
                 .client
                 .clone()
-                .build_vote_for_aggregate_public_key(0, 0, point)
+                .build_vote_for_aggregate_public_key(0, 0, point, None)
                 .unwrap();
-            mock.client.broadcast_transaction(&tx)
+            mock.client.submit_transaction(&tx)
         });
         write_response(mock.server, account_nonce_response.as_bytes());
         let mock = MockServerClient::from_config(mock.config);
