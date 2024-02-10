@@ -137,6 +137,8 @@ pub struct Signer {
     pub signer_address_ids: HashMap<StacksAddress, u32>,
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
+    /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
+    pub tx_fee_ms: u64,
 }
 
 impl Signer {
@@ -187,6 +189,7 @@ impl Signer {
             signer_id: reward_cycle_config.signer_id,
             signer_address_ids: reward_cycle_config.signer_address_ids,
             reward_cycle: reward_cycle_config.reward_cycle,
+            tx_fee_ms: config.tx_fee_ms,
         }
     }
 
@@ -418,6 +421,7 @@ impl Signer {
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
+                // TODO: should we store the received transactions on the side and use them rather than directly querying the stacker db slots?
                 SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
                 SignerMessage::Packet(packet) => {
                     self.verify_packet(stacks_client, packet.clone(), &coordinator_public_key)
@@ -901,17 +905,26 @@ impl Signer {
 
     /// Process a dkg result by broadcasting a vote to the stacks node
     fn process_dkg(&mut self, stacks_client: &StacksClient, point: &Point) {
-        match retry_with_exponential_backoff(|| {
-            stacks_client
-                .build_vote_for_aggregate_public_key(
-                    self.stackerdb.get_signer_slot_id(),
-                    self.coordinator.current_dkg_id,
-                    *point,
-                )
-                .map_err(backoff::Error::transient)
-        }) {
+        let epoch = stacks_client
+            .get_node_epoch_with_retry()
+            .unwrap_or(StacksEpochId::Epoch24);
+        let tx_fee = if epoch != StacksEpochId::Epoch30 {
+            debug!(
+                "Signer #{}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.",
+                self.signer_id
+            );
+            Some(self.tx_fee_ms)
+        } else {
+            None
+        };
+        match stacks_client.build_vote_for_aggregate_public_key(
+            self.stackerdb.get_signer_slot_id(),
+            self.coordinator.current_dkg_id,
+            *point,
+            tx_fee,
+        ) {
             Ok(transaction) => {
-                if let Err(e) = self.broadcast_dkg_vote(stacks_client, transaction) {
+                if let Err(e) = self.broadcast_dkg_vote(stacks_client, transaction, epoch) {
                     warn!(
                         "Signer #{}: Failed to broadcast DKG vote ({point:?}): {e:?}",
                         self.signer_id
@@ -932,28 +945,38 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         new_transaction: StacksTransaction,
+        epoch: StacksEpochId,
     ) -> Result<(), ClientError> {
-        let epoch = stacks_client
-            .get_node_epoch_with_retry()
-            .unwrap_or(StacksEpochId::Epoch24);
+        let txid = new_transaction.txid();
         match epoch {
             StacksEpochId::Epoch25 => {
-                debug!("Signer #{}: Received a DKG result, but are in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
-                stacks_client.broadcast_transaction(&new_transaction)?;
+                debug!("Signer #{}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
+                stacks_client.submit_transaction(&new_transaction)?;
+                info!(
+                    "Signer #{}: Submitted DKG vote transaction ({txid:?}) to the mempool",
+                    self.signer_id
+                )
             }
             StacksEpochId::Epoch30 => {
-                debug!("Signer #{}: Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.", self.signer_id);
-                let mut new_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id]).map_err(|e| {
-                    warn!("Signer #{}: Failed to get old transactions: {e:?}. Potentially overwriting our existing transactions", self.signer_id);
-                }).unwrap_or_default();
-                new_transactions.push(new_transaction);
-                let signer_message = SignerMessage::Transactions(new_transactions);
-                self.stackerdb.send_message_with_retry(signer_message)?;
+                debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.", self.signer_id);
             }
             _ => {
-                debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the result.", self.signer_id);
+                debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", self.signer_id, new_transaction.txid());
+                return Ok(());
             }
         }
+        // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
+        // TODO: if we store transactions on the side, should we use them rather than directly querying the stacker db slot?
+        let mut new_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id]).map_err(|e| {
+            warn!("Signer #{}: Failed to get old transactions: {e:?}. Potentially overwriting our existing stackerDB transactions", self.signer_id);
+        }).unwrap_or_default();
+        new_transactions.push(new_transaction);
+        let signer_message = SignerMessage::Transactions(new_transactions);
+        self.stackerdb.send_message_with_retry(signer_message)?;
+        info!(
+            "Signer #{}: Broadcasted DKG vote transaction ({txid:?}) to stackerDB",
+            self.signer_id
+        );
         Ok(())
     }
 
@@ -1147,6 +1170,7 @@ impl Signer {
             && self.coordinator.state == CoordinatorState::Idle
         {
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
+            // TODO: might be better to store these transactions on the side to prevent having to query the stacker db for every signer (only do on initilaization of a new signer for example and then listen for stacker db updates after that)
             let old_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id]).map_err(|e| {
                 warn!("Signer #{}: Failed to get old transactions: {e:?}. Potentially overwriting our existing transactions", self.signer_id);
             }).unwrap_or_default();

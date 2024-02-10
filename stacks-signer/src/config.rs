@@ -161,7 +161,7 @@ pub struct GlobalConfig {
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
     /// the STX tx fee to use in uSTX
-    pub tx_fee: u64,
+    pub tx_fee_ms: u64,
 }
 
 /// Internal struct for loading up the config file
@@ -289,7 +289,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             dkg_private_timeout,
             nonce_timeout,
             sign_timeout,
-            tx_fee: raw_data.tx_fee_ms.unwrap_or(TX_FEE_MS),
+            tx_fee_ms: raw_data.tx_fee_ms.unwrap_or(TX_FEE_MS),
         })
     }
 }
