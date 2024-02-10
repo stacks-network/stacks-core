@@ -1339,8 +1339,8 @@ impl ConversationP2P {
                 self.update_from_stacker_db_handshake_data(stackerdb_accept);
             } else {
                 // remote peer's burnchain view has diverged, so assume no longer replicating (we
-                // can't talk to it anyway).  This can happen once per reward cycle for a few
-                // minutes as nodes begin the next reward cycle, but it's harmless -- at worst, it
+                // can't talk to it anyway).  This can happen once per burnchain block for a few
+                // seconds as nodes begin processing the next Stacks blocks, but it's harmless -- at worst, it
                 // just means that no stacker DB replication happens between this peer and
                 // localhost during this time.
                 self.clear_stacker_db_handshake_data();
@@ -1779,13 +1779,16 @@ impl ConversationP2P {
         let local_peer = network.get_local_peer();
         let burnchain_view = network.get_chain_view();
 
+        // remote peer's Stacks chain tip is different from ours, meaning it might have a different
+        // stackerdb configuration view (and we won't be able to authenticate their chunks, and
+        // vice versa)
         if burnchain_view.rc_consensus_hash != getchunkinv.rc_consensus_hash {
             debug!(
                 "{:?}: NACK StackerDBGetChunkInv; {} != {}",
                 local_peer, &burnchain_view.rc_consensus_hash, &getchunkinv.rc_consensus_hash
             );
             return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::InvalidPoxFork,
+                NackErrorCodes::StaleView,
             )));
         }
 
@@ -1827,7 +1830,7 @@ impl ConversationP2P {
                 local_peer, &burnchain_view.rc_consensus_hash, &getchunk.rc_consensus_hash
             );
             return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::InvalidPoxFork,
+                NackErrorCodes::StaleView,
             )));
         }
 
