@@ -861,12 +861,17 @@ simulating a miner.
     }
 
     if argv[1] == "replay-block" {
-        if argv.len() < 2 {
-            eprintln!(
-                "Usage: {} <chainstate_path> [--prefix <index-block-hash-prefix>] [<--last|--first> <block_count>]",
-                &argv[0]
-            );
+        let print_help_and_exit = || -> ! {
+            let n = &argv[0];
+            eprintln!("Usage:");
+            eprintln!("  {n} <chainstate_path>");
+            eprintln!("  {n} <chainstate_path> prefix <index-block-hash-prefix>");
+            eprintln!("  {n} <chainstate_path> range <start_block> <end_block>");
+            eprintln!("  {n} <chainstate_path> <first|last> <block_count>");
             process::exit(1);
+        };
+        if argv.len() < 2 {
+            print_help_and_exit();
         }
         let stacks_path = &argv[2];
         let mode = argv.get(3).map(String::as_str);
@@ -876,20 +881,30 @@ simulating a miner.
                 .unwrap();
 
         let query = match mode {
-            Some("--prefix") => format!(
+            Some("prefix") => format!(
                 "SELECT index_block_hash FROM staging_blocks WHERE index_block_hash LIKE \"{}%\"",
                 argv[4]
             ),
-            Some("--first") => format!(
+            Some("first") => format!(
                 "SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {}",
                 argv[4]
             ),
-            Some("--last") => format!(
+            Some("range") => {
+                let arg4 = argv[4]
+                    .parse::<u64>()
+                    .expect("<start_block> not a valid u64");
+                let arg5 = argv[5].parse::<u64>().expect("<end_block> not a valid u64");
+                let start = arg4.saturating_sub(1);
+                let blocks = arg5.saturating_sub(arg4);
+                format!("SELECT index_block_hash FROM staging_blocks ORDER BY height ASC LIMIT {start}, {blocks}")
+            }
+            Some("last") => format!(
                 "SELECT index_block_hash FROM staging_blocks ORDER BY height DESC LIMIT {}",
                 argv[4]
             ),
+            Some(_) => print_help_and_exit(),
             // Default to ALL blocks
-            _ => "SELECT index_block_hash FROM staging_blocks".into(),
+            None => "SELECT index_block_hash FROM staging_blocks".into(),
         };
 
         let mut stmt = conn.prepare(&query).unwrap();
