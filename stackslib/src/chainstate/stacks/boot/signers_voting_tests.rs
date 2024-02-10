@@ -184,11 +184,7 @@ fn vote_for_aggregate_public_key_success() {
             alice_index,
             &aggregate_public_key,
             0,
-<<<<<<< HEAD
             cycle_id + 1,
-=======
-            cycle_id
->>>>>>> 46dd3cf41 (fixed prepare-phase check & added cycle parameter to voting func)
         ),
         // Bob casts a vote for the aggregate public key
         make_signers_vote_for_aggregate_public_key(
@@ -197,11 +193,7 @@ fn vote_for_aggregate_public_key_success() {
             bob_index,
             &aggregate_public_key,
             0,
-<<<<<<< HEAD
             cycle_id + 1,
-=======
-            cycle_id
->>>>>>> 46dd3cf41 (fixed prepare-phase check & added cycle parameter to voting func)
         ),
     ];
 
@@ -284,7 +276,7 @@ fn vote_for_aggregate_public_key_success() {
                     .expect("Failed to create string")
                 ),
                 ("key".into(), aggregate_public_key_value.clone()),
-                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("reward-cycle".into(), Value::UInt(cycle_id)),
             ])
             .expect("Failed to create tuple")
             .into()
@@ -331,11 +323,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_index,
             &aggregate_public_key,
             0,
-<<<<<<< HEAD
             cycle_id + 1,
-=======
-            cycle_id
->>>>>>> 46dd3cf41 (fixed prepare-phase check & added cycle parameter to voting func)
         ),
         // cast the vote twice
         make_signers_vote_for_aggregate_public_key(
@@ -344,11 +332,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_index,
             &aggregate_public_key,
             0,
-<<<<<<< HEAD
             cycle_id + 1,
-=======
-            cycle_id
->>>>>>> 46dd3cf41 (fixed prepare-phase check & added cycle parameter to voting func)
         ),
     ];
 
@@ -432,11 +416,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_1,
             1,
-<<<<<<< HEAD
             cycle_id + 1,
-=======
-            cycle_id
->>>>>>> 46dd3cf41 (fixed prepare-phase check & added cycle parameter to voting func)
         ),
         // cast the vote twice
         make_signers_vote_for_aggregate_public_key(
@@ -445,11 +425,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_1,
             1,
-<<<<<<< HEAD
             cycle_id + 1,
-=======
-            cycle_id
->>>>>>> 46dd3cf41 (fixed prepare-phase check & added cycle parameter to voting func)
         ),
         // cast a vote for old round
         make_signers_vote_for_aggregate_public_key(
@@ -458,11 +434,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_2,
             0,
-<<<<<<< HEAD
             cycle_id + 1,
-=======
-            cycle_id
->>>>>>> 46dd3cf41 (fixed prepare-phase check & added cycle parameter to voting func)
         ),
     ];
 
@@ -481,11 +453,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_2_index,
             &aggregate_public_key_1,
             0,
-<<<<<<< HEAD
             cycle_id + 1,
-=======
-            cycle_id
->>>>>>> 46dd3cf41 (fixed prepare-phase check & added cycle parameter to voting func)
         ),
     ];
 
