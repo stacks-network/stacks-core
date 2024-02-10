@@ -177,7 +177,6 @@ impl RunLoop {
             reward_cycle,
             signer_id: *signer_id,
             signer_slot_id,
-            signer_set,
             signer_address_ids,
             key_ids,
             coordinator_key_ids,

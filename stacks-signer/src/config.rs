@@ -113,8 +113,6 @@ impl Network {
 /// The Configuration info needed for an individual signer per reward cycle
 #[derive(Debug, Clone)]
 pub struct RewardCycleConfig {
-    /// The signer set for this runloop
-    pub signer_set: u32,
     /// The index into the signers list of this signer's key (may be different from signer_id)
     pub signer_slot_id: u32,
     /// The signer ID assigned to this signer

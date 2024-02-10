@@ -45,8 +45,8 @@ pub struct StackerDB {
     slot_versions: HashMap<u32, HashMap<u32, u32>>,
     /// The signer slot ID -- the index into the signer list for this signer daemon's signing key.
     signer_slot_id: u32,
-    /// Depends on whether or not we're signing in an even or odd reward cycle
-    signer_set: u32,
+    /// The reward cycle of the connecting signer
+    reward_cycle: u64,
 }
 
 impl StackerDB {
@@ -55,7 +55,7 @@ impl StackerDB {
         host: SocketAddr,
         stacks_private_key: StacksPrivateKey,
         is_mainnet: bool,
-        signer_set: u32,
+        reward_cycle: u64,
         signer_slot_id: u32,
     ) -> Self {
         let mut signers_message_stackerdb_sessions = HashMap::new();
@@ -68,8 +68,7 @@ impl StackerDB {
                     QualifiedContractIdentifier::new(
                         stackerdb_issuer.into(),
                         ContractName::from(
-                            NakamotoSigners::make_signers_db_name(signer_set as u64, msg_id)
-                                .as_str(),
+                            NakamotoSigners::make_signers_db_name(reward_cycle, msg_id).as_str(),
                         ),
                     ),
                 ),
@@ -80,7 +79,7 @@ impl StackerDB {
             stacks_private_key,
             slot_versions: HashMap::new(),
             signer_slot_id,
-            signer_set,
+            reward_cycle,
         }
     }
 
@@ -97,7 +96,7 @@ impl StackerDB {
                         stackerdb_issuer.into(),
                         ContractName::from(
                             NakamotoSigners::make_signers_db_name(
-                                reward_cycle_config.signer_set as u64,
+                                reward_cycle_config.reward_cycle,
                                 msg_id,
                             )
                             .as_str(),
@@ -111,7 +110,7 @@ impl StackerDB {
             stacks_private_key: config.stacks_private_key,
             slot_versions: HashMap::new(),
             signer_slot_id: reward_cycle_config.signer_slot_id,
-            signer_set: reward_cycle_config.signer_set,
+            reward_cycle: reward_cycle_config.reward_cycle,
         }
     }
 
@@ -239,7 +238,7 @@ impl StackerDB {
 
     /// Retrieve the signer set this stackerdb client is attached to
     pub fn get_signer_set(&self) -> u32 {
-        self.signer_set
+        u32::try_from(self.reward_cycle % 2).expect("FATAL: reward cycle % 2 exceeds u32::MAX")
     }
 
     /// Retrieve the signer slot ID
