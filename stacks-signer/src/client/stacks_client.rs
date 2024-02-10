@@ -180,6 +180,28 @@ impl StacksClient {
         Ok(signer_slots)
     }
 
+    /// Get the vote for a given  round, reward cycle, and signer address
+    pub fn get_vote_for_aggregate_public_key(
+        &self,
+        round: u64,
+        reward_cycle: u64,
+        signer: StacksAddress,
+    ) -> Result<Option<Point>, ClientError> {
+        let function_name = ClarityName::from("get-vote");
+        let function_args = &[
+            ClarityValue::UInt(reward_cycle as u128),
+            ClarityValue::UInt(round as u128),
+            ClarityValue::Principal(signer.into()),
+        ];
+        let value = self.read_only_contract_call(
+            &boot_code_addr(self.chain_id == CHAIN_ID_MAINNET),
+            &ContractName::from(SIGNERS_VOTING_NAME),
+            &function_name,
+            function_args,
+        )?;
+        self.parse_aggregate_public_key(value)
+    }
+
     /// Retrieve the stacks tip consensus hash from the stacks node
     pub fn get_stacks_tip_consensus_hash(&self) -> Result<ConsensusHash, ClientError> {
         let peer_info = self.get_peer_info()?;
@@ -806,21 +828,17 @@ mod tests {
     #[test]
     fn get_aggregate_public_key_should_succeed() {
         let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let response = build_get_aggregate_public_key_response(orig_point);
-
+        let response = build_get_aggregate_public_key_response(Some(orig_point));
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_aggregate_public_key(0));
         write_response(mock.server, response.as_bytes());
         let res = h.join().unwrap().unwrap();
         assert_eq!(res, Some(orig_point));
 
-        let clarity_value = ClarityValue::none();
-        let response = build_read_only_response(&clarity_value);
-
-        let mock = MockServerClient::from_config(mock.config);
+        let response = build_get_aggregate_public_key_response(None);
+        let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_aggregate_public_key(0));
         write_response(mock.server, response.as_bytes());
-
         let res = h.join().unwrap().unwrap();
         assert!(res.is_none());
     }
@@ -1277,6 +1295,30 @@ mod tests {
         let mock = MockServerClient::from_config(mock.config);
         write_response(mock.server, peer_response.as_bytes());
         assert!(!h.join().unwrap().unwrap());
+    }
+
+    #[test]
+    fn get_vote_for_aggregate_public_key_should_succeed() {
+        let mock = MockServerClient::new();
+        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        let stacks_address = mock.client.stacks_address;
+        let key_response = build_get_aggregate_public_key_response(Some(point));
+        let h = spawn(move || {
+            mock.client
+                .get_vote_for_aggregate_public_key(0, 0, stacks_address)
+        });
+        write_response(mock.server, key_response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), Some(point));
+
+        let mock = MockServerClient::new();
+        let stacks_address = mock.client.stacks_address;
+        let key_response = build_get_aggregate_public_key_response(None);
+        let h = spawn(move || {
+            mock.client
+                .get_vote_for_aggregate_public_key(0, 0, stacks_address)
+        });
+        write_response(mock.server, key_response.as_bytes());
+        assert_eq!(h.join().unwrap().unwrap(), None);
     }
 
     #[test]

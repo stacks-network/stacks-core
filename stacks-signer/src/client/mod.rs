@@ -331,12 +331,16 @@ pub(crate) mod tests {
     }
 
     /// Build a response for the get_aggregate_public_key request
-    pub fn build_get_aggregate_public_key_response(point: Point) -> String {
-        let clarity_value = ClarityValue::some(
-            ClarityValue::buff_from(point.compress().as_bytes().to_vec())
-                .expect("BUG: Failed to create clarity value from point"),
-        )
-        .expect("BUG: Failed to create clarity value from point");
+    pub fn build_get_aggregate_public_key_response(point: Option<Point>) -> String {
+        let clarity_value = if let Some(point) = point {
+            ClarityValue::some(
+                ClarityValue::buff_from(point.compress().as_bytes().to_vec())
+                    .expect("BUG: Failed to create clarity value from point"),
+            )
+            .expect("BUG: Failed to create clarity value from point")
+        } else {
+            ClarityValue::none()
+        };
         build_read_only_response(&clarity_value)
     }
 
@@ -421,6 +425,7 @@ pub(crate) mod tests {
         let mut coordinator_key_ids = HashMap::new();
         let mut signer_key_ids = HashMap::new();
         let mut addresses = vec![];
+        let mut signer_address_ids = HashMap::new();
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
         let mut signer_public_keys = HashMap::new();
@@ -481,6 +486,7 @@ pub(crate) mod tests {
                 &StacksPublicKey::from_slice(public_key.to_bytes().as_slice())
                     .expect("Failed to create stacks public key"),
             );
+            signer_address_ids.insert(address.clone(), signer_id);
             addresses.push(address);
             start_key_id = end_key_id;
         }
@@ -494,7 +500,7 @@ pub(crate) mod tests {
                 signer_id: 0,
                 signer_set,
                 reward_cycle,
-                signer_addresses: addresses.iter().cloned().collect(),
+                signer_address_ids,
                 signer_public_keys,
             },
             addresses,

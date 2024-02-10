@@ -127,8 +127,8 @@ pub struct RewardCycleConfig {
     pub signer_key_ids: HashMap<u32, Vec<u32>>,
     /// The signer ids to wsts pubilc keys mapping
     pub signer_public_keys: HashMap<u32, Point>,
-    /// The signer addresses
-    pub signer_addresses: HashSet<StacksAddress>,
+    /// The signer addresses mapped to their signer ids
+    pub signer_address_ids: HashMap<StacksAddress, u32>,
     /// The public keys for the reward cycle
     pub public_keys: PublicKeys,
     /// This signer's key ids
