@@ -37,13 +37,11 @@ use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
 use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{
-    RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession,
-    SIGNER_SLOTS_PER_USER,
-};
+use libsigner::{RunningSigner, Signer, SignerEventReceiver, SignerSession, StackerDBSession};
 use libstackerdb::StackerDBChunkData;
 use slog::{slog_debug, slog_error};
 use stacks_common::codec::read_next;
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey};
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
@@ -393,23 +391,19 @@ fn main() {
 
 #[cfg(test)]
 pub mod tests {
-    use blockstack_lib::{
-        chainstate::stacks::address::PoxAddress,
-        chainstate::stacks::boot::POX_4_CODE,
-        util_lib::signed_structured_data::pox4::{
-            make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
-        },
+    use blockstack_lib::chainstate::stacks::address::PoxAddress;
+    use blockstack_lib::chainstate::stacks::boot::POX_4_CODE;
+    use blockstack_lib::util_lib::signed_structured_data::pox4::{
+        make_pox_4_signer_key_message_hash, Pox4SignatureTopic,
     };
-    use stacks_common::{
-        consts::CHAIN_ID_TESTNET, types::PublicKey, util::secp256k1::Secp256k1PublicKey,
-    };
+    use clarity::vm::{execute_v2, Value};
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::PublicKey;
+    use stacks_common::util::secp256k1::Secp256k1PublicKey;
     use stacks_signer::cli::parse_pox_addr;
 
-    use super::handle_generate_stacking_signature;
+    use super::{handle_generate_stacking_signature, *};
     use crate::{Config, GenerateStackingSignatureArgs};
-    use clarity::vm::{execute_v2, Value};
-
-    use super::*;
 
     fn call_verify_signer_sig(
         pox_addr: &PoxAddress,

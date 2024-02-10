@@ -115,29 +115,28 @@ pub fn build_stackerdb_contract(
     signer_stacks_addresses: &[StacksAddress],
     slots_per_user: u32,
 ) -> String {
-    let mut stackerdb_contract = String::new(); // "
-    stackerdb_contract += "        ;; stacker DB\n";
-    stackerdb_contract += "        (define-read-only (stackerdb-get-signer-slots)\n";
-    stackerdb_contract += "            (ok (list\n";
-    for signer_stacks_address in signer_stacks_addresses {
-        stackerdb_contract += "                {\n";
-        stackerdb_contract +=
-            format!("                    signer: '{},\n", signer_stacks_address).as_str();
-        stackerdb_contract +=
-            format!("                    num-slots: u{}\n", slots_per_user).as_str();
-        stackerdb_contract += "                }\n";
-    }
-    stackerdb_contract += "                )))\n";
-    stackerdb_contract += "\n";
-    stackerdb_contract += "        (define-read-only (stackerdb-get-config)\n";
-    stackerdb_contract += "            (ok {\n";
-    stackerdb_contract += "                chunk-size: u4096,\n";
-    stackerdb_contract += "                write-freq: u0,\n";
-    stackerdb_contract += "                max-writes: u4096,\n";
-    stackerdb_contract += "                max-neighbors: u32,\n";
-    stackerdb_contract += "                hint-replicas: (list )\n";
-    stackerdb_contract += "            }))\n";
-    stackerdb_contract += "    ";
+    let stackers_list: Vec<String> = signer_stacks_addresses
+        .iter()
+        .map(|signer_addr| format!("{{ signer: '{signer_addr}, num-slots: u{slots_per_user}}}"))
+        .collect();
+    let stackers_joined = stackers_list.join(" ");
+
+    let stackerdb_contract = format!(
+        "
+        ;; stacker DB
+        (define-read-only (stackerdb-get-signer-slots (page uint))
+          (ok (list {stackers_joined})))
+        (define-read-only (stackerdb-get-page-count) (ok u1))
+        (define-read-only (stackerdb-get-config)
+          (ok {{
+                 chunk-size: u4096,
+                 write-freq: u0,
+                 max-writes: u4096,
+                 max-neighbors: u32,
+                 hint-replicas: (list )
+               }} ))
+    "
+    );
     stackerdb_contract
 }
 

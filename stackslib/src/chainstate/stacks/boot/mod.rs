@@ -90,6 +90,8 @@ const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
+pub const SIGNERS_DB_0_BODY: &'static str = std::include_str!("signers-0-xxx.clar");
+pub const SIGNERS_DB_1_BODY: &'static str = std::include_str!("signers-1-xxx.clar");
 const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
@@ -949,8 +951,8 @@ impl StacksChainState {
                 .get("total-ustx")
                 .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128()                .expect("FATAL: unexpected PoX structure")
-;
+                .expect_u128()
+                .expect("FATAL: unexpected PoX structure");
 
             debug!(
                 "PoX reward address (for {} ustx): {}",
@@ -1031,8 +1033,8 @@ impl StacksChainState {
                 .get("total-ustx")
                 .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128()                .expect("FATAL: unexpected PoX structure")
-;
+                .expect_u128()
+                .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
