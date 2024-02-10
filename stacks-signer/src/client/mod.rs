@@ -417,8 +417,6 @@ pub(crate) mod tests {
             key_ids: HashMap::new(),
         };
         let reward_cycle = thread_rng().next_u64();
-        let signer_set = u32::try_from(reward_cycle % 2)
-            .expect("Failed to convert reward cycle signer set to u32");
         let rng = &mut OsRng;
         let num_keys = num_keys / num_signers;
         let remaining_keys = num_keys % num_signers;
@@ -498,7 +496,6 @@ pub(crate) mod tests {
                 coordinator_key_ids,
                 signer_slot_id: 0,
                 signer_id: 0,
-                signer_set,
                 reward_cycle,
                 signer_address_ids,
                 signer_public_keys,
