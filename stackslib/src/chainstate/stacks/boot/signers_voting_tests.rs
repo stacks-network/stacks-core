@@ -222,8 +222,8 @@ fn vote_for_aggregate_public_key_success() {
                         .expect("Failed to create string")
                 ),
                 ("key".into(), aggregate_public_key_value.clone()),
-                ("new-total".into(), Value::UInt(2)),
-                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("new-total".into(), Value::UInt(1000000000000000000)),
+                ("reward-cycle".into(), Value::UInt(cycle_id)),
                 ("round".into(), Value::UInt(0)),
                 ("signer".into(), Value::Principal(alice_principal.clone())),
             ])
@@ -249,8 +249,8 @@ fn vote_for_aggregate_public_key_success() {
                         .expect("Failed to create string")
                 ),
                 ("key".into(), aggregate_public_key_value.clone()),
-                ("new-total".into(), Value::UInt(4)),
-                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("new-total".into(), Value::UInt(2000000000000000000)),
+                ("reward-cycle".into(), Value::UInt(cycle_id)),
                 ("round".into(), Value::UInt(0)),
                 ("signer".into(), Value::Principal(bob_principal.clone())),
             ])
@@ -274,7 +274,7 @@ fn vote_for_aggregate_public_key_success() {
                     .expect("Failed to create string")
                 ),
                 ("key".into(), aggregate_public_key_value.clone()),
-                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("reward-cycle".into(), Value::UInt(cycle_id)),
             ])
             .expect("Failed to create tuple")
             .into()
