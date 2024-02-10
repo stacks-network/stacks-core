@@ -14,15 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::{types::TupleData, Value};
-use stacks_common::{
-    codec::StacksMessageCodec,
-    types::{chainstate::StacksPrivateKey, PrivateKey},
-    util::{
-        hash::{to_hex, Sha256Sum},
-        secp256k1::{MessageSignature, Secp256k1PrivateKey},
-    },
-};
+use clarity::vm::types::TupleData;
+use clarity::vm::Value;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksPrivateKey;
+use stacks_common::types::PrivateKey;
+use stacks_common::util::hash::{to_hex, Sha256Sum};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use crate::chainstate::stacks::address::PoxAddress;
 
@@ -144,24 +142,22 @@ pub mod pox4 {
 
     #[cfg(test)]
     mod tests {
-        use clarity::vm::{
-            ast::ASTRules,
-            clarity::{ClarityConnection, TransactionConnection},
-            costs::LimitedCostTracker,
-            types::{PrincipalData, StandardPrincipalData},
-            ClarityVersion,
-        };
-        use stacks_common::{
-            address::AddressHashMode, consts::CHAIN_ID_TESTNET, types::chainstate::StacksAddress,
-            util::secp256k1::Secp256k1PublicKey,
-        };
-
-        use crate::{
-            chainstate::stacks::boot::{contract_tests::ClarityTestSim, POX_4_CODE, POX_4_NAME},
-            util_lib::boot::boot_code_id,
-        };
+        use clarity::vm::ast::ASTRules;
+        use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
+        use clarity::vm::costs::LimitedCostTracker;
+        use clarity::vm::types::{PrincipalData, StandardPrincipalData};
+        use clarity::vm::ClarityVersion;
+        use stacks_common::address::AddressHashMode;
+        use stacks_common::consts::CHAIN_ID_TESTNET;
+        use stacks_common::types::chainstate::StacksAddress;
+        use stacks_common::util::hash::to_hex;
+        use stacks_common::util::secp256k1::Secp256k1PublicKey;
 
         use super::*;
+        use crate::chainstate::stacks::address::pox_addr_b58_serialize;
+        use crate::chainstate::stacks::boot::contract_tests::ClarityTestSim;
+        use crate::chainstate::stacks::boot::{POX_4_CODE, POX_4_NAME};
+        use crate::util_lib::boot::boot_code_id;
 
         fn call_get_signer_message_hash(
             sim: &mut ClarityTestSim,
@@ -242,8 +238,7 @@ pub mod pox4 {
             let stacks_addr = StacksAddress::p2pkh(false, &pubkey);
             let pubkey = Secp256k1PublicKey::new();
             let principal = PrincipalData::from(stacks_addr.clone());
-            let pox_addr =
-                PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, stacks_addr.bytes.clone());
+            let pox_addr = PoxAddress::standard_burn_address(false);
             let reward_cycle: u128 = 1;
             let topic = Pox4SignatureTopic::StackStx;
             let lock_period = 12;
@@ -255,6 +250,15 @@ pub mod pox4 {
                 CHAIN_ID_TESTNET,
                 lock_period,
             );
+            println!(
+                "Hash: 0x{}",
+                to_hex(expected_hash_vec.as_bytes().as_slice())
+            );
+            println!(
+                "Pubkey: {}",
+                to_hex(pubkey.to_bytes_compressed().as_slice())
+            );
+            // println!("PoxAddr: {}", pox_addr_b58_serialize(&pox_addr).unwrap());
             let expected_hash = expected_hash_vec.as_bytes();
 
             // Test 1: valid result
@@ -317,14 +321,37 @@ pub mod pox4 {
             );
             assert_ne!(expected_hash.clone(), result.as_slice());
         }
+
+        #[test]
+        /// Fixture message hash to test against in other libraries
+        fn test_sig_hash_fixture() {
+            let fixture = "3dd864afd98609df3911a7ab6f0338ace129e56ad394d85866d298a7eda3ad98";
+            let pox_addr = PoxAddress::standard_burn_address(false);
+            let pubkey_hex = "0206952cd8813a64f7b97144c984015490a8f9c5778e8f928fbc8aa6cbf02f48e6";
+            let pubkey = Secp256k1PublicKey::from_hex(pubkey_hex).unwrap();
+            let reward_cycle: u128 = 1;
+            let lock_period = 12;
+
+            let message_hash = make_pox_4_signer_key_message_hash(
+                &pox_addr,
+                reward_cycle,
+                &Pox4SignatureTopic::StackStx,
+                CHAIN_ID_TESTNET,
+                lock_period,
+            );
+
+            assert_eq!(to_hex(message_hash.as_bytes()), fixture);
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use clarity::vm::types::{TupleData, Value};
-    use stacks_common::{consts::CHAIN_ID_MAINNET, util::hash::to_hex};
+    use stacks_common::consts::CHAIN_ID_MAINNET;
+    use stacks_common::util::hash::to_hex;
+
+    use super::*;
 
     /// [SIP18 test vectors](https://github.com/stacksgov/sips/blob/main/sips/sip-018/sip-018-signed-structured-data.md)
     #[test]

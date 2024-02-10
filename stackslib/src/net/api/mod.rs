@@ -120,6 +120,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
         self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
         self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
+        self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
     }
 }
 

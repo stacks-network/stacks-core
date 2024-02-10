@@ -36,20 +36,21 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 use clarity::vm::{analysis, ast, ClarityVersion, ContractName};
-use stacks_common::consts::CHAIN_ID_TESTNET;
+use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, TrieHash,
 };
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::{Burnchain, PoxConstants};
+use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3,
     BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING, BOOT_CODE_POX_TESTNET,
     BOOT_TEST_POX_4_AGG_KEY_CONTRACT, BOOT_TEST_POX_4_AGG_KEY_FNAME, COSTS_2_NAME, COSTS_3_NAME,
     MINERS_NAME, POX_2_MAINNET_CODE, POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE,
-    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY, SIGNERS_NAME,
-    SIGNERS_VOTING_NAME, SIGNER_VOTING_CODE,
+    POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY,
+    SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_NAME, SIGNER_VOTING_CODE,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -1301,6 +1302,8 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 TransactionVersion::Testnet
             };
 
+            let mut receipts = vec![];
+
             let boot_code_account = self
                 .get_boot_code_account()
                 .expect("FATAL: did not get boot account");
@@ -1439,6 +1442,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &pox_4_initialization_receipt
                 );
             }
+            receipts.push(pox_4_initialization_receipt);
 
             let signers_contract_id = boot_code_id(SIGNERS_NAME, mainnet);
             let payload = TransactionPayload::SmartContract(
@@ -1474,6 +1478,56 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     "FATAL: Failure processing signers contract initialization: {:#?}",
                     &signers_initialization_receipt
                 );
+            }
+            receipts.push(signers_initialization_receipt);
+
+            // stackerdb contracts for each message type
+            for signer_set in 0..2 {
+                for message_id in 0..SIGNER_SLOTS_PER_USER {
+                    let signers_name =
+                        NakamotoSigners::make_signers_db_name(signer_set, message_id);
+                    let body = if signer_set == 0 {
+                        SIGNERS_DB_0_BODY
+                    } else {
+                        SIGNERS_DB_1_BODY
+                    };
+                    let payload = TransactionPayload::SmartContract(
+                        TransactionSmartContract {
+                            name: ContractName::try_from(signers_name.clone())
+                                .expect("FATAL: invalid boot-code contract name"),
+                            code_body: StacksString::from_str(body)
+                                .expect("FATAL: invalid boot code body"),
+                        },
+                        Some(ClarityVersion::Clarity2),
+                    );
+
+                    let signers_contract_tx =
+                        StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+
+                    let signers_db_receipt = self.as_transaction(|tx_conn| {
+                        // initialize with a synthetic transaction
+                        debug!("Instantiate .{} contract", &signers_name);
+                        let receipt = StacksChainState::process_transaction_payload(
+                            tx_conn,
+                            &signers_contract_tx,
+                            &boot_code_account,
+                            ASTRules::PrecheckSize,
+                        )
+                        .expect("FATAL: Failed to process .signers DB contract initialization");
+                        receipt
+                    });
+
+                    if signers_db_receipt.result != Value::okay_true()
+                        || signers_db_receipt.post_condition_aborted
+                    {
+                        panic!(
+                            "FATAL: Failure processing signers DB contract initialization: {:#?}",
+                            &signers_db_receipt
+                        );
+                    }
+
+                    receipts.push(signers_db_receipt);
+                }
             }
 
             let signers_voting_code = &*SIGNER_VOTING_CODE;
@@ -1512,9 +1566,10 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                     &signers_voting_initialization_receipt
                 );
             }
+            receipts.push(signers_voting_initialization_receipt);
 
             debug!("Epoch 2.5 initialized");
-            (old_cost_tracker, Ok(vec![pox_4_initialization_receipt]))
+            (old_cost_tracker, Ok(receipts))
         })
     }
 
