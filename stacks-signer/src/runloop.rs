@@ -88,7 +88,6 @@ impl RunLoop {
             return Err(ClientError::RewardSetNotYetCalculated(reward_cycle));
         }
         let current_addr = self.stacks_client.get_signer_address();
-        let mut current_signer_id = None;
 
         let signer_set =
             u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
@@ -121,7 +120,7 @@ impl RunLoop {
         // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
         let mut coordinator_key_ids = HashMap::with_capacity(4000);
         let mut signer_key_ids = HashMap::with_capacity(reward_set_signers.len());
-        let mut signer_addresses = HashSet::with_capacity(reward_set_signers.len());
+        let mut signer_address_ids = HashMap::with_capacity(reward_set_signers.len());
         let mut public_keys = PublicKeys {
             signers: HashMap::with_capacity(reward_set_signers.len()),
             key_ids: HashMap::with_capacity(4000),
@@ -148,10 +147,8 @@ impl RunLoop {
 
             let stacks_address =
                 StacksAddress::p2pkh(self.config.network.is_mainnet(), &stacks_public_key);
-            if &stacks_address == current_addr {
-                current_signer_id = Some(signer_id);
-            }
-            signer_addresses.insert(stacks_address);
+
+            signer_address_ids.insert(stacks_address, signer_id);
             signer_public_keys.insert(signer_id, signer_public_key);
             let weight_start = weight_end;
             weight_end = weight_start + entry.slots;
@@ -168,20 +165,20 @@ impl RunLoop {
                     .push(key_id);
             }
         }
-        let Some(signer_id) = current_signer_id else {
+        let Some(signer_id) = signer_address_ids.get(current_addr) else {
             warn!("Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}.");
             return Ok(None);
         };
         debug!(
             "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
         );
-        let key_ids = signer_key_ids.get(&signer_id).cloned().unwrap_or_default();
+        let key_ids = signer_key_ids.get(signer_id).cloned().unwrap_or_default();
         Ok(Some(RewardCycleConfig {
             reward_cycle,
-            signer_id,
+            signer_id: *signer_id,
             signer_slot_id,
             signer_set,
-            signer_addresses,
+            signer_address_ids,
             key_ids,
             coordinator_key_ids,
             signer_key_ids,
