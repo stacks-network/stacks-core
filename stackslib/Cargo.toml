@@ -59,6 +59,9 @@ siphasher = "0.3.7"
 wsts = { workspace = true }
 hashbrown = { workspace = true }
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = {workspace = true}
+
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
 

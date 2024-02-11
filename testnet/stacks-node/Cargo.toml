@@ -32,6 +32,9 @@ rand = { workspace = true }
 rand_core = { workspace = true }
 hashbrown = { workspace = true }
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = {workspace = true}
+
 [dev-dependencies]
 ring = "0.16.19"
 warp = "0.3.5"
