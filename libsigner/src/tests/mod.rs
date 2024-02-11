@@ -27,11 +27,16 @@ use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::StackerDBChunkData;
+use stacks_common::codec::{
+    read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
+    StacksMessageCodec,
+};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::sleep_ms;
 use wsts::net::{DkgBegin, Packet};
 
-use crate::events::{SignerEvent, SignerMessage};
+use crate::events::SignerEvent;
+use crate::messages::SignerMessage;
 use crate::{Signer, SignerEventReceiver, SignerRunLoop};
 
 /// Simple runloop implementation.  It receives `max_events` events and returns `events` from the
@@ -90,9 +95,7 @@ impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
 /// and the signer runloop.
 #[test]
 fn test_simple_signer() {
-    let contract_id =
-        QualifiedContractIdentifier::parse("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.signers")
-            .unwrap(); // TODO: change to boot_code_id(SIGNERS_NAME, false) when .signers is deployed
+    let contract_id = boot_code_id(SIGNERS_NAME, false);
     let ev = SignerEventReceiver::new(vec![contract_id.clone()], false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
@@ -104,7 +107,7 @@ fn test_simple_signer() {
         let privk = Secp256k1PrivateKey::new();
         let msg = wsts::net::Message::DkgBegin(DkgBegin { dkg_id: 0 });
         let message = SignerMessage::Packet(Packet { msg, sig: vec![] });
-        let message_bytes = bincode::serialize(&message).unwrap();
+        let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);
         chunk.sign(&privk).unwrap();
 
@@ -156,7 +159,7 @@ fn test_simple_signer() {
         .iter()
         .map(|chunk| {
             let msg = chunk.modified_slots[0].data.clone();
-            let signer_message: SignerMessage = bincode::deserialize(&msg).unwrap();
+            let signer_message = read_next::<SignerMessage, _>(&mut &msg[..]).unwrap();
             SignerEvent::SignerMessages(vec![signer_message])
         })
         .collect();
@@ -191,7 +194,7 @@ fn test_status_endpoint() {
 
         sock.write_all(req.as_bytes()).unwrap();
         let mut buf = [0; 128];
-        sock.read(&mut buf).unwrap();
+        let _ = sock.read(&mut buf).unwrap();
         let res_str = std::str::from_utf8(&buf).unwrap();
         let expected_status_res = "HTTP/1.0 200 OK\r\n";
         assert_eq!(expected_status_res, &res_str[..expected_status_res.len()]);

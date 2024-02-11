@@ -2250,7 +2250,6 @@ impl PeerNetwork {
             );
 
             let mut all_done = true;
-            let mut fully_synced_peers = HashSet::new();
             let mut ibd_diverged_height: Option<u64> = None;
 
             let bootstrap_peers: HashSet<_> =
@@ -2352,8 +2351,6 @@ impl PeerNetwork {
                             network.pox_id.num_inventory_reward_cycles(),
                             &nk
                         );
-
-                        fully_synced_peers.insert(nk.clone());
                     }
                 }
             }

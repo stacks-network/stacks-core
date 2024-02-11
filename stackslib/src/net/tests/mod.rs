@@ -41,7 +41,7 @@ use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup,
+    key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup, make_signer_key_signature,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
@@ -377,6 +377,12 @@ impl NakamotoBootPlan {
         debug!("Make PoX-4 lockups");
         debug!("========================\n\n");
 
+        let reward_cycle = peer
+            .config
+            .burnchain
+            .block_height_to_reward_cycle(sortition_height.into())
+            .unwrap();
+
         // Make all the test Stackers stack
         let stack_txs: Vec<_> = peer
             .config
@@ -385,14 +391,24 @@ impl NakamotoBootPlan {
             .unwrap_or(vec![])
             .iter()
             .map(|test_stacker| {
+                let pox_addr =
+                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone());
+                let signature = make_signer_key_signature(
+                    &pox_addr,
+                    &test_stacker.signer_private_key,
+                    reward_cycle.into(),
+                    &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
+                    12_u128,
+                );
                 make_pox_4_lockup(
                     &test_stacker.stacker_private_key,
                     0,
                     test_stacker.amount,
-                    PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes.clone()),
+                    pox_addr,
                     12,
                     StacksPublicKey::from_private(&test_stacker.signer_private_key),
                     34,
+                    signature,
                 )
             })
             .collect();

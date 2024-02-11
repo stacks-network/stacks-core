@@ -17,8 +17,8 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::stacks::StacksTransaction;
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{
@@ -26,11 +26,13 @@ use libsigner::{
 };
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
+use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::{debug, error, info, warn};
 use wsts::common::{MerkleRoot, Signature};
 use wsts::curve::ecdsa;
 use wsts::curve::keys::PublicKey;
+use wsts::curve::point::{Compressed, Point};
 use wsts::net::{Message, NonceRequest, Packet, SignatureShareRequest};
 use wsts::state_machine::coordinator::fire::Coordinator as FireCoordinator;
 use wsts::state_machine::coordinator::{Config as CoordinatorConfig, Coordinator};
@@ -38,7 +40,9 @@ use wsts::state_machine::signer::Signer;
 use wsts::state_machine::{OperationResult, PublicKeys, SignError};
 use wsts::v2;
 
-use crate::client::{retry_with_exponential_backoff, ClientError, StackerDB, StacksClient};
+use crate::client::{
+    retry_with_exponential_backoff, ClientError, EpochId, StackerDB, StacksClient,
+};
 use crate::config::{Config, Network};
 
 /// Which operation to perform
@@ -82,7 +86,7 @@ pub struct BlockInfo {
     /// The associated packet nonce request if we have one
     nonce_request: Option<NonceRequest>,
     /// Whether this block is already being signed over
-    signing_round: bool,
+    signed_over: bool,
 }
 
 impl BlockInfo {
@@ -93,7 +97,7 @@ impl BlockInfo {
             vote: None,
             valid: None,
             nonce_request: None,
-            signing_round: false,
+            signed_over: false,
         }
     }
 
@@ -104,7 +108,7 @@ impl BlockInfo {
             vote: None,
             valid: None,
             nonce_request: Some(nonce_request),
-            signing_round: true,
+            signed_over: true,
         }
     }
 }
@@ -132,27 +136,110 @@ pub struct RunLoop<C> {
     pub blocks: HashMap<Sha512Trunc256Sum, BlockInfo>,
     /// Transactions that we expect to see in the next block
     // TODO: fill this in and do proper garbage collection
-    pub transactions: Vec<Txid>,
+    pub transactions: Vec<StacksTransaction>,
+    /// This signer's ID
+    pub signer_id: u32,
+    /// The signer set for this runloop
+    pub signer_set: Option<u32>,
+    /// The index into the signers list of this signer's key (may be different from signer_id)
+    pub signer_slot_id: Option<u32>,
+    /// The IDs of all signers partipating in the current reward cycle
+    pub signer_ids: Vec<u32>,
+    /// The stacks addresses of the signers participating in the current reward cycle
+    pub signer_addresses: Vec<StacksAddress>,
 }
 
 impl<C: Coordinator> RunLoop<C> {
+    /// Get and store the signer set assignment for this runloop.
+    /// This assigns the runloop to the _next_ reward cycle, not the current one.
+    /// Returns (signer-set, signer-slot-id)
+    fn get_or_set_signer_info(&mut self) -> Result<(u32, u32), ClientError> {
+        match (self.signer_set.as_ref(), self.signer_slot_id.as_ref()) {
+            (Some(signer_set), Some(signer_slot_id)) => {
+                return Ok((*signer_set, *signer_slot_id));
+            }
+            (_, _) => {}
+        }
+
+        let signer_set = if let Some(signer_set) = self.signer_set.as_ref() {
+            *signer_set
+        } else {
+            let rc = self
+                .stacks_client
+                .get_current_reward_cycle()?
+                .saturating_add(1);
+            debug!("Next reward cycle is {}", rc);
+            let signer_set = u32::try_from(rc % 2).expect("FATAL: infallible");
+            self.signer_set = Some(signer_set);
+            self.stackerdb.set_signer_set(signer_set);
+            signer_set
+        };
+
+        // Get the signer writers from the stacker-db to verify transactions against
+        self.signer_addresses = self
+            .stacks_client
+            .get_stackerdb_signer_slots(
+                self.stackerdb.signers_contract_id(),
+                self.stackerdb.get_signer_set(),
+            )?
+            .into_iter()
+            .map(|(address, _)| address)
+            .collect();
+
+        let signer_slot_id = if let Some(signer_slot_id) = self.signer_slot_id.as_ref() {
+            *signer_slot_id
+        } else {
+            let addr = self.stackerdb.get_signer_address(self.mainnet);
+            self.signer_slot_id = self
+                .signer_addresses
+                .iter()
+                .position(|signer_addr| signer_addr == &addr)
+                .map(|pos| u32::try_from(pos).expect("FATAL: position exceeds u32::MAX"));
+
+            let Some(signer_slot_id) = self.signer_slot_id.as_ref() else {
+                return Err(ClientError::InvalidSigningKey);
+            };
+            self.stackerdb.set_signer_slot_id(*signer_slot_id);
+            *signer_slot_id
+        };
+
+        Ok((signer_set, signer_slot_id))
+    }
+
     /// Initialize the signer, reading the stacker-db state and setting the aggregate public key
     fn initialize(&mut self) -> Result<(), ClientError> {
+        // determine what signer set we're using, so we use the right stackerdb replicas
+        let (signer_set, signer_slot_id) = self.get_or_set_signer_info()?;
+        debug!(
+            "Signer #{}: Self-assigning to signer set {} slot {} address {}",
+            self.signer_id,
+            signer_set,
+            signer_slot_id,
+            self.stackerdb.get_signer_address(self.mainnet)
+        );
+
         // Check if the aggregate key is set in the pox contract
         if let Some(key) = self.stacks_client.get_aggregate_public_key()? {
-            debug!("Aggregate public key is set: {:?}", key);
+            debug!(
+                "Signer #{}: Aggregate public key is set: {:?}",
+                self.signer_id, key
+            );
             self.coordinator.set_aggregate_public_key(Some(key));
         } else {
-            debug!("Aggregate public key is not set. Coordinator must trigger DKG...");
+            debug!(
+                "Signer #{}: Aggregate public key is not set. Coordinator must trigger DKG...",
+                self.signer_id
+            );
             // Update the state to IDLE so we don't needlessy requeue the DKG command.
             let (coordinator_id, _) =
                 calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
-            if coordinator_id == self.signing_round.signer_id
+            if coordinator_id == self.signer_id
                 && self.commands.front() != Some(&RunLoopCommand::Dkg)
             {
                 self.commands.push_front(RunLoopCommand::Dkg);
             }
         }
+
         self.state = State::Idle;
         Ok(())
     }
@@ -162,13 +249,11 @@ impl<C: Coordinator> RunLoop<C> {
     fn execute_command(&mut self, command: &RunLoopCommand) -> bool {
         match command {
             RunLoopCommand::Dkg => {
-                info!("Starting DKG");
+                info!("Signer #{}: Starting DKG", self.signer_id);
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
-                        let ack = self
-                            .stackerdb
-                            .send_message_with_retry(self.signing_round.signer_id, msg.into());
-                        debug!("ACK: {:?}", ack);
+                        let ack = self.stackerdb.send_message_with_retry(msg.into());
+                        debug!("Signer #{}: ACK: {:?}", self.signer_id, ack);
                         self.state = State::Dkg;
                         true
                     }
@@ -190,28 +275,32 @@ impl<C: Coordinator> RunLoop<C> {
                     .blocks
                     .entry(signer_signature_hash)
                     .or_insert_with(|| BlockInfo::new(block.clone()));
-                if block_info.signing_round {
-                    debug!("Received a sign command for a block we are already signing over. Ignore it.");
+                if block_info.signed_over {
+                    debug!("Signer #{}: Received a sign command for a block we are already signing over. Ignore it.", self.signer_id);
                     return false;
                 }
-                info!("Signing block: {:?}", block);
+                info!("Signer #{}: Signing block: {:?}", self.signer_id, block);
                 match self.coordinator.start_signing_round(
                     &block.serialize_to_vec(),
                     *is_taproot,
                     *merkle_root,
                 ) {
                     Ok(msg) => {
-                        let ack = self
-                            .stackerdb
-                            .send_message_with_retry(self.signing_round.signer_id, msg.into());
-                        debug!("ACK: {:?}", ack);
+                        let ack = self.stackerdb.send_message_with_retry(msg.into());
+                        debug!("Signer #{}: ACK: {:?}", self.signer_id, ack);
                         self.state = State::Sign;
-                        block_info.signing_round = true;
+                        block_info.signed_over = true;
                         true
                     }
                     Err(e) => {
-                        error!("Failed to start signing message: {:?}", e);
-                        warn!("Resetting coordinator's internal state.");
+                        error!(
+                            "Signer #{}: Failed to start signing message: {:?}",
+                            self.signer_id, e
+                        );
+                        warn!(
+                            "Signer #{}: Resetting coordinator's internal state.",
+                            self.signer_id
+                        );
                         self.coordinator.reset();
                         false
                     }
@@ -225,22 +314,31 @@ impl<C: Coordinator> RunLoop<C> {
         match self.state {
             State::Uninitialized => {
                 debug!(
-                    "Signer is uninitialized. Waiting for aggregate public key from stacks node..."
+                    "Signer #{}: uninitialized. Waiting for aggregate public key from stacks node...", self.signer_id
                 );
             }
             State::Idle => {
                 if let Some(command) = self.commands.pop_front() {
                     while !self.execute_command(&command) {
-                        warn!("Failed to execute command. Retrying...");
+                        warn!(
+                            "Signer #{}: Failed to execute command. Retrying...",
+                            self.signer_id
+                        );
                     }
                 } else {
-                    debug!("Nothing to process. Waiting for command...");
+                    debug!(
+                        "Signer #{}: Nothing to process. Waiting for command...",
+                        self.signer_id
+                    );
                 }
             }
             State::Dkg | State::Sign => {
                 // We cannot execute the next command until the current one is finished...
                 // Do nothing...
-                debug!("Waiting for {:?} operation to finish", self.state);
+                debug!(
+                    "Signer #{}: Waiting for {:?} operation to finish",
+                    self.signer_id, self.state
+                );
             }
         }
     }
@@ -251,50 +349,59 @@ impl<C: Coordinator> RunLoop<C> {
         block_validate_response: BlockValidateResponse,
         res: Sender<Vec<OperationResult>>,
     ) {
-        let transactions = &self.transactions;
         let block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
-                let Some(block_info) = self
-                    .blocks
-                    .get_mut(&block_validate_ok.signer_signature_hash)
-                else {
+                let signer_signature_hash = block_validate_ok.signer_signature_hash;
+                // For mutability reasons, we need to take the block_info out of the map and add it back after processing
+                let Some(mut block_info) = self.blocks.remove(&signer_signature_hash) else {
                     // We have not seen this block before. Why are we getting a response for it?
                     debug!("Received a block validate response for a block we have not seen before. Ignoring...");
                     return;
                 };
-                block_info.valid = Some(true);
-                block_info
+                let is_valid = self.verify_transactions(&block_info.block);
+                block_info.valid = Some(is_valid);
+                info!(
+                    "Signer #{}: Treating block validation for block {} as valid: {:?}",
+                    self.signer_id,
+                    &block_info.block.block_id(),
+                    block_info.valid
+                );
+                // Add the block info back to the map
+                self.blocks
+                    .entry(signer_signature_hash)
+                    .or_insert(block_info)
             }
             BlockValidateResponse::Reject(block_validate_reject) => {
-                // There is no point in triggering a sign round for this block if validation failed from the stacks node
-                let Some(block_info) = self
-                    .blocks
-                    .get_mut(&block_validate_reject.signer_signature_hash)
-                else {
+                let signer_signature_hash = block_validate_reject.signer_signature_hash;
+                let Some(block_info) = self.blocks.get_mut(&signer_signature_hash) else {
                     // We have not seen this block before. Why are we getting a response for it?
-                    debug!("Received a block validate response for a block we have not seen before. Ignoring...");
+                    debug!("Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.signer_id);
                     return;
                 };
                 block_info.valid = Some(false);
                 // Submit a rejection response to the .signers contract for miners
                 // to observe so they know to send another block and to prove signers are doing work);
-                if let Err(e) = self.stackerdb.send_message_with_retry(
-                    self.signing_round.signer_id,
-                    block_validate_reject.into(),
-                ) {
-                    warn!("Failed to send block rejection to stacker-db: {:?}", e);
+                warn!("Signer #{}: Broadcasting a block rejection due to stacks node validation failure...", self.signer_id);
+                if let Err(e) = self
+                    .stackerdb
+                    .send_message_with_retry(block_validate_reject.into())
+                {
+                    warn!(
+                        "Signer #{}: Failed to send block rejection to stacker-db: {:?}",
+                        self.signer_id, e
+                    );
                 }
                 block_info
             }
         };
 
-        if let Some(mut request) = block_info.nonce_request.take() {
-            debug!("Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
-            // We have an associated nonce request. Respond to it
-            Self::determine_vote(block_info, &mut request, transactions);
+        if let Some(mut nonce_request) = block_info.nonce_request.take() {
+            debug!("Signer #{}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...", self.signer_id);
+            // We have received validation from the stacks node. Determine our vote and update the request message
+            Self::determine_vote(self.signer_id, block_info, &mut nonce_request);
             // Send the nonce request through with our vote
             let packet = Packet {
-                msg: Message::NonceRequest(request),
+                msg: Message::NonceRequest(nonce_request),
                 sig: vec![],
             };
             self.handle_packets(res, &[packet]);
@@ -302,18 +409,29 @@ impl<C: Coordinator> RunLoop<C> {
             let (coordinator_id, _) =
                 calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
             if block_info.valid.unwrap_or(false)
-                && !block_info.signing_round
-                && coordinator_id == self.signing_round.signer_id
+                && !block_info.signed_over
+                && coordinator_id == self.signer_id
             {
-                debug!("Received a valid block proposal from the miner. Triggering a signing round over it...");
                 // We are the coordinator. Trigger a signing round for this block
+                debug!(
+                    "Signer triggering a signing round over the block.";
+                    "block_hash" => block_info.block.header.block_hash(),
+                    "signer_id" => self.signer_id,
+                );
                 self.commands.push_back(RunLoopCommand::Sign {
                     block: block_info.block.clone(),
                     is_taproot: false,
                     merkle_root: None,
                 });
             } else {
-                debug!("Ignoring block proposal.");
+                debug!(
+                    "Signer ignoring block.";
+                    "block_hash" => block_info.block.header.block_hash(),
+                    "valid" => block_info.valid,
+                    "signed_over" => block_info.signed_over,
+                    "coordinator_id" => coordinator_id,
+                    "signer_id" => self.signer_id,
+                );
             }
         }
     }
@@ -324,12 +442,16 @@ impl<C: Coordinator> RunLoop<C> {
         res: Sender<Vec<OperationResult>>,
         messages: Vec<SignerMessage>,
     ) {
-        let (_coordinator_id, coordinator_public_key) =
+        let (coordinator_id, coordinator_public_key) =
             calculate_coordinator(&self.signing_round.public_keys, &self.stacks_client);
+        debug!(
+            "Signer #{}: coordinator is signer #{} public key {}",
+            self.signer_id, coordinator_id, &coordinator_public_key
+        );
         let packets: Vec<Packet> = messages
             .into_iter()
             .filter_map(|msg| match msg {
-                SignerMessage::BlockResponse(_) => None,
+                SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
                 SignerMessage::Packet(packet) => {
                     self.verify_packet(packet, &coordinator_public_key)
                 }
@@ -400,18 +522,22 @@ impl<C: Coordinator> RunLoop<C> {
             &request.message
         } else {
             // We will only sign across block hashes or block hashes + b'n' byte
-            debug!("Received a signature share request for an unknown message stream. Reject it.");
+            debug!("Signer #{}: Received a signature share request for an unknown message stream. Reject it.", self.signer_id);
             return false;
         };
 
         let Some(hash) = Sha512Trunc256Sum::from_bytes(hash_bytes) else {
             // We will only sign across valid block hashes
-            debug!("Received a signature share request for an invalid block hash. Reject it.");
+            debug!("Signer #{}: Received a signature share request for an invalid block hash. Reject it.", self.signer_id);
             return false;
         };
         match self.blocks.get(&hash).map(|block_info| &block_info.vote) {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
+                debug!(
+                    "Signer #{}: set vote for {} to {:?}",
+                    self.signer_id, &hash, &vote
+                );
                 request.message = vote.clone();
                 true
             }
@@ -419,14 +545,14 @@ impl<C: Coordinator> RunLoop<C> {
                 // We never agreed to sign this block. Reject it.
                 // This can happen if the coordinator received enough votes to sign yes
                 // or no on a block before we received validation from the stacks node.
-                debug!("Received a signature share request for a block we never agreed to sign. Ignore it.");
+                debug!("Signer #{}: Received a signature share request for a block we never agreed to sign. Ignore it.", self.signer_id);
                 false
             }
             None => {
                 // We will only sign across block hashes or block hashes + b'n' byte for
                 // blocks we have seen a Nonce Request for (and subsequent validation)
                 // We are missing the context here necessary to make a decision. Reject the block
-                debug!("Received a signature share request from an unknown block. Reject it.");
+                debug!("Signer #{}: Received a signature share request from an unknown block. Reject it.", self.signer_id);
                 false
             }
         }
@@ -436,57 +562,160 @@ impl<C: Coordinator> RunLoop<C> {
     /// If the request is for a block, we will update the request message
     /// as either a hash indicating a vote no or the signature hash indicating a vote yes
     /// Returns whether the request is valid or not
-    fn validate_nonce_request(&mut self, request: &mut NonceRequest) -> bool {
-        let Some(block) = read_next::<NakamotoBlock, _>(&mut &request.message[..]).ok() else {
+    fn validate_nonce_request(&mut self, nonce_request: &mut NonceRequest) -> bool {
+        let Some(block) = read_next::<NakamotoBlock, _>(&mut &nonce_request.message[..]).ok()
+        else {
             // We currently reject anything that is not a block
-            debug!("Received a nonce request for an unknown message stream. Reject it.");
+            debug!(
+                "Signer #{}: Received a nonce request for an unknown message stream. Reject it.",
+                self.signer_id
+            );
             return false;
         };
-        let transactions = &self.transactions;
         let signer_signature_hash = block.header.signer_signature_hash();
         let Some(block_info) = self.blocks.get_mut(&signer_signature_hash) else {
             // We have not seen this block before. Cache it. Send a RPC to the stacks node to validate it.
-            debug!("We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...");
+            debug!("Signer #{}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...", self.signer_id);
             // Store the block in our cache
             self.blocks.insert(
                 signer_signature_hash,
-                BlockInfo::new_with_request(block.clone(), request.clone()),
+                BlockInfo::new_with_request(block.clone(), nonce_request.clone()),
             );
             self.stacks_client
                 .submit_block_for_validation(block)
                 .unwrap_or_else(|e| {
-                    warn!("Failed to submit block for validation: {:?}", e);
+                    warn!(
+                        "Signer #{}: Failed to submit block for validation: {:?}",
+                        self.signer_id, e
+                    );
                 });
             return false;
         };
+
         if block_info.valid.is_none() {
             // We have not yet received validation from the stacks node. Cache the request and wait for validation
-            debug!("We have yet to receive validation from the stacks node for a nonce request. Cache the nonce request and wait for block validation...");
-            block_info.nonce_request = Some(request.clone());
+            debug!("Signer #{}: We have yet to receive validation from the stacks node for a nonce request. Cache the nonce request and wait for block validation...", self.signer_id);
+            block_info.nonce_request = Some(nonce_request.clone());
             return false;
         }
-        Self::determine_vote(block_info, request, transactions);
+
+        Self::determine_vote(self.signer_id, block_info, nonce_request);
         true
+    }
+
+    /// Verify the transactions in a block are as expected
+    fn verify_transactions(&mut self, block: &NakamotoBlock) -> bool {
+        if let Ok(expected_transactions) = self.get_expected_transactions() {
+            //It might be worth building a hashset of the blocks' txids and checking that against the expected transaction's txid.
+            let block_tx_hashset = block.txs.iter().map(|tx| tx.txid()).collect::<HashSet<_>>();
+            // Ensure the block contains the transactions we expect
+            let missing_transactions = expected_transactions
+                .into_iter()
+                .filter_map(|tx| {
+                    if !block_tx_hashset.contains(&tx.txid()) {
+                        debug!(
+                            "Signer #{}: expected txid {} is in the block",
+                            self.signer_id,
+                            &tx.txid()
+                        );
+                        Some(tx)
+                    } else {
+                        debug!(
+                            "Signer #{}: missing expected txid {}",
+                            self.signer_id,
+                            &tx.txid()
+                        );
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            let is_valid = missing_transactions.is_empty();
+            if !is_valid {
+                debug!("Signer #{}: Broadcasting a block rejection due to missing expected transactions...", self.signer_id);
+                let block_rejection = BlockRejection::new(
+                    block.header.signer_signature_hash(),
+                    RejectCode::MissingTransactions(missing_transactions),
+                );
+                // Submit signature result to miners to observe
+                if let Err(e) = self
+                    .stackerdb
+                    .send_message_with_retry(block_rejection.into())
+                {
+                    warn!("Failed to send block submission to stacker-db: {:?}", e);
+                }
+            }
+            is_valid
+        } else {
+            // Failed to connect to the stacks node to get transactions. Cannot validate the block. Reject it.
+            debug!(
+                "Signer #{}: Broadcasting a block rejection due to signer connectivity issues...",
+                self.signer_id
+            );
+            let block_rejection = BlockRejection::new(
+                block.header.signer_signature_hash(),
+                RejectCode::ConnectivityIssues,
+            );
+            // Submit signature result to miners to observe
+            if let Err(e) = self
+                .stackerdb
+                .send_message_with_retry(block_rejection.into())
+            {
+                warn!(
+                    "Signer #{}: Failed to send block submission to stacker-db: {:?}",
+                    self.signer_id, e
+                );
+            }
+            false
+        }
+    }
+
+    /// Get the transactions we expect to see in the next block
+    fn get_expected_transactions(&mut self) -> Result<Vec<StacksTransaction>, ClientError> {
+        let signer_ids = self
+            .signing_round
+            .public_keys
+            .signers
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        let transactions = self
+            .stackerdb
+            .get_signer_transactions_with_retry(&signer_ids)?.into_iter().filter_map(|transaction| {
+                // TODO: Filter out transactions that are not special cased transactions (cast votes, etc.)
+                // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
+                let origin_address = transaction.origin_address();
+                let origin_nonce = transaction.get_origin_nonce();
+                let Ok(account_nonce) = self.stacks_client.get_account_nonce(&origin_address) else {
+                    warn!("Signer #{}: Unable to get account for address: {origin_address}. Ignoring it for this block...", self.signer_id);
+                    return None;
+                };
+                if !self.signer_addresses.contains(&origin_address) || origin_nonce < account_nonce {
+                    debug!("Signer #{}: Received a transaction for signer id ({}) that is either not valid or has already been confirmed (origin={}, account={}). Ignoring it.", self.signer_id, &origin_address, origin_nonce, account_nonce);
+                    return None;
+                }
+                debug!("Signer #{}: Expect transaction {} ({:?})", self.signer_id, transaction.txid(), &transaction);
+                Some(transaction)
+            }).collect();
+        Ok(transactions)
     }
 
     /// Determine the vote for a block and update the block info and nonce request accordingly
     fn determine_vote(
+        signer_id: u32,
         block_info: &mut BlockInfo,
         nonce_request: &mut NonceRequest,
-        transactions: &[Txid],
     ) {
         let mut vote_bytes = block_info.block.header.signer_signature_hash().0.to_vec();
         // Validate the block contents
-        if !block_info.valid.unwrap_or(false)
-            || !transactions
-                .iter()
-                .all(|txid| block_info.block.txs.iter().any(|tx| &tx.txid() == txid))
-        {
+        if !block_info.valid.unwrap_or(false) {
             // We don't like this block. Update the request to be across its hash with a byte indicating a vote no.
-            debug!("Updating the request with a block hash with a vote no.");
+            debug!(
+                "Signer #{}: Updating the request with a block hash with a vote no.",
+                signer_id
+            );
             vote_bytes.push(b'n');
         } else {
-            debug!("The block passed validation. Update the request with the signature hash.");
+            debug!("Signer #{}: The block passed validation. Update the request with the signature hash.", signer_id);
         }
 
         // Cache our vote
@@ -523,7 +752,10 @@ impl<C: Coordinator> RunLoop<C> {
             }
             Some(packet)
         } else {
-            debug!("Failed to verify wsts packet: {:?}", &packet);
+            debug!(
+                "Signer #{}: Failed to verify wsts packet with {}: {:?}",
+                self.signer_id, coordinator_public_key, &packet
+            );
             None
         }
     }
@@ -535,19 +767,45 @@ impl<C: Coordinator> RunLoop<C> {
             // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
             match operation_result {
                 OperationResult::Sign(signature) => {
+                    debug!("Signer #{}: Received signature result", self.signer_id);
                     self.process_signature(signature);
                 }
                 OperationResult::SignTaproot(_) => {
-                    debug!("Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.");
+                    debug!("Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.signer_id);
                 }
                 OperationResult::Dkg(_point) => {
                     // TODO: cast the aggregate public key for the latest round here
+                    // Broadcast via traditional methods to the stacks node if we are pre nakamoto or we cannot determine our Epoch
+                    let epoch = self
+                        .stacks_client
+                        .get_node_epoch()
+                        .unwrap_or(EpochId::UnsupportedEpoch);
+                    match epoch {
+                        EpochId::UnsupportedEpoch => {
+                            debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the result.", self.signer_id);
+                        }
+                        EpochId::Epoch25 => {
+                            debug!("Signer #{}: Received a DKG result, but are in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
+                            //TODO: Cast the aggregate public key vote here
+                        }
+                        EpochId::Epoch30 => {
+                            debug!("Signer #{}: Received a DKG result, but are in epoch 3. Broadcast the transaction to stackerDB.", self.signer_id);
+                            let signer_message =
+                                SignerMessage::Transactions(self.transactions.clone());
+                            if let Err(e) = self.stackerdb.send_message_with_retry(signer_message) {
+                                warn!(
+                                    "Signer #{}: Failed to update transactions in stacker-db: {:?}",
+                                    self.signer_id, e
+                                );
+                            }
+                        }
+                    }
                 }
                 OperationResult::SignError(e) => {
                     self.process_sign_error(e);
                 }
                 OperationResult::DkgError(e) => {
-                    warn!("Received a DKG error: {:?}", e);
+                    warn!("Signer #{}: Received a DKG error: {:?}", self.signer_id, e);
                 }
             }
         }
@@ -558,7 +816,10 @@ impl<C: Coordinator> RunLoop<C> {
     fn process_signature(&mut self, signature: &Signature) {
         // Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
         let Some(aggregate_public_key) = &self.coordinator.get_aggregate_public_key() else {
-            debug!("No aggregate public key set. Cannot validate signature...");
+            debug!(
+                "Signer #{}: No aggregate public key set. Cannot validate signature...",
+                self.signer_id
+            );
             return;
         };
         let message = self.coordinator.get_message();
@@ -571,7 +832,7 @@ impl<C: Coordinator> RunLoop<C> {
         let Some(signer_signature_hash) =
             Sha512Trunc256Sum::from_bytes(signer_signature_hash_bytes)
         else {
-            debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
+            debug!("Signer #{}: Received a signature result for a signature over a non-block. Nothing to broadcast.", self.signer_id);
             return;
         };
 
@@ -580,7 +841,7 @@ impl<C: Coordinator> RunLoop<C> {
 
         // This signature is no longer valid. Do not broadcast it.
         if !signature.verify(aggregate_public_key, &message) {
-            warn!("Received an invalid signature result across the block. Do not broadcast it.");
+            warn!("Signer #{}: Received an invalid signature result across the block. Do not broadcast it.", self.signer_id);
             // TODO: should we reinsert it and trigger a sign round across the block again?
             return;
         }
@@ -594,11 +855,15 @@ impl<C: Coordinator> RunLoop<C> {
         };
 
         // Submit signature result to miners to observe
-        if let Err(e) = self
-            .stackerdb
-            .send_message_with_retry(self.signing_round.signer_id, block_submission)
-        {
-            warn!("Failed to send block submission to stacker-db: {:?}", e);
+        debug!(
+            "Signer #{}: submit block response {:?}",
+            self.signer_id, &block_submission
+        );
+        if let Err(e) = self.stackerdb.send_message_with_retry(block_submission) {
+            warn!(
+                "Signer #{}: Failed to send block submission to stacker-db: {:?}",
+                self.signer_id, e
+            );
         }
     }
 
@@ -608,9 +873,10 @@ impl<C: Coordinator> RunLoop<C> {
         match e {
             SignError::NonceTimeout(_valid_signers, _malicious_signers) => {
                 //TODO: report these malicious signers
-                debug!("Received a nonce timeout.");
+                debug!("Signer #{}: Received a nonce timeout.", self.signer_id);
             }
             SignError::InsufficientSigners(malicious_signers) => {
+                debug!("Signer #{}: Insufficient signers.", self.signer_id);
                 let message = self.coordinator.get_message();
                 let block = read_next::<NakamotoBlock, _>(&mut &message[..]).ok().unwrap_or({
                     // This is not a block so maybe its across its hash
@@ -621,11 +887,11 @@ impl<C: Coordinator> RunLoop<C> {
                         &message
                     };
                     let Some(signer_signature_hash) = Sha512Trunc256Sum::from_bytes(signer_signature_hash_bytes) else {
-                        debug!("Received a signature result for a signature over a non-block. Nothing to broadcast.");
+                        debug!("Signer #{}: Received a signature result for a signature over a non-block. Nothing to broadcast.", self.signer_id);
                         return;
                     };
                     let Some(block_info) = self.blocks.remove(&signer_signature_hash) else {
-                        debug!("Received a signature result for a block we have not seen before. Ignoring...");
+                        debug!("Signer #{}: Received a signature result for a block we have not seen before. Ignoring...", self.signer_id);
                         return;
                     };
                     block_info.block
@@ -635,16 +901,27 @@ impl<C: Coordinator> RunLoop<C> {
                     block.header.signer_signature_hash(),
                     RejectCode::InsufficientSigners(malicious_signers.clone()),
                 );
+                debug!(
+                    "Signer #{}: Insufficient signers for block; send rejection {:?}",
+                    self.signer_id, &block_rejection
+                );
+
                 // Submit signature result to miners to observe
                 if let Err(e) = self
                     .stackerdb
-                    .send_message_with_retry(self.signing_round.signer_id, block_rejection.into())
+                    .send_message_with_retry(block_rejection.into())
                 {
-                    warn!("Failed to send block submission to stacker-db: {:?}", e);
+                    warn!(
+                        "Signer #{}: Failed to send block submission to stacker-db: {:?}",
+                        self.signer_id, e
+                    );
                 }
             }
             SignError::Aggregator(e) => {
-                warn!("Received an aggregator error: {:?}", e);
+                warn!(
+                    "Signer #{}: Received an aggregator error: {:?}",
+                    self.signer_id, e
+                );
             }
         }
         // TODO: should reattempt to sign the block here or should we just broadcast a rejection or do nothing and wait for the signers to propose a new block?
@@ -659,10 +936,16 @@ impl<C: Coordinator> RunLoop<C> {
         let nmb_results = operation_results.len();
         match res.send(operation_results) {
             Ok(_) => {
-                debug!("Successfully sent {} operation result(s)", nmb_results)
+                debug!(
+                    "Signer #{}: Successfully sent {} operation result(s)",
+                    self.signer_id, nmb_results
+                )
             }
             Err(e) => {
-                warn!("Failed to send operation results: {:?}", e);
+                warn!(
+                    "Signer #{}: Failed to send {} operation results: {:?}",
+                    self.signer_id, nmb_results, e
+                );
             }
         }
     }
@@ -670,17 +953,19 @@ impl<C: Coordinator> RunLoop<C> {
     /// Sending all provided packets through stackerdb with a retry
     fn send_outbound_messages(&mut self, outbound_messages: Vec<Packet>) {
         debug!(
-            "Sending {} messages to other stacker-db instances.",
+            "Signer #{}: Sending {} messages to other stacker-db instances.",
+            self.signer_id,
             outbound_messages.len()
         );
         for msg in outbound_messages {
-            let ack = self
-                .stackerdb
-                .send_message_with_retry(self.signing_round.signer_id, msg.into());
+            let ack = self.stackerdb.send_message_with_retry(msg.into());
             if let Ok(ack) = ack {
-                debug!("ACK: {:?}", ack);
+                debug!("Signer #{}: send outbound ACK: {:?}", self.signer_id, ack);
             } else {
-                warn!("Failed to send message to stacker-db instance: {:?}", ack);
+                warn!(
+                    "Signer #{}: Failed to send message to stacker-db instance: {:?}",
+                    self.signer_id, ack
+                );
             }
         }
     }
@@ -720,19 +1005,31 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             .iter()
             .map(|(i, ids)| (*i, ids.iter().copied().collect::<HashSet<u32>>()))
             .collect::<HashMap<u32, HashSet<u32>>>();
+        let signer_public_keys = config
+            .signer_ids_public_keys
+            .signers
+            .iter()
+            .map(|(i, ecdsa_key)| {
+                (
+                    *i,
+                    Point::try_from(&Compressed::from(ecdsa_key.to_bytes())).unwrap(),
+                )
+            })
+            .collect::<HashMap<u32, Point>>();
 
         let coordinator_config = CoordinatorConfig {
             threshold,
             dkg_threshold,
             num_signers: total_signers,
             num_keys: total_keys,
-            message_private_key: config.message_private_key,
+            message_private_key: config.ecdsa_private_key,
             dkg_public_timeout: config.dkg_public_timeout,
             dkg_private_timeout: config.dkg_private_timeout,
             dkg_end_timeout: config.dkg_end_timeout,
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
             signer_key_ids,
+            signer_public_keys,
         };
         let coordinator = FireCoordinator::new(coordinator_config);
         let signing_round = Signer::new(
@@ -741,7 +1038,7 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             total_keys,
             config.signer_id,
             key_ids,
-            config.message_private_key,
+            config.ecdsa_private_key,
             config.signer_ids_public_keys.clone(),
         );
         let stacks_client = StacksClient::from(config);
@@ -757,6 +1054,11 @@ impl From<&Config> for RunLoop<FireCoordinator<v2::Aggregator>> {
             mainnet: config.network == Network::Mainnet,
             blocks: HashMap::new(),
             transactions: Vec::new(),
+            signer_ids: config.signer_ids.clone(),
+            signer_id: config.signer_id,
+            signer_slot_id: None, // will be updated on .initialize()
+            signer_set: None,     // will be updated on .initialize()
+            signer_addresses: vec![],
         }
     }
 }
@@ -778,7 +1080,7 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
     ) -> Option<Vec<OperationResult>> {
         info!(
             "Running one pass for signer ID# {}. Current state: {:?}",
-            self.signing_round.signer_id, self.state
+            self.signer_id, self.state
         );
         if let Some(command) = cmd {
             self.commands.push_back(command);
@@ -786,31 +1088,47 @@ impl<C: Coordinator> SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for Run
         // TODO: This should be called every time as DKG can change at any time...but until we have the node
         // set up to receive cast votes...just do on initialization.
         if self.state == State::Uninitialized {
-            let request_fn = || self.initialize().map_err(backoff::Error::transient);
+            let request_fn = || {
+                self.initialize().map_err(|e| {
+                    warn!("Failed to initialize: {:?}", &e);
+                    backoff::Error::transient(e)
+                })
+            };
             retry_with_exponential_backoff(request_fn)
                 .expect("Failed to connect to initialize due to timeout. Stacks node may be down.");
         }
         // Process any arrived events
-        debug!("Processing event: {:?}", event);
+        debug!("Signer #{}: Processing event: {:?}", self.signer_id, event);
         match event {
             Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
-                debug!("Received a block proposal result from the stacks node...");
+                debug!(
+                    "Signer #{}: Received a block proposal result from the stacks node...",
+                    self.signer_id
+                );
                 self.handle_block_validate_response(block_validate_response, res)
             }
             Some(SignerEvent::SignerMessages(messages)) => {
-                debug!("Received messages from the other signers...");
+                debug!(
+                    "Signer #{}: Received {} messages from the other signers...",
+                    self.signer_id,
+                    messages.len()
+                );
                 self.handle_signer_messages(res, messages);
             }
             Some(SignerEvent::ProposedBlocks(blocks)) => {
-                debug!("Received block proposals from the miners...");
+                debug!(
+                    "Signer #{}: Received {} block proposals from the miners...",
+                    self.signer_id,
+                    blocks.len()
+                );
                 self.handle_proposed_blocks(blocks);
             }
             Some(SignerEvent::StatusCheck) => {
-                debug!("Received a status check event.")
+                debug!("Signer #{}: Received a status check event.", self.signer_id)
             }
             None => {
                 // No event. Do nothing.
-                debug!("No event received")
+                debug!("Signer #{}: No event received", self.signer_id)
             }
         }
 
@@ -860,34 +1178,57 @@ pub fn calculate_coordinator(
     // or default to the first signer if none are found
     selection_ids
         .first()
-        .and_then(|(_, id)| public_keys.signers.get(id).map(|pk| (*id, pk.clone())))
+        .and_then(|(_, id)| public_keys.signers.get(id).map(|pk| (*id, *pk)))
         .unwrap_or((0, public_keys.signers.get(&0).cloned().unwrap()))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
     use std::net::TcpListener;
     use std::thread::{sleep, spawn};
 
+    use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader;
+    use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
+    use blockstack_lib::chainstate::stacks::{ThresholdSignature, TransactionVersion};
+    use blockstack_lib::util_lib::boot::boot_code_addr;
+    use clarity::vm::types::{ResponseData, TupleData};
+    use clarity::vm::{ClarityName, Value as ClarityValue};
     use rand::distributions::Standard;
     use rand::Rng;
+    use serial_test::serial;
+    use stacks_common::bitvec::BitVec;
+    use stacks_common::consts::SIGNER_SLOTS_PER_USER;
+    use stacks_common::types::chainstate::{
+        ConsensusHash, StacksBlockId, StacksPrivateKey, TrieHash,
+    };
+    use stacks_common::util::hash::{Hash160, MerkleTree};
+    use stacks_common::util::secp256k1::MessageSignature;
+    use wsts::curve::point::Point;
+    use wsts::curve::scalar::Scalar;
 
     use super::*;
-    use crate::client::stacks_client::tests::{write_response, TestConfig};
+    use crate::client::tests::{write_response, TestConfig};
 
     fn generate_random_consensus_hash() -> String {
         let rng = rand::thread_rng();
         let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
-        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+        let hex_string = bytes.iter().fold(String::new(), |mut acc, &b| {
+            write!(&mut acc, "{:02x}", b).expect("Error writing to string");
+            acc
+        });
+        hex_string
     }
+
     fn mock_stacks_client_response(mock_server: TcpListener, random_consensus: bool) {
         let consensus_hash = match random_consensus {
             true => generate_random_consensus_hash(),
-            false => "static_hash_value".to_string(),
+            false => "64c8c3049ff6b939c65828e3168210e6bb32d880".to_string(),
         };
 
+        println!("{}", consensus_hash);
         let response = format!(
-            "HTTP/1.1 200 OK\n\n{{\"stacks_tip_consensus_hash\": \"{}\"}}",
+            "HTTP/1.1 200 OK\n\n{{\"stacks_tip_consensus_hash\":\"{}\",\"peer_version\":4207599113,\"pox_consensus\":\"64c8c3049ff6b939c65828e3168210e6bb32d880\",\"burn_block_height\":2575799,\"stable_pox_consensus\":\"72277bf9a3b115e13c0942825480d6cee0e9a0e8\",\"stable_burn_block_height\":2575792,\"server_version\":\"stacks-node d657bdd (feat/epoch-2.4:d657bdd, release build, linux [x86_64])\",\"network_id\":2147483648,\"parent_network_id\":118034699,\"stacks_tip_height\":145152,\"stacks_tip\":\"77219884fe434c0fa270d65592b4f082ab3e5d9922ac2bdaac34310aedc3d298\",\"genesis_chainstate_hash\":\"74237aa39aa50a83de11a4f53e9d3bb7d43461d1de9873f402e5453ae60bc59b\",\"unanchored_tip\":\"dde44222b6e6d81583b6b9c55db83e8716943ae9d0dc332fc39448ddd9b99dc2\",\"unanchored_seq\":0,\"exit_at_block_height\":null,\"node_public_key\":\"023c940136d5795d9dd82c0e87f4dd6a2a1db245444e7d70e34bb9605c3c3917b0\",\"node_public_key_hash\":\"e26cce8f6abe06b9fc81c3b11bcc821d2f1b8fd0\"}}",
             consensus_hash
         );
 
@@ -921,7 +1262,7 @@ mod tests {
         // Check that not all coordinator public keys are the same
         let all_keys_same = results
             .iter()
-            .all(|&(_, ref key)| key.key.data == results[0].1.key.data);
+            .all(|&(_, key)| key.key.data == results[0].1.key.data);
         assert!(
             !all_keys_same,
             "Not all coordinator public keys should be the same"
@@ -948,7 +1289,7 @@ mod tests {
             .all(|&(id, _)| id == results_with_random_hash[0].0);
         let all_keys_same = results_with_random_hash
             .iter()
-            .all(|&(_, ref key)| key.key.data == results_with_random_hash[0].1.key.data);
+            .all(|&(_, key)| key.key.data == results_with_random_hash[0].1.key.data);
         assert!(!all_ids_same, "Not all coordinator IDs should be the same");
         assert!(
             !all_keys_same,
@@ -961,11 +1302,316 @@ mod tests {
             .all(|&(id, _)| id == results_with_static_hash[0].0);
         let all_keys_same = results_with_static_hash
             .iter()
-            .all(|&(_, ref key)| key.key.data == results_with_static_hash[0].1.key.data);
+            .all(|&(_, key)| key.key.data == results_with_static_hash[0].1.key.data);
         assert!(all_ids_same, "All coordinator IDs should be the same");
         assert!(
             all_keys_same,
             "All coordinator public keys should be the same"
         );
+    }
+
+    fn build_get_signer_slots_response(config: &Config) -> String {
+        let mut signers_public_keys = config
+            .signer_ids_public_keys
+            .signers
+            .iter()
+            .map(|(signer_id, signer_public_key)| {
+                let bytes = signer_public_key.to_bytes();
+                let signer_hash = Hash160::from_data(&bytes);
+                let signing_address = StacksAddress::p2pkh_from_hash(false, signer_hash);
+                (signer_id, signing_address)
+            })
+            .collect::<Vec<_>>();
+        signers_public_keys.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+        let mut list_data = vec![];
+        for (_, signers_public_key) in signers_public_keys {
+            let tuple_data = vec![
+                (
+                    ClarityName::from("signer"),
+                    ClarityValue::Principal(signers_public_key.into()),
+                ),
+                (
+                    ClarityName::from("num-slots"),
+                    ClarityValue::UInt(SIGNER_SLOTS_PER_USER as u128),
+                ),
+            ];
+            let tuple = ClarityValue::Tuple(
+                TupleData::from_data(tuple_data).expect("Failed to create tuple data"),
+            );
+            list_data.push(tuple);
+        }
+
+        let result_data =
+            ClarityValue::cons_list_unsanitized(list_data).expect("Failed to construct list data");
+        let response_clarity = ClarityValue::Response(ResponseData {
+            committed: true,
+            data: Box::new(result_data),
+        });
+        let hex = response_clarity
+            .serialize_to_hex()
+            .expect("Failed to serialize clarity value");
+        format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
+    }
+
+    fn build_get_aggregate_public_key_response_some() -> (String, String) {
+        let current_reward_cycle_response = "HTTP/1.1 200 Ok\n\n{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"pox_activation_threshold_ustx\":829371801288885,\"first_burnchain_block_height\":2000000,\"current_burnchain_block_height\":2572192,\"prepare_phase_block_length\":50,\"reward_phase_block_length\":1000,\"reward_slots\":2000,\"rejection_fraction\":12,\"total_liquid_supply_ustx\":41468590064444294,\"current_cycle\":{\"id\":544,\"min_threshold_ustx\":5190000000000,\"stacked_ustx\":853258144644000,\"is_pox_active\":true},\"next_cycle\":{\"id\":545,\"min_threshold_ustx\":5190000000000,\"min_increment_ustx\":5183573758055,\"stacked_ustx\":847278759574000,\"prepare_phase_start_block_height\":2572200,\"blocks_until_prepare_phase\":8,\"reward_phase_start_block_height\":2572250,\"blocks_until_reward_phase\":58,\"ustx_until_pox_rejection\":4976230807733304},\"min_amount_ustx\":5190000000000,\"prepare_cycle_length\":50,\"reward_cycle_id\":544,\"reward_cycle_length\":1050,\"rejection_votes_left_required\":4976230807733304,\"next_reward_cycle_in\":58,\"contract_versions\":[{\"contract_id\":\"ST000000000000000000002AMW42H.pox\",\"activation_burnchain_block_height\":2000000,\"first_reward_cycle_id\":0},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-2\",\"activation_burnchain_block_height\":2422102,\"first_reward_cycle_id\":403},{\"contract_id\":\"ST000000000000000000002AMW42H.pox-3\",\"activation_burnchain_block_height\":2432545,\"first_reward_cycle_id\":412}]}".to_string();
+        let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        let clarity_value = ClarityValue::some(
+            ClarityValue::buff_from(orig_point.compress().as_bytes().to_vec())
+                .expect("BUG: Failed to create clarity value from point"),
+        )
+        .expect("BUG: Failed to create clarity value from point");
+        let hex = clarity_value
+            .serialize_to_hex()
+            .expect("Failed to serialize clarity value");
+        let point_response = format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}");
+
+        (current_reward_cycle_response, point_response)
+    }
+
+    fn simulate_initialize_response(config: Config) {
+        let (current_reward_cycle_response, aggregate_key_response) =
+            build_get_aggregate_public_key_response_some();
+        let signer_slots_response = build_get_signer_slots_response(&config);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(
+            test_config.mock_server,
+            current_reward_cycle_response.as_bytes(),
+        );
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, signer_slots_response.as_bytes());
+
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(
+            test_config.mock_server,
+            current_reward_cycle_response.as_bytes(),
+        );
+
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, aggregate_key_response.as_bytes());
+    }
+
+    fn simulate_nonce_response(config: &Config, num_transactions: usize) {
+        for _ in 0..num_transactions {
+            let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
+            let test_config = TestConfig::from_config(config.clone());
+            write_response(test_config.mock_server, nonce_response);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn get_expected_transactions_should_filter_invalid_transactions() {
+        // Create a runloop of a valid signer
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let mut valid_signer_runloop: RunLoop<FireCoordinator<v2::Aggregator>> =
+            RunLoop::from(&config);
+
+        let signer_private_key = config.stacks_private_key;
+        let non_signer_private_key = StacksPrivateKey::new();
+        let signers_contract_addr = boot_code_addr(false);
+        // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
+        // TODO use cast_aggregate_vote_tx fn to create a valid transaction when it is implmented and update this test
+        let valid_tx = StacksClient::build_signed_contract_call_transaction(
+            &signers_contract_addr,
+            SIGNERS_VOTING_NAME.into(),
+            "fake-function".into(),
+            &[],
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            1,
+            10,
+        )
+        .unwrap();
+        let invalid_tx_bad_signer = StacksClient::build_signed_contract_call_transaction(
+            &signers_contract_addr,
+            SIGNERS_VOTING_NAME.into(),
+            "fake-function".into(),
+            &[],
+            &non_signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            0,
+            10,
+        )
+        .unwrap();
+        let invalid_tx_outdated_nonce = StacksClient::build_signed_contract_call_transaction(
+            &signers_contract_addr,
+            SIGNERS_VOTING_NAME.into(),
+            "fake-function".into(),
+            &[],
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            0,
+            5,
+        )
+        .unwrap();
+
+        let transactions = vec![
+            valid_tx.clone(),
+            invalid_tx_outdated_nonce,
+            invalid_tx_bad_signer,
+        ];
+        let num_transactions = transactions.len();
+
+        let h = spawn(move || {
+            valid_signer_runloop.initialize().unwrap();
+            valid_signer_runloop.get_expected_transactions().unwrap()
+        });
+
+        // Must initialize the signers before attempting to retrieve their transactions
+        simulate_initialize_response(config.clone());
+
+        // Simulate the response to the request for transactions
+        let signer_message = SignerMessage::Transactions(transactions);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        simulate_nonce_response(&config, num_transactions);
+
+        let filtered_txs = h.join().unwrap();
+        assert_eq!(filtered_txs, vec![valid_tx]);
+    }
+
+    #[test]
+    #[serial]
+    fn verify_transactions_valid() {
+        let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let mut runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
+
+        let signer_private_key = config.stacks_private_key;
+        let signers_contract_addr = boot_code_addr(false);
+        // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
+        // TODO use cast_aggregate_vote_tx fn to create a valid transaction when it is implmented and update this test
+        let valid_tx = StacksClient::build_signed_contract_call_transaction(
+            &signers_contract_addr,
+            SIGNERS_VOTING_NAME.into(),
+            "fake-function".into(),
+            &[],
+            &signer_private_key,
+            TransactionVersion::Testnet,
+            config.network.to_chain_id(),
+            1,
+            10,
+        )
+        .unwrap();
+
+        // Create a block
+        let header = NakamotoBlockHeader {
+            version: 1,
+            chain_length: 2,
+            burn_spent: 3,
+            consensus_hash: ConsensusHash([0x04; 20]),
+            parent_block_id: StacksBlockId([0x05; 32]),
+            tx_merkle_root: Sha512Trunc256Sum([0x06; 32]),
+            state_index_root: TrieHash([0x07; 32]),
+            miner_signature: MessageSignature::empty(),
+            signer_signature: ThresholdSignature::empty(),
+            signer_bitvec: BitVec::zeros(1).unwrap(),
+        };
+        let mut block = NakamotoBlock {
+            header,
+            txs: vec![valid_tx.clone()],
+        };
+        let tx_merkle_root = {
+            let txid_vecs = block
+                .txs
+                .iter()
+                .map(|tx| tx.txid().as_bytes().to_vec())
+                .collect();
+
+            MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+        };
+        block.header.tx_merkle_root = tx_merkle_root;
+
+        // Ensure this is a block the signer has seen already
+        runloop.blocks.insert(
+            block.header.signer_signature_hash(),
+            BlockInfo::new(block.clone()),
+        );
+
+        let h = spawn(move || {
+            runloop.initialize().unwrap();
+            runloop.verify_transactions(&block)
+        });
+
+        // Must initialize the signers before attempting to retrieve their transactions
+        simulate_initialize_response(config.clone());
+
+        // Simulate the response to the request for transactions with the expected transaction
+        let signer_message = SignerMessage::Transactions(vec![valid_tx]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        let signer_message = SignerMessage::Transactions(vec![]);
+        let message = signer_message.serialize_to_vec();
+        let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
+        response_bytes.extend(message);
+        let test_config = TestConfig::from_config(config.clone());
+        write_response(test_config.mock_server, response_bytes.as_slice());
+
+        simulate_nonce_response(&config, 1);
+        //simulate_send_message_with_retry_response(config.clone());
+
+        let valid = h.join().unwrap();
+        assert!(valid);
     }
 }

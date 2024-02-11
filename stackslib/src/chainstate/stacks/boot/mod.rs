@@ -90,6 +90,8 @@ const POX_2_BODY: &'static str = std::include_str!("pox-2.clar");
 const POX_3_BODY: &'static str = std::include_str!("pox-3.clar");
 const POX_4_BODY: &'static str = std::include_str!("pox-4.clar");
 pub const SIGNERS_BODY: &'static str = std::include_str!("signers.clar");
+pub const SIGNERS_DB_0_BODY: &'static str = std::include_str!("signers-0-xxx.clar");
+pub const SIGNERS_DB_1_BODY: &'static str = std::include_str!("signers-1-xxx.clar");
 const SIGNERS_VOTING_BODY: &'static str = std::include_str!("signers-voting.clar");
 
 pub const COSTS_1_NAME: &'static str = "costs";
@@ -256,6 +258,16 @@ impl RewardSet {
             },
             signers: None,
         }
+    }
+
+    /// Serialization used when stored as ClarityDB metadata
+    pub fn metadata_serialize(&self) -> String {
+        serde_json::to_string(self).expect("FATAL: failure to serialize RewardSet struct")
+    }
+
+    /// Deserializer corresponding to `RewardSet::metadata_serialize`
+    pub fn metadata_deserialize(from: &str) -> Result<RewardSet, String> {
+        serde_json::from_str(from).map_err(|e| e.to_string())
     }
 }
 
@@ -526,7 +538,7 @@ impl StacksChainState {
         Ok(total_events)
     }
 
-    fn eval_boot_code_read_only(
+    pub fn eval_boot_code_read_only(
         &mut self,
         sortdb: &SortitionDB,
         stacks_block_id: &StacksBlockId,
@@ -939,8 +951,8 @@ impl StacksChainState {
                 .get("total-ustx")
                 .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128()                .expect("FATAL: unexpected PoX structure")
-;
+                .expect_u128()
+                .expect("FATAL: unexpected PoX structure");
 
             debug!(
                 "PoX reward address (for {} ustx): {}",
@@ -1021,8 +1033,8 @@ impl StacksChainState {
                 .get("total-ustx")
                 .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
-                .expect_u128()                .expect("FATAL: unexpected PoX structure")
-;
+                .expect_u128()
+                .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
@@ -1201,67 +1213,8 @@ impl StacksChainState {
                 ))
                 .expect_tuple()?;
 
-            let pox_addr_tuple = tuple
-                .get("pox-addr")
-                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
-                .to_owned();
-
-            let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
-
-            let total_ustx = tuple
-                .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
-                .to_owned()
-                .expect_u128()?;
-
-            let stacker_opt = tuple
-                .get("stacker")
-                .expect(&format!(
-                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i
-                ))
-                .to_owned()
-                .expect_optional()?;
-
-            let stacker = match stacker_opt {
-                Some(stacker_value) => Some(stacker_value.expect_principal()?),
-                None => None,
-            };
-
-            let signer = tuple
-                .get("signer")
-                .expect(&format!(
-                    "FATAL: no 'signer' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i
-                ))
-                .to_owned()
-                .expect_buff(SIGNERS_PK_LEN)?;
-            // (buff 33) only enforces max size, not min size, so we need to do a len check
-            let pk_bytes = if signer.len() == SIGNERS_PK_LEN {
-                let mut bytes = [0; SIGNERS_PK_LEN];
-                bytes.copy_from_slice(signer.as_slice());
-                bytes
-            } else {
-                [0; SIGNERS_PK_LEN]
-            };
-
-            debug!(
-                "Parsed PoX reward address";
-                "stacked_ustx" => total_ustx,
-                "reward_address" => %reward_address,
-                "stacker" => ?stacker,
-                "signer" => ?signer
-            );
-            ret.push(RawRewardSetEntry {
-                reward_address,
-                amount_stacked: total_ustx,
-                stacker,
-                signer: Some(pk_bytes),
-            })
+            let entry = RawRewardSetEntry::from_pox_4_tuple(self.mainnet, tuple)?;
+            ret.push(entry)
         }
 
         Ok(ret)
@@ -1380,7 +1333,9 @@ pub mod test {
     use clarity::vm::contracts::Contract;
     use clarity::vm::tests::symbols_from_values;
     use clarity::vm::types::*;
-    use stacks_common::util::hash::to_hex;
+    use stacks_common::types::PrivateKey;
+    use stacks_common::util::hash::Sha256Sum;
+    use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
     use stacks_common::util::*;
 
     use super::*;
@@ -1399,6 +1354,12 @@ pub mod test {
     use crate::core::{StacksEpochId, *};
     use crate::net::test::*;
     use crate::util_lib::boot::{boot_code_id, boot_code_test_addr};
+    use crate::util_lib::signed_structured_data::pox4::{
+        make_pox_4_signer_key_signature, Pox4SignatureTopic,
+    };
+    use crate::util_lib::signed_structured_data::{
+        make_structured_data_domain, sign_structured_data,
+    };
 
     pub const TESTNET_STACKING_THRESHOLD_25: u128 = 8000;
 
@@ -1888,6 +1849,7 @@ pub mod test {
         lock_period: u128,
         signer_key: StacksPublicKey,
         burn_ht: u64,
+        signature: Vec<u8>,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
@@ -1899,6 +1861,7 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
+                Value::buff_from(signature).unwrap(),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -2037,6 +2000,7 @@ pub mod test {
         addr: PoxAddress,
         lock_period: u128,
         signer_key: StacksPublicKey,
+        signature: Vec<u8>,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
@@ -2046,6 +2010,7 @@ pub mod test {
             vec![
                 Value::UInt(lock_period),
                 addr_tuple,
+                Value::buff_from(signature).unwrap(),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -2137,17 +2102,22 @@ pub mod test {
     pub fn make_pox_4_aggregation_commit_indexed(
         key: &StacksPrivateKey,
         nonce: u64,
-        amount: u128,
-        delegate_to: PrincipalData,
-        until_burn_ht: Option<u128>,
-        pox_addr: PoxAddress,
+        pox_addr: &PoxAddress,
+        reward_cycle: u128,
+        signature: Vec<u8>,
+        signer_key: &Secp256k1PublicKey,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
             "stack-aggregation-commit-indexed",
-            vec![addr_tuple, Value::UInt(amount)],
+            vec![
+                addr_tuple,
+                Value::UInt(reward_cycle),
+                Value::buff_from(signature).unwrap(),
+                Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
+            ],
         )
         .unwrap();
 
@@ -2202,6 +2172,26 @@ pub mod test {
         .unwrap();
 
         make_tx(key, nonce, 0, payload)
+    }
+
+    pub fn make_signer_key_signature(
+        pox_addr: &PoxAddress,
+        signer_key: &StacksPrivateKey,
+        reward_cycle: u128,
+        topic: &Pox4SignatureTopic,
+        period: u128,
+    ) -> Vec<u8> {
+        let signature = make_pox_4_signer_key_signature(
+            pox_addr,
+            signer_key,
+            reward_cycle,
+            topic,
+            CHAIN_ID_TESTNET,
+            period,
+        )
+        .unwrap();
+
+        signature.to_rsv()
     }
 
     fn make_tx(
@@ -2524,6 +2514,14 @@ pub mod test {
             }
         };
         parent_tip
+    }
+
+    pub fn get_current_reward_cycle(peer: &TestPeer, burnchain: &Burnchain) -> u128 {
+        let tip = SortitionDB::get_canonical_burn_chain_tip(&peer.sortdb.as_ref().unwrap().conn())
+            .unwrap();
+        burnchain
+            .block_height_to_reward_cycle(tip.block_height)
+            .unwrap() as u128
     }
 
     #[test]
