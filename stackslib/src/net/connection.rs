@@ -411,13 +411,14 @@ pub struct ConnectionOptions {
     pub disable_inbound_handshakes: bool,
     pub disable_stackerdb_get_chunks: bool,
     pub force_disconnect_interval: Option<u64>,
+    pub force_nakamoto_epoch_transition: bool,
 }
 
 impl std::default::Default for ConnectionOptions {
     fn default() -> ConnectionOptions {
         ConnectionOptions {
-            inbox_maxlen: 5,
-            outbox_maxlen: 5,
+            inbox_maxlen: 1024,
+            outbox_maxlen: 1024,
             connect_timeout: 10, // how long a socket can be in a connecting state
             handshake_timeout: 30, // how long before a peer must send a handshake, after connecting
             timeout: 30,         // how long to wait for a reply to a request
@@ -503,6 +504,7 @@ impl std::default::Default for ConnectionOptions {
             disable_inbound_handshakes: false,
             disable_stackerdb_get_chunks: false,
             force_disconnect_interval: None,
+            force_nakamoto_epoch_transition: false,
         }
     }
 }
