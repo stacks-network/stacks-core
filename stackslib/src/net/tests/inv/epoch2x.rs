@@ -633,7 +633,7 @@ fn test_sync_inv_set_blocks_microblocks_available() {
     let nk = peer_1.to_neighbor().addr;
 
     let sortdb = peer_1.sortdb.take().unwrap();
-    peer_1.network.init_inv_sync(&sortdb);
+    peer_1.network.init_inv_sync_epoch2x(&sortdb);
     match peer_1.network.inv_state {
         Some(ref mut inv) => {
             inv.add_peer(nk.clone(), true);
