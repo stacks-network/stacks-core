@@ -26,6 +26,13 @@ extern crate stacks_common;
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fs::{File, OpenOptions};
