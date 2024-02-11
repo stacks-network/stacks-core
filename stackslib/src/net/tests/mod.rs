@@ -41,7 +41,7 @@ use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup, make_signer_key_signature,
+    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};

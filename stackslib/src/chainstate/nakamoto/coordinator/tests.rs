@@ -36,7 +36,8 @@ use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
-    key_to_stacks_addr, make_pox_4_aggregate_key, make_pox_4_lockup, make_signer_key_signature,
+    key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
+    make_signers_vote_for_aggregate_public_key,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
@@ -101,6 +102,23 @@ fn advance_to_nakamoto(
                     )
                 })
                 .collect()
+        } else if sortition_height == 7 {
+            // Vote for the aggregate key
+            test_stackers
+                .iter()
+                .enumerate()
+                .map(|(index, test_stacker)| {
+                    info!("Vote for aggregate key: {}", index);
+                    make_signers_vote_for_aggregate_public_key(
+                        &test_stacker.signer_private_key,
+                        0,
+                        index as u128,
+                        &test_signers.aggregate_public_key,
+                        0,
+                        7,
+                    )
+                })
+                .collect()
         } else {
             vec![]
         };
@@ -111,7 +129,8 @@ fn advance_to_nakamoto(
 }
 
 /// Make a peer and transition it into the Nakamoto epoch.
-/// The node needs to be stacking; otherwise, Nakamoto won't activate.
+/// The node needs to be stacking and it needs to vote for an aggregate key;
+/// otherwise, Nakamoto can't activate.
 pub fn boot_nakamoto<'a>(
     test_name: &str,
     mut initial_balances: Vec<(PrincipalData, u64)>,
@@ -152,7 +171,19 @@ pub fn boot_nakamoto<'a>(
         })
         .collect();
 
+    // Create some balances for test Signers
+    let mut signer_balances = test_stackers
+        .iter()
+        .map(|stacker| {
+            (
+                PrincipalData::from(p2pkh_from(&stacker.signer_private_key)),
+                1000,
+            )
+        })
+        .collect();
+
     peer_config.initial_balances.append(&mut stacker_balances);
+    peer_config.initial_balances.append(&mut signer_balances);
     peer_config.initial_balances.append(&mut initial_balances);
     peer_config.burnchain.pox_constants.v2_unlock_height = 21;
     peer_config.burnchain.pox_constants.pox_3_activation_height = 26;

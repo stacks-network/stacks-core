@@ -1291,16 +1291,21 @@ impl StacksChainState {
             .eval_boot_code_read_only(
                 sortdb,
                 block_id,
-                POX_4_NAME,
-                &format!("(get-aggregate-public-key u{})", reward_cycle),
+                SIGNERS_VOTING_NAME,
+                &format!("(get-approved-aggregate-key u{})", reward_cycle),
             )?
             .expect_optional()?;
+        debug!(
+            "Aggregate public key for reward cycle {} is {:?}",
+            reward_cycle, aggregate_public_key_opt
+        );
 
         let aggregate_public_key = match aggregate_public_key_opt {
             Some(value) => {
                 // A point should have 33 bytes exactly.
                 let data = value.expect_buff(33)?;
-                let msg = "Pox-4 get-aggregate-public-key returned a corrupted value.";
+                let msg =
+                    "Pox-4 signers-voting get-approved-aggregate-key returned a corrupted value.";
                 let compressed_data = Compressed::try_from(data.as_slice()).expect(msg);
                 Some(Point::try_from(&compressed_data).expect(msg))
             }
@@ -1899,31 +1904,13 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    pub fn make_pox_4_aggregate_key(
-        key: &StacksPrivateKey,
-        nonce: u64,
-        reward_cycle: u64,
-        aggregate_public_key: &Point,
-    ) -> StacksTransaction {
-        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
-            .expect("Failed to serialize aggregate public key");
-        let payload = TransactionPayload::new_contract_call(
-            boot_code_test_addr(),
-            POX_4_NAME,
-            "set-aggregate-public-key",
-            vec![Value::UInt(reward_cycle as u128), aggregate_public_key],
-        )
-        .unwrap();
-        make_tx(key, nonce, 0, payload)
-    }
-
     pub fn make_signers_vote_for_aggregate_public_key(
         key: &StacksPrivateKey,
         nonce: u64,
         signer_index: u128,
         aggregate_public_key: &Point,
         round: u128,
-        cycle: u128
+        cycle: u128,
     ) -> StacksTransaction {
         let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
@@ -1935,7 +1922,7 @@ pub mod test {
                 Value::UInt(signer_index),
                 aggregate_public_key,
                 Value::UInt(round),
-                Value::UInt(cycle)
+                Value::UInt(cycle),
             ],
         )
         .unwrap();

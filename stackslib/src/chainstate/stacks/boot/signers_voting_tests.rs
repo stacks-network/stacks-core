@@ -143,12 +143,10 @@ fn vote_for_aggregate_public_key_success() {
     let bob = TestStacker::from_seed(&[5, 6]);
     let observer = TestEventObserver::new();
 
-    let alice_nonce = 0;
     let alice_key = &alice.signer_private_key;
     let alice_address = key_to_stacks_addr(alice_key);
     let alice_principal = PrincipalData::from(alice_address);
 
-    let bob_nonce = 0;
     let bob_key = &bob.signer_private_key;
     let bob_address = key_to_stacks_addr(bob_key);
     let bob_principal = PrincipalData::from(bob_address);
@@ -162,6 +160,10 @@ fn vote_for_aggregate_public_key_success() {
         &[alice.clone(), bob.clone()],
         Some(&observer),
     );
+
+    // Alice and Bob will each have voted once while booting to Nakamoto
+    let alice_nonce = 1;
+    let bob_nonce = 1;
 
     let cycle_id = current_reward_cycle;
 
@@ -182,7 +184,7 @@ fn vote_for_aggregate_public_key_success() {
             alice_index,
             &aggregate_public_key,
             0,
-            cycle_id
+            cycle_id + 1,
         ),
         // Bob casts a vote for the aggregate public key
         make_signers_vote_for_aggregate_public_key(
@@ -191,7 +193,7 @@ fn vote_for_aggregate_public_key_success() {
             bob_index,
             &aggregate_public_key,
             0,
-            cycle_id
+            cycle_id + 1,
         ),
     ];
 
@@ -223,7 +225,7 @@ fn vote_for_aggregate_public_key_success() {
                 ),
                 ("key".into(), aggregate_public_key_value.clone()),
                 ("new-total".into(), Value::UInt(1000000000000000000)),
-                ("reward-cycle".into(), Value::UInt(cycle_id)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
                 ("round".into(), Value::UInt(0)),
                 ("signer".into(), Value::Principal(alice_principal.clone())),
             ])
@@ -250,7 +252,7 @@ fn vote_for_aggregate_public_key_success() {
                 ),
                 ("key".into(), aggregate_public_key_value.clone()),
                 ("new-total".into(), Value::UInt(2000000000000000000)),
-                ("reward-cycle".into(), Value::UInt(cycle_id)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
                 ("round".into(), Value::UInt(0)),
                 ("signer".into(), Value::Principal(bob_principal.clone())),
             ])
@@ -274,7 +276,7 @@ fn vote_for_aggregate_public_key_success() {
                     .expect("Failed to create string")
                 ),
                 ("key".into(), aggregate_public_key_value.clone()),
-                ("reward-cycle".into(), Value::UInt(cycle_id)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
             ])
             .expect("Failed to create tuple")
             .into()
@@ -303,7 +305,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
     );
 
     // create vote txs
-    let signer_nonce = 0;
+    let signer_nonce = 1; // Start at 1 because the signer has already voted once
     let signer_key = &stacker_1.signer_private_key;
     let signer_address = key_to_stacks_addr(signer_key);
     let signer_principal = PrincipalData::from(signer_address);
@@ -321,7 +323,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_index,
             &aggregate_public_key,
             0,
-            cycle_id
+            cycle_id + 1,
         ),
         // cast the vote twice
         make_signers_vote_for_aggregate_public_key(
@@ -330,7 +332,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_index,
             &aggregate_public_key,
             0,
-            cycle_id
+            cycle_id + 1,
         ),
     ];
 
@@ -400,7 +402,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let aggregate_public_key_2 = Point::from(Scalar::from(2));
 
     // create vote txs for alice
-    let signer_1_nonce = 0;
+    let signer_1_nonce = 1; // Start at 1 because the signer has already voted once
     let signer_1_key = &stacker_1.signer_private_key;
     let signer_1_address = key_to_stacks_addr(signer_1_key);
     let signer_1_principal = PrincipalData::from(signer_1_address);
@@ -414,7 +416,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_1,
             1,
-            cycle_id
+            cycle_id + 1,
         ),
         // cast the vote twice
         make_signers_vote_for_aggregate_public_key(
@@ -423,7 +425,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_1,
             1,
-            cycle_id
+            cycle_id + 1,
         ),
         // cast a vote for old round
         make_signers_vote_for_aggregate_public_key(
@@ -432,12 +434,12 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_index,
             &aggregate_public_key_2,
             0,
-            cycle_id
+            cycle_id + 1,
         ),
     ];
 
     // create vote txs for bob
-    let signer_2_nonce = 0;
+    let signer_2_nonce = 1; // Start at 1 because the signer has already voted once
     let signer_2_key = &stacker_2.signer_private_key;
     let signer_2_address = key_to_stacks_addr(signer_2_key);
     let signer_2_principal = PrincipalData::from(signer_2_address);
@@ -451,7 +453,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_2_index,
             &aggregate_public_key_1,
             0,
-            cycle_id
+            cycle_id + 1,
         ),
     ];
 
