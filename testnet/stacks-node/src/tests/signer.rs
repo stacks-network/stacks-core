@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
-use hashbrown::HashMap;
 use libsigner::{
     BlockResponse, RejectCode, RunningSigner, Signer, SignerEventReceiver, SignerMessage,
     BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
@@ -26,9 +25,7 @@ use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::read_next;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey, TrieHash,
-};
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey, TrieHash};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
@@ -46,7 +43,7 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
+    boot_to_epoch_3, boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
     next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
@@ -73,11 +70,11 @@ struct SignerTest {
     // The stx and bitcoin nodes and their run loops
     pub running_nodes: RunningNodes,
     // The channels for sending commands to the signers
-    pub signer_cmd_senders: HashMap<u32, Sender<RunLoopCommand>>,
+    pub signer_cmd_senders: Vec<Sender<RunLoopCommand>>,
     // The channels for receiving results from the signers
     pub result_receivers: Vec<Receiver<Vec<OperationResult>>>,
     // The running signer and its threads
-    pub running_signers: HashMap<u32, RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
+    pub running_signers: Vec<RunningSigner<SignerEventReceiver, Vec<OperationResult>>>,
     // the private keys of the signers
     pub signer_stacks_private_keys: Vec<StacksPrivateKey>,
     // link to the stacks node
@@ -85,15 +82,16 @@ struct SignerTest {
 }
 
 impl SignerTest {
-    fn new(num_signers: u32, _num_keys: u32) -> Self {
+    fn new(num_signers: usize, disable_signing_key: bool) -> Self {
         // Generate Signer Data
         let signer_stacks_private_keys = (0..num_signers)
             .map(|_| StacksPrivateKey::new())
             .collect::<Vec<StacksPrivateKey>>();
 
         let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-        naka_conf.miner.self_signing_key = None;
-
+        if disable_signing_key {
+            naka_conf.miner.self_signing_key = None;
+        }
         // Setup the signer and coordinator configurations
         let signer_configs = build_signer_config_tomls(
             &signer_stacks_private_keys,
@@ -102,29 +100,24 @@ impl SignerTest {
             &Network::Testnet,
         );
 
-        let mut running_signers = HashMap::new();
-        let mut signer_cmd_senders = HashMap::new();
+        let mut running_signers = Vec::new();
+        let mut signer_cmd_senders = Vec::new();
         let mut result_receivers = Vec::new();
-        // Spawn all signers before the node to ensure their listening ports are open for the node event observer to bind to
-        for i in (0..num_signers).rev() {
+        for i in 0..num_signers {
             let (cmd_send, cmd_recv) = channel();
             let (res_send, res_recv) = channel();
             info!("spawn signer");
-            running_signers.insert(
-                i,
-                spawn_signer(&signer_configs[i as usize], cmd_recv, res_send),
-            );
-            signer_cmd_senders.insert(i, cmd_send);
+            running_signers.push(spawn_signer(
+                &signer_configs[i as usize],
+                cmd_recv,
+                res_send,
+            ));
+            signer_cmd_senders.push(cmd_send);
             result_receivers.push(res_recv);
         }
 
         // Setup the nodes and deploy the contract to it
-        let node = setup_stx_btc_node(
-            naka_conf,
-            num_signers,
-            &signer_stacks_private_keys,
-            &signer_configs,
-        );
+        let node = setup_stx_btc_node(naka_conf, &signer_stacks_private_keys, &signer_configs);
         let config = SignerConfig::load_from_str(&signer_configs[0]).unwrap();
         let stacks_client = StacksClient::from(&config);
 
@@ -136,6 +129,74 @@ impl SignerTest {
             signer_stacks_private_keys,
             stacks_client,
         }
+    }
+
+    fn run_until_epoch_3_boundary(&mut self) {
+        let epochs = self.running_nodes.conf.burnchain.epochs.clone().unwrap();
+        let epoch_3 =
+            &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
+
+        let epoch_30_boundary = epoch_3.start_height - 1;
+        // advance to epoch 3.0 and trigger a sign round (cannot vote on blocks in pre epoch 3.0)
+        run_until_burnchain_height(
+            &mut self.running_nodes.btc_regtest_controller,
+            &self.running_nodes.blocks_processed,
+            epoch_30_boundary,
+            &self.running_nodes.conf,
+        );
+        info!("Avanced to Nakamoto! Ready to Sign Blocks!");
+    }
+
+    fn get_current_reward_cycle(&self) -> u64 {
+        let block_height = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_headers_height();
+        self.running_nodes
+            .btc_regtest_controller
+            .get_burnchain()
+            .block_height_to_reward_cycle(block_height)
+            .unwrap()
+    }
+
+    // Will panic if called on a reward cycle that has not had its signers calculated yet
+    fn get_coordinator_sender(&self, reward_cycle: u64) -> &Sender<RunLoopCommand> {
+        debug!(
+            "Getting current coordinator for reward cycle {:?}",
+            reward_cycle
+        );
+        // Calculate which signer is the coordinator
+        let private_key = StacksPrivateKey::new();
+        let node_host = self
+            .running_nodes
+            .conf
+            .node
+            .rpc_bind
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap();
+        // Use the stacks client to calculate the current registered signers and their coordinator
+        let stacks_client = StacksClient::new(private_key, node_host, false);
+        let (coordinator_id, coordinator_pk) = stacks_client.calculate_coordinator(
+            &stacks_client
+                .get_registered_signers_info(reward_cycle)
+                .unwrap()
+                .unwrap()
+                .public_keys,
+        );
+        let coordinator_index = self
+            .signer_stacks_private_keys
+            .iter()
+            .position(|sk| {
+                let pubkey = StacksPublicKey::from_private(sk);
+                let coordinator_pk_bytes = coordinator_pk.to_bytes();
+                let pubkey_bytes = pubkey.to_bytes_compressed();
+                coordinator_pk_bytes.as_slice() == pubkey_bytes.as_slice()
+            })
+            .unwrap();
+        debug!("Coordinator is {coordinator_id:?} ({coordinator_pk:?}). Command sender found at index: {coordinator_index:?}");
+        self.signer_cmd_senders.get(coordinator_index).unwrap()
     }
 
     fn shutdown(self) {
@@ -151,7 +212,7 @@ impl SignerTest {
 
         self.running_nodes.run_loop_thread.join().unwrap();
         // Stop the signers
-        for (_id, signer) in self.running_signers {
+        for signer in self.running_signers {
             assert!(signer.stop().is_none());
         }
     }
@@ -178,9 +239,8 @@ fn spawn_signer(
 
 fn setup_stx_btc_node(
     mut naka_conf: NeonConfig,
-    num_signers: u32,
     signer_stacks_private_keys: &[StacksPrivateKey],
-    signer_config_tomls: &Vec<String>,
+    signer_config_tomls: &[String],
 ) -> RunningNodes {
     // Spawn the endpoints for observing signers
     for toml in signer_config_tomls {
@@ -204,9 +264,9 @@ fn setup_stx_btc_node(
     let mut initial_balances = Vec::new();
 
     // TODO: separate keys for stacking and signing (because they'll be different in prod)
-    for i in 0..num_signers {
+    for key in signer_stacks_private_keys {
         initial_balances.push(InitialBalance {
-            address: to_addr(&signer_stacks_private_keys[i as usize]).into(),
+            address: to_addr(key).into(),
             amount: POX_4_DEFAULT_STACKER_BALANCE,
         });
     }
@@ -224,7 +284,6 @@ fn setup_stx_btc_node(
             }
         }
     }
-
     info!("Make new BitcoinCoreController");
     let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
     btcd_controller
@@ -268,16 +327,6 @@ fn setup_stx_btc_node(
     info!("Mine third block...");
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
-    info!("Boot to epoch 2.5 to activate pox-4...");
-    boot_to_epoch_3_reward_set(
-        &naka_conf,
-        &blocks_processed,
-        signer_stacks_private_keys,
-        signer_stacks_private_keys,
-        &mut btc_regtest_controller,
-    );
-
-    info!("Pox 4 activated and Nakamoto's first reward set calculated! Ready for signers to perform DKG!");
     RunningNodes {
         btcd_controller,
         btc_regtest_controller,
@@ -339,16 +388,43 @@ fn stackerdb_dkg_sign() {
     let mut msg = block.header.signer_signature_hash().0.to_vec();
     msg.push(b'n');
 
-    let signer_test = SignerTest::new(10, 400);
+    let timeout = Duration::from_secs(200);
+    let mut signer_test = SignerTest::new(10, false);
+
+    info!("Boot to epoch 3.0 reward calculation...");
+    boot_to_epoch_3_reward_set(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+    );
+
+    info!("Pox 4 activated and at epoch 3.0 reward set calculation (2nd block of its prepare phase)! Ready for signers to perform DKG and Sign!");
+
+    // Determine the coordinator
+    // we have just calculated the reward set for the next reward cycle hence the + 1
+    let reward_cycle = signer_test.get_current_reward_cycle().wrapping_add(1);
+    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
 
     info!("------------------------- Test DKG -------------------------");
-    info!("signer_runloop: spawn send commands to do dkg");
+    info!("signer_runloop: spawn send commands to do DKG");
     let dkg_now = Instant::now();
     let mut key = Point::default();
+    let dkg_command = RunLoopCommand {
+        reward_cycle,
+        command: SignerCommand::Dkg,
+    };
+    coordinator_sender
+        .send(dkg_command)
+        .expect("failed to send DKG command");
+    info!("signer_runloop: waiting for DKG results");
     for recv in signer_test.result_receivers.iter() {
         let mut aggregate_public_key = None;
         loop {
-            let results = recv.recv().expect("failed to recv dkg results");
+            let results = recv
+                .recv_timeout(timeout)
+                .expect("failed to recv dkg results");
             for result in results {
                 match result {
                     OperationResult::Sign(sig) => {
@@ -369,20 +445,27 @@ fn stackerdb_dkg_sign() {
                     }
                 }
             }
-            if aggregate_public_key.is_some() || dkg_now.elapsed() > Duration::from_secs(200) {
+            if aggregate_public_key.is_some() || dkg_now.elapsed() > timeout {
                 break;
             }
         }
-        key = aggregate_public_key.expect("Failed to get aggregate public key within 200 seconds");
+        key = aggregate_public_key.expect(&format!(
+            "Failed to get aggregate public key within {timeout:?}"
+        ));
     }
     let dkg_elapsed = dkg_now.elapsed();
 
-    // We can't sign a block
+    signer_test.run_until_epoch_3_boundary();
+
     info!("------------------------- Test Sign -------------------------");
+    // Determine the coordinator of the current node height
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
+
     let sign_now = Instant::now();
     info!("signer_runloop: spawn send commands to do dkg and then sign");
     let sign_command = RunLoopCommand {
-        reward_cycle: 11,
+        reward_cycle,
         command: SignerCommand::Sign {
             block: block.clone(),
             is_taproot: false,
@@ -390,26 +473,26 @@ fn stackerdb_dkg_sign() {
         },
     };
     let sign_taproot_command = RunLoopCommand {
-        reward_cycle: 11,
+        reward_cycle,
         command: SignerCommand::Sign {
             block: block.clone(),
             is_taproot: true,
             merkle_root: None,
         },
     };
-    for cmd_sender in signer_test.signer_cmd_senders.values() {
-        cmd_sender
-            .send(sign_command.clone())
-            .expect("failed to send non taproot Sign command");
-        cmd_sender
-            .send(sign_taproot_command.clone())
-            .expect("failed to send taproot Sign command");
-    }
+    coordinator_sender
+        .send(sign_command)
+        .expect("failed to send Sign command");
+    coordinator_sender
+        .send(sign_taproot_command)
+        .expect("failed to send Sign taproot command");
     for recv in signer_test.result_receivers.iter() {
         let mut frost_signature = None;
         let mut schnorr_proof = None;
         loop {
-            let results = recv.recv().expect("failed to recv signature results");
+            let results = recv
+                .recv_timeout(timeout)
+                .expect("failed to recv signature results");
             for result in results {
                 match result {
                     OperationResult::Sign(sig) => {
@@ -432,19 +515,20 @@ fn stackerdb_dkg_sign() {
                 }
             }
             if (frost_signature.is_some() && schnorr_proof.is_some())
-                || sign_now.elapsed() > Duration::from_secs(200)
+                || sign_now.elapsed() > timeout
             {
                 break;
             }
         }
         let frost_signature =
-            frost_signature.expect("Failed to get frost signature within 100 seconds");
+            frost_signature.expect(&format!("Failed to get frost signature within {timeout:?}"));
         assert!(
             frost_signature.verify(&key, msg.as_slice()),
             "Signature verification failed"
         );
-        let schnorr_proof =
-            schnorr_proof.expect("Failed to get schnorr proof signature within 100 seconds");
+        let schnorr_proof = schnorr_proof.expect(&format!(
+            "Failed to get schnorr proof signature within {timeout:?}"
+        ));
         let tweaked_key = wsts::compute::tweaked_public_key(&key, None);
         assert!(
             schnorr_proof.verify(&tweaked_key.x(), &msg.as_slice()),
@@ -464,7 +548,7 @@ fn stackerdb_dkg_sign() {
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is advanced to epoch 3.0, triggering signers to perform DKG round.
+/// The stacks node is advanced to epoch 3.0. DKG foricbly triggered to set the key correctly
 ///
 /// Test Execution:
 /// The node attempts to mine a Nakamoto tenure, sending a block to the observing signers via the
@@ -487,16 +571,36 @@ fn stackerdb_block_proposal() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let mut signer_test = SignerTest::new(5, 5);
+    let mut signer_test = SignerTest::new(5, true);
 
     let (_vrfs_submitted, commits_submitted) = (
         signer_test.running_nodes.vrfs_submitted.clone(),
         signer_test.running_nodes.commits_submitted.clone(),
     );
+    boot_to_epoch_3(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+    );
+
+    // Determine the coordinator
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
+
+    // Forcibly run DKG to overwrite the self signing aggregate key in the contract
     info!("------------------------- Wait for DKG -------------------------");
     info!("signer_runloop: spawn send commands to do dkg");
     let dkg_now = Instant::now();
     let mut key = Point::default();
+    let dkg_command = RunLoopCommand {
+        reward_cycle,
+        command: SignerCommand::Dkg,
+    };
+    coordinator_sender
+        .send(dkg_command)
+        .expect("failed to send DKG command");
     for recv in signer_test.result_receivers.iter() {
         let mut aggregate_public_key = None;
         loop {
@@ -531,42 +635,16 @@ fn stackerdb_block_proposal() {
     }
     let dkg_elapsed = dkg_now.elapsed();
 
-    let epochs = signer_test
-        .running_nodes
-        .conf
-        .burnchain
-        .epochs
-        .clone()
-        .unwrap();
-    let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
-
-    let epoch_30_boundary = epoch_3.start_height - 1;
-    info!(
-        "Advancing to Epoch 3.0 Boundary";
-        "Epoch 3.0 Boundary" => epoch_30_boundary,
-    );
-
-    // Advance to epoch 3.0
-    run_until_burnchain_height(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        &signer_test.running_nodes.blocks_processed,
-        epoch_30_boundary,
-        &signer_test.running_nodes.conf,
-    );
-
-    info!("Avanced to Nakamoto! Ready to Sign Blocks!");
-
     info!("------------------------- Test Block Processed -------------------------");
     let sign_now = Instant::now();
 
     // Mine 1 nakamoto tenure
-    next_block_and_mine_commit(
+    let _ = next_block_and_mine_commit(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         &signer_test.running_nodes.coord_channel,
         &commits_submitted,
-    )
-    .unwrap();
+    );
 
     let recv = signer_test
         .result_receivers
@@ -694,7 +772,7 @@ fn stackerdb_block_proposal_missing_transactions() {
         .init();
 
     info!("------------------------- Test Setup -------------------------");
-    let mut signer_test = SignerTest::new(5, 5);
+    let mut signer_test = SignerTest::new(5, false);
 
     let host = signer_test
         .running_nodes
@@ -733,7 +811,7 @@ fn stackerdb_block_proposal_missing_transactions() {
         .signer_stacks_private_keys
         .iter()
         .find(|pk| {
-            let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(pk));
+            let addr = to_addr(pk);
             addr == signer_address_1
         })
         .cloned()
@@ -742,10 +820,7 @@ fn stackerdb_block_proposal_missing_transactions() {
     let mut stackerdb_1 = StackerDB::new(host, signer_private_key_1, false, 1, 0);
 
     debug!("Signer address is {}", &signer_address_1);
-    assert_eq!(
-        signer_address_1,
-        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&signer_private_key_1))
-    );
+    assert_eq!(signer_address_1, to_addr(&signer_private_key_1),);
 
     // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
     let mut valid_tx = StacksTransaction {
@@ -770,10 +845,7 @@ fn stackerdb_block_proposal_missing_transactions() {
     let invalid_signer_private_key = StacksPrivateKey::new();
     debug!(
         "Invalid address is {}",
-        &StacksAddress::p2pkh(
-            false,
-            &StacksPublicKey::from_private(&invalid_signer_private_key)
-        )
+        to_addr(&invalid_signer_private_key)
     );
     let mut invalid_tx = StacksTransaction {
         version: TransactionVersion::Testnet,
@@ -792,18 +864,32 @@ fn stackerdb_block_proposal_missing_transactions() {
     };
     invalid_tx.set_origin_nonce(0);
 
+    info!("Boot to epoch 3.0 reward calculation...");
+    boot_to_epoch_3_reward_set(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+    );
+
+    info!("Pox 4 activated and at epoch 3.0 reward set calculation (2nd block of its prepare phase)! Ready for signers to perform DKG and Sign!");
+
+    // Determine the coordinator
+    // we have just calculated the reward set for the next reward cycle hence the + 1
+    let reward_cycle = signer_test.get_current_reward_cycle().wrapping_add(1);
+    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
+
     // First run DKG in order to sign the block that arrives from the miners following a nakamoto block production
     // TODO: remove this forcibly running DKG once we have casting of the vote automagically happening during epoch 2.5
     info!("signer_runloop: spawn send commands to do dkg");
     let dkg_command = RunLoopCommand {
-        reward_cycle: 11,
+        reward_cycle,
         command: SignerCommand::Dkg,
     };
-    for cmd_sender in signer_test.signer_cmd_senders.values() {
-        cmd_sender
-            .send(dkg_command.clone())
-            .expect("failed to send Dkg command");
-    }
+    coordinator_sender
+        .send(dkg_command)
+        .expect("failed to send DKG command");
     let recv = signer_test
         .result_receivers
         .last()

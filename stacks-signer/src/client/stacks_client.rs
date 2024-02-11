@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -30,10 +32,11 @@ use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
+use hashbrown::{HashMap, HashSet};
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
-use stacks_common::consts::CHAIN_ID_MAINNET;
+use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stacks_common::types::chainstate::{
     ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
@@ -45,7 +48,7 @@ use wsts::curve::point::{Compressed, Point};
 use wsts::state_machine::PublicKeys;
 
 use crate::client::{retry_with_exponential_backoff, ClientError};
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, RegisteredSignersInfo};
 
 /// The name of the function for casting a DKG result to signer vote contract
 pub const VOTE_FUNCTION_NAME: &str = "vote-for-aggregate-public-key";
@@ -81,6 +84,30 @@ impl From<&GlobalConfig> for StacksClient {
 }
 
 impl StacksClient {
+    /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, and version
+    pub fn new(stacks_private_key: StacksPrivateKey, node_host: SocketAddr, mainnet: bool) -> Self {
+        let pubkey = StacksPublicKey::from_private(&stacks_private_key);
+        let tx_version = if mainnet {
+            TransactionVersion::Mainnet
+        } else {
+            TransactionVersion::Testnet
+        };
+        let chain_id = if mainnet {
+            CHAIN_ID_MAINNET
+        } else {
+            CHAIN_ID_TESTNET
+        };
+        let stacks_address = StacksAddress::p2pkh(mainnet, &pubkey);
+        Self {
+            stacks_private_key,
+            stacks_address,
+            http_origin: format!("http://{}", node_host),
+            tx_version,
+            chain_id,
+            stacks_node_client: reqwest::blocking::Client::new(),
+        }
+    }
+
     /// Get our signer address
     pub fn get_signer_address(&self) -> &StacksAddress {
         &self.stacks_address
@@ -184,6 +211,7 @@ impl StacksClient {
         reward_cycle: u64,
         signer: StacksAddress,
     ) -> Result<Option<Point>, ClientError> {
+        debug!("Getting vote for aggregate public key...");
         let function_name = ClarityName::from("get-vote");
         let function_args = &[
             ClarityValue::UInt(reward_cycle as u128),
@@ -373,7 +401,7 @@ impl StacksClient {
     }
 
     /// Get the reward set from the stacks node for the given reward cycle
-    pub fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
+    fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
         debug!("Getting reward set for reward cycle {reward_cycle}...");
         let send_request = || {
             self.stacks_node_client
@@ -387,6 +415,76 @@ impl StacksClient {
         }
         let stackers_response = response.json::<GetStackersResponse>()?;
         Ok(stackers_response.stacker_set)
+    }
+
+    /// Get registered signers info for the given reward cycle
+    pub fn get_registered_signers_info(
+        &self,
+        reward_cycle: u64,
+    ) -> Result<Option<RegisteredSignersInfo>, ClientError> {
+        let reward_set = self.get_reward_set(reward_cycle)?;
+        let Some(reward_set_signers) = reward_set.signers else {
+            return Ok(None);
+        };
+
+        // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
+        let mut weight_end = 1;
+        let mut coordinator_key_ids = HashMap::with_capacity(4000);
+        let mut signer_key_ids = HashMap::with_capacity(reward_set_signers.len());
+        let mut signer_address_ids = HashMap::with_capacity(reward_set_signers.len());
+        let mut public_keys = PublicKeys {
+            signers: HashMap::with_capacity(reward_set_signers.len()),
+            key_ids: HashMap::with_capacity(4000),
+        };
+        let mut signer_public_keys = HashMap::with_capacity(reward_set_signers.len());
+        for (i, entry) in reward_set_signers.iter().enumerate() {
+            let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
+            let ecdsa_public_key = ecdsa::PublicKey::try_from(entry.signing_key.as_slice()).map_err(|e| {
+                        ClientError::CorruptedRewardSet(format!(
+                                "Reward cycle {reward_cycle} failed to convert signing key to ecdsa::PublicKey: {e}"
+                            ))
+                        })?;
+            let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
+                .map_err(|e| {
+                    ClientError::CorruptedRewardSet(format!(
+                        "Reward cycle {reward_cycle} failed to convert signing key to Point: {e}"
+                    ))
+                })?;
+            let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice()).map_err(|e| {
+                            ClientError::CorruptedRewardSet(format!(
+                                "Reward cycle {reward_cycle} failed to convert signing key to StacksPublicKey: {e}"
+                            ))
+                        })?;
+
+            let stacks_address = StacksAddress::p2pkh(
+                self.tx_version == TransactionVersion::Mainnet,
+                &stacks_public_key,
+            );
+
+            signer_address_ids.insert(stacks_address, signer_id);
+            signer_public_keys.insert(signer_id, signer_public_key);
+            let weight_start = weight_end;
+            weight_end = weight_start + entry.slots;
+            for key_id in weight_start..weight_end {
+                public_keys.key_ids.insert(key_id, ecdsa_public_key);
+                public_keys.signers.insert(signer_id, ecdsa_public_key);
+                coordinator_key_ids
+                    .entry(signer_id)
+                    .or_insert(HashSet::with_capacity(entry.slots as usize))
+                    .insert(key_id);
+                signer_key_ids
+                    .entry(signer_id)
+                    .or_insert(Vec::with_capacity(entry.slots as usize))
+                    .push(key_id);
+            }
+        }
+        Ok(Some(RegisteredSignersInfo {
+            public_keys,
+            signer_key_ids,
+            signer_address_ids,
+            signer_public_keys,
+            coordinator_key_ids,
+        }))
     }
 
     // Helper function to retrieve the pox data from the stacks node
@@ -1327,7 +1425,10 @@ mod tests {
     #[test]
     fn calculate_coordinator_different_consensus_hashes_produces_unique_results() {
         let number_of_tests = 5;
-        let generated_public_keys = generate_reward_cycle_config(10, 4000, None).0.public_keys;
+        let generated_public_keys = generate_reward_cycle_config(10, 4000, None)
+            .0
+            .registered_signers
+            .public_keys;
         let mut results = Vec::new();
 
         for _ in 0..number_of_tests {
@@ -1365,7 +1466,10 @@ mod tests {
         } else {
             Some(same_hash)
         };
-        let generated_public_keys = generate_reward_cycle_config(10, 4000, None).0.public_keys;
+        let generated_public_keys = generate_reward_cycle_config(10, 4000, None)
+            .0
+            .registered_signers
+            .public_keys;
         for _ in 0..count {
             let mock = MockServerClient::new();
             let generated_public_keys = generated_public_keys.clone();

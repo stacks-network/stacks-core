@@ -156,7 +156,7 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::{GlobalConfig, RewardCycleConfig};
+    use crate::config::{GlobalConfig, RegisteredSignersInfo, RewardCycleConfig};
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -397,8 +397,8 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
-    /// Generate a random reward cycle config
-    /// Optionally include a signer pubilc key to set as the first signer id with signer id 0 and signer slot id 0
+    /// Generate a random reward cycle config for signer with id 0 and slot id 0
+    /// Optionally include a signer pubilc key to use for the signer
     pub fn generate_reward_cycle_config(
         num_signers: u32,
         num_keys: u32,
@@ -490,15 +490,17 @@ pub(crate) mod tests {
         }
         (
             RewardCycleConfig {
-                public_keys,
-                key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
-                signer_key_ids,
-                coordinator_key_ids,
-                signer_slot_id: 0,
-                signer_id: 0,
                 reward_cycle,
-                signer_address_ids,
-                signer_public_keys,
+                signer_id: 0,
+                signer_slot_id: 0,
+                key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
+                registered_signers: RegisteredSignersInfo {
+                    public_keys,
+                    coordinator_key_ids,
+                    signer_key_ids,
+                    signer_address_ids,
+                    signer_public_keys,
+                },
             },
             addresses,
         )

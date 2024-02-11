@@ -18,14 +18,11 @@ use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::util_lib::boot::boot_code_id;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use libsigner::{SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
-use stacks_common::types::chainstate::{StacksAddress, StacksPublicKey};
 use stacks_common::{debug, error, info, warn};
-use wsts::curve::ecdsa;
-use wsts::curve::point::{Compressed, Point};
-use wsts::state_machine::{OperationResult, PublicKeys};
+use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
 use crate::config::{GlobalConfig, RewardCycleConfig};
@@ -108,81 +105,33 @@ impl RunLoop {
         };
 
         // We can only register for a reward cycle if a reward set exists. We know that it should exist due to our earlier check for reward_set_calculated
-        let Some(reward_set_signers) = self.stacks_client.get_reward_set(reward_cycle)?.signers
+        let Some(registered_signers) = self
+            .stacks_client
+            .get_registered_signers_info(reward_cycle)?
         else {
             warn!(
                 "No reward set found for reward cycle {reward_cycle}. Must not be a valid Nakamoto reward cycle."
             );
             return Ok(None);
         };
-
-        let mut weight_end = 1;
-        // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
-        let mut coordinator_key_ids = HashMap::with_capacity(4000);
-        let mut signer_key_ids = HashMap::with_capacity(reward_set_signers.len());
-        let mut signer_address_ids = HashMap::with_capacity(reward_set_signers.len());
-        let mut public_keys = PublicKeys {
-            signers: HashMap::with_capacity(reward_set_signers.len()),
-            key_ids: HashMap::with_capacity(4000),
-        };
-        let mut signer_public_keys = HashMap::with_capacity(reward_set_signers.len());
-        for (i, entry) in reward_set_signers.iter().enumerate() {
-            let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
-            let ecdsa_public_key = ecdsa::PublicKey::try_from(entry.signing_key.as_slice()).map_err(|e| {
-                ClientError::CorruptedRewardSet(format!(
-                        "Reward cycle {reward_cycle} failed to convert signing key to ecdsa::PublicKey: {e}"
-                    ))
-                })?;
-            let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
-                .map_err(|e| {
-                    ClientError::CorruptedRewardSet(format!(
-                        "Reward cycle {reward_cycle} failed to convert signing key to Point: {e}"
-                    ))
-                })?;
-            let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice()).map_err(|e| {
-                    ClientError::CorruptedRewardSet(format!(
-                        "Reward cycle {reward_cycle} failed to convert signing key to StacksPublicKey: {e}"
-                    ))
-                })?;
-
-            let stacks_address =
-                StacksAddress::p2pkh(self.config.network.is_mainnet(), &stacks_public_key);
-
-            signer_address_ids.insert(stacks_address, signer_id);
-            signer_public_keys.insert(signer_id, signer_public_key);
-            let weight_start = weight_end;
-            weight_end = weight_start + entry.slots;
-            for key_id in weight_start..weight_end {
-                public_keys.key_ids.insert(key_id, ecdsa_public_key);
-                public_keys.signers.insert(signer_id, ecdsa_public_key);
-                coordinator_key_ids
-                    .entry(signer_id)
-                    .or_insert(HashSet::with_capacity(entry.slots as usize))
-                    .insert(key_id);
-                signer_key_ids
-                    .entry(signer_id)
-                    .or_insert(Vec::with_capacity(entry.slots as usize))
-                    .push(key_id);
-            }
-        }
-        let Some(signer_id) = signer_address_ids.get(current_addr) else {
+        let Some(signer_id) = registered_signers.signer_address_ids.get(current_addr) else {
             warn!("Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}.");
             return Ok(None);
         };
         debug!(
             "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
         );
-        let key_ids = signer_key_ids.get(signer_id).cloned().unwrap_or_default();
+        let key_ids = registered_signers
+            .signer_key_ids
+            .get(signer_id)
+            .cloned()
+            .unwrap_or_default();
         Ok(Some(RewardCycleConfig {
             reward_cycle,
             signer_id: *signer_id,
             signer_slot_id,
-            signer_address_ids,
             key_ids,
-            coordinator_key_ids,
-            signer_key_ids,
-            public_keys,
-            signer_public_keys,
+            registered_signers,
         }))
     }
 
@@ -319,14 +268,23 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             if let Some(stacks_signer) = self.stacks_signers.get_mut(&(reward_cycle % 2)) {
                 if stacks_signer.reward_cycle != reward_cycle {
                     warn!(
-                        "Signer is not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}"
+                        "Signer #{}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}", stacks_signer.signer_id
                     );
                 } else {
+                    info!(
+                        "Signer #{}: Queuing an external runloop command ({:?}): {command:?}",
+                        stacks_signer.signer_id,
+                        stacks_signer
+                            .signing_round
+                            .public_keys
+                            .signers
+                            .get(&stacks_signer.signer_id)
+                    );
                     stacks_signer.commands.push_back(command.command);
                 }
             } else {
                 warn!(
-                    "Signer is not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}"
+                    "No signer registered for reward cycle {reward_cycle}. Ignoring command: {command:?}"
                 );
             }
         }

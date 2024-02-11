@@ -110,15 +110,9 @@ impl Network {
     }
 }
 
-/// The Configuration info needed for an individual signer per reward cycle
+/// The registered signer information for a specific reward cycle
 #[derive(Debug, Clone)]
-pub struct RewardCycleConfig {
-    /// The index into the signers list of this signer's key (may be different from signer_id)
-    pub signer_slot_id: u32,
-    /// The signer ID assigned to this signer
-    pub signer_id: u32,
-    /// The reward cycle of the configuration
-    pub reward_cycle: u64,
+pub struct RegisteredSignersInfo {
     /// The signer to key ids mapping for the coordinator
     pub coordinator_key_ids: HashMap<u32, HashSet<u32>>,
     /// The signer to key ids mapping for the signers
@@ -129,8 +123,21 @@ pub struct RewardCycleConfig {
     pub signer_address_ids: HashMap<StacksAddress, u32>,
     /// The public keys for the reward cycle
     pub public_keys: PublicKeys,
+}
+
+/// The Configuration info needed for an individual signer per reward cycle
+#[derive(Debug, Clone)]
+pub struct RewardCycleConfig {
+    /// The reward cycle of the configuration
+    pub reward_cycle: u64,
+    /// The signer ID assigned to this signer
+    pub signer_id: u32,
+    /// The index into the signers list of this signer's key (may be different from signer_id)
+    pub signer_slot_id: u32,
     /// This signer's key ids
     pub key_ids: Vec<u32>,
+    /// The registered signers for this reward cycle
+    pub registered_signers: RegisteredSignersInfo,
 }
 
 /// The parsed configuration for the signer
