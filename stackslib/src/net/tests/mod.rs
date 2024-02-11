@@ -79,6 +79,7 @@ pub struct NakamotoBootPlan {
     pub test_stackers: Option<Vec<TestStacker>>,
     pub test_signers: Option<TestSigners>,
     pub observer: Option<TestEventObserver>,
+    pub num_peers: usize,
 }
 
 impl NakamotoBootPlan {
@@ -91,6 +92,7 @@ impl NakamotoBootPlan {
             test_stackers: None,
             test_signers: None,
             observer: Some(TestEventObserver::new()),
+            num_peers: 0,
         }
     }
 
@@ -135,6 +137,11 @@ impl NakamotoBootPlan {
 
     pub fn with_test_signers(mut self, test_signers: TestSigners) -> Self {
         self.test_signers = Some(test_signers);
+        self
+    }
+
+    pub fn with_extra_peers(mut self, num_peers: usize) -> Self {
+        self.num_peers = num_peers;
         self
     }
 
@@ -185,13 +192,53 @@ impl NakamotoBootPlan {
         );
     }
 
+    /// Apply burn ops and blocks to the peer replicas
+    fn apply_blocks_to_other_peers(
+        burn_ops: &[BlockstackOperationType],
+        blocks: &[NakamotoBlock],
+        other_peers: &mut [TestPeer],
+    ) {
+        for (i, peer) in other_peers.iter_mut().enumerate() {
+            peer.next_burnchain_block(burn_ops.to_vec());
+
+            let sortdb = peer.sortdb.take().unwrap();
+            let mut node = peer.stacks_node.take().unwrap();
+
+            let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+            let mut sort_handle = sortdb.index_handle(&sort_tip);
+
+            for block in blocks {
+                let block_id = block.block_id();
+                let accepted = Relayer::process_new_nakamoto_block(
+                    &sortdb,
+                    &mut sort_handle,
+                    &mut node.chainstate,
+                    block.clone(),
+                )
+                .unwrap();
+                if accepted {
+                    test_debug!("Accepted Nakamoto block {block_id} to other peer {}", i);
+                    peer.coord.handle_new_nakamoto_stacks_block().unwrap();
+                } else {
+                    panic!(
+                        "Did NOT accept Nakamoto block {block_id} to other peer {}",
+                        i
+                    );
+                }
+            }
+
+            peer.sortdb = Some(sortdb);
+            peer.stacks_node = Some(node);
+        }
+    }
+
     /// Make a peer and transition it into the Nakamoto epoch.
     /// The node needs to be stacking; otherwise, Nakamoto won't activate.
     fn boot_nakamoto<'a>(
         mut self,
         aggregate_public_key: Point,
         observer: Option<&'a TestEventObserver>,
-    ) -> TestPeer<'a> {
+    ) -> (TestPeer<'a>, Vec<TestPeer>) {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
         peer_config.private_key = self.private_key.clone();
         let addr = StacksAddress::from_public_keys(
@@ -259,14 +306,29 @@ impl NakamotoBootPlan {
         peer_config.initial_balances.append(&mut stacker_balances);
         peer_config.test_stackers = Some(test_stackers.clone());
         peer_config.burnchain.pox_constants = self.pox_constants.clone();
-        let mut peer = TestPeer::new_with_observer(peer_config, observer);
-        self.advance_to_nakamoto(&mut peer);
-        peer
+        let mut peer = TestPeer::new_with_observer(peer_config.clone(), observer);
+
+        let mut other_peers = vec![];
+        for i in 0..self.num_peers {
+            let mut other_config = peer_config.clone();
+            other_config.test_name = format!("{}.follower", &peer.config.test_name);
+            other_config.server_port = 0;
+            other_config.http_port = 0;
+            other_config.test_stackers = peer.config.test_stackers.clone();
+            other_config.private_key = StacksPrivateKey::from_seed(&(i as u128).to_be_bytes());
+
+            other_config.add_neighbor(&peer.to_neighbor());
+            other_peers.push(TestPeer::new_with_observer(other_config, None));
+        }
+
+        self.advance_to_nakamoto(&mut peer, &mut other_peers);
+        (peer, other_peers)
     }
 
     /// Bring a TestPeer into the Nakamoto Epoch
-    fn advance_to_nakamoto(&self, peer: &mut TestPeer) {
+    fn advance_to_nakamoto(&self, peer: &mut TestPeer, other_peers: &mut [TestPeer]) {
         let mut peer_nonce = 0;
+        let mut other_peer_nonces = vec![0; other_peers.len()];
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
             &AddressHashMode::SerializeP2PKH,
@@ -297,6 +359,12 @@ impl NakamotoBootPlan {
                 .into()
         {
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            for (other_peer, other_peer_nonce) in
+                other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
+            {
+                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+            }
+
             let tip = {
                 let sort_db = peer.sortdb.as_mut().unwrap();
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -330,6 +398,11 @@ impl NakamotoBootPlan {
             .collect();
 
         peer.tenure_with_txs(&stack_txs, &mut peer_nonce);
+        for (other_peer, other_peer_nonce) in
+            other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
+        {
+            other_peer.tenure_with_txs(&stack_txs, other_peer_nonce);
+        }
 
         debug!("\n\n======================");
         debug!("Advance to Epoch 3.0");
@@ -340,6 +413,11 @@ impl NakamotoBootPlan {
             < Self::nakamoto_start_burn_height(&peer.config.burnchain.pox_constants)
         {
             peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            for (other_peer, other_peer_nonce) in
+                other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
+            {
+                other_peer.tenure_with_txs(&vec![], other_peer_nonce);
+            }
             let tip = {
                 let sort_db = peer.sortdb.as_mut().unwrap();
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
@@ -353,16 +431,16 @@ impl NakamotoBootPlan {
         debug!("========================\n\n");
     }
 
-    pub fn boot_into_nakamoto_peer<'a>(
+    pub fn boot_into_nakamoto_peers<'a>(
         self,
         boot_plan: Vec<NakamotoBootTenure>,
         observer: Option<&'a TestEventObserver>,
-    ) -> TestPeer<'a> {
+    ) -> (TestPeer<'a>, Vec<TestPeer>) {
         let mut test_signers = self.test_signers.clone().unwrap_or(TestSigners::default());
-        let mut peer = self.boot_nakamoto(test_signers.aggregate_public_key.clone(), observer);
+        let (mut peer, mut other_peers) =
+            self.boot_nakamoto(test_signers.aggregate_public_key.clone(), observer);
 
         let mut all_blocks = vec![];
-        let mut rc_burn_ops = vec![];
         let mut consensus_hashes = vec![];
         let mut last_tenure_change: Option<TenureChangePayload> = None;
         let mut blocks_since_last_tenure = 0;
@@ -380,8 +458,6 @@ impl NakamotoBootPlan {
                     let (burn_ops, tenure_change_extend, miner_key) =
                         peer.begin_nakamoto_tenure(TenureChangeCause::Extended);
                     let (_, _, next_consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
-
-                    rc_burn_ops.push(burn_ops);
 
                     let tenure_change = last_tenure_change.clone().unwrap();
                     let blocks: Vec<NakamotoBlock> = all_blocks.last().cloned().unwrap();
@@ -459,6 +535,7 @@ impl NakamotoBootPlan {
                         &boot_steps,
                         num_expected_transactions,
                     );
+                    Self::apply_blocks_to_other_peers(&burn_ops, &blocks, &mut other_peers);
                     all_blocks.push(blocks);
                 }
                 NakamotoBootTenure::Sortition(boot_steps) => {
@@ -543,6 +620,7 @@ impl NakamotoBootPlan {
                         &boot_steps,
                         num_expected_transactions,
                     );
+                    Self::apply_blocks_to_other_peers(&burn_ops, &blocks, &mut other_peers);
 
                     all_blocks.push(blocks);
                 }
@@ -620,7 +698,34 @@ impl NakamotoBootPlan {
                 }
             }
         }
-        peer
+
+        // verify that all other peers kept pace with this peer
+        for other_peer in other_peers.iter_mut() {
+            let (other_highest_tenure, other_sort_tip) = {
+                let chainstate = &mut other_peer.stacks_node.as_mut().unwrap().chainstate;
+                let sort_db = other_peer.sortdb.as_mut().unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
+                let tenure = NakamotoChainState::get_highest_nakamoto_tenure(
+                    chainstate.db(),
+                    sort_db.conn(),
+                )
+                .unwrap()
+                .unwrap();
+                (tenure, tip)
+            };
+
+            assert_eq!(other_highest_tenure, highest_tenure);
+            assert_eq!(other_sort_tip, sort_tip);
+        }
+        (peer, other_peers)
+    }
+
+    pub fn boot_into_nakamoto_peer<'a>(
+        self,
+        boot_plan: Vec<NakamotoBootTenure>,
+        observer: Option<&'a TestEventObserver>,
+    ) -> TestPeer<'a> {
+        self.boot_into_nakamoto_peers(boot_plan, observer).0
     }
 }
 
@@ -740,8 +845,9 @@ fn test_boot_nakamoto_peer() {
     let plan = NakamotoBootPlan::new(&function_name!())
         .with_private_key(private_key)
         .with_pox_constants(10, 3)
-        .with_initial_balances(vec![(addr.into(), 1_000_000)]);
+        .with_initial_balances(vec![(addr.into(), 1_000_000)])
+        .with_extra_peers(2);
 
     let observer = TestEventObserver::new();
-    let peer = plan.boot_into_nakamoto_peer(boot_tenures, Some(&observer));
+    let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(&observer));
 }

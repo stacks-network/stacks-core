@@ -15,13 +15,21 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::collections::BTreeMap;
 
+use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::{Error as NetError, NakamotoInvData};
+use crate::net::NeighborComms;
 use crate::util_lib::db::Error as DBError;
+use crate::net::StacksMessageType;
+use crate::net::GetNakamotoInvData;
+use crate::net::NakamotoInvData;
+
+use stacks_common::util::get_epoch_time_secs();
 
 /// Cached data for a sortition in the sortition DB.
 /// Caching this allows us to avoid calls to `SortitionDB::get_block_snapshot_consensus()`.
@@ -231,5 +239,338 @@ impl InvGenerator {
 
         tenure_status.reverse();
         Ok(tenure_status)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct NakamotoTenureInv {
+    /// Bitmap of which tenures a peer has.
+    /// Maps reward cycle to bitmap.
+    pub tenures_inv: BTreeMap<u64, Vec<u8>>,
+    /// Highest sortition this peer has seen
+    pub highest_sortition: u64,
+    /// Time of last update, in seconds
+    pub last_updated_at: u64,
+    /// Burn block height of first sortition
+    pub first_block_height: u64,
+    /// Length of reward cycle
+    pub reward_cycle_len: u64,
+
+    /// The fields below are used for synchronizing this particular peer's inventories.
+    /// Currently tracked reward cycle
+    pub cur_reward_cycle: u64,
+    /// Status of this node.
+    /// True if we should keep talking to it; false if not
+    pub online: bool,
+    /// Last time we began talking to this peer
+    pub start_sync_time: u64,
+}
+
+impl NakamotoTenureInv {
+    pub fn new(first_block_height: u64, reward_cycle_len: u64) -> Self {
+        Self {
+            tenures_inv: vec![],
+            highest_sortition: 0,
+            last_updated_at: 0,
+            first_block_height,
+            reward_cycle_len,
+            cur_reward_cycle: 0,
+            online: true,
+            start_sync_time: 0,
+        }
+    }
+
+    /// Does this remote neighbor have the ith tenure data for the given (absolute) burn block height?
+    /// (note that block_height is the _absolute_ block height)
+    pub fn has_ith_tenure(&self, burn_block_height: u64) -> bool {
+        if burn_block_height < self.first_block_height {
+            return false;
+        }
+
+        let Some(reward_cycle) = PoxConstants::static_block_height_to_reward_cycle(burn_block_height, self.first_block_height, self.reward_cycle_len) else {
+            return false;
+        };
+
+        let rc_idx = usize::try_from(reward_cycle).expect("FATAL: reward cycle exceeds usize");
+        let Some(rc_tenures) = self.tenures_inv.get(rc_idx) else {
+            return false;
+        };
+
+        let sortition_height = burn_block_height - self.first_block_height;
+        let rc_height = sortition_height % self.reward_cycle_len;
+
+        let idx = usize::try_from(rc_height / 8).expect("FATAL: reward cycle length exceeds host usize");
+        let bit = rc_height % 8;
+
+        rc_tenures
+            .get(idx)
+            .map(|bits| bits & (1 << bit) != 0)
+            .unwrap_or(false)
+    }
+
+    /// How many reward cycles of data do we have for this peer?
+    pub fn num_reward_cycles(&self) -> u64 {
+        let Some((highest_rc, _)) = self.tenures_inv.last_key_value() else {
+            return 0;
+        };
+        *highest_rc
+    }
+
+    /// Add in a newly-discovered inventory.
+    /// NOTE: inventories are supposed to be aligned to the reward cycle
+    pub fn merge_tenure_inv(&mut self, tenure_inv: Vec<u8>, tenure_bitlen: u16, reward_cycle: u64) {
+        // populate the tenures bitmap to we can fit this tenures inv
+        let rc_idx = usize::try_from(reward_cycle).expect("FATAL: reward_cycle exceeds usize");
+
+        self.highest_sortition = self.num_reward_cycles() * self.reward_cycle_len + u64::from(tenure_bitlen);
+        self.tenures_inv[rc_idx] = tenure_inv;
+        self.last_updated_at = get_epoch_time_secs();
+    }
+
+    /// Adjust the next reward cycle to query.
+    /// Returns the reward cycle to query.
+    pub fn next_reward_cycle(&mut self) -> u64 {
+        let query_rc = self.cur_reward_cycle;
+        self.cur_reward_cycle += 1;
+        query_rc
+    }
+
+    /// Reset synchronization state for this peer.  Don't remove inventory data; just make it so we
+    /// can talk to the peer again
+    pub fn try_reset_comms(&mut self, inv_sync_interval: u64, start_rc: u64) {
+        let now = get_epoch_time_secs();
+        if self.start_sync_time + inv_sync_interval <= now {
+            self.online = true;
+            self.start_sync_time = now;
+            self.cur_reward_cycle = start_rc;
+        }
+    }
+
+    /// Get the reward cycle we're sync'ing for
+    pub fn reward_cycle(&self) -> u64 {
+        self.cur_reward_cycle
+    }
+
+    /// Get online status
+    pub fn is_online(&self) -> bool {
+        self.online
+    }
+
+    /// Set online status.  We don't talk to offline peers
+    pub fn set_online(&mut self, online: bool) {
+        self.online = online;
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum NakamotoInvState {
+    GetNakamotoInvBegin,
+    GetNakamotoInvFinish,
+    Done
+}
+
+/// Nakamoto inventory state machine
+pub struct NakamotoInvStateMachine<NC: NeighborComms> {
+    /// What state is the machine in?
+    pub(crate) state: NakamotoInvState,
+    /// Communications links 
+    pub(crate) comms: NC,
+    /// Nakamoto inventories we have
+    inventories: HashMap<NeighborAddress, NakamotoTenureInv>,
+    /// Reward cycle consensus hashes
+    reward_cycle_consensus_hashes: BTreeMap<u64, ConsensusHash>,
+    /// What reward cycle are we in?
+    cur_reward_cycle: u64,
+}
+
+impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
+    pub fn new(comms: NC) -> Self {
+        Self {
+            state: NakamotoInvstate::GetNakamotoInvBegin,
+            comms: NC,
+            inventories: HashMap::new(),
+            reward_cycle_consensus_hashes: BTreeMap::new(),
+            cur_reward_cycle: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.comms.reset();
+        self.inventories.clear();
+        self.state = NakamotoInvState::GetNakamotoInvBegin;
+    }
+
+    /// Get the consensus hash for the first sortition in the given reward cycle
+    fn load_consensus_hash_for_reward_cycle(sortdb: &SortitionDB, reward_cycle: u64) -> Result<Option<ConsensusHash>, NetError> {
+        let consensus_hash = {
+            let reward_cycle_start_height = sortdb
+                .pox_constants
+                .reward_cycle_to_block_height(sortdb.first_block_height, reward_cycle);
+            let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+            let ih = sortdb.index_handle(sn.sortition_id);
+            let Some(rc_start_sn) = ih
+                .get_block_snapshot_by_height(reward_cycle_start_height)?
+            else {
+                return None;
+            };
+            rc_start_sn.consensus_hash
+        };
+        Ok(Some(consensus_hash))
+    }
+
+    /// Populate the reward_cycle_consensus_hash mapping.  Idempotent.
+    /// Returns the current reward cycle.
+    fn update_reward_cycle_consensus_hashes(&mut self, sortdb: &SortitionDB) -> Result<u64, NetError> {
+        let highest_rc = if let Some((highest_rc, _)) = self.reward_cycle_consensus_hashes.last_key_value() {
+            *highest_rc
+        }
+        else {
+            0
+        };
+
+        let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let tip_rc = sortdb
+            .pox_constants
+            .reward_cycle_to_block_height(sortdb.first_block_height, sn.block_height);
+
+        for rc in highest_rc..=tip_rc {
+            if self.reward_cycle_consnsus_hashes.contains_key(&rc) {
+                continue;
+            }
+            let Some(ch) = Self::load_consensus_hash_for_reward_cycle(sortdb, rc)? else {
+                continue;
+            };
+            self.reward_cycle_consensus_hashes.insert(rc, ch);
+        }
+        Ok(tip_rc)
+    }
+
+    /// Make a getnakamotoinv message
+    fn make_getnakamotoinv(&self, reward_cycle: u64) -> Option<StacksMessageType> {
+        let Some(ch) = self.reward_cycle_consensus_hashes.get(&reward_cycle) else {
+            return None;
+        };
+        Some(StacksMessageType::GetNakamotoInv(GetNakamotoInvData {
+            consensus_hash: ch.clone()
+        }))
+    }
+
+    /// Proceed to ask neighbors for their nakamoto tenure inventories.
+    /// If we're in initial block download (ibd), then only ask our bootstrap peers.
+    /// Otherwise, ask everyone.
+    /// Returns Ok(true) if we completed this step of the state machine
+    /// Returns Ok(false) if not (currently this never happens)
+    /// Returns Err(..) on I/O errors
+    pub fn getnakamotoinv_begin(&mut self, network: &mut PeerNetwork, sortdb: &SortitionDB, ibd: bool) -> Result<bool, NetError> {
+        // make sure we know all consensus hashes for all reward cycles.
+        let current_reward_cycle = self.update_reward_cycle_consensus_hashes(sortdb)?;
+        self.cur_reward_cycle = current_reward_cycle;
+
+        // we're updating inventories, so preserve the state we have
+        let mut new_inventories = BTreeMap::new();
+        for event_id in network.peer_iter_event_ids() {
+            let Some(convo) = network.get_p2p_convo(*event_id) else {
+                continue;
+            };
+            if ibd {
+                // in IBD, only connect to initial peers
+                let is_initial = PeerDB::is_initial_peer(
+                    &network.peerdb_conn(),
+                    convo.peer_network_id,
+                    &convo.peer_addrbytes,
+                    convo.peer_port
+                ).unwrap_or(false);
+                if !is_initial {
+                    continue;
+                }
+            }
+
+            let naddr = convo.to_neighbor_address();
+
+            let mut inv = self.inventories
+                .get(&naddr)
+                .clone()
+                .unwrap_or(NakamotoTenureInv::new(
+                    network.get_burnchain().first_block_height,
+                    network.get_burnchain().pox_constants.reward_cycle_len,
+                ));
+
+            // possibly reset communications with this peer, if it's time to do so.
+            inv.try_reset_comms(network.get_connection_opts().inv_sync_interval, current_reward_cycle.saturating_sub(network.get_connection_opts().inv_reward_cycles));
+            if !inv.is_online() {
+                // don't talk to this peer
+                continue;
+            }
+
+            if inv.reward_cycle() > current_reward_cycle {
+                // we've fully sync'ed with this peer
+                continue;
+            }
+
+            // ask this neighbor for its inventory
+            if let Some(getnakamotoinv) = self.make_getnakamotoinv(inv.reward_cycle()) {
+                if let Err(e) = self.comms.neighbor_send(network, &naddr, getnakamotoinv) {
+                    warn!("{:?}: failed to send GetNakamotoInv", network.get_local_peer();
+                          "message" => ?getnakamotoinv,
+                          "peer" => ?naddr,
+                          "error" => ?e
+                    );
+                }
+                else {
+                    // keep this connection open
+                    self.comms.pin_connection(*event_id);
+                }
+            }
+
+            new_inventories.insert(naddr, inv);
+        }
+
+        self.inventories = new_inventories;
+        Ok(true);
+    }
+
+    /// Finish asking for inventories, and update inventory state.
+    pub fn getnakamotoinv_try_finish(&mut self, network: &mut PeerNetwork) -> Result<bool, NetError> {
+        let mut inv_replies = vec![];
+        let mut nack_replies = vec![];
+        for (naddr, reply) in self.comms.collect_replies(network) {
+            match reply {
+                StacksMessageType::NakamotoInv(inv_data) => {
+                    inv_replies.push((naddr, inv_data));
+                }
+                StacksMessageType::Nack(nack_data) => {
+                    nack_replies.push((naddr, nack_data));
+                }
+            }
+        }
+
+        // process NACKs
+        for (naddr, nack_data) in nack_replies.into_iter() {
+            info!("{:?}: remote peer NACKed our GetNakamotoInv", network.get_local_peer();
+                  "error_code" => nack_data.error_code);
+
+            let Some(inv) = self.inventories.get_mut(&naddr) else {
+                continue;
+            };
+
+            // stop talking to this peer
+            inv.set_online(false);
+        }
+
+        // process NakamotoInvs
+        for (naddr, inv_data) in inv_replies.into_iter() {
+            let Some(inv) = self.inventories.get_mut(&naddr) else {
+                info!("{:?}: Drop unsolicited NakamotoInv from {:?}", &network.get_local_peer(), &naddr);
+                continue;
+            };
+            inv.merge_tenure_inv(&inv_data.tenures, inv_data.bitlen, inv.reward_cycle());
+            inv.next_reward_cycle();
+        }
+
+        Ok(self.comms.count_inflight() == 0)
+    }
+
+    pub fn run(&mut self, network: &mut PeerNetwork) -> bool {
+        false
     }
 }

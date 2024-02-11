@@ -563,3 +563,73 @@ fn test_nakamoto_invs_different_anchor_blocks() {
     assert_eq!(reward_cycle_invs.len(), 12);
     check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
 }
+
+#[test]
+fn test_nakamoto_tenure_inv() {
+    let mut nakamoto_inv = NakamotoTenureInv::new(100, 100);
+    assert!(!nakamoto_inv.has_ith_tenure(0));
+    assert!(!nakamoto_inv.has_ith_tenure(99));
+    assert!(!nakamoto_inv.has_ith_tenure(100));
+    assert_eq!(nakamoto_inv.num_reward_cycles(), 0);
+
+    let full_tenure = NakamotoInvData::bools_to_bitvec(vec![true; 100]);
+    nakamoto_inv.merge_tenure_inv(full_tenure, 100, 1);
+
+    for i in 100..200 {
+        assert!(nakamoto_inv.has_ith_tenure(i));
+    }
+    assert!(!nakamoto_inv.has_ith_tenure(99));
+    assert!(!nakamoto_inv.has_ith_tenure(200));
+    assert!(!nakamoto_inv.has_ith_tenure(201));
+    assert_eq!(nakamoto_inv.num_reward_cycles(), 1);
+
+    let mut partial_tenure_bools = vec![];
+    for i in 0..100 {
+        partial_tenure_bools.push(i % 2 == 0);
+    }
+
+    // has_ith_tenure() works (non-triial case)
+    let partial_tenure = NakamotoInvData::bools_to_bitvec(partial_tenure_bools);
+    nakamoto_inv.merge_tenure_inv(partial_tenure, 100, 2);
+
+    for i in 200..300 {
+        assert_eq!(nakamoto_inv.has_ith_tenure(i), i % 2 == 0);
+    }
+    assert!(!nakamoto_inv.has_ith_tenure(99));
+    assert!(!nakamoto_inv.has_ith_tenure(300));
+    assert!(!nakamoto_inv.has_ith_tenure(301));
+    assert_eq!(nakamoto_inv.num_reward_cycles(), 2);
+
+    // supports sparse updates
+    let full_tenure = NakamotoInvData::bools_to_bitvec(vec![true; 100]);
+    nakamoto_inv.merge_tenure_inv(full_tenure, 100, 4);
+    
+    for i in 300..400 {
+        assert_eq!(!nakamoto_inv.has_ith_tenure(i));
+    }
+    for i in 400..500 {
+        assert_eq!(!nakamoto_inv.has_ith_tenure(i));
+    }
+    assert_eq!(nakamoto_inv.num_reward_cycles(), 4);
+    
+    // can overwrite tenures
+    let full_tenure = NakamotoInvData::bools_to_bitvec(vec![true; 100]);
+    nakamoto_inv.merge_tenure_inv(partial_tenure, 100, 2);
+
+    for i in 200..300 {
+        assert!(nakamoto_inv.has_ith_tenure(i));
+    }
+
+    // state machine advances when we say so
+    assert_eq!(nakamoto_inv.reward_cycle(), 0);
+    assert!(nakamoto_inv.is_online());
+    nakamoto_inv.set_online(false);
+    assert!(!nakamoto_inv.is_online());
+
+    nakamoto_inv.next_reward_cycle();
+    assert_eq!(nakamoto_inv.reward_cycle(), 1);
+    
+    nakamoto_inv.try_reset_comms(0, 0);
+    assert_eq!(nakamoto_inv.reward_cycle(), 0);
+    assert!(nakamoto_inv.is_online());
+}
