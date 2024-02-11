@@ -2602,14 +2602,14 @@ impl NakamotoChainState {
             );
         }
 
-        // if !clarity_tx.config.mainnet {
-        //     Self::set_aggregate_public_key(
-        //         &mut clarity_tx,
-        //         first_block_height,
-        //         pox_constants,
-        //         burn_header_height.into(),
-        //     );
-        // }
+        if !clarity_tx.config.mainnet {
+            Self::set_aggregate_public_key(
+                &mut clarity_tx,
+                first_block_height,
+                pox_constants,
+                burn_header_height.into(),
+            );
+        }
 
         // Handle signer stackerdb updates
         let signer_set_calc;

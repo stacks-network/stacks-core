@@ -1397,7 +1397,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
                 // set the aggregate public key for all pre-pox-4 cycles, if in testnet, and can fetch a boot-setting
                 if !mainnet {
                     if let Some(ref agg_pub_key) = initialized_agg_key {
-                        for set_in_reward_cycle in 0..pox_4_first_cycle {
+                        for set_in_reward_cycle in 0..=pox_4_first_cycle {
                             info!(
                                 "Setting initial aggregate-public-key in PoX-4";
                                 "agg_pub_key" => %agg_pub_key,

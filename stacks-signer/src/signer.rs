@@ -106,10 +106,8 @@ pub enum Command {
 pub enum State {
     /// The signer is idle, waiting for messages and commands
     Idle,
-    /// The signer is executing a DKG round
-    Dkg,
-    /// The signer is executing a signing round
-    Sign,
+    /// The signer is executing a DKG or Sign round
+    OperationInProgress,
     /// The Signer has exceeded its tenure
     TenureExceeded,
 }
@@ -146,10 +144,22 @@ impl Signer {
     pub fn from_configs(config: &GlobalConfig, reward_cycle_config: RewardCycleConfig) -> Self {
         let stackerdb = StackerDB::from_configs(config, &reward_cycle_config);
 
-        let num_signers = u32::try_from(reward_cycle_config.public_keys.signers.len())
-            .expect("FATAL: Too many registered signers to fit in a u32");
-        let num_keys = u32::try_from(reward_cycle_config.public_keys.key_ids.len())
-            .expect("FATAL: Too many key ids to fit in a u32");
+        let num_signers = u32::try_from(
+            reward_cycle_config
+                .registered_signers
+                .public_keys
+                .signers
+                .len(),
+        )
+        .expect("FATAL: Too many registered signers to fit in a u32");
+        let num_keys = u32::try_from(
+            reward_cycle_config
+                .registered_signers
+                .public_keys
+                .key_ids
+                .len(),
+        )
+        .expect("FATAL: Too many key ids to fit in a u32");
         let threshold = num_keys * 7 / 10;
         let dkg_threshold = num_keys * 9 / 10;
 
@@ -164,8 +174,8 @@ impl Signer {
             dkg_end_timeout: config.dkg_end_timeout,
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
-            signer_key_ids: reward_cycle_config.coordinator_key_ids,
-            signer_public_keys: reward_cycle_config.signer_public_keys,
+            signer_key_ids: reward_cycle_config.registered_signers.coordinator_key_ids,
+            signer_public_keys: reward_cycle_config.registered_signers.signer_public_keys,
         };
 
         let coordinator = FireCoordinator::new(coordinator_config);
@@ -176,7 +186,7 @@ impl Signer {
             reward_cycle_config.signer_id,
             reward_cycle_config.key_ids,
             config.ecdsa_private_key,
-            reward_cycle_config.public_keys,
+            reward_cycle_config.registered_signers.public_keys,
         );
         Self {
             coordinator,
@@ -187,7 +197,7 @@ impl Signer {
             stackerdb,
             is_mainnet: config.network.is_mainnet(),
             signer_id: reward_cycle_config.signer_id,
-            signer_address_ids: reward_cycle_config.signer_address_ids,
+            signer_address_ids: reward_cycle_config.registered_signers.signer_address_ids,
             reward_cycle: reward_cycle_config.reward_cycle,
             tx_fee_ms: config.tx_fee_ms,
         }
@@ -220,7 +230,7 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
-                        self.state = State::Dkg;
+                        self.state = State::OperationInProgress;
                     }
                     Err(e) => {
                         error!("Signer #{}: Failed to start DKG: {e:?}", self.signer_id);
@@ -232,13 +242,6 @@ impl Signer {
                 is_taproot,
                 merkle_root,
             } => {
-                let epoch = stacks_client
-                    .get_node_epoch_with_retry()
-                    .unwrap_or(StacksEpochId::Epoch24);
-                if epoch != StacksEpochId::Epoch30 {
-                    debug!("Signer #{}: cannot sign blocks in pre Epoch 3.0. Ignoring the sign command.", self.signer_id);
-                    return;
-                };
                 let signer_signature_hash = block.header.signer_signature_hash();
                 let block_info = self
                     .blocks
@@ -257,7 +260,7 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
-                        self.state = State::Sign;
+                        self.state = State::OperationInProgress;
                         block_info.signed_over = true;
                     }
                     Err(e) => {
@@ -275,11 +278,11 @@ impl Signer {
     pub fn process_next_command(&mut self, stacks_client: &StacksClient) {
         match self.state {
             State::Idle => {
-                let (coordinator_id, _) =
+                let (coordinator_id, coordinator_pk) =
                     stacks_client.calculate_coordinator(&self.signing_round.public_keys);
                 if coordinator_id != self.signer_id {
                     debug!(
-                        "Signer #{}: Not the coordinator. Will not process any commands...",
+                        "Signer #{}: Not the coordinator. (Coordinator is {coordinator_id:?}, {coordinator_pk:?}). Will not process any commands...",
                         self.signer_id
                     );
                     return;
@@ -294,12 +297,12 @@ impl Signer {
                     );
                 }
             }
-            State::Dkg | State::Sign => {
+            State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
                 // Do nothing...
                 debug!(
-                    "Signer #{}: Waiting for {:?} operation to finish",
-                    self.signer_id, self.state
+                    "Signer #{}: Waiting for operation to finish",
+                    self.signer_id,
                 );
             }
             State::TenureExceeded => {
@@ -479,6 +482,8 @@ impl Signer {
             self.state = State::Idle;
             self.process_operation_results(stacks_client, &operation_results);
             self.send_operation_results(res, operation_results);
+        } else if self.coordinator.state != CoordinatorState::Idle {
+            self.state = State::OperationInProgress;
         }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
@@ -1169,6 +1174,10 @@ impl Signer {
             && self.signer_id == coordinator_id
             && self.coordinator.state == CoordinatorState::Idle
         {
+            debug!(
+                "Signer #{}: Checking if old transactions exist",
+                self.signer_id
+            );
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
             // TODO: might be better to store these transactions on the side to prevent having to query the stacker db for every signer (only do on initilaization of a new signer for example and then listen for stacker db updates after that)
             let old_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id]).map_err(|e| {
