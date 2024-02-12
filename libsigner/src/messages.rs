@@ -35,14 +35,13 @@ use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
 };
-use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
+use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
 };
 use wsts::common::{PolyCommitment, PublicNonce, Signature, SignatureShare, TupleProof};
-use wsts::curve::keys::PublicKey;
 use wsts::curve::point::{Compressed, Point};
 use wsts::curve::scalar::Scalar;
 use wsts::net::{
@@ -1092,6 +1091,7 @@ impl From<PacketMessage> for SignerMessage {
         Self::Packet(packet_message)
     }
 }
+
 impl From<NackMessage> for SignerMessage {
     fn from(nack_message: NackMessage) -> Self {
         Self::Nack(nack_message)
@@ -1117,7 +1117,7 @@ impl From<BlockValidateReject> for SignerMessage {
 }
 
 /// Signed network packets sent by signers along with their view
-/// of stacks tip consensus hash and block height for
+/// of stacks tip consensus hash and block height
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PacketMessage {
     /// Signed network packet
@@ -1531,10 +1531,7 @@ mod test {
                 sig: vec![1u8; 20],
             },
             packet_signer_id: 0,
-            coordinator_metadata: CoordinatorMetadata {
-                stacks_consensus_hash: ConsensusHash([0u8; 20]),
-                stacks_block_height: 0,
-            },
+            coordinator_metadata: CoordinatorMetadata::default(),
         });
 
         let serialized_signer_message = signer_message.serialize_to_vec();

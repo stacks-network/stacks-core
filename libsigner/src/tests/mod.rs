@@ -110,10 +110,7 @@ fn test_simple_signer() {
         let message = SignerMessage::Packet(PacketMessage {
             packet: Packet { msg, sig: vec![] },
             packet_signer_id: 0,
-            coordinator_metadata: CoordinatorMetadata {
-                stacks_consensus_hash: ConsensusHash([0u8; 20]),
-                stacks_block_height: 0,
-            },
+            coordinator_metadata: CoordinatorMetadata::default(),
         });
         let message_bytes = message.serialize_to_vec();
         let mut chunk = StackerDBChunkData::new(i as u32, 1, message_bytes);
