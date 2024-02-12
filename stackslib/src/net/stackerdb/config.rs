@@ -44,8 +44,8 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::types::{
     BufferLength, FixedFunction, FunctionType, ListTypeData, PrincipalData,
-    QualifiedContractIdentifier, SequenceSubtype, StandardPrincipalData, TupleTypeSignature,
-    TypeSignature,
+    QualifiedContractIdentifier, SequenceData, SequenceSubtype, StandardPrincipalData,
+    TupleTypeSignature, TypeSignature, Value as ClarityValue,
 };
 use clarity::vm::ClarityName;
 use lazy_static::lazy_static;
@@ -54,22 +54,25 @@ use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Hash160;
 
+use super::{STACKERDB_MAX_PAGE_COUNT, STACKERDB_PAGE_LIST_MAX, STACKERDB_SLOTS_FUNCTION};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::Error as chainstate_error;
 use crate::clarity_vm::clarity::{ClarityReadOnlyConnection, Error as clarity_error};
 use crate::net::stackerdb::{
-    StackerDBConfig, StackerDBs, STACKERDB_INV_MAX, STACKERDB_MAX_CHUNK_SIZE,
+    StackerDBConfig, StackerDBs, STACKERDB_CONFIG_FUNCTION, STACKERDB_INV_MAX,
+    STACKERDB_MAX_CHUNK_SIZE,
 };
 use crate::net::{Error as NetError, NeighborAddress};
 
 const MAX_HINT_REPLICAS: u32 = 128;
 
 lazy_static! {
-    pub static ref REQUIRED_FUNCTIONS: [(ClarityName, TypeSignature); 2] = [
+    pub static ref REQUIRED_FUNCTIONS: [(ClarityName, Vec<TypeSignature>, TypeSignature); 2] = [
         (
-            "stackerdb-get-signer-slots".into(),
+            STACKERDB_SLOTS_FUNCTION.into(),
+            vec![],
             TypeSignature::new_response(
                 ListTypeData::new_list(
                     TupleTypeSignature::try_from(vec![
@@ -78,7 +81,7 @@ lazy_static! {
                     ])
                     .expect("FATAL: failed to construct signer list type")
                     .into(),
-                    STACKERDB_INV_MAX
+                    STACKERDB_PAGE_LIST_MAX
                 )
                 .expect("FATAL: could not construct signer list type")
                 .into(),
@@ -86,7 +89,8 @@ lazy_static! {
             ).expect("FATAL: failed to construct response with signer slots"),
         ),
         (
-            "stackerdb-get-config".into(),
+            STACKERDB_CONFIG_FUNCTION.into(),
+            vec![],
             TypeSignature::new_response(
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![
@@ -123,40 +127,88 @@ impl StackerDBConfig {
     /// Returns Ok(..) if the contract is valid
     /// Returns Err(reason) if the contract is invalid.  A human-readable reason will be given.
     fn is_contract_valid(epoch: &StacksEpochId, analysis: ContractAnalysis) -> Result<(), String> {
-        for (name, func_return_type) in REQUIRED_FUNCTIONS.iter() {
+        for (name, expected_args, expected_return) in REQUIRED_FUNCTIONS.iter() {
             let func = if let Some(f) = analysis.read_only_function_types.get(name) {
                 f
             } else if let Some(f) = analysis.public_function_types.get(name) {
                 f
             } else {
-                let reason = format!("Contract is missing function '{}'", name);
+                let reason = format!("Contract is missing function '{name}'");
                 return Err(reason);
             };
 
-            match func {
-                FunctionType::Fixed(FixedFunction { args, returns }) => {
-                    if args.len() != 0 {
-                        let reason = format!("Contract function '{}' has an invalid signature: it must take zero arguments", name);
-                        return Err(reason);
-                    }
-                    if !func_return_type
-                        .admits_type(epoch, &returns)
-                        .unwrap_or(false)
-                    {
-                        let reason = format!("Contract function '{}' has an invalid return type: expected {:?}, got {:?}", name, func_return_type, returns);
-                        return Err(reason);
-                    }
+            let FunctionType::Fixed(func) = func else {
+                return Err(format!("Function '{name}' must be a fixed function"));
+            };
+
+            if func.args.len() != expected_args.len() {
+                let reason = format!(
+                    "Function '{name}' has an invalid signature: it must have {} args (got {})",
+                    expected_args.len(),
+                    func.args.len(),
+                );
+                return Err(reason);
+            }
+            for (actual_arg, expected_arg) in func.args.iter().zip(expected_args.iter()) {
+                if !actual_arg
+                    .signature
+                    .admits_type(epoch, expected_arg)
+                    .unwrap_or(false)
+                {
+                    return Err(format!("Function '{name}' has an invalid argument type: expected {expected_arg}, got {actual_arg}"));
                 }
-                _ => {
-                    let reason = format!("Contract function '{}' is not a fixed function", name);
-                    return Err(reason);
-                }
+            }
+
+            if !expected_return
+                .admits_type(epoch, &func.returns)
+                .unwrap_or(false)
+            {
+                return Err(format!("Function '{name}' has an invalid return type: expected {expected_return}, got {}", &func.returns));
             }
         }
         Ok(())
     }
 
-    /// Evaluate the contract to get its signer slots
+    fn parse_slot_entry(
+        entry: ClarityValue,
+        contract_id: &QualifiedContractIdentifier,
+    ) -> Result<(StacksAddress, u32), String> {
+        let ClarityValue::Tuple(slot_data) = entry else {
+            let reason = format!(
+                "StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` returned non-tuple slot entry",
+            );
+            return Err(reason);
+        };
+
+        let Ok(ClarityValue::Principal(signer_principal)) = slot_data.get("signer") else {
+            let reason = format!(
+                "StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` returned tuple without `signer` entry of type `principal`",
+            );
+            return Err(reason);
+        };
+
+        let Ok(ClarityValue::UInt(num_slots)) = slot_data.get("num-slots") else {
+            let reason = format!(
+                "StackerDB fn `{contract_id}.{STACKERDB_SLOTS_FUNCTION}` returned tuple without `num-slots` entry of type `uint`",
+            );
+            return Err(reason);
+        };
+
+        let num_slots = u32::try_from(*num_slots)
+            .map_err(|_| format!("Contract `{contract_id}` set too many slots for one signer (max = {STACKERDB_INV_MAX})"))?;
+        if num_slots > STACKERDB_INV_MAX {
+            return Err(format!("Contract `{contract_id}` set too many slots for one signer (max = {STACKERDB_INV_MAX})"));
+        }
+
+        let PrincipalData::Standard(standard_principal) = signer_principal else {
+            return Err(format!(
+                "StackerDB contract `{contract_id}` set a contract principal as a writer, which is not supported"
+            ));
+        };
+        let addr = StacksAddress::from(standard_principal.clone());
+        Ok((addr, num_slots))
+    }
+
     fn eval_signer_slots(
         chainstate: &mut StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
@@ -167,7 +219,7 @@ impl StackerDBConfig {
             burn_dbconn,
             tip,
             contract_id,
-            "(stackerdb-get-signer-slots)",
+            &format!("({STACKERDB_SLOTS_FUNCTION})"),
         )?;
 
         let result = value.expect_result()?;
@@ -190,19 +242,13 @@ impl StackerDBConfig {
         let mut total_num_slots = 0u32;
         let mut ret = vec![];
         for slot_value in slot_list.into_iter() {
-            let slot_data = slot_value.expect_tuple()?;
-            let signer_principal = slot_data
-                .get("signer")
-                .expect("FATAL: no 'signer'")
-                .clone()
-                .expect_principal()?;
-            let num_slots_uint = slot_data
-                .get("num-slots")
-                .expect("FATAL: no 'num-slots'")
-                .clone()
-                .expect_u128()?;
+            let (addr, num_slots) =
+                Self::parse_slot_entry(slot_value, contract_id).map_err(|e| {
+                    warn!("Failed to parse StackerDB slot entry: {}", &e);
+                    NetError::InvalidStackerDBContract(contract_id.clone(), e)
+                })?;
 
-            if num_slots_uint > (STACKERDB_INV_MAX as u128) {
+            if num_slots > STACKERDB_INV_MAX {
                 let reason = format!(
                     "Contract {} stipulated more than maximum number of slots for one signer ({})",
                     contract_id, STACKERDB_INV_MAX
@@ -213,7 +259,7 @@ impl StackerDBConfig {
                     reason,
                 ));
             }
-            let num_slots = num_slots_uint as u32;
+
             total_num_slots =
                 total_num_slots
                     .checked_add(num_slots)
@@ -233,22 +279,6 @@ impl StackerDBConfig {
                     reason,
                 ));
             }
-
-            // standard principals only
-            let addr = match signer_principal {
-                PrincipalData::Contract(..) => {
-                    let reason = format!("Contract {} stipulated a contract principal as a writer, which is not supported", contract_id);
-                    warn!("{}", &reason);
-                    return Err(NetError::InvalidStackerDBContract(
-                        contract_id.clone(),
-                        reason,
-                    ));
-                }
-                PrincipalData::Standard(StandardPrincipalData(version, bytes)) => StacksAddress {
-                    version,
-                    bytes: Hash160(bytes),
-                },
-            };
 
             ret.push((addr, num_slots));
         }
@@ -466,33 +496,31 @@ impl StackerDBConfig {
         let dbconn = sortition_db.index_conn();
 
         // check the target contract
-        let res =
-            chainstate.maybe_read_only_clarity_tx(&dbconn, &chain_tip_hash, |clarity_tx| {
-                // determine if this contract exists and conforms to this trait
-                clarity_tx.with_clarity_db_readonly(|db| {
-                    // contract must exist or this errors out
-                    let analysis = db
-                        .load_contract_analysis(contract_id)?
-                        .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
+        let res = chainstate.with_read_only_clarity_tx(&dbconn, &chain_tip_hash, |clarity_tx| {
+            // determine if this contract exists and conforms to this trait
+            clarity_tx.with_clarity_db_readonly(|db| {
+                // contract must exist or this errors out
+                let analysis = db
+                    .load_contract_analysis(contract_id)?
+                    .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
 
-                    // contract must be consistent with StackerDB control interface
-                    if let Err(invalid_reason) =
-                        Self::is_contract_valid(&cur_epoch.epoch_id, analysis)
-                    {
-                        let reason = format!(
-                            "Contract {} does not conform to StackerDB trait: {}",
-                            contract_id, invalid_reason
-                        );
-                        warn!("{}", &reason);
-                        return Err(NetError::InvalidStackerDBContract(
-                            contract_id.clone(),
-                            reason,
-                        ));
-                    }
+                // contract must be consistent with StackerDB control interface
+                if let Err(invalid_reason) = Self::is_contract_valid(&cur_epoch.epoch_id, analysis)
+                {
+                    let reason = format!(
+                        "Contract {} does not conform to StackerDB trait: {}",
+                        contract_id, invalid_reason
+                    );
+                    warn!("{}", &reason);
+                    return Err(NetError::InvalidStackerDBContract(
+                        contract_id.clone(),
+                        reason,
+                    ));
+                }
 
-                    Ok(())
-                })
-            })?;
+                Ok(())
+            })
+        });
 
         if res.is_none() {
             let reason = format!(

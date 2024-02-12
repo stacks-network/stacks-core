@@ -35,6 +35,7 @@ use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as CodecError,
     StacksMessageCodec,
 };
+pub use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use tiny_http::{
     Method as HttpMethod, Request as HttpRequest, Response as HttpResponse, Server as HttpServer,
@@ -345,8 +346,10 @@ fn process_stackerdb_event(
             .filter_map(|chunk| read_next::<NakamotoBlock, _>(&mut &chunk.data[..]).ok())
             .collect();
         SignerEvent::ProposedBlocks(blocks)
-    } else if event.contract_id.name.to_string() == SIGNERS_NAME {
-        // TODO: fix this to be against boot_code_id(SIGNERS_NAME, is_mainnet) when .signers is deployed
+    } else if event.contract_id.name.to_string().starts_with(SIGNERS_NAME)
+        && event.contract_id.issuer.1 == [0u8; 20]
+    {
+        // signer-XXX-YYY boot contract
         let signer_messages: Vec<SignerMessage> = event
             .modified_slots
             .iter()

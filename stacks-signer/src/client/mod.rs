@@ -79,6 +79,12 @@ pub enum ClientError {
     /// Backoff retry timeout
     #[error("Backoff retry timeout occurred. Stacks node may be down.")]
     RetryTimeout,
+    /// Not connected
+    #[error("Not connected")]
+    NotConnected,
+    /// Invalid signing key
+    #[error("Signing key not represented in the list of signers")]
+    InvalidSigningKey,
     /// Clarity interpreter error
     #[error("Clarity interpreter error: {0}")]
     ClarityError(ClarityError),

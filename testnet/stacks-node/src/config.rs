@@ -12,6 +12,7 @@ use lazy_static::lazy_static;
 use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
+use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -33,6 +34,7 @@ use stacks::net::{Neighbor, NeighborKey};
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::Error as DBError;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
+use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::net::PeerAddress;
 use stacks_common::types::Address;
@@ -216,6 +218,7 @@ impl ConfigFile {
         let node = NodeConfigFile {
             bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444".to_string()),
             miner: Some(false),
+            stacker: Some(false),
             ..NodeConfigFile::default()
         };
 
@@ -261,6 +264,7 @@ impl ConfigFile {
         let node = NodeConfigFile {
             bootstrap_node: Some("02196f005965cebe6ddc3901b7b1cc1aa7a88f305bb8c5893456b8f9a605923893@seed.mainnet.hiro.so:20444,02539449ad94e6e6392d8c1deb2b4e61f80ae2a18964349bc14336d8b903c46a8c@cet.stacksnodes.org:20444,02ececc8ce79b8adf813f13a0255f8ae58d4357309ba0cedd523d9f1a306fcfb79@sgt.stacksnodes.org:20444,0303144ba518fe7a0fb56a8a7d488f950307a4330f146e1e1458fc63fb33defe96@est.stacksnodes.org:20444".to_string()),
             miner: Some(false),
+            stacker: Some(false),
             ..NodeConfigFile::default()
         };
 
@@ -329,6 +333,7 @@ impl ConfigFile {
         let node = NodeConfigFile {
             bootstrap_node: None,
             miner: Some(true),
+            stacker: Some(true),
             ..NodeConfigFile::default()
         };
 
@@ -392,6 +397,7 @@ impl ConfigFile {
 
         let node = NodeConfigFile {
             miner: Some(false),
+            stacker: Some(false),
             ..NodeConfigFile::default()
         };
 
@@ -411,6 +417,7 @@ impl ConfigFile {
 
         let node = NodeConfigFile {
             miner: Some(false),
+            stacker: Some(false),
             ..NodeConfigFile::default()
         };
 
@@ -957,12 +964,25 @@ impl Config {
         }
 
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
-        if node.miner
+        if (node.stacker || node.miner)
             && burnchain.mode == "nakamoto-neon"
             && !node.stacker_dbs.contains(&miners_contract_id)
         {
-            debug!("A miner must subscribe to the {miners_contract_id} stacker db contract. Forcibly subscribing...");
+            debug!("A miner/stacker must subscribe to the {miners_contract_id} stacker db contract. Forcibly subscribing...");
             node.stacker_dbs.push(miners_contract_id);
+        }
+        if (node.stacker || node.miner) && burnchain.mode == "nakamoto-neon" {
+            for signer_set in 0..2 {
+                for message_id in 0..SIGNER_SLOTS_PER_USER {
+                    let contract_id = NakamotoSigners::make_signers_db_contract_id(
+                        signer_set, message_id, is_mainnet,
+                    );
+                    if !node.stacker_dbs.contains(&contract_id) {
+                        debug!("A miner/stacker must subscribe to the {contract_id} stacker db contract. Forcibly subscribing...");
+                        node.stacker_dbs.push(contract_id);
+                    }
+                }
+            }
         }
 
         let miner = match config_file.miner {
@@ -1545,6 +1565,7 @@ pub struct NodeConfig {
     pub bootstrap_node: Vec<Neighbor>,
     pub deny_nodes: Vec<Neighbor>,
     pub miner: bool,
+    pub stacker: bool,
     pub mock_mining: bool,
     pub mine_microblocks: bool,
     pub microblock_frequency: u64,
@@ -1832,6 +1853,7 @@ impl Default for NodeConfig {
             deny_nodes: vec![],
             local_peer_seed: local_peer_seed.to_vec(),
             miner: false,
+            stacker: false,
             mock_mining: false,
             mine_microblocks: true,
             microblock_frequency: 30_000,
@@ -2213,6 +2235,7 @@ pub struct NodeConfigFile {
     pub bootstrap_node: Option<String>,
     pub local_peer_seed: Option<String>,
     pub miner: Option<bool>,
+    pub stacker: Option<bool>,
     pub mock_mining: Option<bool>,
     pub mine_microblocks: Option<bool>,
     pub microblock_frequency: Option<u64>,
@@ -2240,6 +2263,7 @@ impl NodeConfigFile {
     fn into_config_default(self, default_node_config: NodeConfig) -> Result<NodeConfig, String> {
         let rpc_bind = self.rpc_bind.unwrap_or(default_node_config.rpc_bind);
         let miner = self.miner.unwrap_or(default_node_config.miner);
+        let stacker = self.stacker.unwrap_or(default_node_config.stacker);
         let node_config = NodeConfig {
             name: self.name.unwrap_or(default_node_config.name),
             seed: match self.seed {
@@ -2264,6 +2288,7 @@ impl NodeConfigFile {
                 None => default_node_config.local_peer_seed,
             },
             miner,
+            stacker,
             mock_mining: self.mock_mining.unwrap_or(default_node_config.mock_mining),
             mine_microblocks: self
                 .mine_microblocks
