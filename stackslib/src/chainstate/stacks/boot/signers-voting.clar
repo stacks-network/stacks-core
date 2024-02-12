@@ -51,7 +51,7 @@
     (map-get? votes {reward-cycle: reward-cycle, round: round, signer: signer}))
 
 (define-read-only (get-candidate-info (reward-cycle uint) (round uint) (candidate (buff 33)))
-    {candidate-weight: (default-to u0 (map-get? tally reward-cycle round candidate))
+    {candidate-weight: (default-to u0 (map-get? tally {reward-cycle: reward-cycle, round: round, aggregate-public-key: candidate})),
     total-weight: (map-get? cycle-total-weight reward-cycle)})
 
 (define-read-only (get-tally (reward-cycle uint) (round uint) (aggregate-public-key (buff 33)))
