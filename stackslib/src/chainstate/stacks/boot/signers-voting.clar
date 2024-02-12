@@ -24,7 +24,7 @@
 ;; Threshold consensus (in 3 digit %)
 (define-constant threshold-consensus u700)
 
-;; maps reward-cycle ids to last round
+;; Maps reward-cycle ids to last round
 (define-map rounds uint uint)
 
 ;; Maps reward-cycle ids to aggregate public key.
@@ -79,8 +79,7 @@
 
 ;; get the aggregate public key for the given reward cycle (or none)
 (define-read-only (get-approved-aggregate-key (reward-cycle uint))
-    (map-get? aggregate-public-keys reward-cycle)
-)
+    (map-get? aggregate-public-keys reward-cycle))
 
 (define-private (is-in-voting-window (height uint) (reward-cycle uint))
     (let ((last-cycle (unwrap-panic (contract-call? .signers get-last-set-cycle))))
@@ -88,21 +87,15 @@
             (is-in-prepare-phase height))))
 
 (define-private (sum-weights (signer { signer: principal, weight: uint }) (acc uint))
-    (+ acc (get weight signer))
-)
+    (+ acc (get weight signer)))
 
 (define-private (get-total-weight (reward-cycle uint))
     (match (map-get? cycle-total-weight reward-cycle)
         total (ok total)
-        (let (
-                (signers (unwrap! (contract-call? .signers get-signers reward-cycle) (err ERR_FAILED_TO_RETRIEVE_SIGNERS)))
-                (total (fold sum-weights signers u0))
-            )
+        (let ((signers (unwrap! (contract-call? .signers get-signers reward-cycle) (err ERR_FAILED_TO_RETRIEVE_SIGNERS)))
+                (total (fold sum-weights signers u0)))
             (map-set cycle-total-weight reward-cycle total)
-            (ok total)
-        )
-    )
-)
+            (ok total))))
 
 ;; Signer vote for the aggregate public key of the next reward cycle
 ;;  The vote happens in the prepare phase of the current reward cycle but may be ran more than
@@ -138,12 +131,12 @@
         })
         ;; Check if consensus has been reached
         (and
-            ;; If we already have consensus, skip this
-            (is-none (map-get? aggregate-public-keys reward-cycle))
             ;; If the new total weight is greater than or equal to the threshold consensus
             (>= (/ (* new-total u1000) total-weight) threshold-consensus)
-            ;; Save this approved aggregate public key for this reward cycle
-            (map-set aggregate-public-keys reward-cycle key)
+            ;; Save this approved aggregate public key for this reward cycle.
+            ;; If there is already a key for this cycle, this will return false
+            ;; there will be no duplicate event.
+            (map-insert aggregate-public-keys reward-cycle key)
             ;; Create an event for the approved aggregate public key
             (begin
                 (print {
