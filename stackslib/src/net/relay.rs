@@ -730,7 +730,7 @@ impl Relayer {
             );
             return Ok(false);
         };
-        let staging_db_tx = chainstate.db_tx_begin()?;
+        let staging_db_tx = chainstate.staging_db_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
             &config,
             block,
