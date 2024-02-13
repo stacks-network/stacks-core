@@ -1972,6 +1972,7 @@ pub mod test {
         /// aggregate public key to use
         pub aggregate_public_key: Option<Point>,
         pub test_stackers: Option<Vec<TestStacker>>,
+        pub test_signers: Option<TestSigners>,
     }
 
     impl TestPeerConfig {
@@ -2037,6 +2038,7 @@ pub mod test {
                     | (ServiceFlags::STACKERDB as u16),
                 aggregate_public_key: None,
                 test_stackers: None,
+                test_signers: None,
             }
         }
 

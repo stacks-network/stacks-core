@@ -232,6 +232,7 @@ pub fn boot_nakamoto<'a>(
     peer_config.burnchain.pox_constants.v3_unlock_height = 27;
     peer_config.burnchain.pox_constants.pox_4_activation_height = 31;
     peer_config.test_stackers = Some(test_stackers.to_vec());
+    peer_config.test_signers = Some(test_signers.clone());
     let mut peer = TestPeer::new_with_observer(peer_config, observer);
 
     advance_to_nakamoto(&mut peer, &test_signers, test_stackers);
@@ -248,13 +249,10 @@ fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     replay_config.test_stackers = peer.config.test_stackers.clone();
 
     let test_stackers = replay_config.test_stackers.clone().unwrap_or(vec![]);
+    let test_signers = replay_config.test_signers.clone().unwrap();
     let mut replay_peer = TestPeer::new(replay_config);
     let observer = TestEventObserver::new();
-    advance_to_nakamoto(
-        &mut replay_peer,
-        &TestSigners::default(),
-        test_stackers.as_slice(),
-    );
+    advance_to_nakamoto(&mut replay_peer, &test_signers, test_stackers.as_slice());
 
     // sanity check
     let replay_tip = {
