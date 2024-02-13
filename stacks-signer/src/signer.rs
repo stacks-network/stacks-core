@@ -287,11 +287,7 @@ impl Signer {
 
     /// Attempt to process the next command in the queue, and update state accordingly
     pub fn process_next_command(&mut self, stacks_client: &StacksClient) {
-        let coordinator_id = self.coordinator_selector.get_coordinator(&stacks_client).0;
-        if self.coordinator_selector.last_message_time.is_none() {
-            self.state = State::Idle;
-            self.coordinator.state = CoordinatorState::Idle;
-        }
+        let coordinator_id = self.coordinator_selector.get_coordinator().0;
         match &self.state {
             State::Idle => {
                 if coordinator_id != self.signer_id {
@@ -390,7 +386,7 @@ impl Signer {
             };
             self.handle_packets(stacks_client, res, &[packet]);
         } else {
-            let coordinator_id = self.coordinator_selector.get_coordinator(&stacks_client).0;
+            let coordinator_id = self.coordinator_selector.get_coordinator().0;
             if block_info.valid.unwrap_or(false)
                 && !block_info.signed_over
                 && coordinator_id == self.signer_id
@@ -425,8 +421,7 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         messages: &[SignerMessage],
     ) {
-        let (_coordinator_id, coordinator_pubkey) =
-            self.coordinator_selector.get_coordinator(&stacks_client);
+        let coordinator_pubkey = self.coordinator_selector.get_coordinator().1;
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
@@ -1182,7 +1177,7 @@ impl Signer {
             self.coordinator
                 .set_aggregate_public_key(new_aggregate_public_key);
         }
-        let coordinator_id = self.coordinator_selector.get_coordinator(stacks_client).0;
+        let coordinator_id = self.coordinator_selector.get_coordinator().0;
         if new_aggregate_public_key.is_none()
             && self.signer_id == coordinator_id
             && self.state == State::Idle

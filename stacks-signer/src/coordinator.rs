@@ -22,10 +22,10 @@ use wsts::state_machine::PublicKeys;
 use crate::client::StacksClient;
 
 /// TODO: test this value and adjust as necessary. Maybe make configurable?
-pub const COORDINATOR_OPERATION_TIMEOUT_SECS: u64 = 500;
+pub const COORDINATOR_OPERATION_TIMEOUT_SECS: u64 = 300;
 
 /// TODO: test this value and adjust as necessary. Maybe make configurable?
-pub const COORDINATOR_TENURE_TIMEOUT_SECS: u64 = 1000;
+pub const COORDINATOR_TENURE_TIMEOUT_SECS: u64 = 600;
 
 /// The coordinator selector
 #[derive(Clone, Debug)]
@@ -97,24 +97,28 @@ impl Selector {
         self.last_message_time = None;
     }
 
-    /// Get the coordinator id and public key
-    pub fn get_coordinator(&mut self, stacks_client: &StacksClient) -> (u32, ecdsa::PublicKey) {
+    /// Check the coordinator timeouts and update the selected coordinator accordingly
+    /// Returns true if the coordinator was updated, else false
+    pub fn refresh_coordinator(&mut self, stacks_client: &StacksClient) -> bool {
+        let old_coordinator_id = self.coordinator_id;
         let new_coordinator_ids = stacks_client.calculate_coordinator_ids(&self.public_keys);
-        if self.tenure_start.elapsed().as_secs() > COORDINATOR_TENURE_TIMEOUT_SECS {
-            // We have exceeded our tenure. We should consider any operation finished and use a new coordinator id.
-            self.update_coordinator(new_coordinator_ids);
-        } else {
-            if let Some(time) = self.last_message_time {
-                if time.elapsed().as_secs() > COORDINATOR_OPERATION_TIMEOUT_SECS {
-                    // We have not received a message in a while from this coordinator.
-                    // We should consider the operation finished and use a new coordinator id.
-                    self.update_coordinator(new_coordinator_ids);
-                }
-            } else if new_coordinator_ids != self.coordinator_ids {
-                // We have advanced our block height and should select from the new list
+        if let Some(time) = self.last_message_time {
+            if time.elapsed().as_secs() > COORDINATOR_OPERATION_TIMEOUT_SECS {
+                // We have not received a message in a while from this coordinator.
+                // We should consider the operation finished and use a new coordinator id.
                 self.update_coordinator(new_coordinator_ids);
             }
+        } else if self.tenure_start.elapsed().as_secs() > COORDINATOR_TENURE_TIMEOUT_SECS
+            || new_coordinator_ids != self.coordinator_ids
+        {
+            // Our tenure has been exceeded or we have advanced our block height and should select from the new list
+            self.update_coordinator(new_coordinator_ids);
         }
+        old_coordinator_id != self.coordinator_id
+    }
+
+    /// Get the current coordinator id and public key
+    pub fn get_coordinator(&self) -> (u32, ecdsa::PublicKey) {
         (
             self.coordinator_id,
             self.public_keys
