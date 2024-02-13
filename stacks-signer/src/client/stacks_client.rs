@@ -115,6 +115,8 @@ impl StacksClient {
 
     /// Calculate the coordinator address by comparing the provided public keys against the stacks tip consensus hash
     pub fn calculate_coordinator(&self, public_keys: &PublicKeys) -> (u32, ecdsa::PublicKey) {
+        // TODO: return the entire list. Might be at the same block height for a long time and need to move to the second item in the list
+        // Add logic throughout signer to track the current coordinator list and offset in the list
         let stacks_tip_consensus_hash =
             match retry_with_exponential_backoff(|| {
                 self.get_stacks_tip_consensus_hash()
