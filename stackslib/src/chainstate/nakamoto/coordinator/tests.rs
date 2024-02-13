@@ -1155,6 +1155,13 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
             coinbase_tx,
             &mut test_signers,
             |miner, chainstate, sortdb, blocks_so_far| {
+                // Include the aggregate key voting transactions in the first block.
+                let mut txs = if blocks_so_far.is_empty() {
+                    txs.clone()
+                } else {
+                    vec![]
+                };
+
                 if blocks_so_far.len() < num_blocks {
                     debug!("\n\nProduce block {}\n\n", all_blocks.len());
 
@@ -1169,9 +1176,9 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
                         1,
                         &recipient_addr,
                     );
-                    txs_clone.push(stx_transfer);
+                    txs.push(stx_transfer);
                 }
-                txs_clone
+                txs
             },
         );
 
