@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
+use std::time::Instant;
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
@@ -47,6 +48,8 @@ use crate::client::{
 };
 use crate::config::{GlobalConfig, RewardCycleConfig};
 
+/// TODO: test this value and adjust as necessary. Maybe make configurable?
+pub const COORDINATOR_OPERATION_TIMEOUT: u64 = 200;
 /// Additional Info about a proposed block
 pub struct BlockInfo {
     /// The block we are considering
@@ -101,13 +104,22 @@ pub enum Command {
     },
 }
 
+/// The coordinator info for a specific in progress operation
+#[derive(PartialEq, Clone, Debug)]
+pub struct CoordinatorInfo {
+    /// The coordinator id
+    pub coordinator_id: u32,
+    /// The last message received time
+    pub last_message_time: Instant,
+}
+
 /// The Signer state
 #[derive(PartialEq, Debug, Clone)]
 pub enum State {
     /// The signer is idle, waiting for messages and commands
     Idle,
     /// The signer is executing a DKG or Sign round
-    OperationInProgress,
+    OperationInProgress(CoordinatorInfo),
     /// The Signer has exceeded its tenure
     TenureExceeded,
 }
@@ -230,7 +242,10 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
-                        self.state = State::OperationInProgress;
+                        self.state = State::OperationInProgress(CoordinatorInfo {
+                            coordinator_id: self.signer_id,
+                            last_message_time: Instant::now(),
+                        });
                     }
                     Err(e) => {
                         error!("Signer #{}: Failed to start DKG: {e:?}", self.signer_id);
@@ -260,7 +275,10 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
-                        self.state = State::OperationInProgress;
+                        self.state = State::OperationInProgress(CoordinatorInfo {
+                            coordinator_id: self.signer_id,
+                            last_message_time: Instant::now(),
+                        });
                         block_info.signed_over = true;
                     }
                     Err(e) => {
@@ -276,7 +294,7 @@ impl Signer {
 
     /// Attempt to process the next command in the queue, and update state accordingly
     pub fn process_next_command(&mut self, stacks_client: &StacksClient) {
-        match self.state {
+        match &self.state {
             State::Idle => {
                 let (coordinator_id, coordinator_pk) =
                     stacks_client.calculate_coordinator(&self.signing_round.public_keys);
@@ -297,9 +315,22 @@ impl Signer {
                     );
                 }
             }
-            State::OperationInProgress => {
+            State::OperationInProgress(coordinator_info) => {
                 // We cannot execute the next command until the current one is finished...
                 // Do nothing...
+                if coordinator_info.last_message_time.elapsed().as_secs()
+                    > COORDINATOR_OPERATION_TIMEOUT
+                {
+                    debug!(
+                        "Signer #{}: Operation from coordinator {} timed out.",
+                        self.signer_id, coordinator_info.coordinator_id
+                    );
+                    // We have not received a message in a while. We should consider the operation finished and use a new coordinator id.
+                    self.coordinator.state = CoordinatorState::Idle;
+                    self.signing_round.state = wsts::state_machine::signer::State::Idle;
+                    self.state = State::Idle;
+                    self.process_next_command(stacks_client);
+                }
                 debug!(
                     "Signer #{}: Waiting for operation to finish",
                     self.signer_id,
@@ -415,23 +446,45 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         messages: &[SignerMessage],
     ) {
-        let (coordinator_id, coordinator_public_key) =
+        let (mut coordinator_id, mut coordinator_pubkey) =
             stacks_client.calculate_coordinator(&self.signing_round.public_keys);
-        debug!(
-            "Signer #{}: coordinator is signer #{} public key {}",
-            self.signer_id, coordinator_id, &coordinator_public_key
-        );
+        // TODO return the list of coordinators in case we are stuck at a block for quite some time.
+        if let State::OperationInProgress(info) = &self.state {
+            if let Some(pubkey) = self
+                .signing_round
+                .public_keys
+                .signers
+                .get(&info.coordinator_id)
+            {
+                coordinator_pubkey = pubkey.clone();
+                coordinator_id = info.coordinator_id;
+                debug!(
+                        "Signer #{:?}: Operation in progress led by coordinator ID {coordinator_id:?} ({coordinator_pubkey:?})",
+                        self.signer_id
+                    );
+            }
+        }
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
                 // TODO: should we store the received transactions on the side and use them rather than directly querying the stacker db slots?
                 SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
                 SignerMessage::Packet(packet) => {
-                    self.verify_packet(stacks_client, packet.clone(), &coordinator_public_key)
+                    self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
                 }
             })
             .collect();
         self.handle_packets(stacks_client, res, &packets);
+        if self.state == State::Idle
+            && self.coordinator.state != CoordinatorState::Idle
+            && !packets.is_empty()
+        {
+            // We are in the middle of a DKG or signing round. Update our state to reflect this.
+            self.state = State::OperationInProgress(CoordinatorInfo {
+                coordinator_id,
+                last_message_time: Instant::now(),
+            });
+        }
     }
 
     /// Handle proposed blocks submitted by the miners to stackerdb
@@ -482,8 +535,6 @@ impl Signer {
             self.state = State::Idle;
             self.process_operation_results(stacks_client, &operation_results);
             self.send_operation_results(res, operation_results);
-        } else if self.coordinator.state != CoordinatorState::Idle {
-            self.state = State::OperationInProgress;
         }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
