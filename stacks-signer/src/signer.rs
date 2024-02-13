@@ -32,6 +32,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::{debug, error, info, warn};
 use wsts::common::{MerkleRoot, Signature};
+use wsts::curve::ecdsa;
 use wsts::curve::keys::PublicKey;
 use wsts::curve::point::{Compressed, Point};
 use wsts::net::{Message, NonceRequest, Packet, SignatureShareRequest};
@@ -40,16 +41,20 @@ use wsts::state_machine::coordinator::{
     Config as CoordinatorConfig, Coordinator, State as CoordinatorState,
 };
 use wsts::state_machine::signer::Signer as WSTSSigner;
-use wsts::state_machine::{OperationResult, SignError};
+use wsts::state_machine::{OperationResult, PublicKeys, SignError};
 use wsts::v2;
 
 use crate::client::{
     retry_with_exponential_backoff, ClientError, StackerDB, StacksClient, VOTE_FUNCTION_NAME,
 };
-use crate::config::{GlobalConfig, RewardCycleConfig};
+use crate::config::SignerConfig;
 
 /// TODO: test this value and adjust as necessary. Maybe make configurable?
-pub const COORDINATOR_OPERATION_TIMEOUT: u64 = 200;
+pub const COORDINATOR_OPERATION_TIMEOUT_SECS: u64 = 500;
+
+/// TODO: test this value and adjust as necessary. Maybe make configurable?
+pub const COORDINATOR_TENURE_TIMEOUT_SECS: u64 = 1000;
+
 /// Additional Info about a proposed block
 pub struct BlockInfo {
     /// The block we are considering
@@ -104,22 +109,121 @@ pub enum Command {
     },
 }
 
-/// The coordinator info for a specific in progress operation
-#[derive(PartialEq, Clone, Debug)]
-pub struct CoordinatorInfo {
-    /// The coordinator id
-    pub coordinator_id: u32,
-    /// The last message received time
-    pub last_message_time: Instant,
+/// The coordinator selector
+#[derive(Clone, Debug)]
+pub struct CoordinatorSelector {
+    /// The ordered list of potential coordinators for a specific consensus hash
+    coordinator_ids: Vec<u32>,
+    /// The current coordinator id
+    coordinator_id: u32,
+    /// The current coordinator index into the coordinator ids list
+    coordinator_index: usize,
+    /// The last message received time for the current coordinator
+    last_message_time: Option<Instant>,
+    /// The time the coordinator started its tenure
+    tenure_start: Instant,
+    /// The public keys of the coordinators
+    pub public_keys: PublicKeys,
+    /// Ongoing operation
+    pub ongoing_operation: bool,
 }
 
+impl CoordinatorSelector {
+    /// Create a new Coordinator selector from the given list of public keys and initial coordinator ids
+    pub fn new(coordinator_ids: Vec<u32>, public_keys: PublicKeys) -> Self {
+        let coordinator_id = *coordinator_ids
+            .first()
+            .expect("FATAL: No registered signers");
+        let coordinator_index = 0;
+        let last_message_time = None;
+        let tenure_start = Instant::now();
+        let ongoing_operation = false;
+        Self {
+            coordinator_ids,
+            coordinator_id,
+            coordinator_index,
+            last_message_time,
+            tenure_start,
+            public_keys,
+            ongoing_operation,
+        }
+    }
+
+    /// Update the coordinator id
+    fn update_coordinator(&mut self, new_coordinator_ids: Vec<u32>) {
+        self.ongoing_operation = false;
+        self.coordinator_index = if new_coordinator_ids != self.coordinator_ids {
+            // We have advanced our block height and should select from the new list
+            let mut new_index: usize = 0;
+            self.coordinator_ids = new_coordinator_ids;
+            let new_coordinator_id = *self
+                .coordinator_ids
+                .first()
+                .expect("FATAL: No registered signers");
+            if new_coordinator_id == self.coordinator_id {
+                // If the newly selected coordinator is the same as the current and we have more than one available, advance immediately to the next
+                if self.coordinator_ids.len() > 1 {
+                    new_index = new_index.saturating_add(1);
+                }
+            }
+            new_index
+        } else {
+            let mut new_index = self.coordinator_index.saturating_add(1);
+            if new_index == self.coordinator_ids.len() {
+                // We have exhausted all potential coordinators. Go back to the start
+                new_index = 0;
+            }
+            new_index
+        };
+        self.coordinator_id = *self
+            .coordinator_ids
+            .get(self.coordinator_index)
+            .expect("FATAL: Invalid number of registered signers");
+        self.tenure_start = Instant::now();
+        self.last_message_time = None;
+    }
+
+    /// Get the coordinator id and public key
+    pub fn get_coordinator(&mut self, stacks_client: &StacksClient) -> (u32, ecdsa::PublicKey) {
+        let new_coordinator_ids = stacks_client.calculate_coordinator_ids(&self.public_keys);
+        if self.tenure_start.elapsed().as_secs() > COORDINATOR_TENURE_TIMEOUT_SECS {
+            // We have exceeded our tenure. We should consider any operation finished and use a new coordinator id.
+            self.update_coordinator(new_coordinator_ids);
+        } else if self.ongoing_operation {
+            if let Some(time) = self.last_message_time {
+                if time.elapsed().as_secs() > COORDINATOR_OPERATION_TIMEOUT_SECS {
+                    // We have not received a message in a while from this coordinator.
+                    // We should consider the operation finished and use a new coordinator id.
+                    self.update_coordinator(new_coordinator_ids);
+                }
+            }
+        } else if new_coordinator_ids != self.coordinator_ids {
+            // We have advanced our block height and should select from the new list
+            self.update_coordinator(new_coordinator_ids);
+        }
+        (
+            self.coordinator_id,
+            self.public_keys
+                .signers
+                .get(&self.coordinator_id)
+                .expect("FATAL: missing public key for selected coordinator id")
+                .clone(),
+        )
+    }
+
+    /// Update the last message time
+    pub fn update_last_message_time(&mut self) {
+        self.last_message_time = Some(Instant::now());
+        self.ongoing_operation = true;
+    }
+}
 /// The Signer state
 #[derive(PartialEq, Debug, Clone)]
 pub enum State {
     /// The signer is idle, waiting for messages and commands
     Idle,
     /// The signer is executing a DKG or Sign round
-    OperationInProgress(CoordinatorInfo),
+    OperationInProgress,
     /// The Signer has exceeded its tenure
     TenureExceeded,
 }
@@ -140,7 +244,7 @@ pub struct Signer {
     /// The stackerdb client
     pub stackerdb: StackerDB,
     /// Whether the signer is a mainnet signer or not
-    pub is_mainnet: bool,
+    pub mainnet: bool,
     /// The signer id
     pub signer_id: u32,
     /// The addresses of other signers mapped to their signer ID
@@ -149,29 +253,18 @@ pub struct Signer {
     pub reward_cycle: u64,
     /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
     pub tx_fee_ms: u64,
+    /// The coordinator info for the signer
+    pub coordinator_selector: CoordinatorSelector,
 }
 
-impl Signer {
-    /// Create a new stacks signer
-    pub fn from_configs(config: &GlobalConfig, reward_cycle_config: RewardCycleConfig) -> Self {
-        let stackerdb = StackerDB::from_configs(config, &reward_cycle_config);
+impl From<SignerConfig> for Signer {
+    fn from(signer_config: SignerConfig) -> Self {
+        let stackerdb = StackerDB::from(&signer_config);
 
-        let num_signers = u32::try_from(
-            reward_cycle_config
-                .registered_signers
-                .public_keys
-                .signers
-                .len(),
-        )
-        .expect("FATAL: Too many registered signers to fit in a u32");
-        let num_keys = u32::try_from(
-            reward_cycle_config
-                .registered_signers
-                .public_keys
-                .key_ids
-                .len(),
-        )
-        .expect("FATAL: Too many key ids to fit in a u32");
+        let num_signers = u32::try_from(signer_config.registered_signers.public_keys.signers.len())
+            .expect("FATAL: Too many registered signers to fit in a u32");
+        let num_keys = u32::try_from(signer_config.registered_signers.public_keys.key_ids.len())
+            .expect("FATAL: Too many key ids to fit in a u32");
         let threshold = num_keys * 7 / 10;
         let dkg_threshold = num_keys * 9 / 10;
 
@@ -180,14 +273,14 @@ impl Signer {
             dkg_threshold,
             num_signers,
             num_keys,
-            message_private_key: config.ecdsa_private_key,
-            dkg_public_timeout: config.dkg_public_timeout,
-            dkg_private_timeout: config.dkg_private_timeout,
-            dkg_end_timeout: config.dkg_end_timeout,
-            nonce_timeout: config.nonce_timeout,
-            sign_timeout: config.sign_timeout,
-            signer_key_ids: reward_cycle_config.registered_signers.coordinator_key_ids,
-            signer_public_keys: reward_cycle_config.registered_signers.signer_public_keys,
+            message_private_key: signer_config.ecdsa_private_key,
+            dkg_public_timeout: signer_config.dkg_public_timeout,
+            dkg_private_timeout: signer_config.dkg_private_timeout,
+            dkg_end_timeout: signer_config.dkg_end_timeout,
+            nonce_timeout: signer_config.nonce_timeout,
+            sign_timeout: signer_config.sign_timeout,
+            signer_key_ids: signer_config.registered_signers.coordinator_key_ids,
+            signer_public_keys: signer_config.registered_signers.signer_public_keys,
         };
 
         let coordinator = FireCoordinator::new(coordinator_config);
@@ -195,10 +288,14 @@ impl Signer {
             threshold,
             num_signers,
             num_keys,
-            reward_cycle_config.signer_id,
-            reward_cycle_config.key_ids,
-            config.ecdsa_private_key,
-            reward_cycle_config.registered_signers.public_keys,
+            signer_config.signer_id,
+            signer_config.key_ids,
+            signer_config.ecdsa_private_key,
+            signer_config.registered_signers.public_keys.clone(),
+        );
+        let coordinator_selector = CoordinatorSelector::new(
+            signer_config.coordinator_ids,
+            signer_config.registered_signers.public_keys,
         );
         Self {
             coordinator,
@@ -207,14 +304,16 @@ impl Signer {
             blocks: HashMap::new(),
             commands: VecDeque::new(),
             stackerdb,
-            is_mainnet: config.network.is_mainnet(),
-            signer_id: reward_cycle_config.signer_id,
-            signer_address_ids: reward_cycle_config.registered_signers.signer_address_ids,
-            reward_cycle: reward_cycle_config.reward_cycle,
-            tx_fee_ms: config.tx_fee_ms,
+            mainnet: signer_config.mainnet,
+            signer_id: signer_config.signer_id,
+            signer_address_ids: signer_config.registered_signers.signer_address_ids,
+            reward_cycle: signer_config.reward_cycle,
+            tx_fee_ms: signer_config.tx_fee_ms,
+            coordinator_selector,
         }
     }
-
+}
+impl Signer {
     /// Execute the given command and update state accordingly
     fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
         match command {
@@ -242,10 +341,8 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
-                        self.state = State::OperationInProgress(CoordinatorInfo {
-                            coordinator_id: self.signer_id,
-                            last_message_time: Instant::now(),
-                        });
+                        self.state = State::OperationInProgress;
+                        self.coordinator_selector.update_last_message_time();
                     }
                     Err(e) => {
                         error!("Signer #{}: Failed to start DKG: {e:?}", self.signer_id);
@@ -275,10 +372,8 @@ impl Signer {
                     Ok(msg) => {
                         let ack = self.stackerdb.send_message_with_retry(msg.into());
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
-                        self.state = State::OperationInProgress(CoordinatorInfo {
-                            coordinator_id: self.signer_id,
-                            last_message_time: Instant::now(),
-                        });
+                        self.state = State::OperationInProgress;
+                        self.coordinator_selector.update_last_message_time();
                         block_info.signed_over = true;
                     }
                     Err(e) => {
@@ -296,11 +391,10 @@ impl Signer {
     pub fn process_next_command(&mut self, stacks_client: &StacksClient) {
         match &self.state {
             State::Idle => {
-                let (coordinator_id, coordinator_pk) =
-                    stacks_client.calculate_coordinator(&self.signing_round.public_keys);
+                let coordinator_id = self.coordinator_selector.get_coordinator(&stacks_client).0;
                 if coordinator_id != self.signer_id {
                     debug!(
-                        "Signer #{}: Not the coordinator. (Coordinator is {coordinator_id:?}, {coordinator_pk:?}). Will not process any commands...",
+                        "Signer #{}: Coordinator is {coordinator_id:?}. Will not process any commands...",
                         self.signer_id
                     );
                     return;
@@ -315,26 +409,18 @@ impl Signer {
                     );
                 }
             }
-            State::OperationInProgress(coordinator_info) => {
+            State::OperationInProgress => {
                 // We cannot execute the next command until the current one is finished...
-                // Do nothing...
-                if coordinator_info.last_message_time.elapsed().as_secs()
-                    > COORDINATOR_OPERATION_TIMEOUT
-                {
-                    debug!(
-                        "Signer #{}: Operation from coordinator {} timed out.",
-                        self.signer_id, coordinator_info.coordinator_id
-                    );
-                    // We have not received a message in a while. We should consider the operation finished and use a new coordinator id.
-                    self.coordinator.state = CoordinatorState::Idle;
-                    self.signing_round.state = wsts::state_machine::signer::State::Idle;
+                let coordinator_id = self.coordinator_selector.get_coordinator(&stacks_client).0;
+                if !self.coordinator_selector.ongoing_operation {
                     self.state = State::Idle;
-                    self.process_next_command(stacks_client);
+                    return self.process_next_command(stacks_client);
+                } else {
+                    debug!(
+                        "Signer #{}: Waiting for coordinator {coordinator_id:?} operation to finish...",
+                        self.signer_id,
+                    );
                 }
-                debug!(
-                    "Signer #{}: Waiting for operation to finish",
-                    self.signer_id,
-                );
             }
             State::TenureExceeded => {
                 // We have exceeded our tenure. Do nothing...
@@ -410,8 +496,7 @@ impl Signer {
             };
             self.handle_packets(stacks_client, res, &[packet]);
         } else {
-            let (coordinator_id, _) =
-                stacks_client.calculate_coordinator(&self.signing_round.public_keys);
+            let coordinator_id = self.coordinator_selector.get_coordinator(&stacks_client).0;
             if block_info.valid.unwrap_or(false)
                 && !block_info.signed_over
                 && coordinator_id == self.signer_id
@@ -446,24 +531,8 @@ impl Signer {
         res: Sender<Vec<OperationResult>>,
         messages: &[SignerMessage],
     ) {
-        let (mut coordinator_id, mut coordinator_pubkey) =
-            stacks_client.calculate_coordinator(&self.signing_round.public_keys);
-        // TODO return the list of coordinators in case we are stuck at a block for quite some time.
-        if let State::OperationInProgress(info) = &self.state {
-            if let Some(pubkey) = self
-                .signing_round
-                .public_keys
-                .signers
-                .get(&info.coordinator_id)
-            {
-                coordinator_pubkey = pubkey.clone();
-                coordinator_id = info.coordinator_id;
-                debug!(
-                        "Signer #{:?}: Operation in progress led by coordinator ID {coordinator_id:?} ({coordinator_pubkey:?})",
-                        self.signer_id
-                    );
-            }
-        }
+        let (_coordinator_id, coordinator_pubkey) =
+            self.coordinator_selector.get_coordinator(&stacks_client);
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
@@ -475,16 +544,6 @@ impl Signer {
             })
             .collect();
         self.handle_packets(stacks_client, res, &packets);
-        if self.state == State::Idle
-            && self.coordinator.state != CoordinatorState::Idle
-            && !packets.is_empty()
-        {
-            // We are in the middle of a DKG or signing round. Update our state to reflect this.
-            self.state = State::OperationInProgress(CoordinatorInfo {
-                coordinator_id,
-                last_message_time: Instant::now(),
-            });
-        }
     }
 
     /// Handle proposed blocks submitted by the miners to stackerdb
@@ -533,8 +592,13 @@ impl Signer {
             // We have finished a signing or DKG round, either successfully or due to error.
             // Regardless of the why, update our state to Idle as we should not expect the operation to continue.
             self.state = State::Idle;
+            self.coordinator_selector.ongoing_operation = false;
             self.process_operation_results(stacks_client, &operation_results);
             self.send_operation_results(res, operation_results);
+        } else if !packets.is_empty() && self.coordinator.state != CoordinatorState::Idle {
+            // We have received a message. Update the last message time for the coordinator
+            self.coordinator_selector.update_last_message_time();
+            self.state = State::OperationInProgress;
         }
         self.send_outbound_messages(signer_outbound_messages);
         self.send_outbound_messages(coordinator_outbound_messages);
@@ -794,7 +858,7 @@ impl Signer {
             return Ok(false);
         };
 
-        if payload.contract_identifier() != boot_code_id(SIGNERS_VOTING_NAME, self.is_mainnet)
+        if payload.contract_identifier() != boot_code_id(SIGNERS_VOTING_NAME, self.mainnet)
             || payload.function_name != VOTE_FUNCTION_NAME.into()
         {
             // This is not a special cased transaction.
@@ -1218,12 +1282,10 @@ impl Signer {
             self.coordinator
                 .set_aggregate_public_key(new_aggregate_public_key);
         }
-        let coordinator_id = stacks_client
-            .calculate_coordinator(&self.signing_round.public_keys)
-            .0;
+        let coordinator_id = self.coordinator_selector.get_coordinator(stacks_client).0;
         if new_aggregate_public_key.is_none()
             && self.signer_id == coordinator_id
-            && self.coordinator.state == CoordinatorState::Idle
+            && self.state == State::Idle
         {
             debug!(
                 "Signer #{}: Checking if old transactions exist",
@@ -1393,13 +1455,12 @@ mod tests {
     };
     use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
     use stacks_common::util::secp256k1::MessageSignature;
-    use wsts::curve::ecdsa;
     use wsts::curve::point::Point;
     use wsts::curve::scalar::Scalar;
 
     use crate::client::tests::{
         build_get_aggregate_public_key_response, build_get_last_round_response,
-        generate_reward_cycle_config, mock_server_from_config, write_response,
+        generate_signer_config, mock_server_from_config, write_response,
     };
     use crate::client::{StacksClient, VOTE_FUNCTION_NAME};
     use crate::config::GlobalConfig;
@@ -1411,21 +1472,13 @@ mod tests {
     fn get_filtered_transaction_filters_out_invalid_transactions() {
         // Create a runloop of a valid signer
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (reward_cycle_info, _ordered_addresses) = generate_reward_cycle_config(
-            5,
-            20,
-            Some(
-                ecdsa::PublicKey::new(&config.ecdsa_private_key)
-                    .expect("Failed to create public key."),
-            ),
-        );
-        let stacks_client = StacksClient::from(&config);
-        let mut signer = Signer::from_configs(&config, reward_cycle_info);
+        let (signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
+        let mut signer = Signer::from(signer_config);
 
         let signer_private_key = config.stacks_private_key;
         let non_signer_private_key = StacksPrivateKey::new();
 
-        let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.is_mainnet);
+        let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.mainnet);
         let contract_addr = vote_contract_id.issuer.into();
         let contract_name = vote_contract_id.name.clone();
         let index = thread_rng().next_u64() as u128;
@@ -1537,6 +1590,7 @@ mod tests {
             invalid_tx_bad_function_args,
         ];
         let num_transactions = transactions.len();
+        let stacks_client = StacksClient::from(&config);
         let h = spawn(move || {
             signer
                 .get_filtered_transactions(&stacks_client, &[0])
@@ -1566,19 +1620,12 @@ mod tests {
     #[ignore = "This test needs to be fixed based on reward set calculations"]
     fn verify_block_transactions_valid() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (reward_cycle_info, _ordered_addresses) = generate_reward_cycle_config(
-            5,
-            20,
-            Some(
-                ecdsa::PublicKey::new(&config.ecdsa_private_key)
-                    .expect("Failed to create public key."),
-            ),
-        );
+        let (signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
         let stacks_client = StacksClient::from(&config);
-        let mut signer = Signer::from_configs(&config, reward_cycle_info);
+        let mut signer = Signer::from(signer_config);
 
         let signer_private_key = config.stacks_private_key;
-        let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.is_mainnet);
+        let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.mainnet);
         let contract_addr = vote_contract_id.issuer.into();
         let contract_name = vote_contract_id.name.clone();
         let index = thread_rng().next_u64() as u128;
@@ -1688,18 +1735,13 @@ mod tests {
     fn verify_transaction_payload_filters_invalid_payloads() {
         // Create a runloop of a valid signer
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (mut reward_cycle_info, _ordered_addresses) = generate_reward_cycle_config(
-            5,
-            20,
-            Some(
-                ecdsa::PublicKey::new(&config.ecdsa_private_key)
-                    .expect("Failed to create public key."),
-            ),
-        );
-        reward_cycle_info.reward_cycle = 1;
-        let signer = Signer::from_configs(&config, reward_cycle_info.clone());
+        let (mut signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
+        signer_config.reward_cycle = 1;
+
+        let signer = Signer::from(signer_config.clone());
+
         let signer_private_key = config.stacks_private_key;
-        let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.is_mainnet);
+        let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.mainnet);
         let contract_addr = vote_contract_id.issuer.into();
         let contract_name = vote_contract_id.name.clone();
         let point = Point::from(Scalar::random(&mut thread_rng()));
@@ -1817,7 +1859,8 @@ mod tests {
         write_response(mock_server, vote_response.as_bytes());
         h.join().unwrap();
 
-        let signer = Signer::from_configs(&config, reward_cycle_info.clone());
+        let signer = Signer::from(signer_config);
+
         let vote_response = build_get_aggregate_public_key_response(None);
         let last_round_response = build_get_last_round_response(10);
         let aggregate_public_key_response = build_get_aggregate_public_key_response(Some(point));

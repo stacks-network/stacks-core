@@ -127,7 +127,7 @@ pub struct RegisteredSignersInfo {
 
 /// The Configuration info needed for an individual signer per reward cycle
 #[derive(Debug, Clone)]
-pub struct RewardCycleConfig {
+pub struct SignerConfig {
     /// The reward cycle of the configuration
     pub reward_cycle: u64,
     /// The signer ID assigned to this signer
@@ -138,6 +138,28 @@ pub struct RewardCycleConfig {
     pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
     pub registered_signers: RegisteredSignersInfo,
+    /// The initial coordinator ids for the coordinator selector
+    pub coordinator_ids: Vec<u32>,
+    /// The Scalar representation of the private key for signer communication
+    pub ecdsa_private_key: Scalar,
+    /// The private key for this signer
+    pub stacks_private_key: StacksPrivateKey,
+    /// The node host for this signer
+    pub node_host: SocketAddr,
+    /// Whether this signer is running on mainnet or not
+    pub mainnet: bool,
+    /// timeout to gather DkgPublicShares messages
+    pub dkg_public_timeout: Option<Duration>,
+    /// timeout to gather DkgPrivateShares messages
+    pub dkg_private_timeout: Option<Duration>,
+    /// timeout to gather DkgEnd messages
+    pub dkg_end_timeout: Option<Duration>,
+    /// timeout to gather nonces
+    pub nonce_timeout: Option<Duration>,
+    /// timeout to gather signature shares
+    pub sign_timeout: Option<Duration>,
+    /// the STX tx fee to use in uSTX
+    pub tx_fee_ms: u64,
 }
 
 /// The parsed configuration for the signer

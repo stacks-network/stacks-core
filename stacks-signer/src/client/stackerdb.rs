@@ -32,7 +32,7 @@ use stacks_common::{debug, warn};
 
 use super::ClientError;
 use crate::client::retry_with_exponential_backoff;
-use crate::config::{GlobalConfig, RewardCycleConfig};
+use crate::config::SignerConfig;
 
 /// The StackerDB client for communicating with the .signers contract
 pub struct StackerDB {
@@ -49,6 +49,17 @@ pub struct StackerDB {
     reward_cycle: u64,
 }
 
+impl From<&SignerConfig> for StackerDB {
+    fn from(config: &SignerConfig) -> Self {
+        StackerDB::new(
+            config.node_host,
+            config.stacks_private_key.clone(),
+            config.mainnet,
+            config.reward_cycle,
+            config.signer_slot_id,
+        )
+    }
+}
 impl StackerDB {
     /// Create a new StackerDB client
     pub fn new(
@@ -80,37 +91,6 @@ impl StackerDB {
             slot_versions: HashMap::new(),
             signer_slot_id,
             reward_cycle,
-        }
-    }
-
-    /// Create a new StackerDB client from the provided configuration info
-    pub fn from_configs(config: &GlobalConfig, reward_cycle_config: &RewardCycleConfig) -> Self {
-        let mut signers_message_stackerdb_sessions = HashMap::new();
-        let stackerdb_issuer = boot_code_addr(config.network.is_mainnet());
-        for msg_id in 0..SIGNER_SLOTS_PER_USER {
-            signers_message_stackerdb_sessions.insert(
-                msg_id,
-                StackerDBSession::new(
-                    config.node_host,
-                    QualifiedContractIdentifier::new(
-                        stackerdb_issuer.into(),
-                        ContractName::from(
-                            NakamotoSigners::make_signers_db_name(
-                                reward_cycle_config.reward_cycle,
-                                msg_id,
-                            )
-                            .as_str(),
-                        ),
-                    ),
-                ),
-            );
-        }
-        Self {
-            signers_message_stackerdb_sessions,
-            stacks_private_key: config.stacks_private_key,
-            slot_versions: HashMap::new(),
-            signer_slot_id: reward_cycle_config.signer_slot_id,
-            reward_cycle: reward_cycle_config.reward_cycle,
         }
     }
 
@@ -258,26 +238,17 @@ mod tests {
     };
     use blockstack_lib::util_lib::strings::StacksString;
     use serial_test::serial;
-    use wsts::curve::ecdsa;
 
     use super::*;
-    use crate::client::tests::{
-        generate_reward_cycle_config, mock_server_from_config, write_response,
-    };
+    use crate::client::tests::{generate_signer_config, mock_server_from_config, write_response};
+    use crate::config::GlobalConfig;
 
     #[test]
     #[serial]
     fn get_signer_transactions_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (reward_cycle_config, _ordered_addresses) = generate_reward_cycle_config(
-            5,
-            20,
-            Some(
-                ecdsa::PublicKey::new(&config.ecdsa_private_key)
-                    .expect("Failed to create public key."),
-            ),
-        );
-        let mut stackerdb = StackerDB::from_configs(&config, &reward_cycle_config);
+        let (signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
+        let mut stackerdb = StackerDB::from(&signer_config);
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
             version: TransactionVersion::Testnet,
@@ -320,15 +291,8 @@ mod tests {
     #[serial]
     fn send_signer_message_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (reward_cycle_info, _ordered_addresses) = generate_reward_cycle_config(
-            5,
-            20,
-            Some(
-                ecdsa::PublicKey::new(&config.ecdsa_private_key)
-                    .expect("Failed to create public key."),
-            ),
-        );
-        let mut stackerdb = StackerDB::from_configs(&config, &reward_cycle_info);
+        let (signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
+        let mut stackerdb = StackerDB::from(&signer_config);
 
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
