@@ -4556,6 +4556,22 @@ impl SortitionDB {
         })
     }
 
+    /// Determine if a burnchain block has been processed
+    pub fn has_block_snapshot_consensus(
+        conn: &Connection,
+        consensus_hash: &ConsensusHash,
+    ) -> Result<bool, db_error> {
+        let qry = "SELECT 1 FROM snapshots WHERE consensus_hash = ?1";
+        let args = [&consensus_hash];
+        let res: Option<i64> = query_row_panic(conn, qry, &args, || {
+            format!(
+                "FATAL: multiple block snapshots for the same block with consensus hash {}",
+                consensus_hash
+            )
+        })?;
+        Ok(res.is_some())
+    }
+
     /// Get a snapshot for an processed sortition.
     /// The snapshot may not be valid
     pub fn get_block_snapshot(
