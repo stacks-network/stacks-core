@@ -43,7 +43,7 @@ use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
-    boot_to_epoch_3, boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
+    boot_to_epoch_3_reward_set, naka_neon_integration_conf, next_block_and,
     next_block_and_mine_commit, POX_4_DEFAULT_STACKER_BALANCE,
 };
 use crate::tests::neon_integrations::{
@@ -178,13 +178,19 @@ impl SignerTest {
             .unwrap();
         // Use the stacks client to calculate the current registered signers and their coordinator
         let stacks_client = StacksClient::new(private_key, node_host, false);
-        let (coordinator_id, coordinator_pk) = stacks_client.calculate_coordinator(
-            &stacks_client
-                .get_registered_signers_info(reward_cycle)
-                .unwrap()
-                .unwrap()
-                .public_keys,
-        );
+        let registered_signers_info = &stacks_client
+            .get_registered_signers_info(reward_cycle)
+            .unwrap()
+            .unwrap();
+        let coordinator_id = *stacks_client
+            .calculate_coordinator_ids(&registered_signers_info.public_keys)
+            .first()
+            .expect("No coordinator found");
+        let coordinator_pk = registered_signers_info
+            .public_keys
+            .signers
+            .get(&coordinator_id)
+            .expect("No coordinator found");
         let coordinator_index = self
             .signer_stacks_private_keys
             .iter()
@@ -572,12 +578,12 @@ fn stackerdb_block_proposal() {
 
     info!("------------------------- Test Setup -------------------------");
     let mut signer_test = SignerTest::new(5, true);
-
+    let timeout = Duration::from_secs(200);
     let (_vrfs_submitted, commits_submitted) = (
         signer_test.running_nodes.vrfs_submitted.clone(),
         signer_test.running_nodes.commits_submitted.clone(),
     );
-    boot_to_epoch_3(
+    boot_to_epoch_3_reward_set(
         &signer_test.running_nodes.conf,
         &signer_test.running_nodes.blocks_processed,
         &signer_test.signer_stacks_private_keys,
@@ -585,27 +591,15 @@ fn stackerdb_block_proposal() {
         &mut signer_test.running_nodes.btc_regtest_controller,
     );
 
-    // Determine the coordinator
-    let reward_cycle = signer_test.get_current_reward_cycle();
-    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
-
-    // Forcibly run DKG to overwrite the self signing aggregate key in the contract
     info!("------------------------- Wait for DKG -------------------------");
     info!("signer_runloop: spawn send commands to do dkg");
     let dkg_now = Instant::now();
     let mut key = Point::default();
-    let dkg_command = RunLoopCommand {
-        reward_cycle,
-        command: SignerCommand::Dkg,
-    };
-    coordinator_sender
-        .send(dkg_command)
-        .expect("failed to send DKG command");
     for recv in signer_test.result_receivers.iter() {
         let mut aggregate_public_key = None;
         loop {
             let results = recv
-                .recv_timeout(Duration::from_secs(60))
+                .recv_timeout(timeout)
                 .expect("failed to recv dkg results");
             for result in results {
                 match result {
@@ -627,11 +621,13 @@ fn stackerdb_block_proposal() {
                     }
                 }
             }
-            if aggregate_public_key.is_some() || dkg_now.elapsed() > Duration::from_secs(200) {
+            if aggregate_public_key.is_some() || dkg_now.elapsed() > timeout {
                 break;
             }
         }
-        key = aggregate_public_key.expect("Failed to get aggregate public key within 200 seconds");
+        key = aggregate_public_key.expect(&format!(
+            "Failed to get aggregate public key within {timeout:?}"
+        ));
     }
     let dkg_elapsed = dkg_now.elapsed();
 
@@ -641,7 +637,7 @@ fn stackerdb_block_proposal() {
     // Mine 1 nakamoto tenure
     let _ = next_block_and_mine_commit(
         &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
+        10, // We know that it will never actually mine the block right now
         &signer_test.running_nodes.coord_channel,
         &commits_submitted,
     );
@@ -651,7 +647,7 @@ fn stackerdb_block_proposal() {
         .last()
         .expect("Failed to retreive coordinator recv");
     let results = recv
-        .recv_timeout(Duration::from_secs(30))
+        .recv_timeout(timeout)
         .expect("failed to recv signature results");
     let mut signature = None;
     for result in results {

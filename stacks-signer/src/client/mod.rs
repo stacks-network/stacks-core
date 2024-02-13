@@ -156,7 +156,7 @@ pub(crate) mod tests {
     use wsts::state_machine::PublicKeys;
 
     use super::*;
-    use crate::config::{GlobalConfig, RegisteredSignersInfo, RewardCycleConfig};
+    use crate::config::{GlobalConfig, RegisteredSignersInfo, SignerConfig};
 
     pub struct MockServerClient {
         pub server: TcpListener,
@@ -397,13 +397,13 @@ pub(crate) mod tests {
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
     }
 
-    /// Generate a random reward cycle config for signer with id 0 and slot id 0
-    /// Optionally include a signer pubilc key to use for the signer
-    pub fn generate_reward_cycle_config(
+    /// Generate a signer config with the given number of signers and keys where the first signer is
+    /// obtained from the provided global config
+    pub fn generate_signer_config(
+        config: &GlobalConfig,
         num_signers: u32,
         num_keys: u32,
-        signer_key: Option<ecdsa::PublicKey>,
-    ) -> (RewardCycleConfig, Vec<StacksAddress>) {
+    ) -> (SignerConfig, Vec<StacksAddress>) {
         assert!(
             num_signers > 0,
             "Cannot generate 0 signers...Specify at least 1 signer."
@@ -427,6 +427,11 @@ pub(crate) mod tests {
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
         let mut signer_public_keys = HashMap::new();
+        let mut coordinator_ids = vec![];
+        let stacks_address = config.stacks_address;
+        let ecdsa_private_key = config.ecdsa_private_key;
+        let ecdsa_public_key =
+            ecdsa::PublicKey::new(&ecdsa_private_key).expect("Failed to create ecdsa public key");
         // Key ids start from 1 hence the wrapping adds everywhere
         for signer_id in 0..num_signers {
             end_key_id = if signer_id.wrapping_add(1) == num_signers {
@@ -435,32 +440,27 @@ pub(crate) mod tests {
                 end_key_id.wrapping_add(num_keys)
             };
             if signer_id == 0 {
-                if let Some(signer_key) = signer_key {
-                    let address = StacksAddress::p2pkh(
-                        false,
-                        &StacksPublicKey::from_slice(signer_key.to_bytes().as_slice())
-                            .expect("Failed to create stacks public key"),
-                    );
-                    addresses.push(address);
-                    public_keys.signers.insert(signer_id, signer_key);
-                    let signer_public_key =
-                        Point::try_from(&Compressed::from(signer_key.to_bytes())).unwrap();
-                    signer_public_keys.insert(signer_id, signer_public_key);
-                    public_keys.signers.insert(signer_id, signer_key.clone());
-                    for k in start_key_id..end_key_id {
-                        public_keys.key_ids.insert(k, signer_key);
-                        coordinator_key_ids
-                            .entry(signer_id)
-                            .or_insert(HashSet::new())
-                            .insert(k);
-                        signer_key_ids
-                            .entry(signer_id)
-                            .or_insert(Vec::new())
-                            .push(k);
-                    }
-                    start_key_id = end_key_id;
-                    continue;
+                addresses.push(stacks_address);
+                public_keys.signers.insert(signer_id, ecdsa_public_key);
+                let signer_public_key =
+                    Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes())).unwrap();
+                signer_public_keys.insert(signer_id, signer_public_key);
+                public_keys
+                    .signers
+                    .insert(signer_id, ecdsa_public_key.clone());
+                for k in start_key_id..end_key_id {
+                    public_keys.key_ids.insert(k, ecdsa_public_key);
+                    coordinator_key_ids
+                        .entry(signer_id)
+                        .or_insert(HashSet::new())
+                        .insert(k);
+                    signer_key_ids
+                        .entry(signer_id)
+                        .or_insert(Vec::new())
+                        .push(k);
                 }
+                start_key_id = end_key_id;
+                continue;
             }
             let private_key = Scalar::random(rng);
             let public_key = ecdsa::PublicKey::new(&private_key).unwrap();
@@ -487,9 +487,10 @@ pub(crate) mod tests {
             signer_address_ids.insert(address.clone(), signer_id);
             addresses.push(address);
             start_key_id = end_key_id;
+            coordinator_ids.push(signer_id);
         }
         (
-            RewardCycleConfig {
+            SignerConfig {
                 reward_cycle,
                 signer_id: 0,
                 signer_slot_id: 0,
@@ -501,6 +502,17 @@ pub(crate) mod tests {
                     signer_address_ids,
                     signer_public_keys,
                 },
+                coordinator_ids,
+                ecdsa_private_key: config.ecdsa_private_key,
+                stacks_private_key: config.stacks_private_key,
+                node_host: config.node_host,
+                mainnet: config.network.is_mainnet(),
+                dkg_end_timeout: config.dkg_end_timeout,
+                dkg_private_timeout: config.dkg_private_timeout,
+                dkg_public_timeout: config.dkg_public_timeout,
+                nonce_timeout: config.nonce_timeout,
+                sign_timeout: config.sign_timeout,
+                tx_fee_ms: config.tx_fee_ms,
             },
             addresses,
         )

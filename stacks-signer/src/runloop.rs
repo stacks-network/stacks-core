@@ -25,7 +25,7 @@ use stacks_common::{debug, error, info, warn};
 use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
-use crate::config::{GlobalConfig, RewardCycleConfig};
+use crate::config::{GlobalConfig, SignerConfig};
 use crate::signer::{Command as SignerCommand, Signer, State as SignerState};
 
 /// Which operation to perform
@@ -74,10 +74,10 @@ impl From<GlobalConfig> for RunLoop {
 
 impl RunLoop {
     /// Get a signer configruation for a specific reward cycle from the stacks node
-    fn get_reward_cycle_config(
+    fn get_signer_config(
         &mut self,
         reward_cycle: u64,
-    ) -> Result<Option<RewardCycleConfig>, ClientError> {
+    ) -> Result<Option<SignerConfig>, ClientError> {
         let reward_set_calculated = self.stacks_client.reward_set_calculated(reward_cycle)?;
         if !reward_set_calculated {
             // Must weight for the reward set calculation to complete
@@ -126,12 +126,26 @@ impl RunLoop {
             .get(signer_id)
             .cloned()
             .unwrap_or_default();
-        Ok(Some(RewardCycleConfig {
+        let coordinator_ids = self
+            .stacks_client
+            .calculate_coordinator_ids(&registered_signers.public_keys);
+        Ok(Some(SignerConfig {
             reward_cycle,
             signer_id: *signer_id,
             signer_slot_id,
             key_ids,
             registered_signers,
+            coordinator_ids,
+            ecdsa_private_key: self.config.ecdsa_private_key.clone(),
+            stacks_private_key: self.config.stacks_private_key.clone(),
+            node_host: self.config.node_host.clone(),
+            mainnet: self.config.network.is_mainnet(),
+            dkg_end_timeout: self.config.dkg_end_timeout,
+            dkg_private_timeout: self.config.dkg_private_timeout,
+            dkg_public_timeout: self.config.dkg_public_timeout,
+            nonce_timeout: self.config.nonce_timeout,
+            sign_timeout: self.config.sign_timeout,
+            tx_fee_ms: self.config.tx_fee_ms,
         }))
     }
 
@@ -151,14 +165,12 @@ impl RunLoop {
             needs_refresh = true;
         };
         if needs_refresh {
-            let new_reward_cycle_config = self.get_reward_cycle_config(reward_cycle)?;
-            if let Some(new_reward_cycle_config) = new_reward_cycle_config {
-                let signer_id = new_reward_cycle_config.signer_id;
+            let new_signer_config = self.get_signer_config(reward_cycle)?;
+            if let Some(new_signer_config) = new_signer_config {
+                let signer_id = new_signer_config.signer_id;
                 debug!("Signer is registered for reward cycle {reward_cycle} as signer #{signer_id}. Initializing signer state.");
-                self.stacks_signers.insert(
-                    reward_index,
-                    Signer::from_configs(&self.config, new_reward_cycle_config),
-                );
+                self.stacks_signers
+                    .insert(reward_index, Signer::from(new_signer_config));
                 debug!("Signer #{signer_id} for reward cycle {reward_cycle} initialized. Initialized {} signers", self.stacks_signers.len());
             } else {
                 // Nothing to initialize. Signer is not registered for this reward cycle
