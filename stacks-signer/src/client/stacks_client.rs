@@ -66,6 +66,8 @@ pub struct StacksClient {
     tx_version: TransactionVersion,
     /// The chain we are interacting with
     chain_id: u32,
+    /// Whether we are mainnet or not
+    mainnet: bool,
     /// The Client used to make HTTP connects
     stacks_node_client: reqwest::blocking::Client,
 }
@@ -79,6 +81,7 @@ impl From<&GlobalConfig> for StacksClient {
             tx_version: config.network.to_transaction_version(),
             chain_id: config.network.to_chain_id(),
             stacks_node_client: reqwest::blocking::Client::new(),
+            mainnet: config.network.is_mainnet(),
         }
     }
 }
@@ -105,6 +108,7 @@ impl StacksClient {
             tx_version,
             chain_id,
             stacks_node_client: reqwest::blocking::Client::new(),
+            mainnet,
         }
     }
 
@@ -213,7 +217,7 @@ impl StacksClient {
             ClarityValue::Principal(signer.into()),
         ];
         let value = self.read_only_contract_call(
-            &boot_code_addr(self.chain_id == CHAIN_ID_MAINNET),
+            &boot_code_addr(self.mainnet),
             &ContractName::from(SIGNERS_VOTING_NAME),
             &function_name,
             function_args,
@@ -300,7 +304,7 @@ impl StacksClient {
         reward_cycle: u64,
     ) -> Result<Option<Point>, ClientError> {
         let function_name = ClarityName::from("get-aggregate-public-key");
-        let pox_contract_id = boot_code_id(POX_4_NAME, self.chain_id == CHAIN_ID_MAINNET);
+        let pox_contract_id = boot_code_id(POX_4_NAME, self.mainnet);
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
         let value = self.read_only_contract_call(
             &pox_contract_id.issuer.into(),
@@ -337,7 +341,7 @@ impl StacksClient {
     /// Retrieve the last DKG vote round number for the current reward cycle
     pub fn get_last_round(&self, reward_cycle: u64) -> Result<Option<u64>, ClientError> {
         debug!("Getting the last DKG vote round of reward cycle {reward_cycle}...");
-        let contract_addr = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
+        let contract_addr = boot_code_addr(self.mainnet);
         let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
         let function_name = ClarityName::from("get-last-round");
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
@@ -366,7 +370,7 @@ impl StacksClient {
         let reward_cycle = ClarityValue::UInt(self.get_current_reward_cycle()? as u128);
         let round = ClarityValue::UInt(round);
         let signer = ClarityValue::Principal(self.stacks_address.into());
-        let contract_addr = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
+        let contract_addr = boot_code_addr(self.mainnet);
         let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
         let function = ClarityName::from("get-vote");
         let function_args = &[reward_cycle, round, signer];
@@ -450,10 +454,7 @@ impl StacksClient {
                             ))
                         })?;
 
-            let stacks_address = StacksAddress::p2pkh(
-                self.tx_version == TransactionVersion::Mainnet,
-                &stacks_public_key,
-            );
+            let stacks_address = StacksAddress::p2pkh(self.mainnet, &stacks_public_key);
 
             signer_address_ids.insert(stacks_address, signer_id);
             signer_public_keys.insert(signer_id, signer_public_key);
@@ -569,7 +570,7 @@ impl StacksClient {
         debug!("Building {VOTE_FUNCTION_NAME} transaction...");
         // TODO: this nonce should be calculated on the side as we may have pending transactions that are not yet confirmed...
         let nonce = self.get_account_nonce(&self.stacks_address)?;
-        let contract_address = boot_code_addr(self.chain_id == CHAIN_ID_MAINNET);
+        let contract_address = boot_code_addr(self.mainnet);
         let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
         let function_name = ClarityName::from(VOTE_FUNCTION_NAME);
         let function_args = vec![

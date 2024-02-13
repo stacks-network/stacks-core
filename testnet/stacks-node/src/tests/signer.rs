@@ -642,6 +642,8 @@ fn stackerdb_block_proposal() {
         &commits_submitted,
     );
 
+    // TODO: confirm that the contract has updated its DKG key to the resulting "key"
+
     let recv = signer_test
         .result_receivers
         .last()

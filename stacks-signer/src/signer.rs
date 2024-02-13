@@ -819,6 +819,14 @@ impl Signer {
             debug!("Signer #{}: Received a transaction with an outdated nonce ({account_nonce} < {origin_nonce}). Filtering ({}).", self.signer_id, transaction.txid());
             return None;
         }
+        if transaction.is_mainnet() != self.mainnet {
+            debug!(
+                "Signer #{}: Received a transaction with an unexpected network. Filtering ({}).",
+                self.signer_id,
+                transaction.txid()
+            );
+            return None;
+        }
         let Ok(valid) = retry_with_exponential_backoff(|| {
             self.verify_payload(stacks_client, &transaction, *origin_signer_id)
                 .map_err(backoff::Error::transient)
