@@ -461,7 +461,7 @@ fn advance_blocks(
     latest_block_id
 }
 
-fn readonly_call(
+pub fn readonly_call(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
     boot_contract: ContractName,
