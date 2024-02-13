@@ -1101,6 +1101,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     .unwrap();
 
     for i in 0..10 {
+        debug!("Tenure {}", i);
         let (burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
