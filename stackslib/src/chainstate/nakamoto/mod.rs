@@ -80,6 +80,7 @@ use crate::chainstate::nakamoto::tenure::NAKAMOTO_TENURES_SCHEMA;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::{POX_4_NAME, SIGNERS_UPDATE_STATE};
 use crate::chainstate::stacks::db::{DBConfig as ChainstateConfig, StacksChainState};
+use crate::chainstate::stacks::index::marf::MarfConnection;
 use crate::chainstate::stacks::{
     TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
@@ -1263,6 +1264,15 @@ impl StacksChainState {
         Ok((header_tx, NakamotoStagingBlocksTx(staging_tx)))
     }
 
+    /// Open a connection to the headers DB, and open a tx to the staging DB
+    pub fn headers_conn_and_staging_tx_begin<'a>(
+        &'a mut self,
+    ) -> Result<(&'a rusqlite::Connection, NakamotoStagingBlocksTx<'a>), ChainstateError> {
+        let header_conn = self.state_index.sqlite_conn();
+        let staging_tx = tx_begin_immediate(&mut self.nakamoto_staging_blocks_conn)?;
+        Ok((header_conn, NakamotoStagingBlocksTx(staging_tx)))
+    }
+
     /// Get a ref to the nakamoto staging blocks connection
     pub fn nakamoto_blocks_db(&self) -> NakamotoStagingBlocksConnRef {
         NakamotoStagingBlocksConnRef(&self.nakamoto_staging_blocks_conn)
@@ -1992,11 +2002,12 @@ impl NakamotoChainState {
         block: NakamotoBlock,
         db_handle: &mut SortitionHandleConn,
         staging_db_tx: &NakamotoStagingBlocksTx,
+        headers_conn: &Connection,
         aggregate_public_key: &Point,
     ) -> Result<bool, ChainstateError> {
         test_debug!("Consider Nakamoto block {}", &block.block_id());
         // do nothing if we already have this block
-        if let Some(_) = Self::get_block_header(staging_db_tx, &block.header.block_id())? {
+        if let Some(_) = Self::get_block_header(headers_conn, &block.header.block_id())? {
             debug!("Already have block {}", &block.header.block_id());
             return Ok(false);
         }
@@ -2019,7 +2030,7 @@ impl NakamotoChainState {
             ChainstateError::InvalidStacksBlock("Not a well-formed tenure-extend block".into())
         })?;
 
-        let Ok(expected_burn) = Self::get_expected_burns(db_handle, staging_db_tx, &block) else {
+        let Ok(expected_burn) = Self::get_expected_burns(db_handle, headers_conn, &block) else {
             warn!("Unacceptable Nakamoto block: unable to find its paired sortition";
                   "block_id" => %block.block_id(),
             );
