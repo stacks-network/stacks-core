@@ -869,17 +869,17 @@ impl StacksMessageCodecExtensions for NackMessage {
 
 impl StacksMessageCodecExtensions for CoordinatorMetadata {
     fn inner_consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
-        self.stacks_consensus_hash.consensus_serialize(fd)?;
-        write_next(fd, &self.stacks_block_height)?;
+        self.pox_consensus_hash.consensus_serialize(fd)?;
+        write_next(fd, &self.burn_block_height)?;
         Ok(())
     }
 
     fn inner_consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
-        let stacks_consensus_hash = ConsensusHash::consensus_deserialize(fd)?;
-        let stacks_block_height = read_next::<u64, _>(fd)?;
+        let pox_consensus_hash = ConsensusHash::consensus_deserialize(fd)?;
+        let burn_block_height = read_next::<u64, _>(fd)?;
         Ok(CoordinatorMetadata {
-            stacks_consensus_hash,
-            stacks_block_height,
+            pox_consensus_hash,
+            burn_block_height,
         })
     }
 }
@@ -1146,18 +1146,18 @@ impl PacketMessage {
 /// Calculated Coordinator Metadata per signer's view of Stacks chain
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CoordinatorMetadata {
-    /// The stacks_tip_consensus_hash from the signer's view
-    pub stacks_consensus_hash: ConsensusHash,
-    /// The stacks tip block height from the signer's view
-    pub stacks_block_height: u64,
+    /// The pox_consensus (burnchain tip consensus hash) from the signer's view
+    pub pox_consensus_hash: ConsensusHash,
+    /// The burnchain tip block height from the signer's view
+    pub burn_block_height: u64,
 }
 
 impl CoordinatorMetadata {
     /// Create a new `CoordinatorMetadata` instance
-    pub fn new(stacks_consensus_hash: ConsensusHash, stacks_block_height: u64) -> Self {
+    pub fn new(pox_consensus_hash: ConsensusHash, burn_block_height: u64) -> Self {
         Self {
-            stacks_consensus_hash,
-            stacks_block_height,
+            pox_consensus_hash,
+            burn_block_height,
         }
     }
 }
@@ -1165,8 +1165,8 @@ impl Default for CoordinatorMetadata {
     /// Create a default `CoordinatorMetadata` instance
     fn default() -> Self {
         Self {
-            stacks_consensus_hash: ConsensusHash([0u8; 20]),
-            stacks_block_height: 0,
+            pox_consensus_hash: ConsensusHash([0u8; 20]),
+            burn_block_height: 0,
         }
     }
 }
