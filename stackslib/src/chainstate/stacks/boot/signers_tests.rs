@@ -469,7 +469,20 @@ pub fn readonly_call(
     args: Vec<Value>,
 ) -> Value {
     with_sortdb(peer, |chainstate, sortdb| {
-        chainstate.with_read_only_clarity_tx(&sortdb.index_conn(), tip, |connection| {
+        readonly_call_with_sortdb(chainstate, sortdb, tip, boot_contract, function_name, args)
+    })
+}
+
+pub fn readonly_call_with_sortdb(
+    chainstate: &mut StacksChainState,
+    sortdb: &SortitionDB,
+    tip: &StacksBlockId,
+    boot_contract: ContractName,
+    function_name: ClarityName,
+    args: Vec<Value>,
+) -> Value {
+    chainstate
+        .with_read_only_clarity_tx(&sortdb.index_conn(), tip, |connection| {
             connection
                 .with_readonly_clarity_env(
                     false,
@@ -489,8 +502,7 @@ pub fn readonly_call(
                 )
                 .unwrap()
         })
-    })
-    .unwrap()
+        .unwrap()
 }
 
 pub fn get_signer_index(

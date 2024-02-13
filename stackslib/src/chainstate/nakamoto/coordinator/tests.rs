@@ -38,10 +38,10 @@ use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::signers_tests::readonly_call;
+use crate::chainstate::stacks::boot::signers_tests::{readonly_call, readonly_call_with_sortdb};
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
-    make_signers_vote_for_aggregate_public_key,
+    make_signers_vote_for_aggregate_public_key, with_sortdb,
 };
 use crate::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
@@ -108,59 +108,16 @@ fn advance_to_nakamoto(
                 })
                 .collect()
         } else if sortition_height == 8 {
-            // Retrieve the signers from the contract
-            let signers_res = readonly_call(
-                peer,
-                &tip.unwrap(),
-                SIGNERS_NAME.into(),
-                "get-signers".into(),
-                vec![Value::UInt(7)],
-            );
-            let signer_vec = signers_res
-                .expect_optional()
-                .unwrap()
-                .unwrap()
-                .expect_list()
-                .unwrap();
-            let mut signers_to_index = HashMap::new();
-            for (index, value) in signer_vec.into_iter().enumerate() {
-                let tuple = value.expect_tuple().unwrap();
-                let signer = tuple
-                    .get_owned("signer")
-                    .unwrap()
-                    .expect_principal()
-                    .unwrap();
-                signers_to_index.insert(signer, index);
-            }
-
-            // Build a map of the signers, their private keys, and their index
-            let mut signers = HashMap::new();
-            for test_stacker in test_stackers {
-                let addr = key_to_stacks_addr(&test_stacker.signer_private_key);
-                let principal = PrincipalData::from(addr);
-                signers.insert(
-                    addr,
-                    (
-                        test_stacker.signer_private_key,
-                        signers_to_index[&principal],
-                    ),
-                );
-            }
-
-            // Vote for the aggregate key for each signer
-            signers
-                .values()
-                .map(|(signer_key, index)| {
-                    make_signers_vote_for_aggregate_public_key(
-                        signer_key,
-                        0,
-                        *index as u128,
-                        &test_signers.aggregate_public_key,
-                        0,
-                        7,
-                    )
-                })
-                .collect()
+            with_sortdb(peer, |chainstate, sortdb| {
+                make_all_signers_vote_for_aggregate_key(
+                    chainstate,
+                    sortdb,
+                    &tip.unwrap(),
+                    test_signers,
+                    test_stackers,
+                    7,
+                )
+            })
         } else {
             vec![]
         };
@@ -168,6 +125,79 @@ fn advance_to_nakamoto(
         tip = Some(peer.tenure_with_txs(&txs, &mut peer_nonce));
     }
     // peer is at the start of cycle 8
+}
+
+pub fn make_all_signers_vote_for_aggregate_key(
+    chainstate: &mut StacksChainState,
+    sortdb: &SortitionDB,
+    tip: &StacksBlockId,
+    test_signers: &TestSigners,
+    test_stackers: &[TestStacker],
+    cycle_id: u128,
+) -> Vec<StacksTransaction> {
+    // Check if we already have an aggregate key for this cycle
+    if chainstate
+        .get_aggregate_public_key_pox_4(sortdb, tip, cycle_id as u64)
+        .unwrap()
+        .is_some()
+    {
+        return vec![];
+    }
+
+    let signers_res = readonly_call_with_sortdb(
+        chainstate,
+        sortdb,
+        tip,
+        SIGNERS_NAME.into(),
+        "get-signers".into(),
+        vec![Value::UInt(cycle_id)],
+    );
+    let signer_vec = signers_res
+        .expect_optional()
+        .unwrap()
+        .unwrap()
+        .expect_list()
+        .unwrap();
+    let mut signers_to_index = HashMap::new();
+    for (index, value) in signer_vec.into_iter().enumerate() {
+        let tuple = value.expect_tuple().unwrap();
+        let signer = tuple
+            .get_owned("signer")
+            .unwrap()
+            .expect_principal()
+            .unwrap();
+        signers_to_index.insert(signer, index);
+    }
+
+    // Build a map of the signers, their private keys, and their index
+    let mut signers = HashMap::new();
+    for test_stacker in test_stackers {
+        let addr = key_to_stacks_addr(&test_stacker.signer_private_key);
+        let principal = PrincipalData::from(addr);
+        signers.insert(
+            addr,
+            (
+                test_stacker.signer_private_key,
+                signers_to_index[&principal],
+            ),
+        );
+    }
+
+    // Vote for the aggregate key for each signer
+    signers
+        .iter()
+        .map(|(addr, (signer_key, index))| {
+            let account = get_account(chainstate, sortdb, &addr);
+            make_signers_vote_for_aggregate_public_key(
+                signer_key,
+                account.nonce,
+                *index as u128,
+                &test_signers.aggregate_public_key,
+                0,
+                cycle_id,
+            )
+        })
+        .collect()
 }
 
 /// Make a peer and transition it into the Nakamoto epoch.
@@ -1054,7 +1084,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         None,
     );
 
-    let mut all_blocks = vec![];
+    let mut all_blocks: Vec<NakamotoBlock> = vec![];
     let mut all_burn_ops = vec![];
     let mut rc_blocks = vec![];
     let mut rc_burn_ops = vec![];
@@ -1088,6 +1118,34 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
 
         let num_blocks: usize = (thread_rng().gen::<usize>() % 10) + 1;
 
+        let block_height = peer
+            .config
+            .burnchain
+            .get_highest_burnchain_block()
+            .unwrap()
+            .unwrap()
+            .block_height;
+        let cycle_id = peer
+            .config
+            .burnchain
+            .block_height_to_reward_cycle(block_height)
+            .unwrap();
+
+        let txs = with_sortdb(&mut peer, |chainstate, sortdb| {
+            if let Some(tip) = all_blocks.last() {
+                make_all_signers_vote_for_aggregate_key(
+                    chainstate,
+                    sortdb,
+                    &tip.block_id(),
+                    &test_signers,
+                    &test_stackers,
+                    cycle_id as u128,
+                )
+            } else {
+                vec![]
+            }
+        });
+
         // do a stx transfer in each block to a given recipient
         let recipient_addr =
             StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
@@ -1110,10 +1168,9 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
                         1,
                         &recipient_addr,
                     );
-                    vec![stx_transfer]
-                } else {
-                    vec![]
+                    txs_clone.push(stx_transfer);
                 }
+                txs_clone
             },
         );
 
