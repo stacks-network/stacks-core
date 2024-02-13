@@ -51,7 +51,7 @@ use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStx
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
-    NAKAMOTO_CHAINSTATE_SCHEMA_1,
+    NakamotoStagingBlocksConn, NAKAMOTO_CHAINSTATE_SCHEMA_1,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -115,6 +115,7 @@ pub struct StacksChainState {
     pub mainnet: bool,
     pub chain_id: u32,
     pub clarity_state: ClarityInstance,
+    pub nakamoto_staging_blocks_conn: NakamotoStagingBlocksConn,
     pub state_index: MARF<StacksBlockId>,
     pub blocks_path: String,
     pub clarity_state_index_path: String, // path to clarity MARF
@@ -1789,6 +1790,11 @@ impl StacksChainState {
             .ok_or_else(|| Error::DBError(db_error::ParseError))?
             .to_string();
 
+        let nakamoto_staging_blocks_path =
+            StacksChainState::get_nakamoto_staging_blocks_path(path.clone())?;
+        let nakamoto_staging_blocks_conn =
+            StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
+
         let init_required = match fs::metadata(&clarity_state_index_marf) {
             Ok(_) => false,
             Err(_) => true,
@@ -1812,6 +1818,7 @@ impl StacksChainState {
             mainnet: mainnet,
             chain_id: chain_id,
             clarity_state: clarity_state,
+            nakamoto_staging_blocks_conn,
             state_index: state_index,
             blocks_path: blocks_path_root,
             clarity_state_index_path: clarity_state_index_marf,
