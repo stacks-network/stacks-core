@@ -95,8 +95,7 @@ jobs:
     uses: ./.github/workflows/github-release.yml
     with:
       tag: ${{ inputs.tag }}
-    secrets: 
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit
 
   ## Build and push Debian image built from source
   ##
