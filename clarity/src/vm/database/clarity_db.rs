@@ -916,7 +916,7 @@ impl<'a> ClarityDatabase<'a> {
     /// Return the height for PoX v3 -> v4 auto unlocks
     ///   from the burn state db
     pub fn get_v3_unlock_height(&mut self) -> Result<u32> {
-        if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch24 {
+        if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch25 {
             Ok(self.burn_state_db.get_v3_unlock_height())
         } else {
             Ok(u32::MAX)
