@@ -17,7 +17,7 @@ use std::net::SocketAddr;
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::{RewardSet, POX_4_NAME, SIGNERS_VOTING_NAME};
+use blockstack_lib::chainstate::stacks::boot::{RewardSet, SIGNERS_VOTING_NAME};
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -296,13 +296,13 @@ impl StacksClient {
         Ok(())
     }
 
-    /// Retrieve the DKG aggregate public key for the given reward cycle
-    pub fn get_aggregate_public_key(
+    /// Retrieve the approved DKG aggregate public key for the given reward cycle
+    pub fn get_approved_aggregate_key(
         &self,
         reward_cycle: u64,
     ) -> Result<Option<Point>, ClientError> {
-        let function_name = ClarityName::from("get-aggregate-public-key");
-        let pox_contract_id = boot_code_id(POX_4_NAME, self.mainnet);
+        let function_name = ClarityName::from("get-approved-aggregate-key");
+        let pox_contract_id = boot_code_id(SIGNERS_VOTING_NAME, self.mainnet);
         let function_args = &[ClarityValue::UInt(reward_cycle as u128)];
         let value = self.read_only_contract_call(
             &pox_contract_id.issuer.into(),
@@ -563,6 +563,7 @@ impl StacksClient {
         signer_index: u32,
         round: u64,
         point: Point,
+        reward_cycle: u64,
         tx_fee: Option<u64>,
     ) -> Result<StacksTransaction, ClientError> {
         debug!("Building {VOTE_FUNCTION_NAME} transaction...");
@@ -575,6 +576,7 @@ impl StacksClient {
             ClarityValue::UInt(signer_index as u128),
             ClarityValue::buff_from(point.compress().data.to_vec())?,
             ClarityValue::UInt(round as u128),
+            ClarityValue::UInt(reward_cycle as u128),
         ];
 
         let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
@@ -791,7 +793,7 @@ mod tests {
 
     use super::*;
     use crate::client::tests::{
-        build_account_nonce_response, build_get_aggregate_public_key_response,
+        build_account_nonce_response, build_get_approved_aggregate_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
         build_read_only_response, generate_random_consensus_hash, generate_signer_config,
         write_response, MockServerClient,
@@ -919,16 +921,16 @@ mod tests {
     #[test]
     fn get_aggregate_public_key_should_succeed() {
         let orig_point = Point::from(Scalar::random(&mut rand::thread_rng()));
-        let response = build_get_aggregate_public_key_response(Some(orig_point));
+        let response = build_get_approved_aggregate_key_response(Some(orig_point));
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_aggregate_public_key(0));
+        let h = spawn(move || mock.client.get_approved_aggregate_key(0));
         write_response(mock.server, response.as_bytes());
         let res = h.join().unwrap().unwrap();
         assert_eq!(res, Some(orig_point));
 
-        let response = build_get_aggregate_public_key_response(None);
+        let response = build_get_approved_aggregate_key_response(None);
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_aggregate_public_key(0));
+        let h = spawn(move || mock.client.get_approved_aggregate_key(0));
         write_response(mock.server, response.as_bytes());
         let res = h.join().unwrap().unwrap();
         assert!(res.is_none());
@@ -1025,7 +1027,7 @@ mod tests {
 
         let h = spawn(move || {
             mock.client
-                .build_vote_for_aggregate_public_key(0, 0, point, None)
+                .build_vote_for_aggregate_public_key(0, 0, point, 0, None)
         });
         write_response(mock.server, account_nonce_response.as_bytes());
         assert!(h.join().unwrap().is_ok());
@@ -1044,7 +1046,7 @@ mod tests {
             let tx = mock
                 .client
                 .clone()
-                .build_vote_for_aggregate_public_key(0, 0, point, None)
+                .build_vote_for_aggregate_public_key(0, 0, point, 0, None)
                 .unwrap();
             mock.client.submit_transaction(&tx)
         });
@@ -1396,7 +1398,7 @@ mod tests {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_aggregate_public_key_response(Some(point));
+        let key_response = build_get_approved_aggregate_key_response(Some(point));
         let h = spawn(move || {
             mock.client
                 .get_vote_for_aggregate_public_key(0, 0, stacks_address)
@@ -1406,7 +1408,7 @@ mod tests {
 
         let mock = MockServerClient::new();
         let stacks_address = mock.client.stacks_address;
-        let key_response = build_get_aggregate_public_key_response(None);
+        let key_response = build_get_approved_aggregate_key_response(None);
         let h = spawn(move || {
             mock.client
                 .get_vote_for_aggregate_public_key(0, 0, stacks_address)

@@ -563,6 +563,8 @@ impl Signer {
         let Some(block_info) = self.blocks.get_mut(&signer_signature_hash) else {
             // We have not seen this block before. Cache it. Send a RPC to the stacks node to validate it.
             debug!("Signer #{}: We have received a block sign request for a block we have not seen before. Cache the nonce request and submit the block for validation...", self.signer_id);
+            // We need to update our state to OperationInProgress so we can respond to the nonce request from this signer once we get our validation back
+            self.update_operation();
             // Store the block in our cache
             self.blocks.insert(
                 signer_signature_hash,
@@ -778,21 +780,20 @@ impl Signer {
             // The signer has already voted for this round and reward cycle
             return Ok(false);
         }
-        // TODO: uncomment when reward cycle properly retrieved from transaction. Depends on contract update.
-        // let current_reward_cycle = stacks_client.get_current_reward_cycle()?;
-        // let next_reward_cycle = current_reward_cycle.wrapping_add(1);
-        // if reward_cycle != current_reward_cycle && reward_cycle != next_reward_cycle {
-        //     // The signer is attempting to vote for a reward cycle that is not the current or next reward cycle
-        //     return Ok(false);
-        // }
-        // let reward_set_calculated = stacks_client.reward_set_calculated(next_reward_cycle)?;
-        // if !reward_set_calculated {
-        //     // The signer is attempting to vote for a reward cycle that has not yet had its reward set calculated
-        //     return Ok(false);
-        // }
+        let current_reward_cycle = stacks_client.get_current_reward_cycle()?;
+        let next_reward_cycle = current_reward_cycle.wrapping_add(1);
+        if reward_cycle != current_reward_cycle && reward_cycle != next_reward_cycle {
+            // The signer is attempting to vote for a reward cycle that is not the current or next reward cycle
+            return Ok(false);
+        }
+        let reward_set_calculated = stacks_client.reward_set_calculated(next_reward_cycle)?;
+        if !reward_set_calculated {
+            // The signer is attempting to vote for a reward cycle that has not yet had its reward set calculated
+            return Ok(false);
+        }
 
         let last_round = stacks_client.get_last_round(reward_cycle)?;
-        let aggregate_key = stacks_client.get_aggregate_public_key(reward_cycle)?;
+        let aggregate_key = stacks_client.get_approved_aggregate_key(reward_cycle)?;
 
         if let Some(last_round) = last_round {
             if aggregate_key.is_some() && round > last_round {
@@ -936,6 +937,7 @@ impl Signer {
             self.stackerdb.get_signer_slot_id(),
             self.coordinator.current_dkg_id,
             *point,
+            self.reward_cycle,
             tx_fee,
         ) {
             Ok(transaction) => {
@@ -1165,7 +1167,7 @@ impl Signer {
     /// Update the DKG for the provided signer info, triggering it if required
     pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
-        let new_aggregate_public_key = stacks_client.get_aggregate_public_key(reward_cycle)?;
+        let new_aggregate_public_key = stacks_client.get_approved_aggregate_key(reward_cycle)?;
         let old_aggregate_public_key = self.coordinator.get_aggregate_public_key();
         if new_aggregate_public_key.is_some()
             && old_aggregate_public_key != new_aggregate_public_key
@@ -1307,8 +1309,7 @@ impl Signer {
     }
 
     fn parse_function_args(function_args: &[ClarityValue]) -> Option<(u64, Point, u64, u64)> {
-        // TODO: parse out the reward cycle
-        if function_args.len() != 3 {
+        if function_args.len() != 4 {
             return None;
         }
         let signer_index_value = function_args.first()?;
@@ -1319,7 +1320,7 @@ impl Signer {
         let point = Point::try_from(&compressed_data).ok()?;
         let round_value = function_args.get(2)?;
         let round = u64::try_from(round_value.clone().expect_u128().ok()?).ok()?;
-        let reward_cycle = 0;
+        let reward_cycle = u64::try_from(function_args.get(3)?.clone().expect_u128().ok()?).ok()?;
         Some((signer_index, point, round, reward_cycle))
     }
 }
@@ -1354,7 +1355,7 @@ mod tests {
     use wsts::curve::scalar::Scalar;
 
     use crate::client::tests::{
-        build_get_aggregate_public_key_response, build_get_last_round_response,
+        build_get_approved_aggregate_key_response, build_get_last_round_response,
         generate_signer_config, mock_server_from_config, write_response,
     };
     use crate::client::{StacksClient, VOTE_FUNCTION_NAME};
@@ -1749,16 +1750,16 @@ mod tests {
                 .verify_payload(&stacks_client, &invalid_already_voted, signer.signer_id)
                 .unwrap())
         });
-        let vote_response = build_get_aggregate_public_key_response(Some(point));
+        let vote_response = build_get_approved_aggregate_key_response(Some(point));
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, vote_response.as_bytes());
         h.join().unwrap();
 
         let signer = Signer::from(signer_config);
 
-        let vote_response = build_get_aggregate_public_key_response(None);
+        let vote_response = build_get_approved_aggregate_key_response(None);
         let last_round_response = build_get_last_round_response(10);
-        let aggregate_public_key_response = build_get_aggregate_public_key_response(Some(point));
+        let aggregate_public_key_response = build_get_approved_aggregate_key_response(Some(point));
 
         let invalid_round_number = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,

@@ -407,23 +407,9 @@ fn stackerdb_dkg_sign() {
 
     info!("Pox 4 activated and at epoch 3.0 reward set calculation (2nd block of its prepare phase)! Ready for signers to perform DKG and Sign!");
 
-    // Determine the coordinator
-    // we have just calculated the reward set for the next reward cycle hence the + 1
-    let reward_cycle = signer_test.get_current_reward_cycle().wrapping_add(1);
-    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
-
     info!("------------------------- Test DKG -------------------------");
-    info!("signer_runloop: spawn send commands to do DKG");
     let dkg_now = Instant::now();
     let mut key = Point::default();
-    let dkg_command = RunLoopCommand {
-        reward_cycle,
-        command: SignerCommand::Dkg,
-    };
-    coordinator_sender
-        .send(dkg_command)
-        .expect("failed to send DKG command");
-    info!("signer_runloop: waiting for DKG results");
     for recv in signer_test.result_receivers.iter() {
         let mut aggregate_public_key = None;
         loop {
@@ -633,6 +619,13 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Block Processed -------------------------");
     let sign_now = Instant::now();
 
+    signer_test.run_until_epoch_3_boundary();
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let set_dkg = signer_test
+        .stacks_client
+        .get_approved_aggregate_key(reward_cycle)
+        .expect("Failed to get approved aggregate key");
+    assert_eq!(set_dkg.unwrap(), key);
     // Mine 1 nakamoto tenure
     let _ = next_block_and_mine_commit(
         &mut signer_test.running_nodes.btc_regtest_controller,

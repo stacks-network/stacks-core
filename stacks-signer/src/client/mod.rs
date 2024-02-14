@@ -330,8 +330,8 @@ pub(crate) mod tests {
         (format!("HTTP/1.1 200 Ok\n\n{pox_info_json}"), pox_info)
     }
 
-    /// Build a response for the get_aggregate_public_key request
-    pub fn build_get_aggregate_public_key_response(point: Option<Point>) -> String {
+    /// Build a response for the get_approved_aggregate_key request
+    pub fn build_get_approved_aggregate_key_response(point: Option<Point>) -> String {
         let clarity_value = if let Some(point) = point {
             ClarityValue::some(
                 ClarityValue::buff_from(point.compress().as_bytes().to_vec())
