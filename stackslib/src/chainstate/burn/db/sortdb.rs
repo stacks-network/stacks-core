@@ -39,6 +39,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::*;
@@ -59,7 +60,7 @@ use crate::chainstate::burn::operations::leader_block_commit::{
 };
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp, VoteForAggregateKeyOp,
 };
 use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash, ConsensusHashExtensions, Opcodes, OpsHash, SortitionHash,
@@ -431,6 +432,39 @@ impl FromRow<TransferStxOp> for TransferStxOp {
     }
 }
 
+impl FromRow<VoteForAggregateKeyOp> for VoteForAggregateKeyOp {
+    fn from_row<'a>(row: &'a Row) -> Result<VoteForAggregateKeyOp, db_error> {
+        let txid = Txid::from_column(row, "txid")?;
+        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let block_height = u64::from_column(row, "block_height")?;
+        let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
+
+        let sender = StacksAddress::from_column(row, "sender_addr")?;
+        let aggregate_key_str: String = row.get_unwrap("aggregate_key");
+        let aggregate_key: StacksPublicKeyBuffer = serde_json::from_str(&aggregate_key_str)
+            .expect("CORRUPTION: DB stored bad transition ops");
+        let round: u32 = row.get_unwrap("round");
+        let reward_cycle = u64::from_column(row, "reward_cycle")?;
+        let signer_index: u16 = row.get_unwrap("signer_index");
+        let signer_key_str: String = row.get_unwrap("signer_key");
+        let signer_key: StacksPublicKeyBuffer = serde_json::from_str(&signer_key_str)
+            .expect("CORRUPTION: DB stored bad transition ops");
+
+        Ok(VoteForAggregateKeyOp {
+            txid,
+            vtxindex,
+            block_height,
+            burn_header_hash,
+            sender,
+            aggregate_key,
+            round,
+            reward_cycle,
+            signer_index,
+            signer_key,
+        })
+    }
+}
+
 impl FromColumn<ASTRules> for ASTRules {
     fn from_column<'a>(row: &'a Row, column_name: &str) -> Result<ASTRules, db_error> {
         let x: u8 = row.get_unwrap(column_name);
@@ -497,7 +531,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &'static str = "8";
+pub const SORTITION_DB_VERSION: &'static str = "9";
 
 const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
     r#"
@@ -728,6 +762,23 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
         block_height INTEGER NOT NULL
     );"#,
 ];
+
+const SORTITION_DB_SCHEMA_9: &'static [&'static str] = &[r#"
+    CREATE TABLE vote_for_aggregate_key (
+        txid TEXT NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        block_height INTEGER NOT NULL,
+        burn_header_hash TEXT NOT NULL,
+
+        sender_addr TEXT NOT NULL,
+        aggregate_key TEXT NOT NULL,
+        round INTEGER NOT NULL,
+        reward_cycle INTEGER NOT NULL,
+        signer_index INTEGER NOT NULL,
+        signer_key TEXT NOT NULL,
+
+        PRIMARY KEY(txid,burn_header_Hash)
+    );"#];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -2944,6 +2995,7 @@ impl SortitionDB {
         SortitionDB::apply_schema_6(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_7(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_8(&db_tx)?;
+        SortitionDB::apply_schema_9(&db_tx)?;
 
         db_tx.instantiate_index()?;
 
@@ -3362,6 +3414,18 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_9(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_9 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["9"],
+        )?;
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
@@ -3415,6 +3479,10 @@ impl SortitionDB {
                     } else if version == "7" {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_8(&tx.deref())?;
+                        tx.commit()?;
+                    } else if version == "8" {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_9(&tx.deref())?;
                         tx.commit()?;
                     } else if version == expected_version {
                         return Ok(());
@@ -4396,6 +4464,20 @@ impl SortitionDB {
         query_rows(
             conn,
             "SELECT * FROM delegate_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
+            &[burn_header_hash],
+        )
+    }
+
+    /// Get the list of `vote-for-aggregate-key` operations processed in a given burnchain block.
+    /// This will be the same list in each PoX fork; it's up to the Stacks block-processing logic
+    /// to reject them.
+    pub fn get_vote_for_aggregate_key_ops(
+        conn: &Connection,
+        burn_header_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<VoteForAggregateKeyOp>, db_error> {
+        query_rows(
+            conn,
+            "SELECT * FROM vote_for_aggregate_key WHERE burn_header_hash = ? ORDER BY vtxindex",
             &[burn_header_hash],
         )
     }
@@ -5406,6 +5488,13 @@ impl<'a> SortitionHandleTx<'a> {
                 );
                 self.insert_delegate_stx(op)
             }
+            BlockstackOperationType::VoteForAggregateKey(ref op) => {
+                info!(
+                    "ACCEPTED({}) vote for aggregate key {} at {},{}",
+                    op.block_height, &op.txid, op.block_height, op.vtxindex
+                );
+                self.insert_vote_for_aggregate_key(op)
+            }
         }
     }
 
@@ -5469,6 +5558,29 @@ impl<'a> SortitionHandleTx<'a> {
         ];
 
         self.execute("REPLACE INTO delegate_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, delegate_to, reward_addr, delegated_ustx, until_burn_height) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
+
+        Ok(())
+    }
+
+    /// Insert a vote-for-aggregate-key op
+    fn insert_vote_for_aggregate_key(
+        &mut self,
+        op: &VoteForAggregateKeyOp,
+    ) -> Result<(), db_error> {
+        let args: &[&dyn ToSql] = &[
+            &op.txid,
+            &op.vtxindex,
+            &u64_to_sql(op.block_height)?,
+            &op.burn_header_hash,
+            &op.sender.to_string(),
+            &serde_json::to_string(&op.aggregate_key).unwrap(),
+            &op.round,
+            &u64_to_sql(op.reward_cycle)?,
+            &op.signer_index,
+            &serde_json::to_string(&op.signer_key).unwrap(),
+        ];
+
+        self.execute("REPLACE INTO vote_for_aggregate_key (txid, vtxindex, block_height, burn_header_hash, sender_addr, aggregate_key, round, reward_cycle, signer_index, signer_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", args)?;
 
         Ok(())
     }

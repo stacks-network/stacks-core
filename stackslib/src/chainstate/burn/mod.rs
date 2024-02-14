@@ -69,6 +69,7 @@ pub enum Opcodes {
     PreStx = 'p' as u8,
     TransferStx = '$' as u8,
     DelegateStx = '#' as u8,
+    VoteForAggregateKey = 'v' as u8,
 }
 
 // a burnchain block snapshot
@@ -193,6 +194,7 @@ impl Opcodes {
     const HTTP_PEG_IN: &'static str = "peg_in";
     const HTTP_PEG_OUT_REQUEST: &'static str = "peg_out_request";
     const HTTP_PEG_OUT_FULFILL: &'static str = "peg_out_fulfill";
+    const HTTP_VOTE_FOR_AGGREGATE_KEY: &'static str = "vote_for_aggregate_key";
 
     pub fn to_http_str(&self) -> &'static str {
         match self {
@@ -203,6 +205,7 @@ impl Opcodes {
             Opcodes::PreStx => Self::HTTP_PRE_STX,
             Opcodes::TransferStx => Self::HTTP_TRANSFER_STX,
             Opcodes::DelegateStx => Self::HTTP_DELEGATE_STX,
+            Opcodes::VoteForAggregateKey => Self::HTTP_VOTE_FOR_AGGREGATE_KEY,
         }
     }
 
@@ -215,6 +218,7 @@ impl Opcodes {
             Self::HTTP_PRE_STX => Opcodes::PreStx,
             Self::HTTP_TRANSFER_STX => Opcodes::TransferStx,
             Self::HTTP_DELEGATE_STX => Opcodes::DelegateStx,
+            Self::HTTP_VOTE_FOR_AGGREGATE_KEY => Opcodes::VoteForAggregateKey,
             _ => return None,
         };
 

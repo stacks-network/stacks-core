@@ -1676,6 +1676,7 @@ pub mod test {
                 BlockstackOperationType::TransferStx(_)
                 | BlockstackOperationType::DelegateStx(_)
                 | BlockstackOperationType::PreStx(_)
+                | BlockstackOperationType::VoteForAggregateKey(_)
                 | BlockstackOperationType::StackStx(_) => Ok(()),
             }
         }

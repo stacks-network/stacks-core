@@ -141,6 +141,9 @@ impl BurnchainStateTransition {
                     // the burn distribution, so just account for them for now.
                     all_user_burns.insert(op.txid.clone(), op.clone());
                 }
+                BlockstackOperationType::VoteForAggregateKey(_) => {
+                    accepted_ops.push(block_ops[i].clone());
+                }
             };
         }
 

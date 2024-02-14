@@ -2464,7 +2464,7 @@ impl NakamotoChainState {
         };
 
         // TODO: only need to do this if this is a tenure-start block
-        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops) =
+        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, _vote_for_agg_key_ops) =
             StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
                 chainstate_tx,
                 &parent_index_hash,
@@ -2591,6 +2591,7 @@ impl NakamotoChainState {
                 burn_header_height.into(),
                 coinbase_height,
             )?;
+            // TODO: handle vote-for-aggregate-key ops
         } else {
             signer_set_calc = None;
         }

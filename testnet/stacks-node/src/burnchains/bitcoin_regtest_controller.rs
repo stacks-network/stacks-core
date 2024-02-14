@@ -901,6 +901,7 @@ impl BitcoinRegtestController {
             | BlockstackOperationType::LeaderKeyRegister(_)
             | BlockstackOperationType::StackStx(_)
             | BlockstackOperationType::DelegateStx(_)
+            | BlockstackOperationType::VoteForAggregateKey(_)
             | BlockstackOperationType::UserBurnSupport(_) => {
                 unimplemented!();
             }
@@ -1843,6 +1844,8 @@ impl BitcoinRegtestController {
             BlockstackOperationType::DelegateStx(payload) => {
                 self.build_delegate_stacks_tx(epoch_id, payload, op_signer, None)
             }
+            // TODO
+            BlockstackOperationType::VoteForAggregateKey(_payload) => unimplemented!(),
         };
 
         transaction.map(|tx| SerializedTx::new(tx))

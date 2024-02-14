@@ -169,6 +169,7 @@ pub struct SetupBlockResult<'a, 'b> {
     pub burn_transfer_stx_ops: Vec<TransferStxOp>,
     pub auto_unlock_events: Vec<StacksTransactionEvent>,
     pub burn_delegate_stx_ops: Vec<DelegateStxOp>,
+    pub burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
     /// Result of a signer set calculation if one occurred
     pub signer_set_calc: Option<SignerCalculation>,
 }
@@ -4687,7 +4688,15 @@ impl StacksChainState {
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
         epoch_start_height: u64,
-    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>, Vec<DelegateStxOp>), Error> {
+    ) -> Result<
+        (
+            Vec<StackStxOp>,
+            Vec<TransferStxOp>,
+            Vec<DelegateStxOp>,
+            Vec<VoteForAggregateKeyOp>,
+        ),
+        Error,
+    > {
         // only consider transactions in Stacks 2.1
         let search_window: u8 =
             if epoch_start_height + u64::from(BURNCHAIN_TX_SEARCH_WINDOW) > burn_tip_height {
@@ -4726,12 +4735,15 @@ impl StacksChainState {
         let mut all_stacking_burn_ops = vec![];
         let mut all_transfer_burn_ops = vec![];
         let mut all_delegate_burn_ops = vec![];
+        let mut all_vote_for_aggregate_key_ops = vec![];
 
         // go from oldest burn header hash to newest
         for ancestor_bhh in ancestor_burnchain_header_hashes.iter().rev() {
             let stacking_ops = SortitionDB::get_stack_stx_ops(sortdb_conn, ancestor_bhh)?;
             let transfer_ops = SortitionDB::get_transfer_stx_ops(sortdb_conn, ancestor_bhh)?;
             let delegate_ops = SortitionDB::get_delegate_stx_ops(sortdb_conn, ancestor_bhh)?;
+            let vote_for_aggregate_key_ops =
+                SortitionDB::get_vote_for_aggregate_key_ops(sortdb_conn, ancestor_bhh)?;
 
             for stacking_op in stacking_ops.into_iter() {
                 if !processed_burnchain_txids.contains(&stacking_op.txid) {
@@ -4750,11 +4762,18 @@ impl StacksChainState {
                     all_delegate_burn_ops.push(delegate_op);
                 }
             }
+
+            for vote_op in vote_for_aggregate_key_ops.into_iter() {
+                if !processed_burnchain_txids.contains(&vote_op.txid) {
+                    all_vote_for_aggregate_key_ops.push(vote_op);
+                }
+            }
         }
         Ok((
             all_stacking_burn_ops,
             all_transfer_burn_ops,
             all_delegate_burn_ops,
+            all_vote_for_aggregate_key_ops,
         ))
     }
 
@@ -4782,13 +4801,23 @@ impl StacksChainState {
     /// The change in Stacks 2.1+ makes it so that it's overwhelmingly likely to work
     /// the first time -- the choice of K is significantly bigger than the length of short-lived
     /// forks or periods of time with no sortition than have been observed in practice.
+    ///
+    /// In epoch 2.5+, the vote-for-aggregate-key op is included
     pub fn get_stacking_and_transfer_and_delegate_burn_ops(
         chainstate_tx: &mut ChainstateTx,
         parent_index_hash: &StacksBlockId,
         sortdb_conn: &Connection,
         burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u64,
-    ) -> Result<(Vec<StackStxOp>, Vec<TransferStxOp>, Vec<DelegateStxOp>), Error> {
+    ) -> Result<
+        (
+            Vec<StackStxOp>,
+            Vec<TransferStxOp>,
+            Vec<DelegateStxOp>,
+            Vec<VoteForAggregateKeyOp>,
+        ),
+        Error,
+    > {
         let cur_epoch = SortitionDB::get_stacks_epoch(sortdb_conn, burn_tip_height)?
             .expect("FATAL: no epoch defined for current burnchain tip height");
 
@@ -4803,14 +4832,24 @@ impl StacksChainState {
                         burn_tip,
                     )?;
                 // The DelegateStx bitcoin wire format does not exist before Epoch 2.1.
-                Ok((stack_ops, transfer_ops, vec![]))
+                Ok((stack_ops, transfer_ops, vec![], vec![]))
             }
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25
-            | StacksEpochId::Epoch30 => {
+            | StacksEpochId::Epoch24 => {
+                let (stack_ops, transfer_ops, delegate_ops, _) =
+                    StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
+                        chainstate_tx,
+                        parent_index_hash,
+                        sortdb_conn,
+                        burn_tip,
+                        burn_tip_height,
+                        cur_epoch.start_height,
+                    )?;
+                Ok((stack_ops, transfer_ops, delegate_ops, vec![]))
+            }
+            StacksEpochId::Epoch25 | StacksEpochId::Epoch30 => {
                 // TODO: sbtc ops in epoch 3.0
                 StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                     chainstate_tx,
@@ -4969,7 +5008,7 @@ impl StacksChainState {
             (latest_miners, parent_miner)
         };
 
-        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops) =
+        let (stacking_burn_ops, transfer_burn_ops, delegate_burn_ops, vote_for_agg_key_burn_ops) =
             StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops(
                 chainstate_tx,
                 &parent_index_hash,
@@ -5174,6 +5213,10 @@ impl StacksChainState {
                 &chain_tip.anchored_header.block_hash()
             );
         }
+        // Vote for aggregate pubkey ops are allowed from epoch 2.4 onward
+        if evaluated_epoch >= StacksEpochId::Epoch25 {
+            // TODO: implement
+        }
 
         debug!(
             "Setup block: ready to go for {}/{}",
@@ -5194,6 +5237,7 @@ impl StacksChainState {
             burn_transfer_stx_ops: transfer_burn_ops,
             auto_unlock_events,
             burn_delegate_stx_ops: delegate_burn_ops,
+            burn_vote_for_aggregate_key_ops: vote_for_agg_key_burn_ops,
             signer_set_calc,
         })
     }
@@ -5392,6 +5436,7 @@ impl StacksChainState {
             mut auto_unlock_events,
             burn_delegate_stx_ops,
             signer_set_calc,
+            burn_vote_for_aggregate_key_ops: _,
         } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -5705,6 +5750,7 @@ impl StacksChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
+            // TODO: vote for agg key ops
             affirmation_weight,
         )
         .expect("FATAL: failed to advance chain tip");
@@ -11017,7 +11063,7 @@ pub mod test {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) =
                     chainstate.chainstate_tx_begin().unwrap();
-                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops) =
+                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, vote_for_aggregate_key_ops) =
                     StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                         &mut chainstate_tx,
                         &last_block_id,
@@ -11698,7 +11744,7 @@ pub mod test {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) =
                     chainstate.chainstate_tx_begin().unwrap();
-                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops) =
+                let (stack_stx_ops, transfer_stx_ops, delegate_stx_ops, _) =
                     StacksChainState::get_stacking_and_transfer_and_delegate_burn_ops_v210(
                         &mut chainstate_tx,
                         &last_block_id,
