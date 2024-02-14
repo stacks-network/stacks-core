@@ -7197,9 +7197,9 @@ pub mod tests {
         let commit_snapshot = test_append_snapshot(
             &mut db,
             BurnchainHeaderHash([0x03; 32]),
-            &vec![
-                BlockstackOperationType::LeaderBlockCommit(block_commit.clone()),
-            ],
+            &vec![BlockstackOperationType::LeaderBlockCommit(
+                block_commit.clone(),
+            )],
         );
 
         {
