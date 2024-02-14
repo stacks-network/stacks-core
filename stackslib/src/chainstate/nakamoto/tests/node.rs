@@ -119,6 +119,8 @@ pub struct TestSigners {
     pub num_keys: u32,
     /// The number of vote shares required to sign a block
     pub threshold: u32,
+    /// The key ids distributed among signer_parties
+    pub party_key_ids: Vec<Vec<u32>>,
 }
 
 impl Default for TestSigners {
@@ -164,6 +166,7 @@ impl Default for TestSigners {
             poly_commitments,
             num_keys,
             threshold,
+            party_key_ids,
         }
     }
 }
@@ -183,6 +186,42 @@ impl TestSigners {
             .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
             .expect("aggregator sig failed");
         block.header.signer_signature = ThresholdSignature(signature);
+    }
+
+    // Generate and assign a new aggregate public key
+    pub fn generate_aggregate_key(&mut self) -> Point {
+        let mut rng = rand_core::OsRng;
+        let num_parties = self.party_key_ids.len().try_into().unwrap();
+        // Create the parties
+        self.signer_parties = self
+            .party_key_ids
+            .iter()
+            .enumerate()
+            .map(|(pid, pkids)| {
+                wsts::v2::Party::new(
+                    pid.try_into().unwrap(),
+                    pkids,
+                    num_parties,
+                    self.num_keys,
+                    self.threshold,
+                    &mut rng,
+                )
+            })
+            .collect();
+        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut self.signer_parties, &mut rng)
+        {
+            Ok(poly_commitments) => poly_commitments,
+            Err(secret_errors) => {
+                panic!("Got secret errors from DKG: {:?}", secret_errors);
+            }
+        };
+        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
+        sig_aggregator
+            .init(&poly_commitments)
+            .expect("aggregator init failed");
+        let aggregate_public_key = sig_aggregator.poly[0];
+        self.aggregate_public_key = aggregate_public_key;
+        self.aggregate_public_key.clone()
     }
 }
 

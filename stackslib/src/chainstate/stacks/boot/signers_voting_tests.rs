@@ -42,7 +42,8 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::{Address, PrivateKey};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
-use wsts::curve::{point::Point, scalar::Scalar};
+use wsts::curve::point::Point;
+use wsts::curve::scalar::Scalar;
 
 use super::test::*;
 use super::RawRewardSetEntry;
