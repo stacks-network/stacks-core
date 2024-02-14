@@ -35,6 +35,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::warn;
 
 mod events;
+mod events_24;
 mod pox_1;
 mod pox_2;
 mod pox_3;

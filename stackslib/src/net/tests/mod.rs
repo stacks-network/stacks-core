@@ -118,8 +118,6 @@ impl NakamotoBootPlan {
             3 * cycle_length + 1,
             // pox-3 activates at start of third cycle, just before v2 unlock
             2 * cycle_length + 1,
-            // pox-4 activates at start of fourth reward cycle, just before v3 unlock
-            3 * cycle_length + 1,
         );
         self.pox_constants = new_consts;
         self

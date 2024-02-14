@@ -1744,11 +1744,10 @@ impl PeerNetwork {
         let mut nk_remove: Vec<(NeighborKey, Hash160)> = vec![];
         for (neighbor_key, ev_id) in self.events.iter() {
             if *ev_id == event_id {
-                let pubkh = if let Some(convo) = self.get_p2p_convo(event_id) {
-                    convo.get_public_key_hash().unwrap_or(Hash160([0x00; 20]))
-                } else {
-                    Hash160([0x00; 20])
-                };
+                let pubkh = self
+                    .get_p2p_convo(event_id)
+                    .and_then(|convo| convo.get_public_key_hash())
+                    .unwrap_or(Hash160([0x00; 20]));
                 nk_remove.push((neighbor_key.clone(), pubkh));
             }
         }
@@ -3874,9 +3873,10 @@ impl PeerNetwork {
             let prune = self.do_network_work_nakamoto(sortdb, ibd);
 
             // in Nakamoto epoch, but we might still be doing epoch 2.x things since Nakamoto does
-            // not begin on a reawrd cycle boundary.
-            if self.burnchain_tip.block_height <= cur_epoch.start_height
-                || self.connection_opts.force_nakamoto_epoch_transition
+            // not begin on a reward cycle boundary.
+            if cur_epoch.epoch_id == StacksEpochId::Epoch30
+                && (self.burnchain_tip.block_height <= cur_epoch.start_height
+                    || self.connection_opts.force_nakamoto_epoch_transition)
             {
                 debug!(
                     "{:?}: run Epoch 2.x work loop in Nakamoto epoch",
@@ -3925,14 +3925,11 @@ impl PeerNetwork {
         while !did_cycle {
             // always do an inv sync
             let learned = self.do_network_inv_sync_nakamoto(sortdb, ibd);
-            if learned {
-                debug!("{:?}: learned about new blocks!", self.get_local_peer());
-            }
-
             debug!(
                 "{:?}: network work state is {:?}",
                 self.get_local_peer(),
-                &self.nakamoto_work_state
+                &self.nakamoto_work_state;
+                "learned_new_blocks?" => learned
             );
             let cur_state = self.nakamoto_work_state;
             match self.nakamoto_work_state {

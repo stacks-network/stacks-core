@@ -10090,7 +10090,6 @@ pub mod tests {
             u32::MAX,
             u32::MAX,
             u32::MAX,
-            u32::MAX,
         );
 
         let mut burnchain = Burnchain::regtest(path_root);

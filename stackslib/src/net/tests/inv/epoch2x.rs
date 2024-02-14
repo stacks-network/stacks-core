@@ -447,21 +447,7 @@ fn test_inv_set_block_microblock_bits() {
 #[test]
 fn test_inv_merge_pox_inv() {
     let mut burnchain = Burnchain::regtest("unused");
-    burnchain.pox_constants = PoxConstants::new(
-        5,
-        3,
-        3,
-        25,
-        5,
-        u64::MAX,
-        u64::MAX,
-        u32::MAX,
-        u32::MAX,
-        u32::MAX,
-        u32::MAX,
-        u32::MAX,
-    );
-
+    burnchain.pox_constants = PoxConstants::test_20_no_sunset();
     let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
     for i in 0..32 {
         let bit_flipped = peer_inv
@@ -478,21 +464,7 @@ fn test_inv_merge_pox_inv() {
 #[test]
 fn test_inv_truncate_pox_inv() {
     let mut burnchain = Burnchain::regtest("unused");
-    burnchain.pox_constants = PoxConstants::new(
-        5,
-        3,
-        3,
-        25,
-        5,
-        u64::MAX,
-        u64::MAX,
-        u32::MAX,
-        u32::MAX,
-        u32::MAX,
-        u32::MAX,
-        u32::MAX,
-    );
-
+    burnchain.pox_constants = PoxConstants::test_20_no_sunset();
     let mut peer_inv = PeerBlocksInv::new(vec![0x01], vec![0x01], vec![0x01], 1, 1, 0);
     for i in 0..5 {
         let bit_flipped_opt = peer_inv.merge_pox_inv(&burnchain, i + 1, 1, vec![0x00], false);

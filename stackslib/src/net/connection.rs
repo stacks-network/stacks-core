@@ -411,6 +411,9 @@ pub struct ConnectionOptions {
     pub disable_inbound_handshakes: bool,
     pub disable_stackerdb_get_chunks: bool,
     pub force_disconnect_interval: Option<u64>,
+    /// If set to true, this forces the p2p state machine to believe that it is running in
+    /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
+    /// 2.x and Nakamoto state machines.
     pub force_nakamoto_epoch_transition: bool,
 }
 
