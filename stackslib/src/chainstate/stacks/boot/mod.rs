@@ -1860,7 +1860,7 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
-                Value::buff_from(signature).unwrap(),
+                Value::some(Value::buff_from(signature).unwrap()).unwrap(),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -2009,7 +2009,7 @@ pub mod test {
             vec![
                 Value::UInt(lock_period),
                 addr_tuple,
-                Value::buff_from(signature).unwrap(),
+                Value::some(Value::buff_from(signature).unwrap()).unwrap(),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -2114,7 +2114,7 @@ pub mod test {
             vec![
                 addr_tuple,
                 Value::UInt(reward_cycle),
-                Value::buff_from(signature).unwrap(),
+                Value::some(Value::buff_from(signature).unwrap()).unwrap(),
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )

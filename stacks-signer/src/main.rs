@@ -416,7 +416,7 @@ pub mod tests {
         let program = format!(
             r#"
             {}
-            (verify-signer-key-sig {} u{} "{}" u{} 0x{} 0x{})
+            (verify-signer-key-sig {} u{} "{}" u{} (some 0x{}) 0x{})
         "#,
             &*POX_4_CODE,                                               //s
             Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()), //p

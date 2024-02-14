@@ -1470,7 +1470,7 @@ fn verify_signer_key_sig(
                         LimitedCostTracker::new_free(),
                         |env| {
                             let program = format!(
-                                "(verify-signer-key-sig {} u{} \"{}\" u{} 0x{} 0x{})",
+                                "(verify-signer-key-sig {} u{} \"{}\" u{} (some 0x{}) 0x{})",
                                 Value::Tuple(pox_addr.clone().as_clarity_tuple().unwrap()),
                                 reward_cycle,
                                 topic.get_name_str(),
@@ -2268,7 +2268,7 @@ fn stack_stx_signer_key() {
             pox_addr_val.clone(),
             Value::UInt(block_height as u128),
             Value::UInt(2),
-            Value::buff_from(signature.clone()).unwrap(),
+            Value::some(Value::buff_from(signature.clone()).unwrap()).unwrap(),
             signer_key_val.clone(),
         ],
     )];
@@ -2384,7 +2384,7 @@ fn stack_extend_signer_key() {
         vec![
             Value::UInt(1),
             pox_addr_val.clone(),
-            Value::buff_from(signature.clone()).unwrap(),
+            Value::some(Value::buff_from(signature.clone()).unwrap()).unwrap(),
             signer_extend_key_val.clone(),
         ],
     )];
@@ -2492,7 +2492,7 @@ fn delegate_stack_stx_signer_key() {
             vec![
                 pox_addr_val.clone(),
                 Value::UInt(next_reward_cycle.into()),
-                Value::buff_from(signature).unwrap(),
+                Value::some(Value::buff_from(signature).unwrap()).unwrap(),
                 signer_key_val.clone(),
             ],
         ),
@@ -2661,7 +2661,7 @@ fn delegate_stack_stx_extend_signer_key() {
         vec![
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(next_reward_cycle.into()),
-            Value::buff_from(signature).unwrap(),
+            Value::some(Value::buff_from(signature).unwrap()).unwrap(),
             signer_key_val.clone(),
         ],
     );
@@ -2681,7 +2681,7 @@ fn delegate_stack_stx_extend_signer_key() {
         vec![
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(extend_cycle.into()),
-            Value::buff_from(extend_signature).unwrap(),
+            Value::some(Value::buff_from(extend_signature).unwrap()).unwrap(),
             signer_extend_key_val.clone(),
         ],
     );
@@ -2896,7 +2896,7 @@ fn delegate_stack_increase() {
         vec![
             pox_addr.as_clarity_tuple().unwrap().into(),
             Value::UInt(next_reward_cycle.into()),
-            Value::buff_from(signature).unwrap(),
+            (Value::some(Value::buff_from(signature).unwrap()).unwrap()),
             signer_key_val.clone(),
         ],
     );

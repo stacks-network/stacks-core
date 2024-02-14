@@ -250,15 +250,6 @@ pub mod pox4 {
                 CHAIN_ID_TESTNET,
                 lock_period,
             );
-            println!(
-                "Hash: 0x{}",
-                to_hex(expected_hash_vec.as_bytes().as_slice())
-            );
-            println!(
-                "Pubkey: {}",
-                to_hex(pubkey.to_bytes_compressed().as_slice())
-            );
-            // println!("PoxAddr: {}", pox_addr_b58_serialize(&pox_addr).unwrap());
             let expected_hash = expected_hash_vec.as_bytes();
 
             // Test 1: valid result
