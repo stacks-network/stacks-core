@@ -565,10 +565,9 @@ impl StacksClient {
         point: Point,
         reward_cycle: u64,
         tx_fee: Option<u64>,
+        nonce: u64,
     ) -> Result<StacksTransaction, ClientError> {
         debug!("Building {VOTE_FUNCTION_NAME} transaction...");
-        // TODO: this nonce should be calculated on the side as we may have pending transactions that are not yet confirmed...
-        let nonce = self.get_account_nonce(&self.stacks_address)?;
         let contract_address = boot_code_addr(self.mainnet);
         let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
         let function_name = ClarityName::from(VOTE_FUNCTION_NAME);
@@ -1023,13 +1022,20 @@ mod tests {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let nonce = thread_rng().next_u64();
-        let account_nonce_response = build_account_nonce_response(nonce);
+        let signer_index = thread_rng().next_u32();
+        let round = thread_rng().next_u64();
+        let reward_cycle = thread_rng().next_u64();
 
         let h = spawn(move || {
-            mock.client
-                .build_vote_for_aggregate_public_key(0, 0, point, 0, None)
+            mock.client.build_vote_for_aggregate_public_key(
+                signer_index,
+                round,
+                point,
+                reward_cycle,
+                None,
+                nonce,
+            )
         });
-        write_response(mock.server, account_nonce_response.as_bytes());
         assert!(h.join().unwrap().is_ok());
     }
 
@@ -1040,17 +1046,25 @@ mod tests {
         let mock = MockServerClient::new();
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let nonce = thread_rng().next_u64();
-        let account_nonce_response = build_account_nonce_response(nonce);
+        let signer_index = thread_rng().next_u32();
+        let round = thread_rng().next_u64();
+        let reward_cycle = thread_rng().next_u64();
 
         let h = spawn(move || {
             let tx = mock
                 .client
                 .clone()
-                .build_vote_for_aggregate_public_key(0, 0, point, 0, None)
+                .build_vote_for_aggregate_public_key(
+                    signer_index,
+                    round,
+                    point,
+                    reward_cycle,
+                    None,
+                    nonce,
+                )
                 .unwrap();
             mock.client.submit_transaction(&tx)
         });
-        write_response(mock.server, account_nonce_response.as_bytes());
         let mock = MockServerClient::from_config(mock.config);
         write_response(
             mock.server,

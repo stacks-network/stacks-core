@@ -347,7 +347,7 @@ pub(crate) mod tests {
     /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
-        stacks_tip_consensus_hash: Option<ConsensusHash>,
+        pox_consensus_hash: Option<ConsensusHash>,
     ) -> (String, RPCPeerInfoData) {
         // Generate some random info
         let private_key = StacksPrivateKey::new();
@@ -358,7 +358,7 @@ pub(crate) mod tests {
             vec![boot_code_id("fake", false), boot_code_id("fake_2", false)];
         let peer_info = RPCPeerInfoData {
             peer_version: thread_rng().next_u32(),
-            pox_consensus: generate_random_consensus_hash(),
+            pox_consensus: pox_consensus_hash.unwrap_or(generate_random_consensus_hash()),
             burn_block_height: burn_block_height.unwrap_or(thread_rng().next_u64()),
             stable_pox_consensus: generate_random_consensus_hash(),
             stable_burn_block_height: 2,
@@ -367,8 +367,7 @@ pub(crate) mod tests {
             parent_network_id: thread_rng().next_u32(),
             stacks_tip_height: thread_rng().next_u64(),
             stacks_tip: BlockHeaderHash([0x06; 32]),
-            stacks_tip_consensus_hash: stacks_tip_consensus_hash
-                .unwrap_or(generate_random_consensus_hash()),
+            stacks_tip_consensus_hash: generate_random_consensus_hash(),
             unanchored_tip: None,
             unanchored_seq: Some(0),
             exit_at_block_height: None,
