@@ -5266,7 +5266,7 @@ impl StacksChainState {
     /// necessary so that the Headers database and Clarity database's
     /// transactions can commit very close to one another, after the
     /// event observer has emitted.
-    fn append_block<'a>(
+    pub fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleTx,
@@ -5283,6 +5283,7 @@ impl StacksChainState {
         burnchain_sortition_burn: u64,
         user_burns: &[StagingUserBurnSupport],
         affirmation_weight: u64,
+        do_not_advance: bool,
     ) -> Result<(StacksEpochReceipt, PreCommitClarityBlock<'a>), Error> {
         debug!(
             "Process block {:?} with {} transactions",
@@ -5654,10 +5655,30 @@ impl StacksChainState {
             .as_ref()
             .map(|(_, _, _, info)| info.clone());
 
+        if do_not_advance {
+            let epoch_receipt = StacksEpochReceipt {
+                header: StacksHeaderInfo::regtest_genesis(),
+                tx_receipts,
+                matured_rewards,
+                matured_rewards_info,
+                parent_microblocks_cost: microblock_execution_cost,
+                anchored_block_cost: block_execution_cost,
+                parent_burn_block_hash,
+                parent_burn_block_height,
+                parent_burn_block_timestamp,
+                evaluated_epoch,
+                epoch_transition: applied_epoch_transition,
+                signers_updated: false,
+            };
+
+            return Ok((epoch_receipt, clarity_commit));
+        }
+
         let parent_block_header = parent_chain_tip
             .anchored_header
             .as_stacks_epoch2()
             .ok_or_else(|| Error::InvalidChildOfNakomotoBlock)?;
+
         let new_tip = StacksChainState::advance_tip(
             &mut chainstate_tx.tx,
             parent_block_header,
@@ -5722,7 +5743,7 @@ impl StacksChainState {
     /// Verify that a Stacks anchored block attaches to its parent anchored block.
     /// * checks .header.total_work.work
     /// * checks .header.parent_block
-    fn check_block_attachment(
+    pub fn check_block_attachment(
         parent_block_header: &StacksBlockHeader,
         block_header: &StacksBlockHeader,
     ) -> bool {
@@ -5749,7 +5770,7 @@ impl StacksChainState {
     /// The header info will be pulled from the headers DB, so this method only succeeds if the
     /// parent block has been processed.
     /// If it's not known, return None.
-    fn get_parent_header_info(
+    pub fn get_parent_header_info(
         chainstate_tx: &mut ChainstateTx,
         next_staging_block: &StagingBlock,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
@@ -5791,7 +5812,7 @@ impl StacksChainState {
     }
 
     /// Extract and parse the block from a loaded staging block, and verify its integrity.
-    fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
+    pub fn extract_stacks_block(next_staging_block: &StagingBlock) -> Result<StacksBlock, Error> {
         let block = {
             StacksBlock::consensus_deserialize(&mut &next_staging_block.block_data[..])
                 .map_err(Error::CodecError)?
@@ -5813,7 +5834,7 @@ impl StacksChainState {
     /// header info), determine which branch connects to the given block.  If there are multiple
     /// branches, punish the parent.  Return the portion of the branch that actually connects to
     /// the given block.
-    fn extract_connecting_microblocks(
+    pub fn extract_connecting_microblocks(
         parent_block_header_info: &StacksHeaderInfo,
         next_staging_block: &StagingBlock,
         block: &StacksBlock,
@@ -6065,6 +6086,7 @@ impl StacksChainState {
             next_staging_block.sortition_burn,
             &user_supports,
             block_am.weight(),
+            false,
         ) {
             Ok(next_chain_tip_info) => next_chain_tip_info,
             Err(e) => {
