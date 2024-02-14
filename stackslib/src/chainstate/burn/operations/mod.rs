@@ -45,7 +45,6 @@ pub mod leader_block_commit;
 pub mod leader_key_register;
 pub mod stack_stx;
 pub mod transfer_stx;
-pub mod user_burn_support;
 
 #[cfg(test)]
 mod test;
@@ -74,11 +73,6 @@ pub enum Error {
 
     // leader key register related errors
     LeaderKeyAlreadyRegistered,
-
-    // user burn supports related errors
-    UserBurnSupportBadConsensusHash,
-    UserBurnSupportNoLeaderKey,
-    UserBurnSupportNotSupported,
 
     // transfer stx related errors
     TransferStxMustBePositive,
@@ -136,16 +130,6 @@ impl fmt::Display for Error {
             ),
             Error::LeaderKeyAlreadyRegistered => {
                 write!(f, "Leader key has already been registered")
-            }
-            Error::UserBurnSupportBadConsensusHash => {
-                write!(f, "User burn support has an invalid consensus hash")
-            }
-            Error::UserBurnSupportNoLeaderKey => write!(
-                f,
-                "User burn support does not match a registered leader key"
-            ),
-            Error::UserBurnSupportNotSupported => {
-                write!(f, "User burn operations are not supported")
             }
             Error::TransferStxMustBePositive => write!(f, "Transfer STX must be positive amount"),
             Error::TransferStxSelfSend => write!(f, "Transfer STX must not send to self"),
@@ -268,24 +252,6 @@ pub struct LeaderKeyRegisterOp {
     pub burn_header_hash: BurnchainHeaderHash, // hash of burn chain block
 }
 
-/// NOTE: this struct is currently not used
-#[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
-pub struct UserBurnSupportOp {
-    pub address: StacksAddress,
-    pub consensus_hash: ConsensusHash,
-    pub public_key: VRFPublicKey,
-    pub key_block_ptr: u32,
-    pub key_vtxindex: u16,
-    pub block_header_hash_160: Hash160,
-    pub burn_fee: u64,
-
-    // common to all transactions
-    pub txid: Txid,                            // transaction ID
-    pub vtxindex: u32,                         // index in the block where this tx occurs
-    pub block_height: u64,                     // block height at which this tx occurs
-    pub burn_header_hash: BurnchainHeaderHash, // hash of burnchain block with this tx
-}
-
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct DelegateStxOp {
     pub sender: StacksAddress,
@@ -343,7 +309,6 @@ fn principal_deserialize<'de, D: serde::Deserializer<'de>>(
 pub enum BlockstackOperationType {
     LeaderKeyRegister(LeaderKeyRegisterOp),
     LeaderBlockCommit(LeaderBlockCommitOp),
-    UserBurnSupport(UserBurnSupportOp),
     PreStx(PreStxOp),
     StackStx(StackStxOp),
     TransferStx(TransferStxOp),
@@ -370,7 +335,6 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(_) => Opcodes::LeaderKeyRegister,
             BlockstackOperationType::LeaderBlockCommit(_) => Opcodes::LeaderBlockCommit,
-            BlockstackOperationType::UserBurnSupport(_) => Opcodes::UserBurnSupport,
             BlockstackOperationType::StackStx(_) => Opcodes::StackStx,
             BlockstackOperationType::PreStx(_) => Opcodes::PreStx,
             BlockstackOperationType::TransferStx(_) => Opcodes::TransferStx,
@@ -386,7 +350,6 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref data) => &data.txid,
             BlockstackOperationType::LeaderBlockCommit(ref data) => &data.txid,
-            BlockstackOperationType::UserBurnSupport(ref data) => &data.txid,
             BlockstackOperationType::StackStx(ref data) => &data.txid,
             BlockstackOperationType::PreStx(ref data) => &data.txid,
             BlockstackOperationType::TransferStx(ref data) => &data.txid,
@@ -398,7 +361,6 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.vtxindex,
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.vtxindex,
-            BlockstackOperationType::UserBurnSupport(ref data) => data.vtxindex,
             BlockstackOperationType::StackStx(ref data) => data.vtxindex,
             BlockstackOperationType::PreStx(ref data) => data.vtxindex,
             BlockstackOperationType::TransferStx(ref data) => data.vtxindex,
@@ -410,7 +372,6 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.block_height,
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.block_height,
-            BlockstackOperationType::UserBurnSupport(ref data) => data.block_height,
             BlockstackOperationType::StackStx(ref data) => data.block_height,
             BlockstackOperationType::PreStx(ref data) => data.block_height,
             BlockstackOperationType::TransferStx(ref data) => data.block_height,
@@ -422,7 +383,6 @@ impl BlockstackOperationType {
         match *self {
             BlockstackOperationType::LeaderKeyRegister(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::LeaderBlockCommit(ref data) => data.burn_header_hash.clone(),
-            BlockstackOperationType::UserBurnSupport(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::StackStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::PreStx(ref data) => data.burn_header_hash.clone(),
             BlockstackOperationType::TransferStx(ref data) => data.burn_header_hash.clone(),
@@ -437,7 +397,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.set_burn_height(height)
             }
-            BlockstackOperationType::UserBurnSupport(ref mut data) => data.block_height = height,
             BlockstackOperationType::StackStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::PreStx(ref mut data) => data.block_height = height,
             BlockstackOperationType::TransferStx(ref mut data) => data.block_height = height,
@@ -454,7 +413,6 @@ impl BlockstackOperationType {
             BlockstackOperationType::LeaderBlockCommit(ref mut data) => {
                 data.burn_header_hash = hash
             }
-            BlockstackOperationType::UserBurnSupport(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::StackStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::PreStx(ref mut data) => data.burn_header_hash = hash,
             BlockstackOperationType::TransferStx(ref mut data) => data.burn_header_hash = hash,
@@ -547,7 +505,6 @@ impl fmt::Display for BlockstackOperationType {
             BlockstackOperationType::PreStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::StackStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::LeaderBlockCommit(ref op) => write!(f, "{:?}", op),
-            BlockstackOperationType::UserBurnSupport(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::TransferStx(ref op) => write!(f, "{:?}", op),
             BlockstackOperationType::DelegateStx(ref op) => write!(f, "{:?}", op),
         }

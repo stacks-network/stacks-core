@@ -31,7 +31,6 @@ use crate::burnchains::{
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, Error as op_error, LeaderBlockCommitOp, LeaderKeyRegisterOp,
-    UserBurnSupportOp,
 };
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 use crate::chainstate::stacks::{StacksPrivateKey, StacksPublicKey};
@@ -260,7 +259,7 @@ pub mod tests {
     use crate::burnchains::*;
     use crate::chainstate::burn::db::sortdb::*;
     use crate::chainstate::burn::operations::{
-        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+        BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
     use crate::chainstate::stacks::address::StacksAddressExtensions;
