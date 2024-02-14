@@ -334,11 +334,11 @@ impl NakamotoBootPlan {
                     &test_stacker.stacker_private_key,
                     0,
                     test_stacker.amount,
-                    pox_addr,
+                    &pox_addr,
                     12,
-                    StacksPublicKey::from_private(&test_stacker.signer_private_key),
+                    &StacksPublicKey::from_private(&test_stacker.signer_private_key),
                     34,
-                    signature,
+                    Some(signature),
                 )
             })
             .collect();
