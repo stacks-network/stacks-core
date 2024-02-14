@@ -16,30 +16,24 @@
 
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::errors::Error as ClarityError;
-use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, ResponseData, TupleData};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, TupleData};
 use clarity::vm::Value;
 #[cfg(test)]
 use slog::slog_debug;
 use slog::slog_error;
 #[cfg(test)]
 use stacks_common::debug;
-use stacks_common::types::StacksEpochId;
 use stacks_common::{error, test_debug};
-
-use crate::events_24;
 
 /// Determine who the stacker is for a given function.
 /// - for non-delegate stacking functions, it's tx-sender
 /// - for delegate stacking functions, it's the first argument
 fn get_stacker(sender: &PrincipalData, function_name: &str, args: &[Value]) -> Value {
     match function_name {
-        "stack-stx"
-        | "stack-increase"
-        | "stack-extend"
-        | "delegate-stx"
-        | "revoke-delegate-stx" => Value::Principal(sender.clone()),
+        "stack-stx" | "stack-increase" | "stack-extend" | "delegate-stx" => {
+            Value::Principal(sender.clone())
+        }
         _ => args[0].clone(),
     }
 }
@@ -106,11 +100,7 @@ fn create_event_info_aggregation_code(function_name: &str) -> String {
 }
 
 /// Craft the code snippet to generate the method-specific `data` payload
-fn create_event_info_data_code(
-    function_name: &str,
-    args: &[Value],
-    response: &ResponseData,
-) -> String {
+fn create_event_info_data_code(function_name: &str, args: &[Value]) -> String {
     match function_name {
         "stack-stx" => {
             format!(
@@ -131,11 +121,7 @@ fn create_event_info_data_code(
                         start-burn-height: {start_burn_height},
                         ;; how long to lock, in burn blocks
                         ;; equal to args[3]
-                        lock-period: {lock_period},
-                        ;; equal to args[4]
-                        signer-sig: {signer_sig},
-                        ;; equal to args[5]
-                        signer-key: {signer_key},
+                        lock-period: {lock_period}
                     }}
                 }}
                 "#,
@@ -143,8 +129,6 @@ fn create_event_info_data_code(
                 lock_period = &args[3],
                 pox_addr = &args[1],
                 start_burn_height = &args[2],
-                signer_sig = &args.get(4).unwrap_or(&Value::none()),
-                signer_key = &args.get(5).unwrap_or(&Value::none()),
             )
         }
         "delegate-stack-stx" => {
@@ -171,7 +155,7 @@ fn create_event_info_data_code(
                         delegator: tx-sender,
                         ;; stacker
                         ;; equal to args[0]
-                        stacker: '{stacker},
+                        stacker: '{stacker}
                     }}
                 }}
                 "#,
@@ -254,18 +238,12 @@ fn create_event_info_data_code(
                         ;; equal to args[0]
                         extend-count: {extend_count},
                         ;; new unlock burnchain block height
-                        unlock-burn-height: new-unlock-ht,
-                        ;; equal to args[2]
-                        signer-sig: {signer_sig},
-                        ;; equal to args[3]
-                        signer-key: {signer_key},
+                        unlock-burn-height: new-unlock-ht
                     }}
                 }})
                 "#,
                 extend_count = &args[0],
                 pox_addr = &args[1],
-                signer_sig = &args.get(2).unwrap_or(&Value::none()),
-                signer_key = &args.get(3).map_or("none".to_string(), |v| v.to_string()),
             )
         }
         "delegate-stack-extend" => {
@@ -305,7 +283,9 @@ fn create_event_info_data_code(
                 extend_count = &args[2]
             )
         }
-        "stack-aggregation-commit" | "stack-aggregation-commit-indexed" => {
+        "stack-aggregation-commit"
+        | "stack-aggregation-commit-indexed"
+        | "stack-aggregation-increase" => {
             format!(
                 r#"
                 {{
@@ -321,45 +301,12 @@ fn create_event_info_data_code(
                                         (unwrap-panic (map-get? logged-partial-stacked-by-cycle
                                             {{ pox-addr: {pox_addr}, sender: tx-sender, reward-cycle: {reward_cycle} }}))),
                         ;; delegator (this is the caller)
-                        delegator: tx-sender,
-                        ;; equal to args[2]
-                        signer-sig: {signer_sig},
-                        ;; equal to args[3]
-                        signer-key: {signer_key},
+                        delegator: tx-sender
                     }}
                 }}
                 "#,
                 pox_addr = &args[0],
-                reward_cycle = &args[1],
-                signer_sig = &args.get(2).unwrap_or(&Value::none()),
-                signer_key = &args.get(3).unwrap_or(&Value::none()),
-            )
-        }
-        "stack-aggregation-increase" => {
-            format!(
-                r#"
-                {{
-                    data: {{
-                        ;; pox addr locked up
-                        ;; equal to args[0] in all methods
-                        pox-addr: {pox_addr},
-                        ;; reward cycle locked up
-                        ;; equal to args[1] in all methods
-                        reward-cycle: {reward_cycle},
-                        ;; amount locked behind this PoX address by this method
-                        amount-ustx: (get stacked-amount
-                                        (unwrap-panic (map-get? logged-partial-stacked-by-cycle
-                                            {{ pox-addr: {pox_addr}, sender: tx-sender, reward-cycle: {reward_cycle} }}))),
-                        ;; delegator (this is the caller)
-                        delegator: tx-sender,
-                        ;; equal to args[2]
-                        reward-cycle-index: {reward_cycle_index}
-                    }}
-                }}
-                "#,
-                pox_addr = &args[0],
-                reward_cycle = &args[1],
-                reward_cycle_index = &args.get(2).unwrap_or(&Value::none()),
+                reward_cycle = &args[1]
             )
         }
         "delegate-stx" => {
@@ -388,86 +335,19 @@ fn create_event_info_data_code(
                 pox_addr = &args[3],
             )
         }
-        "revoke-delegate-stx" => {
-            if let Value::Optional(opt) = *response.data.clone() {
-                format!(
-                    r#"
-                    {{
-                        data: {{ delegate-to: '{delegate_to} }}
-                    }}
-                    "#,
-                    delegate_to = opt
-                        .data
-                        .map(|boxed_value| *boxed_value)
-                        .unwrap()
-                        .expect_tuple()
-                        .expect("FATAL: unexpected clarity value")
-                        .get("delegated-to")
-                        .unwrap()
-                )
-            } else {
-                "{data: {unimplemented: true}}".into()
-            }
-        }
-        _ => "{data: {unimplemented: true}}".into(),
+        _ => "{{ data: {{ unimplemented: true }} }}".into(),
     }
 }
 
-/// Synthesize an events data tuple to return on the successful execution of a pox-2 or pox-3 or pox-4 stacking
+/// Synthesize an events data tuple to return on the successful execution of a pox-2 or pox-3 stacking
 /// function.  It runs a series of Clarity queries against the PoX contract's data space (including
 /// calling PoX functions).
-pub fn synthesize_pox_event_info(
+pub fn synthesize_pox_2_or_3_event_info(
     global_context: &mut GlobalContext,
     contract_id: &QualifiedContractIdentifier,
     sender_opt: Option<&PrincipalData>,
     function_name: &str,
     args: &[Value],
-    response: &ResponseData,
-) -> Result<Option<Value>, ClarityError> {
-    // the first thing we do is check the current epoch. In Epochs <= 2.4,
-    //  synthesizing PoX events was an assessed cost, so event generation
-    //  must remain identical.
-    if global_context.epoch_id <= StacksEpochId::Epoch24 {
-        return events_24::synthesize_pox_2_or_3_event_info(
-            global_context,
-            contract_id,
-            sender_opt,
-            function_name,
-            args,
-        );
-    }
-    // Now, we want to set the cost tracker to free
-    //
-    // IMPORTANT: This function SHOULD NOT early return without
-    // replacing the cost tracker. This code snippet is kept short to
-    // ensure that there is only one possible control flow here.  DO
-    // NOT alter these lines unless you know what you are doing here.
-    let original_tracker = std::mem::replace(
-        &mut global_context.cost_track,
-        LimitedCostTracker::new_free(),
-    );
-    let result = inner_synthesize_pox_event_info(
-        global_context,
-        contract_id,
-        sender_opt,
-        function_name,
-        args,
-        response,
-    );
-    // Restore the cost tracker
-    global_context.cost_track = original_tracker;
-    result
-}
-
-/// The actual implementation of Post-2.4 event construction.
-/// We use an inner function to simplify the free cost tracking.
-fn inner_synthesize_pox_event_info(
-    global_context: &mut GlobalContext,
-    contract_id: &QualifiedContractIdentifier,
-    sender_opt: Option<&PrincipalData>,
-    function_name: &str,
-    args: &[Value],
-    response: &ResponseData,
 ) -> Result<Option<Value>, ClarityError> {
     let sender = match sender_opt {
         Some(sender) => sender,
@@ -482,8 +362,7 @@ fn inner_synthesize_pox_event_info(
         | "delegate-stack-extend"
         | "stack-increase"
         | "delegate-stack-increase"
-        | "delegate-stx"
-        | "revoke-delegate-stx" => Some(create_event_info_stack_or_delegate_code(
+        | "delegate-stx" => Some(create_event_info_stack_or_delegate_code(
             sender,
             function_name,
             args,
@@ -498,18 +377,18 @@ fn inner_synthesize_pox_event_info(
         None => return Ok(None),
     };
 
-    let data_snippet = create_event_info_data_code(function_name, args, response);
+    let data_snippet = create_event_info_data_code(function_name, args);
 
     test_debug!("Evaluate snippet:\n{}", &code_snippet);
     test_debug!("Evaluate data code:\n{}", &data_snippet);
 
-    let pox_contract = global_context.database.get_contract(contract_id)?;
+    let pox_2_contract = global_context.database.get_contract(contract_id)?;
 
     let event_info = global_context
         .special_cc_handler_execute_read_only(
             sender.clone(),
             None,
-            pox_contract.contract_context,
+            pox_2_contract.contract_context,
             |env| {
                 let base_event_info = env
                     .eval_read_only_with_rules(contract_id, &code_snippet, ASTRules::PrecheckSize)
