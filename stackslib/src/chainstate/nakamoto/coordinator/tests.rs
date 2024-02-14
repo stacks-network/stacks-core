@@ -61,7 +61,7 @@ use crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic;
 /// Bring a TestPeer into the Nakamoto Epoch
 fn advance_to_nakamoto(
     peer: &mut TestPeer,
-    test_signers: &TestSigners,
+    test_signers: &mut TestSigners,
     test_stackers: &[TestStacker],
 ) {
     let mut peer_nonce = 0;
@@ -131,7 +131,7 @@ pub fn make_all_signers_vote_for_aggregate_key(
     chainstate: &mut StacksChainState,
     sortdb: &SortitionDB,
     tip: &StacksBlockId,
-    test_signers: &TestSigners,
+    test_signers: &mut TestSigners,
     test_stackers: &[TestStacker],
     cycle_id: u128,
 ) -> Vec<StacksTransaction> {
@@ -143,6 +143,9 @@ pub fn make_all_signers_vote_for_aggregate_key(
     {
         return vec![];
     }
+
+    // Generate a new aggregate key
+    test_signers.generate_aggregate_key();
 
     let signers_res = readonly_call_with_sortdb(
         chainstate,
@@ -206,7 +209,7 @@ pub fn make_all_signers_vote_for_aggregate_key(
 pub fn boot_nakamoto<'a>(
     test_name: &str,
     mut initial_balances: Vec<(PrincipalData, u64)>,
-    test_signers: &TestSigners,
+    test_signers: &mut TestSigners,
     test_stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
 ) -> TestPeer<'a> {
@@ -265,7 +268,7 @@ pub fn boot_nakamoto<'a>(
     peer_config.test_signers = Some(test_signers.clone());
     let mut peer = TestPeer::new_with_observer(peer_config, observer);
 
-    advance_to_nakamoto(&mut peer, &test_signers, test_stackers);
+    advance_to_nakamoto(&mut peer, test_signers, test_stackers);
 
     peer
 }
@@ -279,10 +282,14 @@ fn make_replay_peer<'a>(peer: &mut TestPeer<'a>) -> TestPeer<'a> {
     replay_config.test_stackers = peer.config.test_stackers.clone();
 
     let test_stackers = replay_config.test_stackers.clone().unwrap_or(vec![]);
-    let test_signers = replay_config.test_signers.clone().unwrap();
+    let mut test_signers = replay_config.test_signers.clone().unwrap();
     let mut replay_peer = TestPeer::new(replay_config);
     let observer = TestEventObserver::new();
-    advance_to_nakamoto(&mut replay_peer, &test_signers, test_stackers.as_slice());
+    advance_to_nakamoto(
+        &mut replay_peer,
+        &mut test_signers,
+        test_stackers.as_slice(),
+    );
 
     // sanity check
     let replay_tip = {
@@ -401,7 +408,7 @@ fn test_simple_nakamoto_coordinator_bootup() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );
@@ -464,7 +471,7 @@ fn test_simple_nakamoto_coordinator_1_tenure_10_blocks() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );
@@ -588,7 +595,7 @@ fn test_nakamoto_chainstate_getters() {
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );
@@ -1079,7 +1086,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );
@@ -1138,7 +1145,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
                     chainstate,
                     sortdb,
                     &tip.block_id(),
-                    &test_signers,
+                    &mut test_signers,
                     &test_stackers,
                     cycle_id as u128,
                 )
@@ -1444,7 +1451,7 @@ pub fn simple_nakamoto_coordinator_2_tenures_3_sortitions<'a>() -> TestPeer<'a> 
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );
@@ -1781,7 +1788,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![(addr.into(), 100_000_000)],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );

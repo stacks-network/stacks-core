@@ -1501,12 +1501,12 @@ fn make_fork_run_with_arrivals(
 /// Tests that getting the highest nakamoto tenure works in the presence of forks
 #[test]
 pub fn test_get_highest_nakamoto_tenure() {
-    let test_signers = TestSigners::default();
+    let mut test_signers = TestSigners::default();
     let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );
@@ -1650,12 +1650,12 @@ pub fn test_get_highest_nakamoto_tenure() {
 /// to have slot i in subsequent sortitions.
 #[test]
 fn test_make_miners_stackerdb_config() {
-    let test_signers = TestSigners::default();
+    let mut test_signers = TestSigners::default();
     let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );

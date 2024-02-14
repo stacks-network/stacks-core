@@ -353,7 +353,7 @@ pub fn prepare_signers_test<'a>(
     let mut peer = boot_nakamoto(
         test_name,
         initial_balances,
-        &test_signers,
+        &mut test_signers,
         stackers,
         observer,
     );
