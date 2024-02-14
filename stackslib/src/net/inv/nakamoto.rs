@@ -16,6 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use stacks_common::bitvec::BitVec;
 use stacks_common::util::get_epoch_time_secs;
 
 use crate::burnchains::PoxConstants;
@@ -249,9 +250,7 @@ pub struct NakamotoTenureInv {
     pub state: NakamotoInvState,
     /// Bitmap of which tenures a peer has.
     /// Maps reward cycle to bitmap.
-    pub tenures_inv: BTreeMap<u64, Vec<u8>>,
-    /// Highest sortition this peer has seen
-    pub highest_sortition: u64,
+    pub tenures_inv: BTreeMap<u64, BitVec<2100>>,
     /// Time of last update, in seconds
     pub last_updated_at: u64,
     /// Burn block height of first sortition
@@ -280,7 +279,6 @@ impl NakamotoTenureInv {
         Self {
             state: NakamotoInvState::GetNakamotoInvBegin,
             tenures_inv: BTreeMap::new(),
-            highest_sortition: 0,
             last_updated_at: 0,
             first_block_height,
             reward_cycle_len,
@@ -311,45 +309,40 @@ impl NakamotoTenureInv {
         };
 
         let sortition_height = burn_block_height - self.first_block_height;
-        let rc_height = sortition_height % self.reward_cycle_len;
-
-        let idx =
-            usize::try_from(rc_height / 8).expect("FATAL: reward cycle length exceeds host usize");
-        let bit = rc_height % 8;
-
-        rc_tenures
-            .get(idx)
-            .map(|bits| bits & (1 << bit) != 0)
-            .unwrap_or(false)
+        let rc_height = u16::try_from(sortition_height % self.reward_cycle_len)
+            .expect("FATAL: reward cycle length exceeds u16::MAX");
+        rc_tenures.get(rc_height).unwrap_or(false)
     }
 
     /// How many reward cycles of data do we have for this peer?
     pub fn highest_reward_cycle(&self) -> u64 {
-        let Some((highest_rc, _)) = self.tenures_inv.last_key_value() else {
-            return 0;
-        };
-        *highest_rc
+        self.tenures_inv
+            .last_key_value()
+            .map(|(highest_rc, _)| *highest_rc)
+            .unwrap_or(0)
+    }
+
+    /// How many blocks are represented in this inv?
+    fn num_blocks_represented(&self) -> u64 {
+        let mut total = 0;
+        for (_, inv) in self.tenures_inv.iter() {
+            total += u64::from(inv.len());
+        }
+        total
     }
 
     /// Add in a newly-discovered inventory.
     /// NOTE: inventories are supposed to be aligned to the reward cycle
     /// Returns true if we learned about at least one new tenure-start block
     /// Returns false if not.
-    pub fn merge_tenure_inv(
-        &mut self,
-        tenure_inv: Vec<u8>,
-        tenure_bitlen: u16,
-        reward_cycle: u64,
-    ) -> bool {
+    pub fn merge_tenure_inv(&mut self, tenure_inv: BitVec<2100>, reward_cycle: u64) -> bool {
         // populate the tenures bitmap to we can fit this tenures inv
-        self.highest_sortition =
-            self.highest_reward_cycle() * self.reward_cycle_len + u64::from(tenure_bitlen);
-        let learned = if let Some(cur_inv) = self.tenures_inv.get(&reward_cycle) {
-            cur_inv != &tenure_inv
-        } else {
-            // this inv is new
-            true
-        };
+        let learned = self
+            .tenures_inv
+            .get(&reward_cycle)
+            .map(|cur_inv| cur_inv != &tenure_inv)
+            .unwrap_or(true);
+
         self.tenures_inv.insert(reward_cycle, tenure_inv);
         self.last_updated_at = get_epoch_time_secs();
         learned
@@ -391,9 +384,8 @@ impl NakamotoTenureInv {
     }
 
     /// Proceed to ask this neighbor for its nakamoto tenure inventories.
-    /// Returns Ok(true) if we should proceed to ask for inventories
-    /// Returns Ok(false) if not
-    /// Returns Err(..) on I/O errors
+    /// Returns true if we should proceed to ask for inventories
+    /// Returns false if not
     pub fn getnakamotoinv_begin(
         &mut self,
         network: &mut PeerNetwork,
@@ -451,8 +443,7 @@ impl NakamotoTenureInv {
                     network.get_local_peer(),
                     &inv_data
                 );
-                let ret =
-                    self.merge_tenure_inv(inv_data.tenures, inv_data.bitlen, self.reward_cycle());
+                let ret = self.merge_tenure_inv(inv_data.tenures, self.reward_cycle());
                 self.next_reward_cycle();
                 return Ok(ret);
             }
@@ -513,11 +504,11 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
 
     /// Highest reward cycle learned
     pub fn highest_reward_cycle(&self) -> u64 {
-        let mut highest_rc = 0;
-        for (_, inv) in self.inventories.iter() {
-            highest_rc = inv.highest_reward_cycle().max(highest_rc);
-        }
-        highest_rc
+        self.inventories
+            .iter()
+            .map(|(_, inv)| inv.highest_reward_cycle())
+            .max()
+            .unwrap_or(0)
     }
 
     /// Get the consensus hash for the first sortition in the given reward cycle
@@ -530,10 +521,10 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             .reward_cycle_to_block_height(sortdb.first_block_height, reward_cycle);
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let ih = sortdb.index_handle(&sn.sortition_id);
-        let Some(rc_start_sn) = ih.get_block_snapshot_by_height(reward_cycle_start_height)? else {
-            return Ok(None);
-        };
-        Ok(Some(rc_start_sn.consensus_hash))
+        let ch_opt = ih
+            .get_block_snapshot_by_height(reward_cycle_start_height)?
+            .map(|sn| sn.consensus_hash);
+        Ok(ch_opt)
     }
 
     /// Populate the reward_cycle_consensus_hash mapping.  Idempotent.
@@ -542,12 +533,11 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
         &mut self,
         sortdb: &SortitionDB,
     ) -> Result<u64, NetError> {
-        let highest_rc =
-            if let Some((highest_rc, _)) = self.reward_cycle_consensus_hashes.last_key_value() {
-                *highest_rc
-            } else {
-                0
-            };
+        let highest_rc = self
+            .reward_cycle_consensus_hashes
+            .last_key_value()
+            .map(|(highest_rc, _)| *highest_rc)
+            .unwrap_or(0);
 
         let sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
         let tip_rc = sortdb
@@ -561,7 +551,7 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
             }
             let Some(ch) = Self::load_consensus_hash_for_reward_cycle(sortdb, rc)? else {
                 // NOTE: this should be unreachable, but don't panic
-                continue;
+                return Err(DBError::NotFoundError.into());
             };
             self.reward_cycle_consensus_hashes.insert(rc, ch);
         }
@@ -619,10 +609,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
 
             // NOTE: this naturally garabage-collects inventories for disconnected nodes, as
             // desired
-            let mut inv = self
-                .inventories
-                .remove(&naddr)
-                .unwrap_or(NakamotoTenureInv::new(
+            let mut inv = self.inventories.remove(&naddr).unwrap_or_else(|| {
+                NakamotoTenureInv::new(
                     network.get_burnchain().first_block_height,
                     network
                         .get_burnchain()
@@ -630,7 +618,8 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                         .reward_cycle_length
                         .into(),
                     naddr.clone(),
-                ));
+                )
+            });
 
             let proceed = inv.getnakamotoinv_begin(network, current_reward_cycle);
             let inv_rc = inv.reward_cycle();
@@ -644,6 +633,11 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 continue;
             }
 
+            // ask this neighbor for its inventory
+            let Some(getnakamotoinv) = self.make_getnakamotoinv(inv_rc) else {
+                continue;
+            };
+
             debug!(
                 "{:?}: send GetNakamotoInv for reward cycle {} to {}",
                 network.get_local_peer(),
@@ -651,14 +645,11 @@ impl<NC: NeighborComms> NakamotoInvStateMachine<NC> {
                 &naddr
             );
 
-            // ask this neighbor for its inventory
-            if let Some(getnakamotoinv) = self.make_getnakamotoinv(inv_rc) {
-                if let Err(e) = self.comms.neighbor_send(network, &naddr, getnakamotoinv) {
-                    warn!("{:?}: failed to send GetNakamotoInv", network.get_local_peer();
-                          "peer" => ?naddr,
-                          "error" => ?e
-                    );
-                }
+            if let Err(e) = self.comms.neighbor_send(network, &naddr, getnakamotoinv) {
+                warn!("{:?}: failed to send GetNakamotoInv", network.get_local_peer();
+                      "peer" => ?naddr,
+                      "error" => ?e
+                );
             }
         }
 
@@ -748,7 +739,7 @@ impl PeerNetwork {
     }
 
     /// Drive Nakamoto inventory state machine
-    /// returns (learned-new-data?, did-full-pass?, peers-to-disconnect, peers-that-are-dead)
+    /// returns (learned-new-data?, peers-to-disconnect, peers-that-are-dead)
     pub fn sync_inventories_nakamoto(
         &mut self,
         sortdb: &SortitionDB,

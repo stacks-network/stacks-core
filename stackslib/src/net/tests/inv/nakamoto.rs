@@ -207,8 +207,11 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
         let StacksMessageType::NakamotoInv(inv) = inv else {
             panic!("Did not receive an inv for reward cycle {}", rc);
         };
-        assert_eq!(NakamotoInvData::bools_to_bitvec(&bitvec), inv.tenures);
-        assert_eq!(bitvec.len() as u16, inv.bitlen);
+        assert_eq!(
+            NakamotoInvData::try_from(&bitvec).unwrap().tenures,
+            inv.tenures
+        );
+        assert_eq!(bitvec.len() as u16, inv.tenures.len());
     }
 }
 
@@ -256,8 +259,11 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
         let StacksMessageType::NakamotoInv(inv) = inv else {
             panic!("Did not receive an inv for reward cycle {}", rc);
         };
-        assert_eq!(NakamotoInvData::bools_to_bitvec(&bitvec), inv.tenures);
-        assert_eq!(bitvec.len() as u16, inv.bitlen);
+        assert_eq!(
+            NakamotoInvData::try_from(&bitvec).unwrap().tenures,
+            inv.tenures
+        );
+        assert_eq!(bitvec.len() as u16, inv.tenures.len());
     }
 }
 
@@ -309,8 +315,11 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
         let StacksMessageType::NakamotoInv(inv) = inv else {
             panic!("Did not receive an inv for reward cycle {}", rc);
         };
-        assert_eq!(NakamotoInvData::bools_to_bitvec(&bitvec), inv.tenures);
-        assert_eq!(bitvec.len() as u16, inv.bitlen);
+        assert_eq!(
+            NakamotoInvData::try_from(&bitvec).unwrap().tenures,
+            inv.tenures
+        );
+        assert_eq!(bitvec.len() as u16, inv.tenures.len());
     }
 }
 
@@ -425,9 +434,9 @@ fn check_inv_messages(
         let StacksMessageType::NakamotoInv(inv) = msg else {
             panic!("Did not receive an inv for reward cycle {}", msg_idx);
         };
-        for bit in 0..(inv.bitlen as usize) {
+        for bit in 0..(inv.tenures.len() as usize) {
             let burn_block_height = (msg_idx as u64) * u64::from(rc_len) + (bit as u64);
-            let msg_bit = inv.tenures[bit / 8] & (1 << (bit % 8)) != 0;
+            let msg_bit = inv.tenures.get(bit as u16).unwrap_or(false);
             if burn_block_height < nakamoto_start_burn_height {
                 // inv doesn't cover epoch 2
                 assert!(
@@ -459,7 +468,7 @@ fn check_inv_state(
 ) {
     for (i, (tenure_rc, tenure_inv)) in inv_state.tenures_inv.iter().enumerate() {
         for bit in 0..(rc_len as usize) {
-            let msg_bit = if bit / 8 >= tenure_inv.len() {
+            let msg_bit = if bit / 8 >= tenure_inv.len().into() {
                 // only allowed at the end
                 debug!(
                     "bit = {}, tenure_rc = {}, tenure_inv = {:?}",
@@ -468,7 +477,7 @@ fn check_inv_state(
                 assert_eq!(i, inv_state.tenures_inv.len() - 1);
                 false
             } else {
-                tenure_inv[bit / 8] & (1 << (bit % 8)) != 0
+                tenure_inv.get(bit.try_into().unwrap()).unwrap_or(false)
             };
 
             let burn_block_height = (*tenure_rc as u64) * u64::from(rc_len) + (bit as u64);
@@ -641,11 +650,11 @@ fn test_nakamoto_tenure_inv() {
     assert!(!nakamoto_inv.has_ith_tenure(100));
     assert_eq!(nakamoto_inv.highest_reward_cycle(), 0);
 
-    let full_tenure = NakamotoInvData::bools_to_bitvec(&[true; 100]);
-    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone(), 100, 1);
+    let full_tenure = NakamotoInvData::try_from(&[true; 100]).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 1);
     assert!(learned);
 
-    let learned = nakamoto_inv.merge_tenure_inv(full_tenure, 100, 1);
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.tenures, 1);
     assert!(!learned);
 
     debug!("nakamoto_inv = {:?}", &nakamoto_inv);
@@ -667,8 +676,8 @@ fn test_nakamoto_tenure_inv() {
     }
 
     // has_ith_tenure() works (non-triial case)
-    let partial_tenure = NakamotoInvData::bools_to_bitvec(&partial_tenure_bools);
-    let learned = nakamoto_inv.merge_tenure_inv(partial_tenure.clone(), 100, 2);
+    let partial_tenure = NakamotoInvData::try_from(&partial_tenure_bools).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(partial_tenure.clone().tenures, 2);
     assert!(learned);
 
     for i in 300..400 {
@@ -683,8 +692,8 @@ fn test_nakamoto_tenure_inv() {
     assert_eq!(nakamoto_inv.highest_reward_cycle(), 2);
 
     // supports sparse updates
-    let full_tenure = NakamotoInvData::bools_to_bitvec(&[true; 100]);
-    let learned = nakamoto_inv.merge_tenure_inv(full_tenure, 100, 4);
+    let full_tenure = NakamotoInvData::try_from(&[true; 100]).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.tenures, 4);
     assert!(learned);
 
     for i in 400..500 {
@@ -696,16 +705,24 @@ fn test_nakamoto_tenure_inv() {
     assert_eq!(nakamoto_inv.highest_reward_cycle(), 4);
 
     // can overwrite tenures
-    let full_tenure = NakamotoInvData::bools_to_bitvec(&[true; 100]);
-    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone(), 100, 2);
+    let full_tenure = NakamotoInvData::try_from(&[true; 100]).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 2);
     assert!(learned);
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 4);
 
-    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone(), 100, 2);
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 2);
     assert!(!learned);
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 4);
 
     for i in 300..400 {
         assert!(nakamoto_inv.has_ith_tenure(i));
     }
+
+    // partial data
+    let partial_tenure = NakamotoInvData::try_from(&[true; 50]).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 5);
+    assert!(learned);
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 5);
 
     // state machine advances when we say so
     assert_eq!(nakamoto_inv.reward_cycle(), 0);

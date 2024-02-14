@@ -2674,59 +2674,59 @@ impl PeerNetwork {
         let mut finished_always_allowed_inv_sync = false;
 
         if always_allowed.len() == 0 {
-            // vacuously, we have done so
-            finished_always_allowed_inv_sync = true;
-        } else {
-            // do we have an always-allowed peer that we have not fully synced
-            // with?
-            let mut have_unsynced = false;
-            if let Some(ref inv_state) = self.inv_state {
-                for (nk, stats) in inv_state.block_stats.iter() {
-                    if self.is_bound(&nk) {
-                        // this is the same address we're bound to
-                        continue;
-                    }
-                    if Some((nk.addrbytes.clone(), nk.port)) == self.local_peer.public_ip_address {
-                        // this is a peer at our address
-                        continue;
-                    }
-                    if !always_allowed.contains(&nk) {
-                        // this peer isn't in the always-allowed set
-                        continue;
-                    }
+            // vacuously, we are done so we can return
+            return true;
+        }
 
-                    if stats.inv.num_reward_cycles
-                        >= self.pox_id.num_inventory_reward_cycles() as u64
-                    {
-                        // we have fully sync'ed with an always-allowed peer
-                        debug!(
-                            "{:?}: Fully-sync'ed PoX inventory from {}",
-                            self.get_local_peer(),
-                            nk,
-                        );
-                        finished_always_allowed_inv_sync = true;
-                    } else {
-                        // there exists an always-allowed peer that we have not
-                        // fully sync'ed with
-                        debug!(
-                            "{:?}: Have not fully sync'ed with {}",
-                            self.get_local_peer(),
-                            nk,
-                        );
-                        have_unsynced = true;
-                    }
-                }
+        // do we have an always-allowed peer that we have not fully synced
+        // with?
+        let mut have_unsynced = false;
+        let Some(ref inv_state) = self.inv_state else {
+            return true;
+        };
+
+        for (nk, stats) in inv_state.block_stats.iter() {
+            if self.is_bound(&nk) {
+                // this is the same address we're bound to
+                continue;
+            }
+            if Some((nk.addrbytes.clone(), nk.port)) == self.local_peer.public_ip_address {
+                // this is a peer at our address
+                continue;
+            }
+            if !always_allowed.contains(&nk) {
+                // this peer isn't in the always-allowed set
+                continue;
             }
 
-            if !have_unsynced {
-                // There exists one or more always-allowed peers in
-                // the inv state machine (per the peer DB), but all such peers
-                // report either our bind address or our public IP address.
-                // If this is the case (i.e. a configuration error, a weird
-                // case where nodes share an IP, etc), then we declare this inv
-                // sync pass as finished.
+            if stats.inv.num_reward_cycles >= self.pox_id.num_inventory_reward_cycles() as u64 {
+                // we have fully sync'ed with an always-allowed peer
+                debug!(
+                    "{:?}: Fully-sync'ed PoX inventory from {}",
+                    self.get_local_peer(),
+                    nk,
+                );
                 finished_always_allowed_inv_sync = true;
+            } else {
+                // there exists an always-allowed peer that we have not
+                // fully sync'ed with
+                debug!(
+                    "{:?}: Have not fully sync'ed with {}",
+                    self.get_local_peer(),
+                    nk,
+                );
+                have_unsynced = true;
             }
+        }
+
+        if !have_unsynced {
+            // There exists one or more always-allowed peers in
+            // the inv state machine (per the peer DB), but all such peers
+            // report either our bind address or our public IP address.
+            // If this is the case (i.e. a configuration error, a weird
+            // case where nodes share an IP, etc), then we declare this inv
+            // sync pass as finished.
+            finished_always_allowed_inv_sync = true;
         }
 
         finished_always_allowed_inv_sync
@@ -2740,96 +2740,96 @@ impl PeerNetwork {
         download_backpressure: bool,
         ibd: bool,
     ) -> PeerNetworkWorkState {
-        let mut work_state = PeerNetworkWorkState::BlockInvSync;
-
         // synchronize epcoh 2.x peer block inventories
         let (inv_done, inv_throttled) = self.do_network_inv_sync_epoch2x(sortdb, ibd);
-        if inv_done {
-            if !download_backpressure {
-                // proceed to get blocks, if we're not backpressured
-                work_state = PeerNetworkWorkState::BlockDownload;
-            } else {
-                // skip downloads for now
-                work_state = PeerNetworkWorkState::Prune;
-            }
+        if !inv_done {
+            // inventory sync isn't finished, so don't change work state
+            return PeerNetworkWorkState::BlockInvSync;
+        }
 
-            if !inv_throttled {
-                let finished_always_allowed_inv_sync =
-                    self.check_always_allowed_peer_inv_sync_epoch2x();
-                if finished_always_allowed_inv_sync {
-                    debug!(
-                        "{:?}: synchronized inventories with at least one always-allowed peer",
-                        &self.local_peer
-                    );
-                    self.num_inv_sync_passes += 1;
-                } else {
-                    debug!("{:?}: did NOT synchronize inventories with at least one always-allowed peer", &self.local_peer);
-                }
-                debug!(
-                    "{:?}: Finished full inventory state-machine pass ({})",
-                    self.get_local_peer(),
-                    self.num_inv_sync_passes
-                );
+        let work_state = if !download_backpressure {
+            // proceed to get blocks, if we're not backpressured
+            PeerNetworkWorkState::BlockDownload
+        } else {
+            // skip downloads for now
+            PeerNetworkWorkState::Prune
+        };
 
-                // hint to the downloader to start scanning at the sortition
-                // height we just synchronized
-                let start_download_sortition = if let Some(ref inv_state) = self.inv_state {
-                    let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(
-                        sortdb.conn(),
-                    )
-                    .expect(
-                        "FATAL: failed to load canonical stacks chain tip hash from sortition DB",
-                    );
-                    let stacks_tip_sortition_height =
-                        SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
-                            .expect("FATAL: failed to query sortition DB")
-                            .map(|sn| sn.block_height)
-                            .unwrap_or(self.burnchain.first_block_height)
-                            .saturating_sub(self.burnchain.first_block_height);
+        if inv_throttled {
+            // nothing to do
+            return work_state;
+        }
 
-                    let sortition_height_start =
-                        cmp::min(stacks_tip_sortition_height, inv_state.block_sortition_start);
+        let finished_always_allowed_inv_sync = self.check_always_allowed_peer_inv_sync_epoch2x();
+        if finished_always_allowed_inv_sync {
+            debug!(
+                "{:?}: synchronized inventories with at least one always-allowed peer",
+                &self.local_peer
+            );
+            self.num_inv_sync_passes += 1;
+        } else {
+            debug!(
+                "{:?}: did NOT synchronize inventories with at least one always-allowed peer",
+                &self.local_peer
+            );
+        }
+        debug!(
+            "{:?}: Finished full inventory state-machine pass ({})",
+            self.get_local_peer(),
+            self.num_inv_sync_passes
+        );
 
-                    debug!(
-                        "{:?}: Begin downloader synchronization at sortition height {} min({},{})",
-                        &self.local_peer,
-                        sortition_height_start,
-                        inv_state.block_sortition_start,
-                        stacks_tip_sortition_height
-                    );
+        // hint to the downloader to start scanning at the sortition
+        // height we just synchronized
+        let start_download_sortition = if let Some(ref inv_state) = self.inv_state {
+            let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(
+                sortdb.conn(),
+            )
+            .expect("FATAL: failed to load canonical stacks chain tip hash from sortition DB");
+            let stacks_tip_sortition_height =
+                SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &consensus_hash)
+                    .expect("FATAL: failed to query sortition DB")
+                    .map(|sn| sn.block_height)
+                    .unwrap_or(self.burnchain.first_block_height)
+                    .saturating_sub(self.burnchain.first_block_height);
 
-                    sortition_height_start
-                } else {
-                    // really unreachable, but why tempt fate?
-                    warn!(
-                        "{:?}: Inventory state machine not yet initialized",
-                        &self.local_peer
-                    );
-                    0
-                };
+            let sortition_height_start =
+                cmp::min(stacks_tip_sortition_height, inv_state.block_sortition_start);
 
-                if let Some(ref mut downloader) = self.block_downloader {
-                    debug!(
-                        "{:?}: wake up downloader at sortition height {}",
-                        &self.local_peer, start_download_sortition
-                    );
-                    downloader.hint_block_sortition_height_available(
-                        start_download_sortition,
-                        ibd,
-                        false,
-                    );
-                    downloader.hint_microblock_sortition_height_available(
-                        start_download_sortition,
-                        ibd,
-                        false,
-                    );
-                } else {
-                    warn!(
-                        "{:?}: Block downloader not yet initialized",
-                        &self.local_peer
-                    );
-                }
-            }
+            debug!(
+                "{:?}: Begin downloader synchronization at sortition height {} min({},{})",
+                &self.local_peer,
+                sortition_height_start,
+                inv_state.block_sortition_start,
+                stacks_tip_sortition_height
+            );
+
+            sortition_height_start
+        } else {
+            // really unreachable, but why tempt fate?
+            warn!(
+                "{:?}: Inventory state machine not yet initialized",
+                &self.local_peer
+            );
+            0
+        };
+
+        if let Some(ref mut downloader) = self.block_downloader {
+            debug!(
+                "{:?}: wake up downloader at sortition height {}",
+                &self.local_peer, start_download_sortition
+            );
+            downloader.hint_block_sortition_height_available(start_download_sortition, ibd, false);
+            downloader.hint_microblock_sortition_height_available(
+                start_download_sortition,
+                ibd,
+                false,
+            );
+        } else {
+            warn!(
+                "{:?}: Block downloader not yet initialized",
+                &self.local_peer
+            );
         }
         work_state
     }
