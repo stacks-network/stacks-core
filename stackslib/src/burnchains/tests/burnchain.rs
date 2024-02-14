@@ -360,9 +360,9 @@ fn test_process_block_ops() {
         miner_pk_hash: None,
     };
 
-    let block_ops_123 = vec![
-        BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
-    ];
+    let block_ops_123 = vec![BlockstackOperationType::LeaderKeyRegister(
+        leader_key_1.clone(),
+    )];
     let block_opshash_123 = OpsHash::from_txids(&vec![
         // notably, the user burns here _wont_ be included in the consensus hash
         leader_key_1.txid.clone(),
