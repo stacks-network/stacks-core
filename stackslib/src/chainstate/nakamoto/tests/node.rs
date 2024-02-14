@@ -208,19 +208,18 @@ impl TestSigners {
                 )
             })
             .collect();
-        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut self.signer_parties, &mut rng)
-        {
-            Ok(poly_commitments) => poly_commitments,
-            Err(secret_errors) => {
-                panic!("Got secret errors from DKG: {:?}", secret_errors);
-            }
-        };
+        self.poly_commitments =
+            match wsts::v2::test_helpers::dkg(&mut self.signer_parties, &mut rng) {
+                Ok(poly_commitments) => poly_commitments,
+                Err(secret_errors) => {
+                    panic!("Got secret errors from DKG: {:?}", secret_errors);
+                }
+            };
         let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
         sig_aggregator
-            .init(&poly_commitments)
+            .init(&self.poly_commitments)
             .expect("aggregator init failed");
-        let aggregate_public_key = sig_aggregator.poly[0];
-        self.aggregate_public_key = aggregate_public_key;
+        self.aggregate_public_key = sig_aggregator.poly[0];
         self.aggregate_public_key.clone()
     }
 }
