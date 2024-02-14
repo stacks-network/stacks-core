@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2023 Stacks Open Internet Foundation
 //
@@ -19,6 +20,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use clarity::boot_util::boot_code_id;
+use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use hashbrown::HashSet;
 use libsigner::{
@@ -261,7 +263,7 @@ impl BlockMinerThread {
         &self,
         stackerdbs: &StackerDBs,
         msg_id: u32,
-    ) -> Result<(QualifiedContractIdentifier, Vec<u32>), NakamotoNodeError> {
+    ) -> Result<(QualifiedContractIdentifier, HashMap<u32, StacksAddress>), NakamotoNodeError> {
         let stackerdb_contracts = stackerdbs
             .get_stackerdb_contract_ids()
             .expect("FATAL: could not get the stacker DB contract ids");
@@ -281,25 +283,35 @@ impl BlockMinerThread {
                 "No signers contract found, cannot wait for signers",
             ));
         };
-        // Get the block slot for every signer
-        let slot_ids = stackerdbs
+        // Get the slots for every signer
+        let signers = stackerdbs
+            .get_signers(&signers_contract_id)
+            .expect("FATAL: could not get signers from stacker DB");
+        let mut slot_ids_addresses = HashMap::with_capacity(signers.len());
+        for (slot_id, address) in stackerdbs
             .get_signers(&signers_contract_id)
             .expect("FATAL: could not get signers from stacker DB")
-            .iter()
+            .into_iter()
             .enumerate()
-            .map(|(id, _)| {
-                u32::try_from(id).expect("FATAL: too many signers to fit into u32 range")
-            })
-            .collect::<Vec<u32>>();
-        Ok((signers_contract_id, slot_ids))
+        {
+            slot_ids_addresses.insert(
+                u32::try_from(slot_id).expect("FATAL: too many signers to fit into u32 range"),
+                address,
+            );
+        }
+        Ok((signers_contract_id, slot_ids_addresses))
     }
 
     fn get_signer_transactions(
         &self,
+        chainstate: &mut StacksChainState,
+        sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
     ) -> Result<Vec<StacksTransaction>, NakamotoNodeError> {
-        let (signers_contract_id, slot_ids) =
+        let (signers_contract_id, slot_ids_addresses) =
             self.get_stackerdb_contract_and_slots(stackerdbs, TRANSACTIONS_MSG_ID)?;
+        let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
+        let addresses = slot_ids_addresses.values().cloned().collect::<HashSet<_>>();
         // Get the transactions from the signers for the next block
         let signer_chunks = stackerdbs
             .get_latest_chunks(&signers_contract_id, &slot_ids)
@@ -321,14 +333,38 @@ impl BlockMinerThread {
         for (_slot, signer_message) in signer_messages {
             match signer_message {
                 SignerMessage::Transactions(transactions) => {
-                    // TODO: filter out transactons that are not valid and that do not come from the signers
-                    // TODO: move this filter function from stacks-signer and make it globally available perhaps?
-                    transactions_to_include.extend(transactions);
+                    for transaction in transactions {
+                        let address = transaction.origin_address();
+                        let nonce = transaction.get_origin_nonce();
+                        if !addresses.contains(&address) {
+                            test_debug!("Miner: ignoring transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
+                            continue;
+                        }
+
+                        let cur_nonce = chainstate
+                            .with_read_only_clarity_tx(
+                                &sortdb.index_conn(),
+                                &self.parent_tenure_id,
+                                |clarity_tx| {
+                                    clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                                        clarity_db.get_account_nonce(&address.into()).unwrap_or(0)
+                                    })
+                                },
+                            )
+                            .unwrap_or(0);
+
+                        if cur_nonce > nonce {
+                            test_debug!("Miner: ignoring transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
+                            continue;
+                        }
+                        test_debug!("Miner: including transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
+                        // TODO : filter out transactions that are not valid votes
+                        transactions_to_include.push(transaction);
+                    }
                 }
                 _ => {} // Any other message is ignored
             }
         }
-        debug!("MINER IS INCLUDING TRANSACTIONS FROM SIGNERS: {transactions_to_include:?}");
         Ok(transactions_to_include)
     }
 
@@ -337,13 +373,15 @@ impl BlockMinerThread {
         stackerdbs: &StackerDBs,
         aggregate_public_key: &Point,
         signer_signature_hash: &Sha512Trunc256Sum,
+        signer_weights: HashMap<StacksAddress, u64>,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
-        let (signers_contract_id, slot_ids) =
+        let (signers_contract_id, slot_ids_addresses) =
             self.get_stackerdb_contract_and_slots(stackerdbs, BLOCK_MSG_ID)?;
-
+        let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
-        let rejection_threshold = slot_ids.len() / 10 * 7;
+        let rejection_threshold = 4000 / 10 * 7;
         let mut rejections = HashSet::new();
+        let mut rejections_weight: u64 = 0;
         let now = Instant::now();
         while now.elapsed() < self.config.miner.wait_on_signers {
             // Get the block responses from the signers for the block we just proposed
@@ -372,6 +410,7 @@ impl BlockMinerThread {
                         {
                             // The signature is valid across the signer signature hash of the original proposed block
                             // Immediately return and update the block with this new signature before appending it to the chain
+                            test_debug!("Miner: received a signature accross the proposed block's signer signature hash ({signer_signature_hash:?}): {signature:?}");
                             return Ok(signature);
                         }
                         // We received an accepted block for some unknown block hash...Useless! Ignore it.
@@ -397,10 +436,24 @@ impl BlockMinerThread {
                                 ));
                             }
                         } else {
+                            if rejections.contains(&signer_id) {
+                                // We have already received a rejection from this signer
+                                continue;
+                            }
+
                             // We received a rejection that is not signed. We will keep waiting for a threshold number of rejections.
                             // Ensure that we do not double count a rejection from the same signer.
                             rejections.insert(signer_id);
-                            if rejections.len() > rejection_threshold {
+                            rejections_weight = rejections_weight.saturating_add(
+                                *signer_weights
+                                    .get(
+                                        &slot_ids_addresses
+                                            .get(&signer_id)
+                                            .expect("FATAL: signer not found in slot ids"),
+                                    )
+                                    .expect("FATAL: signer not found in signer weights"),
+                            );
+                            if rejections_weight > rejection_threshold {
                                 // A threshold number of signers rejected the proposed block.
                                 // Miner will likely never get a signed block from the signers for this particular block
                                 // Return and attempt to mine a new block
@@ -443,11 +496,19 @@ impl BlockMinerThread {
             &sortition_handle,
             &block,
         )?;
+
+        let reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_block.block_height)
+            .expect("FATAL: no reward cycle for burn block");
+        let signer_weights =
+            chain_state.get_signers_weights(&sort_db, &self.parent_tenure_id, reward_cycle)?;
         let signature = self
             .wait_for_signer_signature(
                 &stackerdbs,
                 &aggregate_public_key,
                 &block.header.signer_signature_hash(),
+                signer_weights,
             )
             .map_err(|e| {
                 ChainstateError::InvalidStacksBlock(format!("Invalid Nakamoto block: {e:?}"))
@@ -759,7 +820,8 @@ impl BlockMinerThread {
             .map_err(|_| NakamotoNodeError::UnexpectedChainState)?
             .saturating_add(1);
 
-        let signer_transactions = self.get_signer_transactions(&stackerdbs)?;
+        let signer_transactions =
+            self.get_signer_transactions(&mut chain_state, &burn_db, &stackerdbs)?;
 
         // build the block itself
         let (mut block, _, _) = NakamotoBlockBuilder::build_nakamoto_block(

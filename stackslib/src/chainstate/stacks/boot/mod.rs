@@ -16,7 +16,7 @@
 
 use std::boxed::Box;
 use std::cmp;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::CheckErrors;
@@ -1307,6 +1307,42 @@ impl StacksChainState {
             None => None,
         };
         Ok(aggregate_public_key)
+    }
+
+    /// Get the signer addresses and corresponding weights for a given reward cycle
+    pub fn get_signers_weights(
+        &mut self,
+        sortdb: &SortitionDB,
+        block_id: &StacksBlockId,
+        reward_cycle: u64,
+    ) -> Result<HashMap<StacksAddress, u64>, Error> {
+        let signers_opt = self
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                SIGNERS_NAME,
+                &format!("(get-signers u{})", reward_cycle),
+            )?
+            .expect_optional()?;
+        let mut signers = HashMap::new();
+        if let Some(signers_list) = signers_opt {
+            for signer in signers_list.expect_list()? {
+                let signer_tuple = signer.expect_tuple()?;
+                let principal_data = signer_tuple.get("signer")?.clone().expect_principal()?;
+                let signer_address = if let PrincipalData::Standard(signer) = principal_data {
+                    signer.into()
+                } else {
+                    panic!(
+                        "FATAL: Signer returned from get-signers is not a standard principal: {:?}",
+                        principal_data
+                    );
+                };
+                let weight = u64::try_from(signer_tuple.get("weight")?.to_owned().expect_u128()?)
+                    .expect("FATAL: Signer weight greater than a u64::MAX");
+                signers.insert(signer_address, weight);
+            }
+        }
+        Ok(signers)
     }
 }
 

@@ -268,7 +268,7 @@ impl SignerTest {
             epoch_30_boundary,
             &self.running_nodes.conf,
         );
-        info!("Avanced to Nakamoto! Ready to Sign Blocks!");
+        info!("Advanced to Nakamoto! Ready to Sign Blocks!");
     }
 
     fn get_current_reward_cycle(&self) -> u64 {
@@ -386,7 +386,11 @@ fn setup_stx_btc_node(
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
     naka_conf.events_observers.insert(EventObserverConfig {
         endpoint: format!("localhost:{observer_port}"),
-        events_keys: vec![EventKeyType::StackerDBChunks, EventKeyType::BlockProposal],
+        events_keys: vec![
+            EventKeyType::StackerDBChunks,
+            EventKeyType::BlockProposal,
+            EventKeyType::MinedBlocks,
+        ],
     });
 
     // The signers need some initial balances in order to pay for epoch 2.5 transaction votes
@@ -620,18 +624,19 @@ fn stackerdb_dkg_sign() {
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is advanced to epoch 3.0. DKG foricbly triggered to set the key correctly
+/// The stacks node is advanced to epoch 2.5. forcibly triggering DKG to set the key correctly
+/// The stacks node is next advanced to epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
-/// The node attempts to mine a Nakamoto tenure, sending a block to the observing signers via the
+/// The node attempts to mine a Nakamoto block, sending a block to the observing signers via the
 /// .miners stacker db instance. The signers submit the block to the stacks node for verification.
 /// Upon receiving a Block Validation response approving the block, the signers perform a signing
-/// round across its signature hash.
+/// round across its signature hash and return it back to the miner.
 ///
 /// Test Assertion:
 /// Signers return an operation result containing a valid signature across the miner's Nakamoto block's signature hash.
 /// Signers broadcasted a signature across the miner's proposed block back to the respective .signers-XXX-YYY contract.
-/// TODO: update test to check miner received the signed block and appended it to the chain
+/// Miner appends the signature to the block and finishes mininig it.
 fn stackerdb_block_proposal() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -645,7 +650,7 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Setup -------------------------");
     let mut signer_test = SignerTest::new(5);
     let timeout = Duration::from_secs(200);
-    let (_vrfs_submitted, commits_submitted) = (
+    let (vrfs_submitted, commits_submitted) = (
         signer_test.running_nodes.vrfs_submitted.clone(),
         signer_test.running_nodes.commits_submitted.clone(),
     );
@@ -675,14 +680,41 @@ fn stackerdb_block_proposal() {
     assert_eq!(set_dkg, key);
 
     info!("------------------------- Verify Nakamoto Block Proposed -------------------------");
+
     let sign_now = Instant::now();
-    // Mine 1 nakamoto tenure
+
+    info!("Nakamoto miner started...");
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+            Ok(vrf_count >= 1)
+        },
+    )
+    .unwrap();
+
+    info!("Successfully triggered first block to wake up the miner runloop.");
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        },
+    )
+    .unwrap();
+
+    info!("Mining first Nakamoto block");
     let _ = next_block_and_mine_commit(
         &mut signer_test.running_nodes.btc_regtest_controller,
         60,
         &signer_test.running_nodes.coord_channel,
         &commits_submitted,
     );
+
     let frost_signatures = signer_test.wait_for_frost_signatures(timeout);
     let sign_elapsed = sign_now.elapsed();
 
