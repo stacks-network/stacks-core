@@ -135,12 +135,15 @@ pub fn make_all_signers_vote_for_aggregate_key(
     test_stackers: &[TestStacker],
     cycle_id: u128,
 ) -> Vec<StacksTransaction> {
+    debug!("Trigger signers vote for cycle {}", cycle_id);
+
     // Check if we already have an aggregate key for this cycle
     if chainstate
         .get_aggregate_public_key_pox_4(sortdb, tip, cycle_id as u64)
         .unwrap()
         .is_some()
     {
+        debug!("Aggregate key already set for cycle {}", cycle_id);
         return vec![];
     }
 
@@ -155,12 +158,16 @@ pub fn make_all_signers_vote_for_aggregate_key(
         "get-signers".into(),
         vec![Value::UInt(cycle_id)],
     );
-    let signer_vec = signers_res
-        .expect_optional()
-        .unwrap()
-        .unwrap()
-        .expect_list()
-        .unwrap();
+
+    // If the signers are not set yet, then we're not ready to vote yet.
+    let signer_vec = match signers_res.expect_optional().unwrap() {
+        Some(signer_vec) => signer_vec.expect_list().unwrap(),
+        None => {
+            debug!("No signers set for cycle {}", cycle_id);
+            return vec![];
+        }
+    };
+
     let mut signers_to_index = HashMap::new();
     for (index, value) in signer_vec.into_iter().enumerate() {
         let tuple = value.expect_tuple().unwrap();
@@ -187,6 +194,7 @@ pub fn make_all_signers_vote_for_aggregate_key(
     }
 
     // Vote for the aggregate key for each signer
+    debug!("Trigger votes for cycle {}", cycle_id);
     signers
         .iter()
         .map(|(addr, (signer_key, index))| {
@@ -1133,26 +1141,33 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
             .unwrap()
             .unwrap()
             .block_height;
-        let cycle_id = peer
-            .config
-            .burnchain
-            .block_height_to_reward_cycle(block_height)
-            .unwrap();
+        // If we are in the prepare phase, check if we need to generate
+        // aggregate key votes
+        let txs = if peer.config.burnchain.is_in_prepare_phase(block_height) {
+            let cycle_id = peer
+                .config
+                .burnchain
+                .block_height_to_reward_cycle(block_height)
+                .unwrap();
+            let next_cycle_id = cycle_id as u128 + 1;
 
-        let txs = with_sortdb(&mut peer, |chainstate, sortdb| {
-            if let Some(tip) = all_blocks.last() {
-                make_all_signers_vote_for_aggregate_key(
-                    chainstate,
-                    sortdb,
-                    &tip.block_id(),
-                    &mut test_signers,
-                    &test_stackers,
-                    cycle_id as u128,
-                )
-            } else {
-                vec![]
-            }
-        });
+            with_sortdb(&mut peer, |chainstate, sortdb| {
+                if let Some(tip) = all_blocks.last() {
+                    make_all_signers_vote_for_aggregate_key(
+                        chainstate,
+                        sortdb,
+                        &tip.block_id(),
+                        &mut test_signers,
+                        &test_stackers,
+                        next_cycle_id,
+                    )
+                } else {
+                    vec![]
+                }
+            })
+        } else {
+            vec![]
+        };
 
         // do a stx transfer in each block to a given recipient
         let recipient_addr =

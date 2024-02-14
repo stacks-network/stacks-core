@@ -1912,6 +1912,8 @@ pub mod test {
         round: u128,
         cycle: u128,
     ) -> StacksTransaction {
+        debug!("Vote for aggregate key in cycle {}, round {}", cycle, round);
+
         let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
             .expect("Failed to serialize aggregate public key");
         let payload = TransactionPayload::new_contract_call(
