@@ -1763,34 +1763,6 @@ impl StacksChainState {
         Ok(())
     }
 
-    /// Store users who burned in support of a block
-    fn store_staging_block_user_burn_supports<'a>(
-        tx: &mut DBTx<'a>,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-        burn_supports: &[UserBurnSupportOp],
-    ) -> Result<(), Error> {
-        for burn_support in burn_supports.iter() {
-            assert!(burn_support.burn_fee < u64::try_from(i64::MAX).expect("unreachable"));
-        }
-
-        for burn_support in burn_supports.iter() {
-            let sql = "INSERT OR REPLACE INTO staging_user_burn_support (anchored_block_hash, consensus_hash, address, burn_amount, vtxindex) VALUES (?1, ?2, ?3, ?4, ?5)";
-            let args: &[&dyn ToSql] = &[
-                &consensus_hash,
-                &block_hash,
-                &burn_support.address.to_string(),
-                &u64_to_sql(burn_support.burn_fee)?,
-                &burn_support.vtxindex,
-            ];
-
-            tx.execute(&sql, args)
-                .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
-        }
-
-        Ok(())
-    }
-
     /// Read all the i64 values from a query (possibly none).
     fn read_i64s(conn: &DBConn, query: &str, args: &[&dyn ToSql]) -> Result<Vec<i64>, Error> {
         let mut stmt = conn
@@ -3495,9 +3467,6 @@ impl StacksChainState {
             return Ok(false);
         }
 
-        // find all user burns that supported this block
-        let user_burns = sort_handle.get_winning_user_burns_by_block()?;
-
         // does this block match the burnchain state? skip if not
         let validation_res = StacksChainState::validate_anchored_block_burnchain(
             &block_tx,
@@ -3550,14 +3519,6 @@ impl StacksChainState {
             commit_burn,
             sortition_burn,
             download_time,
-        )?;
-
-        // store users who burned for this block so they'll get rewarded if we process it
-        StacksChainState::store_staging_block_user_burn_supports(
-            &mut block_tx,
-            consensus_hash,
-            &block.block_hash(),
-            &user_burns,
         )?;
 
         block_tx.commit()?;

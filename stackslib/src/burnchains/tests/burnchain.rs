@@ -38,7 +38,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp, UserBurnSupportOp,
+    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash, ConsensusHashExtensions, OpsHash, SortitionHash,
@@ -149,170 +149,6 @@ fn test_process_block_ops() {
         vtxindex: 10,
         block_height: 121,
         burn_header_hash: block_121_hash.clone(),
-    };
-
-    let user_burn_1 = UserBurnSupportOp {
-        address: StacksAddress::new(1, Hash160([1u8; 20])),
-        consensus_hash: ConsensusHash::from_bytes(
-            &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
-        )
-        .unwrap(),
-        public_key: VRFPublicKey::from_bytes(
-            &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
-        )
-        .unwrap(),
-        block_header_hash_160: Hash160::from_bytes(
-            &hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap(),
-        )
-        .unwrap(), // 22222....2222
-        key_block_ptr: 123,
-        key_vtxindex: 456,
-        burn_fee: 10000,
-
-        txid: Txid::from_bytes(
-            &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716b").unwrap(),
-        )
-        .unwrap(),
-        vtxindex: 13,
-        block_height: 124,
-        burn_header_hash: block_124_hash_initial.clone(),
-    };
-
-    let user_burn_1_2 = UserBurnSupportOp {
-        address: StacksAddress::new(2, Hash160([2u8; 20])),
-        consensus_hash: ConsensusHash::from_bytes(
-            &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
-        )
-        .unwrap(),
-        public_key: VRFPublicKey::from_bytes(
-            &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
-        )
-        .unwrap(),
-        block_header_hash_160: Hash160::from_bytes(
-            &hex_bytes("7150f635054b87df566a970b21e07030d6444bf2").unwrap(),
-        )
-        .unwrap(), // 22222....2222
-        key_block_ptr: 123,
-        key_vtxindex: 456,
-        burn_fee: 30000,
-
-        txid: Txid::from_bytes(
-            &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716c").unwrap(),
-        )
-        .unwrap(),
-        vtxindex: 14,
-        block_height: 124,
-        burn_header_hash: block_124_hash_initial.clone(),
-    };
-
-    let user_burn_2 = UserBurnSupportOp {
-        address: StacksAddress::new(3, Hash160([3u8; 20])),
-        consensus_hash: ConsensusHash::from_bytes(
-            &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
-        )
-        .unwrap(),
-        public_key: VRFPublicKey::from_bytes(
-            &hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap(),
-        )
-        .unwrap(),
-        block_header_hash_160: Hash160::from_bytes(
-            &hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap(),
-        )
-        .unwrap(), // 22222....2223
-        key_block_ptr: 122,
-        key_vtxindex: 457,
-        burn_fee: 20000,
-
-        txid: Txid::from_bytes(
-            &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716d").unwrap(),
-        )
-        .unwrap(),
-        vtxindex: 15,
-        block_height: 124,
-        burn_header_hash: block_124_hash_initial.clone(),
-    };
-
-    let user_burn_2_2 = UserBurnSupportOp {
-        address: StacksAddress::new(4, Hash160([4u8; 20])),
-        consensus_hash: ConsensusHash::from_bytes(
-            &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
-        )
-        .unwrap(),
-        public_key: VRFPublicKey::from_bytes(
-            &hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap(),
-        )
-        .unwrap(),
-        block_header_hash_160: Hash160::from_bytes(
-            &hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap(),
-        )
-        .unwrap(), // 22222....2223
-        key_block_ptr: 122,
-        key_vtxindex: 457,
-        burn_fee: 40000,
-
-        txid: Txid::from_bytes(
-            &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716e").unwrap(),
-        )
-        .unwrap(),
-        vtxindex: 16,
-        block_height: 124,
-        burn_header_hash: block_124_hash_initial.clone(),
-    };
-
-    // should be rejected
-    let user_burn_noblock = UserBurnSupportOp {
-        address: StacksAddress::new(5, Hash160([5u8; 20])),
-        consensus_hash: ConsensusHash::from_bytes(
-            &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
-        )
-        .unwrap(),
-        public_key: VRFPublicKey::from_bytes(
-            &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
-        )
-        .unwrap(),
-        block_header_hash_160: Hash160::from_bytes(
-            &hex_bytes("3333333333333333333333333333333333333333").unwrap(),
-        )
-        .unwrap(),
-        key_block_ptr: 122,
-        key_vtxindex: 772,
-        burn_fee: 12345,
-
-        txid: Txid::from_bytes(
-            &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c716f").unwrap(),
-        )
-        .unwrap(),
-        vtxindex: 12,
-        block_height: 123,
-        burn_header_hash: block_123_hash.clone(),
-    };
-
-    // should be rejected
-    let user_burn_nokey = UserBurnSupportOp {
-        address: StacksAddress::new(6, Hash160([6u8; 20])),
-        consensus_hash: ConsensusHash::from_bytes(
-            &hex_bytes("0000000000000000000000000000000000000000").unwrap(),
-        )
-        .unwrap(),
-        public_key: VRFPublicKey::from_bytes(
-            &hex_bytes("3f3338db51f2b1f6ac0cf6177179a24ee130c04ef2f9849a64a216969ab60e70").unwrap(),
-        )
-        .unwrap(),
-        block_header_hash_160: Hash160::from_bytes(
-            &hex_bytes("037a1e860899a4fa823c18b66f6264d20236ec58").unwrap(),
-        )
-        .unwrap(),
-        key_block_ptr: 122,
-        key_vtxindex: 457,
-        burn_fee: 12345,
-
-        txid: Txid::from_bytes(
-            &hex_bytes("1d5cbdd276495b07f0e0bf0181fa57c175b217bc35531b078d62fc20986c7170").unwrap(),
-        )
-        .unwrap(),
-        vtxindex: 15,
-        block_height: 123,
-        burn_header_hash: block_123_hash.clone(),
     };
 
     let block_commit_1 = LeaderBlockCommitOp {
@@ -525,8 +361,6 @@ fn test_process_block_ops() {
     };
 
     let block_ops_123 = vec![
-        BlockstackOperationType::UserBurnSupport(user_burn_noblock.clone()),
-        BlockstackOperationType::UserBurnSupport(user_burn_nokey.clone()),
         BlockstackOperationType::LeaderKeyRegister(leader_key_1.clone()),
     ];
     let block_opshash_123 = OpsHash::from_txids(&vec![
@@ -728,7 +562,6 @@ fn test_process_block_ops() {
         let burn_total = block_ops_124.iter().fold(0u64, |mut acc, op| {
             let bf = match op {
                 BlockstackOperationType::LeaderBlockCommit(ref op) => op.burn_fee,
-                BlockstackOperationType::UserBurnSupport(ref op) => 0,
                 _ => 0,
             };
             acc += bf;
