@@ -1748,6 +1748,22 @@ mod tests {
         }
     }
 
+    fn pox_constants() -> PoxConstants {
+        PoxConstants::new(
+            6,
+            2,
+            2,
+            25,
+            5,
+            5000,
+            10000,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+            u32::MAX,
+        )
+    }
+
     #[test]
     fn test_check_2_1() {
         let first_block_height = 121;
@@ -1786,20 +1802,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -2333,20 +2336,7 @@ mod tests {
         ];
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),
@@ -3036,20 +3026,7 @@ mod tests {
         .unwrap();
 
         let burnchain = Burnchain {
-            pox_constants: PoxConstants::new(
-                6,
-                2,
-                2,
-                25,
-                5,
-                5000,
-                10000,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-                u32::MAX,
-            ),
+            pox_constants: pox_constants(),
             peer_version: 0x012345678,
             network_id: 0x9abcdef0,
             chain_name: "bitcoin".to_string(),

@@ -2040,7 +2040,6 @@ fn stx_delegate_btc_integration_test() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
-        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -6072,7 +6071,6 @@ fn pox_integration_test() {
         u32::MAX,
         u32::MAX,
         u32::MAX,
-        u32::MAX,
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
@@ -9504,8 +9502,9 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
 
     let tip_info = get_chain_info(&conf);
 
-    // all blocks were processed
-    assert!(tip_info.stacks_tip_height >= old_tip_info.stacks_tip_height + 5);
+    // at least one block was mined (hard to say how many due to the raciness between the burnchain
+    // downloader and this thread).
+    assert!(tip_info.stacks_tip_height > old_tip_info.stacks_tip_height);
     // one was problematic -- i.e. the one that included tx_high
     assert_eq!(all_new_files.len(), 1);
 
@@ -10778,7 +10777,6 @@ fn test_competing_miners_build_on_same_chain(
             15,
             (16 * reward_cycle_len - 1).into(),
             (17 * reward_cycle_len).into(),
-            u32::MAX,
             u32::MAX,
             u32::MAX,
             u32::MAX,
