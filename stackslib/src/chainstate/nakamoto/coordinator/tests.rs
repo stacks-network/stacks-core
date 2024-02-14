@@ -148,7 +148,7 @@ pub fn make_all_signers_vote_for_aggregate_key(
     }
 
     // Generate a new aggregate key
-    test_signers.generate_aggregate_key();
+    test_signers.generate_aggregate_key(cycle_id as u64);
 
     let signers_res = readonly_call_with_sortdb(
         chainstate,

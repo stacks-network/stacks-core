@@ -24,7 +24,8 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
 use hashbrown::HashMap;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::{CryptoRng, RngCore, SeedableRng};
+use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
@@ -189,8 +190,8 @@ impl TestSigners {
     }
 
     // Generate and assign a new aggregate public key
-    pub fn generate_aggregate_key(&mut self) -> Point {
-        let mut rng = rand_core::OsRng;
+    pub fn generate_aggregate_key(&mut self, seed: u64) -> Point {
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
         let num_parties = self.party_key_ids.len().try_into().unwrap();
         // Create the parties
         self.signer_parties = self

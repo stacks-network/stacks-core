@@ -16,7 +16,8 @@
 
 use ed25519_dalek::Keypair as VRFKeypair;
 use rand::rngs::ThreadRng;
-use rand::thread_rng;
+use rand_chacha::ChaChaRng;
+use rand_core::SeedableRng;
 use serde::Serialize;
 use sha2::Sha512;
 use stacks_common::address::AddressHashMode;
@@ -866,7 +867,7 @@ fn test_burn_snapshot_sequence() {
     let mut leader_bitcoin_addresses = vec![];
 
     for i in 0..32 {
-        let mut csprng: ThreadRng = thread_rng();
+        let mut csprng = ChaChaRng::from_seed(Default::default());
         let keypair: VRFKeypair = VRFKeypair::generate(&mut csprng);
 
         let privkey_hex = to_hex(&keypair.secret.to_bytes());

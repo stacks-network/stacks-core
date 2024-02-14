@@ -19,7 +19,8 @@ use std::fmt;
 use std::io::Write;
 
 use rand::seq::index::sample;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
+use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use ripemd::Ripemd160;
 use rusqlite::{Connection, Transaction};
@@ -150,8 +151,8 @@ impl SortitionHash {
         if max < 2 {
             return (0..max).collect();
         }
-        let first = rng.gen_range(0, max);
-        let try_second = rng.gen_range(0, max - 1);
+        let first = rng.gen_range(0..max);
+        let try_second = rng.gen_range(0..(max - 1));
         let second = if first == try_second {
             // "swap" try_second with max
             max - 1

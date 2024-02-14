@@ -29,6 +29,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::nakamoto::tests::node::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -48,7 +49,6 @@ use wsts::curve::point::Point;
 
 use super::relayer::RelayerThread;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
-use crate::mockamoto::signer::SelfSigner;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
@@ -418,7 +418,7 @@ impl BlockMinerThread {
 
     fn self_sign_and_broadcast(
         &self,
-        mut signer: SelfSigner,
+        mut signer: TestSigners,
         mut block: NakamotoBlock,
     ) -> Result<(), ChainstateError> {
         signer.sign_nakamoto_block(&mut block);

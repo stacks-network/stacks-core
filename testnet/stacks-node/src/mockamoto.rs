@@ -44,6 +44,7 @@ use stacks::chainstate::coordinator::comm::CoordinatorReceivers;
 use stacks::chainstate::coordinator::{
     ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
 };
+use stacks::chainstate::nakamoto::tests::node::TestSigners;
 use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
@@ -87,7 +88,6 @@ use stacks_common::util::hash::{to_hex, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::{VRFPrivateKey, VRFProof, VRFPublicKey, VRF};
 
-use self::signer::SelfSigner;
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
 use crate::neon::Counters;
 use crate::neon_node::{PeerThread, StacksNode, BLOCK_PROCESSOR_STACK_SIZE};
@@ -276,7 +276,7 @@ pub struct MockamotoNode {
     sortdb: SortitionDB,
     mempool: MemPoolDB,
     chainstate: StacksChainState,
-    self_signer: SelfSigner,
+    self_signer: TestSigners,
     miner_key: StacksPrivateKey,
     vrf_key: VRFPrivateKey,
     relay_rcv: Option<Receiver<RelayerDirective>>,
@@ -424,7 +424,7 @@ impl MockamotoNode {
         initial_balances.push((stacker.into(), 100_000_000_000_000));
 
         // Create a boot contract to initialize the aggregate public key prior to Pox-4 activation
-        let self_signer = SelfSigner::single_signer();
+        let self_signer = TestSigners::single_signer();
         let agg_pub_key = self_signer.aggregate_public_key.clone();
         info!("Mockamoto node setting agg public key"; "agg_pub_key" => %to_hex(&self_signer.aggregate_public_key.compress().data));
         let callback = move |clarity_tx: &mut ClarityTx| {
