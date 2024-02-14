@@ -121,8 +121,8 @@ impl StacksClient {
     pub fn calculate_coordinator_ids(&self, public_keys: &PublicKeys) -> Vec<u32> {
         // TODO: return the entire list. Might be at the same block height for a long time and need to move to the second item in the list
         // Add logic throughout signer to track the current coordinator list and offset in the list
-        let stacks_tip_consensus_hash = match retry_with_exponential_backoff(|| {
-            self.get_stacks_tip_consensus_hash()
+        let pox_consensus_hash = match retry_with_exponential_backoff(|| {
+            self.get_pox_consenus_hash()
                 .map_err(backoff::Error::transient)
         }) {
             Ok(hash) => hash,
@@ -134,20 +134,18 @@ impl StacksClient {
                 return default_coordinator_list;
             }
         };
-        debug!(
-            "Using stacks_tip_consensus_hash {stacks_tip_consensus_hash:?} for selecting coordinator"
-        );
+        debug!("Using pox_consensus_hash {pox_consensus_hash:?} for selecting coordinator");
 
-        // Create combined hash of each signer's public key with stacks_tip_consensus_hash
+        // Create combined hash of each signer's public key with pox_consensus_hash
         let mut selection_ids = public_keys
             .signers
             .iter()
             .map(|(&id, pk)| {
                 let pk_bytes = pk.to_bytes();
                 let mut buffer =
-                    Vec::with_capacity(pk_bytes.len() + stacks_tip_consensus_hash.as_bytes().len());
+                    Vec::with_capacity(pk_bytes.len() + pox_consensus_hash.as_bytes().len());
                 buffer.extend_from_slice(&pk_bytes[..]);
-                buffer.extend_from_slice(stacks_tip_consensus_hash.as_bytes());
+                buffer.extend_from_slice(pox_consensus_hash.as_bytes());
                 let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
                 (id, digest)
             })
@@ -225,10 +223,10 @@ impl StacksClient {
         self.parse_aggregate_public_key(value)
     }
 
-    /// Retrieve the stacks tip consensus hash from the stacks node
-    pub fn get_stacks_tip_consensus_hash(&self) -> Result<ConsensusHash, ClientError> {
+    /// Retrieve the pox consensus hash from the stacks node
+    pub fn get_pox_consenus_hash(&self) -> Result<ConsensusHash, ClientError> {
         let peer_info = self.get_peer_info()?;
-        Ok(peer_info.stacks_tip_consensus_hash)
+        Ok(peer_info.pox_consensus)
     }
 
     /// Retrieve the stacks node current epoch on a retry
@@ -1062,17 +1060,17 @@ mod tests {
     #[test]
     fn core_info_call_for_consensus_hash_should_succeed() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_stacks_tip_consensus_hash());
+        let h = spawn(move || mock.client.get_pox_consenus_hash());
         let (response, peer_info) = build_get_peer_info_response(None, None);
         write_response(mock.server, response.as_bytes());
         let consensus_hash = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(consensus_hash, peer_info.stacks_tip_consensus_hash);
+        assert_eq!(consensus_hash, peer_info.pox_consensus);
     }
 
     #[test]
     fn core_info_call_with_invalid_response_should_fail() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_stacks_tip_consensus_hash());
+        let h = spawn(move || mock.client.get_pox_consenus_hash());
         write_response(
             mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",

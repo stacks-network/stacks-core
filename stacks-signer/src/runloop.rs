@@ -22,6 +22,7 @@ use hashbrown::HashMap;
 use libsigner::{SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::{debug, error, info, warn};
+use wsts::state_machine::coordinator::State as CoordinatorState;
 use wsts::state_machine::OperationResult;
 
 use crate::client::{retry_with_exponential_backoff, ClientError, StacksClient};
@@ -213,6 +214,17 @@ impl RunLoop {
                 }
             }
             for stacks_signer in self.stacks_signers.values_mut() {
+                let updated_coordinator = stacks_signer
+                    .coordinator_selector
+                    .refresh_coordinator(&self.stacks_client);
+                if updated_coordinator {
+                    debug!(
+                        "Signer #{}: Coordinator has been updated. Resetting state to Idle.",
+                        stacks_signer.signer_id
+                    );
+                    stacks_signer.coordinator.state = CoordinatorState::Idle;
+                    stacks_signer.state = SignerState::Idle;
+                }
                 stacks_signer
                     .update_dkg(&self.stacks_client)
                     .map_err(backoff::Error::transient)?;

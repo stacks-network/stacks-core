@@ -215,12 +215,11 @@ impl SignerTest {
         self.running_nodes
             .run_loop_stopper
             .store(false, Ordering::SeqCst);
-
-        self.running_nodes.run_loop_thread.join().unwrap();
-        // Stop the signers
+        // Stop the signers before the node to prevent hanging
         for signer in self.running_signers {
             assert!(signer.stop().is_none());
         }
+        self.running_nodes.run_loop_thread.join().unwrap();
     }
 }
 
