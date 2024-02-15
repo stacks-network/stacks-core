@@ -358,7 +358,7 @@ impl BlockMinerThread {
                             continue;
                         }
                         test_debug!("Miner: including transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
-                        // TODO : filter out transactions that are not valid votes
+                        // TODO : filter out transactions that are not valid votes. Do not include transactions with invalid/duplicate nonces for the same address.
                         transactions_to_include.push(transaction);
                     }
                 }

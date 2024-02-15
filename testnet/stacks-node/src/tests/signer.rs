@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::net::ToSocketAddrs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -8,20 +9,17 @@ use std::{env, thread};
 use clarity::boot_util::boot_code_id;
 use libsigner::{
     BlockResponse, RejectCode, RunningSigner, Signer, SignerEventReceiver, SignerMessage,
-    BLOCK_MSG_ID, TRANSACTIONS_MSG_ID,
+    BLOCK_MSG_ID,
 };
+use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
 use stacks::chainstate::stacks::boot::SIGNERS_NAME;
-use stacks::chainstate::stacks::{
-    StacksPrivateKey, StacksTransaction, ThresholdSignature, TransactionAnchorMode,
-    TransactionAuth, TransactionPayload, TransactionPostConditionMode, TransactionSmartContract,
-    TransactionVersion,
-};
+use stacks::chainstate::stacks::miner::TransactionEvent;
+use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, ThresholdSignature};
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
-use stacks::util_lib::strings::StacksString;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::read_next;
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
@@ -38,6 +36,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 use wsts::common::Signature;
 use wsts::compute::tweaked_public_key;
 use wsts::curve::point::Point;
+use wsts::curve::scalar::Scalar;
 use wsts::state_machine::OperationResult;
 use wsts::taproot::SchnorrProof;
 
@@ -131,6 +130,75 @@ impl SignerTest {
             signer_stacks_private_keys,
             stacks_client,
         }
+    }
+
+    fn boot_to_epoch_3(&mut self, timeout: Duration) -> Point {
+        boot_to_epoch_3_reward_set(
+            &self.running_nodes.conf,
+            &self.running_nodes.blocks_processed,
+            &self.signer_stacks_private_keys,
+            &self.signer_stacks_private_keys,
+            &mut self.running_nodes.btc_regtest_controller,
+        );
+        let dkg_vote = self.wait_for_dkg(timeout);
+
+        // Advance and mine the DKG key block
+        self.run_until_epoch_3_boundary();
+
+        let reward_cycle = self.get_current_reward_cycle();
+        let set_dkg = self
+            .stacks_client
+            .get_approved_aggregate_key(reward_cycle)
+            .expect("Failed to get approved aggregate key")
+            .expect("No approved aggregate key found");
+        assert_eq!(set_dkg, dkg_vote);
+        info!("Booted Test Signers to Epoch 3.0 boundary. DKG successfully approved. Ready to sign blocks.");
+        set_dkg
+    }
+
+    fn mine_nakamoto_block(&mut self, timeout: Duration) {
+        info!("Nakamoto miner started...");
+        let (vrfs_submitted, commits_submitted) = (
+            self.running_nodes.vrfs_submitted.clone(),
+            self.running_nodes.commits_submitted.clone(),
+        );
+        // first block wakes up the run loop, wait until a key registration has been submitted.
+        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
+            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+            Ok(vrf_count >= 1)
+        })
+        .unwrap();
+
+        info!("Successfully triggered first block to wake up the miner runloop.");
+        // second block should confirm the VRF register, wait until a block commit is submitted
+        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        })
+        .unwrap();
+
+        let mined_block_time = Instant::now();
+        info!("Mining first Nakamoto block");
+        let _ = next_block_and_mine_commit(
+            &mut self.running_nodes.btc_regtest_controller,
+            60,
+            &self.running_nodes.coord_channel,
+            &commits_submitted,
+        );
+
+        let t_start = Instant::now();
+        while test_observer::get_mined_nakamoto_blocks().is_empty() {
+            assert!(
+                t_start.elapsed() < timeout,
+                "Timed out while waiting for mined nakamoto block event"
+            );
+            thread::sleep(Duration::from_secs(1));
+        }
+        let mined_block_elapsed_time = mined_block_time.elapsed();
+        info!(
+            "Nakamoto block mine time elapsed: {:?}",
+            mined_block_elapsed_time
+        );
     }
 
     fn wait_for_dkg(&mut self, timeout: Duration) -> Point {
@@ -290,23 +358,13 @@ impl SignerTest {
             reward_cycle
         );
         // Calculate which signer is the coordinator
-        let private_key = StacksPrivateKey::new();
-        let node_host = self
-            .running_nodes
-            .conf
-            .node
-            .rpc_bind
-            .to_socket_addrs()
-            .unwrap()
-            .next()
-            .unwrap();
-        // Use the stacks client to calculate the current registered signers and their coordinator
-        let stacks_client = StacksClient::new(private_key, node_host, false);
-        let registered_signers_info = &stacks_client
+        let registered_signers_info = &self
+            .stacks_client
             .get_registered_signers_info(reward_cycle)
             .unwrap()
             .unwrap();
-        let coordinator_id = *stacks_client
+        let coordinator_id = *self
+            .stacks_client
             .calculate_coordinator_ids(&registered_signers_info.public_keys)
             .first()
             .expect("No coordinator found");
@@ -327,6 +385,94 @@ impl SignerTest {
             .unwrap();
         debug!("Coordinator is {coordinator_id:?} ({coordinator_pk:?}). Command sender found at index: {coordinator_index:?}");
         self.signer_cmd_senders.get(coordinator_index).unwrap()
+    }
+
+    fn get_signer_index(&self) -> u32 {
+        let reward_cycle = self.get_current_reward_cycle();
+        let valid_signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, false);
+
+        self.stacks_client
+            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, valid_signer_set)
+            .expect("FATAL: failed to get signer slots from stackerdb")
+            .iter()
+            .position(|(address, _)| address == self.stacks_client.get_signer_address())
+            .map(|pos| u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
+            .expect("FATAL: signer not registered")
+    }
+
+    fn generate_valid_transaction(&self) -> StacksTransaction {
+        // Get the signer indices
+        let reward_cycle = self.get_current_reward_cycle();
+        let valid_signer_index = self.get_signer_index();
+        let nonce = self
+            .stacks_client
+            .get_account_nonce(self.stacks_client.get_signer_address())
+            .expect("FATAL: failed to get nonce");
+        let round = self
+            .stacks_client
+            .get_last_round(reward_cycle)
+            .expect("FATAL: failed to get round")
+            .unwrap_or(0)
+            .wrapping_add(1);
+        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        self.stacks_client
+            .build_vote_for_aggregate_public_key(
+                valid_signer_index,
+                round,
+                point,
+                reward_cycle,
+                None,
+                nonce,
+            )
+            .expect("FATAL: failed to build vote for aggregate public key")
+    }
+
+    fn generate_invalid_transactions(&self) -> Vec<StacksTransaction> {
+        let host = self
+            .running_nodes
+            .conf
+            .node
+            .rpc_bind
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap();
+        // Get the signer indices
+        let reward_cycle = self.get_current_reward_cycle();
+        let valid_signer_index = self.get_signer_index();
+        let round = self
+            .stacks_client
+            .get_last_round(reward_cycle)
+            .expect("FATAL: failed to get round")
+            .unwrap_or(0)
+            .wrapping_add(1);
+        let point = Point::from(Scalar::random(&mut rand::thread_rng()));
+        let invalid_nonce_tx = self
+            .stacks_client
+            .build_vote_for_aggregate_public_key(
+                valid_signer_index,
+                round,
+                point,
+                reward_cycle,
+                None,
+                0, // Old nonce
+            )
+            .expect("FATAL: failed to build vote for aggregate public key");
+        let invalid_stacks_client = StacksClient::new(StacksPrivateKey::new(), host, false);
+        let invalid_signer_tx = invalid_stacks_client
+            .build_vote_for_aggregate_public_key(
+                valid_signer_index,
+                round,
+                point,
+                reward_cycle,
+                None,
+                0,
+            )
+            .expect("FATAL: failed to build vote for aggregate public key");
+        // TODO: add invalid contract calls (one with non cast-vote-aggregate-key function call and one with invalid function args)
+        vec![invalid_nonce_tx, invalid_signer_tx]
     }
 
     fn shutdown(self) {
@@ -554,28 +700,9 @@ fn stackerdb_dkg_sign() {
     let dkg_elapsed = dkg_now.elapsed();
     assert_ne!(new_key, key);
 
-    // Verify that we haven't mined the DKG key yet
-    assert!(signer_test
-        .stacks_client
-        .get_approved_aggregate_key(reward_cycle)
-        .expect("Failed to get approved aggregate key")
-        .is_none());
-
-    // Advance and mine the DKG key block
-    signer_test.run_until_epoch_3_boundary();
-
-    let set_key = signer_test
-        .stacks_client
-        .get_approved_aggregate_key(reward_cycle)
-        .expect("Failed to get approved aggregate key")
-        .expect("No approved aggregate key found");
-    assert_eq!(set_key, key);
-
     info!("------------------------- Test Sign -------------------------");
-    // Determine the coordinator of the current node height
-    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
 
-    let sign_now = Instant::now();
+    // Determine the coordinator of the current node height
     info!("signer_runloop: spawn send commands to do dkg and then sign");
     let sign_command = RunLoopCommand {
         reward_cycle,
@@ -593,6 +720,8 @@ fn stackerdb_dkg_sign() {
             merkle_root: None,
         },
     };
+    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
+    let sign_now = Instant::now();
     coordinator_sender
         .send(sign_command)
         .expect("failed to send Sign command");
@@ -601,17 +730,57 @@ fn stackerdb_dkg_sign() {
         .expect("failed to send Sign taproot command");
     let frost_signatures = signer_test.wait_for_frost_signatures(timeout);
     let schnorr_proofs = signer_test.wait_for_taproot_signatures(timeout);
-    for forst_signature in frost_signatures {
-        assert!(forst_signature.verify(&set_key, &msg));
+
+    for frost_signature in frost_signatures {
+        assert!(frost_signature.verify(&new_key, &msg));
     }
     for schnorr_proof in schnorr_proofs {
-        let tweaked_key = tweaked_public_key(&set_key, None);
+        let tweaked_key = tweaked_public_key(&new_key, None);
         assert!(
             schnorr_proof.verify(&tweaked_key.x(), &msg),
             "Schnorr proof verification failed"
         );
     }
     let sign_elapsed = sign_now.elapsed();
+
+    info!("------------------------- Test Block Accepted -------------------------");
+
+    // Verify the signers accepted the proposed block
+    let t_start = Instant::now();
+    let mut chunk = None;
+    while chunk.is_none() {
+        assert!(
+            t_start.elapsed() < Duration::from_secs(30),
+            "Timed out while waiting for signers block response stacker db event"
+        );
+
+        let nakamoto_blocks = test_observer::get_stackerdb_chunks();
+        for event in nakamoto_blocks {
+            // Only care about the miners block slot
+            if event.contract_id.name == format!("signers-1-{}", BLOCK_MSG_ID).as_str().into()
+                || event.contract_id.name == format!("signers-0-{}", BLOCK_MSG_ID).as_str().into()
+            {
+                for slot in event.modified_slots {
+                    chunk = Some(slot.data);
+                    break;
+                }
+                if chunk.is_some() {
+                    break;
+                }
+            }
+        }
+        thread::sleep(Duration::from_secs(1));
+    }
+    let chunk = chunk.unwrap();
+    let signer_message = read_next::<SignerMessage, _>(&mut &chunk[..]).unwrap();
+    if let SignerMessage::BlockResponse(BlockResponse::Rejected(rejection)) = signer_message {
+        assert!(matches!(
+            rejection.reason_code,
+            RejectCode::ValidationFailed(_)
+        ));
+    } else {
+        panic!("Received unexpected message: {:?}", &signer_message);
+    }
 
     info!("DKG Time Elapsed: {:.2?}", dkg_elapsed);
     info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
@@ -650,81 +819,20 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Setup -------------------------");
     let mut signer_test = SignerTest::new(5);
     let timeout = Duration::from_secs(200);
-    let (vrfs_submitted, commits_submitted) = (
-        signer_test.running_nodes.vrfs_submitted.clone(),
-        signer_test.running_nodes.commits_submitted.clone(),
-    );
-    boot_to_epoch_3_reward_set(
-        &signer_test.running_nodes.conf,
-        &signer_test.running_nodes.blocks_processed,
-        &signer_test.signer_stacks_private_keys,
-        &signer_test.signer_stacks_private_keys,
-        &mut signer_test.running_nodes.btc_regtest_controller,
-    );
+    let key = signer_test.boot_to_epoch_3(timeout);
+    signer_test.mine_nakamoto_block(timeout);
 
-    info!("------------------------- Wait for DKG -------------------------");
-    info!("signer_runloop: spawn send commands to do dkg");
-    let dkg_now = Instant::now();
-    let key = signer_test.wait_for_dkg(timeout);
-    let dkg_elapsed = dkg_now.elapsed();
-
-    info!("------------------------- Verify DKG -------------------------");
-    signer_test.run_until_epoch_3_boundary();
-
-    let reward_cycle = signer_test.get_current_reward_cycle();
-    let set_dkg = signer_test
-        .stacks_client
-        .get_approved_aggregate_key(reward_cycle)
-        .expect("Failed to get approved aggregate key")
-        .expect("No approved aggregate key found");
-    assert_eq!(set_dkg, key);
-
-    info!("------------------------- Verify Nakamoto Block Proposed -------------------------");
-
-    let sign_now = Instant::now();
-
-    info!("Nakamoto miner started...");
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-            Ok(vrf_count >= 1)
-        },
-    )
-    .unwrap();
-
-    info!("Successfully triggered first block to wake up the miner runloop.");
-    // second block should confirm the VRF register, wait until a block commit is submitted
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= 1)
-        },
-    )
-    .unwrap();
-
-    info!("Mining first Nakamoto block");
-    let _ = next_block_and_mine_commit(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-        &commits_submitted,
-    );
-
-    let frost_signatures = signer_test.wait_for_frost_signatures(timeout);
-    let sign_elapsed = sign_now.elapsed();
+    info!("------------------------- Verify Sign Round -------------------------");
+    let short_timeout = Duration::from_secs(30);
+    let frost_signatures = signer_test.wait_for_frost_signatures(short_timeout);
 
     info!("------------------------- Verify Block Proposal Response -------------------------");
-    // Wait for the block to show up in the test observer (Don't have to wait long as if we have received a signature,
+    // Wait for the block to show up in the test observer (Don't have to wait long as if we have received a mined block already,
     // we know that the signers have already received their block proposal events via their event observers)
     let t_start = Instant::now();
     while test_observer::get_proposal_responses().is_empty() {
         assert!(
-            t_start.elapsed() < timeout,
+            t_start.elapsed() < short_timeout,
             "Timed out while waiting for block proposal event"
         );
         thread::sleep(Duration::from_secs(1));
@@ -748,7 +856,7 @@ fn stackerdb_block_proposal() {
     let mut chunk = None;
     while chunk.is_none() {
         assert!(
-            t_start.elapsed() < Duration::from_secs(30),
+            t_start.elapsed() < short_timeout,
             "Timed out while waiting for signers block response stacker db event"
         );
 
@@ -786,40 +894,30 @@ fn stackerdb_block_proposal() {
     } else {
         panic!("Received unexpected message");
     }
-
-    info!("------------------------- Verify Nakamoto Block Mined -------------------------");
-    while test_observer::get_mined_nakamoto_blocks().is_empty() {
-        assert!(
-            t_start.elapsed() < timeout,
-            "Timed out while waiting for mined nakamoto block event"
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
-
     signer_test.shutdown();
-
-    info!("DKG Time Elapsed: {:.2?}", dkg_elapsed);
-    info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
 }
 
 #[test]
 #[ignore]
-/// Test that signers will reject a miners block proposal if it is missing expected transactions
+/// Test that signers will accept a miners block proposal and sign it if it contains all expected transactions,
+/// filtering invalid transactions from the block requirements
 ///
 /// Test Setup:
 /// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
-/// The stacks node is advanced to epoch 3.0. and signers perform a DKG round (this should be removed
-/// once we have proper casting of the vote during epoch 2.5).
+/// The stacks node is advanced to epoch 2.5, triggering a DKG round. The stacks node is then advanced
+/// to Epoch 3.0 boundary to allow block signing.
 ///
 /// Test Execution:
 /// The node attempts to mine a Nakamoto tenure, sending a block to the observing signers via the
 /// .miners stacker db instance. The signers submit the block to the stacks node for verification.
 /// Upon receiving a Block Validation response approving the block, the signers verify that it contains
-/// all expected transactions. As it does not, the signers reject the block and do not sign it.
+/// all expected transactions, being sure to filter out any invalid transactions from stackerDB as well.
 ///
 /// Test Assertion:
-/// Signers broadcast rejections with the list of missing transactions back to the miners stackerdb instance
-fn stackerdb_block_proposal_missing_transactions() {
+/// Miner proposes a block to the signers containing all expected transactions.
+/// Signers broadcast block approval with a signature back to the waiting miner.
+/// Miner includes the signers' signature in the block and finishes mining it.
+fn stackerdb_block_proposal_filters_bad_transactions() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -831,6 +929,8 @@ fn stackerdb_block_proposal_missing_transactions() {
 
     info!("------------------------- Test Setup -------------------------");
     let mut signer_test = SignerTest::new(5);
+    let timeout = Duration::from_secs(200);
+    let set_dkg = signer_test.boot_to_epoch_3(timeout);
 
     let host = signer_test
         .running_nodes
@@ -841,181 +941,44 @@ fn stackerdb_block_proposal_missing_transactions() {
         .unwrap()
         .next()
         .unwrap();
-    let _stx_genesissigner_stacker_db_1 = signer_test
-        .running_nodes
-        .conf
-        .node
-        .stacker_dbs
-        .iter()
-        .find(|id| {
-            id.name.to_string() == NakamotoSigners::make_signers_db_name(1, TRANSACTIONS_MSG_ID)
-        })
-        .unwrap()
-        .clone();
 
-    let signer_id = 0;
-
-    let signer_addresses_1: Vec<_> = signer_test
-        .stacks_client
-        .get_stackerdb_signer_slots(&boot_code_id(SIGNERS_NAME, false), 1)
-        .unwrap()
-        .into_iter()
-        .map(|(address, _)| address)
-        .collect();
-
-    let signer_address_1 = signer_addresses_1.get(signer_id).cloned().unwrap();
-
-    let signer_private_key_1 = signer_test
+    let signer_private_key = signer_test
         .signer_stacks_private_keys
         .iter()
         .find(|pk| {
             let addr = to_addr(pk);
-            addr == signer_address_1
+            addr == *signer_test.stacks_client.get_signer_address()
         })
         .cloned()
         .expect("Cannot find signer private key for signer id 1");
+    let reward_cycle = signer_test.get_current_reward_cycle();
+    let signer_index = signer_test.get_signer_index();
+    let mut stackerdb = StackerDB::new(host, signer_private_key, false, reward_cycle, signer_index);
 
-    let mut stackerdb_1 = StackerDB::new(host, signer_private_key_1, false, 1, 0);
-
-    debug!("Signer address is {}", &signer_address_1);
-    assert_eq!(signer_address_1, to_addr(&signer_private_key_1),);
-
-    // Create a valid transaction signed by the signer private key coresponding to the slot into which it is being inserted (signer id 0)
-    let mut valid_tx = StacksTransaction {
-        version: TransactionVersion::Testnet,
-        chain_id: 0x80000000,
-        auth: TransactionAuth::from_p2pkh(&signer_private_key_1).unwrap(),
-        anchor_mode: TransactionAnchorMode::Any,
-        post_condition_mode: TransactionPostConditionMode::Allow,
-        post_conditions: vec![],
-        payload: TransactionPayload::SmartContract(
-            TransactionSmartContract {
-                name: "test-contract".into(),
-                code_body: StacksString::from_str("(/ 1 0)").unwrap(),
-            },
-            None,
-        ),
-    };
-    valid_tx.set_origin_nonce(2);
-
-    // Create a transaction signed by a different private key
-    // This transaction will be invalid as it is signed by a non signer private key
-    let invalid_signer_private_key = StacksPrivateKey::new();
     debug!(
-        "Invalid address is {}",
-        to_addr(&invalid_signer_private_key)
-    );
-    let mut invalid_tx = StacksTransaction {
-        version: TransactionVersion::Testnet,
-        chain_id: 0,
-        auth: TransactionAuth::from_p2pkh(&invalid_signer_private_key).unwrap(),
-        anchor_mode: TransactionAnchorMode::Any,
-        post_condition_mode: TransactionPostConditionMode::Allow,
-        post_conditions: vec![],
-        payload: TransactionPayload::SmartContract(
-            TransactionSmartContract {
-                name: "test-contract".into(),
-                code_body: StacksString::from_str("(/ 1 0)").unwrap(),
-            },
-            None,
-        ),
-    };
-    invalid_tx.set_origin_nonce(0);
-
-    info!("Boot to epoch 3.0 reward calculation...");
-    boot_to_epoch_3_reward_set(
-        &signer_test.running_nodes.conf,
-        &signer_test.running_nodes.blocks_processed,
-        &signer_test.signer_stacks_private_keys,
-        &signer_test.signer_stacks_private_keys,
-        &mut signer_test.running_nodes.btc_regtest_controller,
+        "Signer address is {}",
+        &signer_test.stacks_client.get_signer_address()
     );
 
-    info!("Pox 4 activated and at epoch 3.0 reward set calculation (2nd block of its prepare phase)! Ready for signers to perform DKG and Sign!");
+    let valid_tx = signer_test.generate_valid_transaction();
+    let invalid_txs = signer_test.generate_invalid_transactions();
 
-    // Determine the coordinator
-    // we have just calculated the reward set for the next reward cycle hence the + 1
-    let reward_cycle = signer_test.get_current_reward_cycle().wrapping_add(1);
-    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
+    let valid_txid = valid_tx.txid();
+    let invalid_txids: HashSet<Txid> = invalid_txs.iter().map(|tx| tx.txid()).collect();
 
-    // First run DKG in order to sign the block that arrives from the miners following a nakamoto block production
-    // TODO: remove this forcibly running DKG once we have casting of the vote automagically happening during epoch 2.5
-    info!("signer_runloop: spawn send commands to do dkg");
-    let dkg_command = RunLoopCommand {
-        reward_cycle,
-        command: SignerCommand::Dkg,
-    };
-    coordinator_sender
-        .send(dkg_command)
-        .expect("failed to send DKG command");
-    let recv = signer_test
-        .result_receivers
-        .last()
-        .expect("Failed to get coordinator recv");
-    let results = recv
-        .recv_timeout(Duration::from_secs(30))
-        .expect("failed to recv dkg results");
-    for result in results {
-        match result {
-            OperationResult::Dkg(point) => {
-                info!("Received aggregate_group_key {point}");
-                break;
-            }
-            _ => {
-                panic!("Received Unexpected result");
-            }
-        }
-    }
+    let mut txs = invalid_txs;
+    txs.push(valid_tx);
 
-    // Following stacker DKG, submit transactions to stackerdb for the signers to pick up during block verification
-    stackerdb_1
-        .send_message_with_retry(SignerMessage::Transactions(vec![
-            valid_tx.clone(),
-            invalid_tx.clone(),
-        ]))
-        .expect("Failed to write expected transactions to stackerdb_1");
+    // Submit transactions to stackerdb for the signers and miners to pick up during block verification
+    stackerdb
+        .send_message_with_retry(SignerMessage::Transactions(txs))
+        .expect("Failed to write expected transactions to stackerdb");
 
-    let (vrfs_submitted, commits_submitted) = (
-        signer_test.running_nodes.vrfs_submitted.clone(),
-        signer_test.running_nodes.commits_submitted.clone(),
-    );
+    signer_test.mine_nakamoto_block(timeout);
 
-    info!("------------------------- Test Block Rejected -------------------------");
+    info!("------------------------- Test Block Accepted -------------------------");
 
-    info!("Mining a Nakamoto tenure...");
-
-    // first block wakes up the run loop, wait until a key registration has been submitted.
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-            Ok(vrf_count >= 1)
-        },
-    )
-    .unwrap();
-
-    // second block should confirm the VRF register, wait until a block commit is submitted
-    next_block_and(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= 1)
-        },
-    )
-    .unwrap();
-
-    // Mine 1 nakamoto tenure
-    next_block_and_mine_commit(
-        &mut signer_test.running_nodes.btc_regtest_controller,
-        60,
-        &signer_test.running_nodes.coord_channel,
-        &commits_submitted,
-    )
-    .unwrap();
-
-    // Verify that the signers broadcasted a series of rejections with missing transactions back to the miner
+    // Verify the signers accepted the proposed block
     let t_start = Instant::now();
     let mut chunk = None;
     while chunk.is_none() {
@@ -1043,15 +1006,34 @@ fn stackerdb_block_proposal_missing_transactions() {
     }
     let chunk = chunk.unwrap();
     let signer_message = read_next::<SignerMessage, _>(&mut &chunk[..]).unwrap();
-    if let SignerMessage::BlockResponse(BlockResponse::Rejected(block_rejection)) = signer_message {
-        // Verify we are missing the valid tx that we expect to see in the block
-        if let RejectCode::MissingTransactions(missing_txs) = block_rejection.reason_code {
-            assert_eq!(missing_txs, vec![valid_tx]);
-        } else {
-            panic!("Received unexpected rejection reason");
-        }
+    if let SignerMessage::BlockResponse(BlockResponse::Accepted((hash, signature))) = signer_message
+    {
+        // Verify we accepted the block
+        assert!(signature.verify(&set_dkg, hash.0.as_slice()));
     } else {
         panic!("Received unexpected message: {:?}", &signer_message);
+    }
+
+    info!("------------------------- Verify Nakamoto Block Mined -------------------------");
+    let mined_block_events = test_observer::get_mined_nakamoto_blocks();
+    let mined_block_event = mined_block_events.first().expect("No mined block");
+    let mut mined_valid_tx = false;
+    for tx_event in &mined_block_event.tx_events {
+        let TransactionEvent::Success(tx_success) = tx_event else {
+            panic!("Received unexpected transaction event");
+        };
+        // Since we never broadcast the "invalid" transaction to the mempool and the transaction did not come from a signer or had an invalid nonce
+        // the miner should never construct a block that contains them and signers should still approve it
+        assert!(
+            !invalid_txids.contains(&tx_success.txid),
+            "Miner included an invalid transaction in the block"
+        );
+        if tx_success.txid == valid_txid {
+            mined_valid_tx = true;
+        }
+    }
+    if !mined_valid_tx {
+        panic!("Signers did not enforce the miner to include the valid transaction in the block");
     }
     signer_test.shutdown();
 }

@@ -217,6 +217,8 @@ impl Signer {
     fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
         match command {
             Command::Dkg => {
+                //TODO: check if we already have an aggregate key stored in the contract.
+                // If we do, we should not start a new DKG
                 let vote_round = match retry_with_exponential_backoff(|| {
                     stacks_client
                         .get_last_round(self.reward_cycle)
@@ -427,6 +429,7 @@ impl Signer {
             .filter_map(|msg| match msg {
                 // TODO: should we store the received transactions on the side and use them rather than directly querying the stacker db slots?
                 SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
+                // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request. Nack it.
                 SignerMessage::Packet(packet) => {
                     self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
                 }
@@ -704,6 +707,7 @@ impl Signer {
             );
             return None;
         };
+        // TODO: add a check that we don't have two conflicting transactions in the same block from the same signer. This is a potential attack vector (will result in an invalid block)
         if origin_nonce < account_nonce {
             debug!("Signer #{}: Received a transaction with an outdated nonce ({account_nonce} < {origin_nonce}). Filtering ({}).", self.signer_id, transaction.txid());
             return None;
@@ -1014,6 +1018,8 @@ impl Signer {
         }
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
         // TODO: if we store transactions on the side, should we use them rather than directly querying the stacker db slot?
+        // TODO: Should we even store transactions if not in prepare phase? Should the miner just ignore all signer transactions if not in prepare phase?
+        // TODO: don't bother storing DKG votes if DKG is already set
         let mut new_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id]).map_err(|e| {
             warn!("Signer #{}: Failed to get old transactions: {e:?}. Potentially overwriting our existing stackerDB transactions", self.signer_id);
         }).unwrap_or_default();
