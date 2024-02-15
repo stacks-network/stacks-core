@@ -20,13 +20,14 @@ use serde::Deserialize;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::analysis::ContractAnalysis;
+use crate::vm::ast::ContractAST;
 use crate::vm::contracts::Contract;
 use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::types::{
-    OptionalData, PrincipalData, TupleTypeSignature, TypeSignature, Value, NONE,
+    OptionalData, PrincipalData, QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value, NONE
 };
 
 pub trait ClaritySerializable {
@@ -71,6 +72,53 @@ macro_rules! clarity_serializable {
             }
         }
     };
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContractData {
+    pub id: Option<u32>,
+    /// The issuing principal of the contract.
+    pub contract_issuer: String,
+    /// The name of the contract, unique to the contract issuer.
+    pub contract_name: String,
+    /// The raw, compressed contract source code as binary data.
+    pub source_code: Vec<u8>,
+    /// The size of the compressed contract source code in bytes.
+    pub source_code_size: u32,
+    /// The size of the un-compressed contract source code in bytes.
+    pub raw_source_code_size: u32,
+    /// The size of the contract's memory footprint in bytes.
+    pub data_size: u32,
+    /// The serialized contract AST as binary data.
+    pub ast: Vec<u8>,
+    /// The size of the serialized contract AST in bytes.
+    pub ast_size: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContractAnalysisData {
+    pub contract_id: u32,
+    /// The serialized contract analysis as binary data.
+    pub analysis: Vec<u8>,
+    /// The size of the serialized contract analysis in bytes.
+    pub analysis_size: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockData {
+    /// The 32-byte block hash as binary data.
+    pub block_hash: Vec<u8>,
+    /// The height of the block in which the contract was issued.
+    pub block_height: u32,
+}
+
+pub struct CachedContract {
+    pub contract_id: u32,
+    pub identifier: QualifiedContractIdentifier,
+    pub ast: ContractAST,
+    pub analysis: ContractAnalysis,
+    pub contract_size: u32,
+    pub data_size: u32
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

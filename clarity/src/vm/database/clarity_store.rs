@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use core::panic;
 use std::path::PathBuf;
 
 use rusqlite::Connection;
@@ -33,6 +34,8 @@ use crate::vm::errors::{
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::Value;
+
+use super::structures::{BlockData, ContractAnalysisData, ContractData};
 
 pub struct NullBackingStore {}
 
@@ -58,14 +61,14 @@ pub type SpecialCaseHandler = &'static dyn Fn(
 //    attempt to continue processing in the event of an unexpected storage error.
 pub trait ClarityBackingStore {
     /// put K-V data into the committed datastore
-    fn put_all(&mut self, items: Vec<(String, String)>) -> Result<()>;
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
     /// fetch K-V out of the committed datastore
-    fn get(&mut self, key: &str) -> Result<Option<String>>;
+    fn get_data(&mut self, key: &str) -> Result<Option<String>>;
     /// fetch K-V out of the committed datastore, along with the byte representation
     ///  of the Merkle proof for that key-value pair
-    fn get_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
-    fn has_entry(&mut self, key: &str) -> Result<bool> {
-        Ok(self.get(key)?.is_some())
+    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
+    fn has_data_entry(&mut self, key: &str) -> Result<bool> {
+        Ok(self.get_data(key)?.is_some())
     }
 
     /// change the current MARF context to service reads from a different chain_tip
@@ -109,7 +112,7 @@ pub trait ClarityBackingStore {
     ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
         let key = make_contract_hash_key(contract);
         let contract_commitment = self
-            .get(&key)?
+            .get_data(&key)?
             .map(|x| ContractCommitment::deserialize(&x))
             .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
         let ContractCommitment {
@@ -121,12 +124,58 @@ pub trait ClarityBackingStore {
         Ok((bhh, contract_hash))
     }
 
-    fn insert_metadata(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        key: &str,
-        value: &str,
-    ) -> Result<()> {
+    /// Retrieves the specified contract from the backing store. Returns
+    /// [CheckErrors::NoSuchContract] if the contract is not found.
+    fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Option<ContractData>> {
+        let (bhh, contract_hash) = self.get_contract_hash(contract_identifier)?;
+        let contract = SqliteConnection::get_contract(
+                self.get_side_store(),
+                &contract_identifier.issuer.to_string(),
+                &contract_identifier.name.to_string(),
+                &bhh
+            );
+
+        Ok(contract)
+    }
+
+    /// Inserts the provided contract data into the backing store at the current 
+    /// chain tip.
+    fn insert_contract(&mut self, data: &mut ContractData) {
+        if data.id.is_some() {
+            panic!("ContractData must not have an id set when inserting into the backing store");
+        }
+
+        let chain_tip_height = self.get_open_chain_tip_height();
+        let chain_tip = self.get_open_chain_tip();
+
+        let contract_id = SqliteConnection::insert_contract(
+            self.get_side_store(),
+            &chain_tip,
+            chain_tip_height,
+            &data
+        );
+
+        data.id = Some(contract_id);
+    }
+
+    /// Inserts the provided contract analysis data into the backing store at 
+    /// the current chain tip.
+    fn insert_contract_analysis(&mut self, contract_id: u32, serialized_analysis: Vec<u8>) {
+
+        let analysis_size = serialized_analysis.len() as u32;
+        let data = ContractAnalysisData {
+            contract_id,
+            analysis: serialized_analysis,
+            analysis_size,
+        };
+
+        SqliteConnection::insert_contract_analysis(
+            self.get_side_store(),
+            &data
+        );
+    }
+
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
         let bhh = self.get_open_chain_tip();
         SqliteConnection::insert_metadata(
             self.get_side_store(),
@@ -232,11 +281,11 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't set block hash")
     }
 
-    fn get(&mut self, _key: &str) -> Result<Option<String>> {
+    fn get_data(&mut self, _key: &str) -> Result<Option<String>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
         panic!("NullBackingStore can't retrieve data")
     }
 
@@ -260,7 +309,7 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
-    fn put_all(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
+    fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
         panic!("NullBackingStore cannot put")
     }
 }
@@ -301,12 +350,12 @@ impl ClarityBackingStore for MemoryBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get(&mut self, key: &str) -> Result<Option<String>> {
-        SqliteConnection::get(self.get_side_store(), key)
+    fn get_data(&mut self, key: &str) -> Result<Option<String>> {
+        SqliteConnection::get_data(self.get_side_store(), key)
     }
 
-    fn get_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
-        Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
+    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
+        Ok(SqliteConnection::get_data(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
     fn get_side_store(&mut self) -> &Connection {
@@ -337,9 +386,9 @@ impl ClarityBackingStore for MemoryBackingStore {
         None
     }
 
-    fn put_all(&mut self, items: Vec<(String, String)>) -> Result<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()> {
         for (key, value) in items.into_iter() {
-            SqliteConnection::put(self.get_side_store(), &key, &value)?;
+            SqliteConnection::put_data(self.get_side_store(), &key, &value)?;
         }
         Ok(())
     }

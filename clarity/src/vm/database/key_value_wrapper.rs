@@ -21,8 +21,11 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use super::clarity_store::SpecialCaseHandler;
+use super::clarity_store::{ContractCommitment, SpecialCaseHandler};
+use super::structures::{ContractAnalysisData, ContractData};
 use super::{ClarityBackingStore, ClarityDeserializable};
+use crate::vm::analysis::{CheckErrors, ContractAnalysis};
+use crate::vm::ast::ContractAST;
 use crate::vm::database::clarity_store::make_contract_hash_key;
 use crate::vm::errors::{InterpreterError, InterpreterResult};
 use crate::vm::types::serialization::SerializationError;
@@ -110,9 +113,24 @@ pub struct ValueResult {
     pub serialized_byte_len: u64,
 }
 
-pub struct RollbackContext {
+#[derive(Debug)]
+pub struct PendingContract<'a> {
+    pub contract_id: &'a QualifiedContractIdentifier,
+    /// The raw, compressed contract source code as binary data.
+    pub source_code: &'a str,
+    /// The size of the contract's memory footprint in bytes.
+    pub data_size: u32,
+    /// The serialized contract AST as binary data.
+    pub ast: &'a ContractAST
+}
+
+#[derive(Debug, Default )]
+pub struct RollbackContext<'a> {
     edits: Vec<(String, RollbackValueCheck)>,
     metadata_edits: Vec<((QualifiedContractIdentifier, String), RollbackValueCheck)>,
+    pending_contract: Option<PendingContract<'a>>,
+    contract: Option<ContractData>,
+    contract_analysis: Option<Vec<u8>>,
 }
 
 pub struct RollbackWrapper<'a> {
@@ -130,7 +148,7 @@ pub struct RollbackWrapper<'a> {
     //   stack depth.
     //  TODO: The solution to this is to just have a _single_ edit stack, and merely store indexes
     //   to indicate a given contexts "start depth".
-    stack: Vec<RollbackContext>,
+    stack: Vec<RollbackContext<'a>>,
     query_pending_data: bool,
 }
 
@@ -138,14 +156,14 @@ pub struct RollbackWrapper<'a> {
 //   than a BackingStore pointer. This is useful to prevent
 //   a real mess of lifetime parameters in the database/context
 //   and eval code.
-pub struct RollbackWrapperPersistedLog {
+pub struct RollbackWrapperPersistedLog<'a> {
     lookup_map: HashMap<String, Vec<String>>,
     metadata_lookup_map: HashMap<(QualifiedContractIdentifier, String), Vec<String>>,
-    stack: Vec<RollbackContext>,
+    stack: Vec<RollbackContext<'a>>,
 }
 
-impl From<RollbackWrapper<'_>> for RollbackWrapperPersistedLog {
-    fn from(o: RollbackWrapper<'_>) -> RollbackWrapperPersistedLog {
+impl<'a> From<RollbackWrapper<'a>> for RollbackWrapperPersistedLog<'a> {
+    fn from(o: RollbackWrapper<'a>) -> RollbackWrapperPersistedLog<'a> {
         RollbackWrapperPersistedLog {
             lookup_map: o.lookup_map,
             metadata_lookup_map: o.metadata_lookup_map,
@@ -154,14 +172,14 @@ impl From<RollbackWrapper<'_>> for RollbackWrapperPersistedLog {
     }
 }
 
-impl Default for RollbackWrapperPersistedLog {
+impl Default for RollbackWrapperPersistedLog<'_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RollbackWrapperPersistedLog {
-    pub fn new() -> RollbackWrapperPersistedLog {
+impl<'a> RollbackWrapperPersistedLog<'a> {
+    pub fn new() -> RollbackWrapperPersistedLog<'a> {
         RollbackWrapperPersistedLog {
             lookup_map: HashMap::new(),
             metadata_lookup_map: HashMap::new(),
@@ -170,10 +188,7 @@ impl RollbackWrapperPersistedLog {
     }
 
     pub fn nest(&mut self) {
-        self.stack.push(RollbackContext {
-            edits: Vec::new(),
-            metadata_edits: Vec::new(),
-        });
+        self.stack.push(RollbackContext::default());
     }
 }
 
@@ -217,8 +232,8 @@ impl<'a> RollbackWrapper<'a> {
 
     pub fn from_persisted_log(
         store: &'a mut dyn ClarityBackingStore,
-        log: RollbackWrapperPersistedLog,
-    ) -> RollbackWrapper {
+        log: RollbackWrapperPersistedLog<'a>,
+    ) -> RollbackWrapper<'a> {
         RollbackWrapper {
             store,
             lookup_map: log.lookup_map,
@@ -233,10 +248,7 @@ impl<'a> RollbackWrapper<'a> {
     }
 
     pub fn nest(&mut self) {
-        self.stack.push(RollbackContext {
-            edits: Vec::new(),
-            metadata_edits: Vec::new(),
-        });
+        self.stack.push(RollbackContext::default());
     }
 
     // Rollback the child's edits.
@@ -279,7 +291,23 @@ impl<'a> RollbackWrapper<'a> {
             for (key, value) in last_item.metadata_edits.drain(..) {
                 next_up.metadata_edits.push((key, value));
             }
+
+            next_up.contract = last_item.contract.take();
+            next_up.contract_analysis = last_item.contract_analysis.take();
         } else {
+            if last_item.contract.is_some() {
+                let mut contract = last_item.contract.take().unwrap();
+                self.store.insert_contract(&mut contract);
+
+                let contract_id = contract.id.expect("failed to retrieve id of new contract");
+
+                // insert contract analysis
+                if last_item.contract_analysis.is_some() {
+                    let contract_analysis = last_item.contract_analysis.take().unwrap();
+                    self.store.insert_contract_analysis(contract_id, contract_analysis);
+                }
+            }
+
             // stack is empty, committing to the backing store
             let all_edits =
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
@@ -322,7 +350,86 @@ fn inner_put<T>(
 }
 
 impl<'a> RollbackWrapper<'a> {
-    pub fn put(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
+    pub fn put_contract_analysis(
+        &mut self,
+        analysis: &ContractAnalysis
+    ) {
+        let current = self
+            .stack
+            .last_mut()
+            .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
+
+        let analysis_serialized = rmp_serde::to_vec(analysis)
+            .expect("ERROR: Failed to serialize contract analysis.");
+
+        let mut analysis_compressed = Vec::<u8>::with_capacity(analysis_serialized.len());
+
+        lzzzz::lz4::compress_to_vec(&analysis_serialized, &mut analysis_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
+            .expect("ERROR: Failed to compress contract analysis.");
+
+        current.contract_analysis = Some(analysis_compressed);
+    }
+
+    pub fn put_contract(
+        &mut self, 
+        src: &str,
+        ast: &ContractAST,
+        data_size: u32,
+    ) {
+        let contract_id = &ast.contract_identifier;
+
+        // 'content-hash': contract_src_hash
+        // 'contract-src': contract_src
+        // 'contract-size': contract_src_len
+        let src_bytes = src.as_bytes();
+        let src_hash = Sha512Trunc256Sum::from_data(&src_bytes);
+        let src_len = src_bytes.len();
+
+        // Create the `data` entry for this contract and add it to the data edits
+        // for this rollback wrapper.
+        let key = make_contract_hash_key(contract_id);
+        let value = self.store.make_contract_commitment(src_hash);
+        self.put_data(&key, &value);
+        
+
+        // Compress the plain-text source code.
+        let mut src_compressed = Vec::<u8>::with_capacity(src_len);
+        lzzzz::lz4::compress_to_vec(src_bytes, &mut src_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
+            .expect("ERROR: Failed to compress contract source code.");
+        let src_compressed_len = src_compressed.len() as u32;
+
+        // Serialize and compress the contract AST.
+        let ast_serialized = rmp_serde::to_vec(&ast)
+            .expect("ERROR: Failed to serialize contract AST.");
+        let mut ast_compressed = Vec::<u8>::with_capacity(ast_serialized.len());
+        lzzzz::lz4::compress_to_vec(&ast_serialized, &mut ast_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
+            .expect("ERROR: Failed to compress contract AST.");
+        let ast_compressed_len = ast_compressed.len() as u32;
+
+        let current = self
+            .stack
+            .last_mut()
+            .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
+
+        if current.contract.is_some() {
+            panic!("ERROR: Clarity VM attempted to PUT a contract into a context that already has a contract.");
+        }
+
+        // Set the contract for the current context.
+        current.contract = Some(ContractData {
+            id: None,
+            contract_issuer: contract_id.issuer.to_string(),
+            contract_name: contract_id.name.to_string(),
+            source_code: src_compressed,
+            source_code_size: src_compressed_len,
+            raw_source_code_size: src_len as u32,
+            ast: ast_compressed,
+            ast_size: ast_compressed_len,
+            data_size
+        });
+    }
+
+    pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
         let current = self.stack.last_mut().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
@@ -364,7 +471,7 @@ impl<'a> RollbackWrapper<'a> {
         T: ClarityDeserializable<T>,
     {
         self.store
-            .get_with_proof(key)?
+            .get_data_with_proof(key)?
             .map(|(value, proof)| Ok((T::deserialize(&value)?, proof)))
             .transpose()
     }
@@ -386,7 +493,7 @@ impl<'a> RollbackWrapper<'a> {
             }
         }
         // otherwise, lookup from store
-        self.store.get(key)?.map(|x| T::deserialize(&x)).transpose()
+        self.store.get_data(key)?.map(|x| T::deserialize(&x)).transpose()
     }
 
     pub fn deserialize_value(
@@ -423,7 +530,7 @@ impl<'a> RollbackWrapper<'a> {
                 return Ok(Some(Self::deserialize_value(x, expected, epoch)?));
             }
         }
-        let stored_data = self.store.get(key).map_err(|_| {
+        let stored_data = self.store.get_data(key).map_err(|_| {
             SerializationError::DeserializationError("ERROR: Clarity backing store failure".into())
         })?;
         match stored_data {
@@ -449,7 +556,7 @@ impl<'a> RollbackWrapper<'a> {
     ) -> InterpreterResult<()> {
         let key = make_contract_hash_key(contract);
         let value = self.store.make_contract_commitment(content_hash);
-        self.put(&key, &value)
+        self.put_data(&key, &value)
     }
 
     pub fn insert_metadata(
@@ -504,6 +611,30 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
+    pub fn get_contract_data(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractData> {
+        self.stack
+            .last()
+            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
+
+        if self.query_pending_data {
+            self.stack
+                .iter()
+                .rev()
+                .filter_map(|x| x.contract.as_ref())
+                .find(|x| 
+                    x.contract_issuer == contract_identifier.issuer.to_string()
+                    && x.contract_name == contract_identifier.name.to_string()
+                )
+                .cloned()
+                .or_else(|| self.store.get_contract(contract_identifier)
+                    .expect("ERROR: Clarity VM experienced a contract lookup failure.")
+                )
+        } else {
+            self.store.get_contract(contract_identifier)
+                .expect("ERROR: Clarity VM experienced a contract lookup failure.")
+        }
+    }
+
     // Throws a NoSuchContract error if contract doesn't exist,
     //   returns None if there is no such metadata field.
     pub fn get_metadata_manual(
@@ -535,7 +666,7 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
-    pub fn has_entry(&mut self, key: &str) -> InterpreterResult<bool> {
+    pub fn has_data_entry(&mut self, key: &str) -> InterpreterResult<bool> {
         self.stack.last().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
@@ -544,7 +675,7 @@ impl<'a> RollbackWrapper<'a> {
         if self.query_pending_data && self.lookup_map.contains_key(key) {
             Ok(true)
         } else {
-            self.store.has_entry(key)
+            self.store.has_data_entry(key)
         }
     }
 

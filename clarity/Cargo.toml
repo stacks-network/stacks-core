@@ -31,6 +31,11 @@ stacks_common = { package = "stacks-common", path = "../stacks-common" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 hashbrown = { workspace = true }
+exec_time = "0.1.4"
+lzzzz = "1.0.4"
+rmp-serde = "1.1.2"
+fast-lru = "0.1.2"
+uluru = "3.0.0"
 
 [dependencies.serde_json]
 version = "1.0"
@@ -38,7 +43,7 @@ features = ["arbitrary_precision", "unbounded_depth"]
 
 [dependencies.rusqlite]
 version = "=0.24.2"
-features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
+features = ["blob", "serde_json", "i128_blob", "bundled", "trace", "array"]
 
 [dependencies.time]
 version = "0.2.23"

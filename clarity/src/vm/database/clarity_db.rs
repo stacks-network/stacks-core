@@ -32,6 +32,7 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
+use super::structures::ContractData;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
@@ -473,13 +474,13 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     pub fn put<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
-        self.store.put(&key, &value.serialize())
+        self.store.put_data(&key, &value.serialize())
     }
 
     /// Like `put()`, but returns the serialized byte size of the stored value
     pub fn put_with_size<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<u64> {
         let serialized = value.serialize();
-        self.store.put(&key, &serialized)?;
+        self.store.put_data(key, &serialized)?;
         Ok(byte_len_of_serialization(&serialized))
     }
 
@@ -524,7 +525,7 @@ impl<'a> ClarityDatabase<'a> {
 
         let size = serialized.len() as u64;
         let hex_serialized = to_hex(serialized.as_slice());
-        self.store.put(&key, &hex_serialized)?;
+        self.store.put_data(key, &hex_serialized);
 
         Ok(pre_sanitized_size.unwrap_or(size))
     }
@@ -575,6 +576,15 @@ impl<'a> ClarityDatabase<'a> {
         )
     }
 
+    pub fn insert_contract2(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        contract_src: &str,
+    ) -> Result<()> {
+        todo!("insert contract2");
+    }
+
+    #[deprecated]
     pub fn insert_contract_hash(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -595,6 +605,7 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    #[deprecated]
     pub fn get_contract_src(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -688,6 +699,7 @@ impl<'a> ClarityDatabase<'a> {
     //   in unit testing, where the interpreter is invoked without
     //   an analysis pass, this function will fail to find contract
     //   analysis data
+    #[deprecated]
     pub fn load_contract_analysis(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -704,6 +716,7 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    #[deprecated]
     pub fn get_contract_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -730,6 +743,7 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// used for adding the memory usage of `define-constant` variables.
+    #[deprecated]
     pub fn set_contract_data_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -750,6 +764,7 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    #[deprecated]
     pub fn insert_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -760,11 +775,13 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
+    #[deprecated]
     pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
         self.store.has_metadata_entry(contract_identifier, &key)
     }
 
+    #[deprecated]
     pub fn get_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,

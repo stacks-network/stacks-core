@@ -33,3 +33,4 @@ pub mod clarity_store;
 mod key_value_wrapper;
 mod sqlite;
 mod structures;
+mod tests;
