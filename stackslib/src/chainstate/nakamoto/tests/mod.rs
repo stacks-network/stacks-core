@@ -21,6 +21,7 @@ use clarity::types::chainstate::{PoxId, SortitionId, StacksBlockId};
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StacksAddressExtensions;
+use rusqlite::Connection;
 use stacks_common::address::AddressHashMode;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::StacksMessageCodec;
@@ -54,7 +55,7 @@ use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::tenure::NakamotoTenure;
 use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
 use crate::chainstate::nakamoto::{
-    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, FIRST_STACKS_BLOCK_ID,
+    NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle, FIRST_STACKS_BLOCK_ID,
 };
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{
@@ -71,6 +72,7 @@ use crate::core;
 use crate::core::{StacksEpochExtension, STACKS_EPOCH_3_0_MARKER};
 use crate::net::codec::test::check_codec_and_corruption;
 use crate::util_lib::boot::boot_code_id;
+use crate::util_lib::db::Error as db_error;
 
 /// Get an address's account
 pub fn get_account(
@@ -519,6 +521,47 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
     );
 }
 
+struct MockSortitionHandle {
+    nakamoto_tip: (ConsensusHash, BlockHeaderHash, u64),
+}
+
+impl MockSortitionHandle {
+    pub fn new(consensus_hash: ConsensusHash, bhh: BlockHeaderHash, height: u64) -> Self {
+        Self {
+            nakamoto_tip: (consensus_hash, bhh, height),
+        }
+    }
+}
+
+impl SortitionHandle for MockSortitionHandle {
+    fn get_block_snapshot_by_height(
+        &mut self,
+        block_height: u64,
+    ) -> Result<Option<BlockSnapshot>, db_error> {
+        unimplemented!()
+    }
+
+    fn first_burn_block_height(&self) -> u64 {
+        unimplemented!()
+    }
+
+    fn pox_constants(&self) -> &PoxConstants {
+        unimplemented!()
+    }
+
+    fn sqlite(&self) -> &Connection {
+        unimplemented!()
+    }
+
+    fn tip(&self) -> SortitionId {
+        unimplemented!()
+    }
+
+    fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        Ok(Some(self.nakamoto_tip.clone()))
+    }
+}
+
 #[test]
 pub fn test_load_store_update_nakamoto_blocks() {
     let test_name = function_name!();
@@ -957,33 +1000,27 @@ pub fn test_load_store_update_nakamoto_blocks() {
     }
 
     // can load Nakamoto block, but only the Nakamoto block
+    let nakamoto_blocks_db = chainstate.nakamoto_blocks_db();
     assert_eq!(
-        NakamotoChainState::load_nakamoto_block(
-            chainstate.nakamoto_blocks_db(),
-            &nakamoto_header.consensus_hash,
-            &nakamoto_header.block_hash()
-        )
-        .unwrap()
-        .unwrap(),
+        nakamoto_blocks_db
+            .get_nakamoto_block(&nakamoto_header.block_id())
+            .unwrap()
+            .unwrap()
+            .0,
         nakamoto_block
     );
     assert_eq!(
-        NakamotoChainState::load_nakamoto_block(
-            chainstate.nakamoto_blocks_db(),
-            &nakamoto_header_2.consensus_hash,
-            &nakamoto_header_2.block_hash()
-        )
-        .unwrap()
-        .unwrap(),
+        nakamoto_blocks_db
+            .get_nakamoto_block(&nakamoto_header_2.block_id())
+            .unwrap()
+            .unwrap()
+            .0,
         nakamoto_block_2
     );
     assert_eq!(
-        NakamotoChainState::load_nakamoto_block(
-            chainstate.nakamoto_blocks_db(),
-            &epoch2_header_info.consensus_hash,
-            &epoch2_header.block_hash()
-        )
-        .unwrap(),
+        nakamoto_blocks_db
+            .get_nakamoto_block(&epoch2_header_info.index_block_hash())
+            .unwrap(),
         None
     );
 
@@ -1043,7 +1080,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
     // set nakamoto block processed
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
-        NakamotoChainState::set_block_processed(&staging_tx, &nakamoto_header_3.block_id())
+        staging_tx
+            .set_block_processed(&nakamoto_header_3.block_id())
             .unwrap();
         assert_eq!(
             NakamotoChainState::get_nakamoto_block_status(
@@ -1060,7 +1098,9 @@ pub fn test_load_store_update_nakamoto_blocks() {
     // set nakamoto block orphaned
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
-        NakamotoChainState::set_block_orphaned(&staging_tx, &nakamoto_header.block_id()).unwrap();
+        staging_tx
+            .set_block_orphaned(&nakamoto_header.block_id())
+            .unwrap();
         assert_eq!(
             NakamotoChainState::get_nakamoto_block_status(
                 staging_tx.conn(),
@@ -1076,7 +1116,8 @@ pub fn test_load_store_update_nakamoto_blocks() {
     // orphan nakamoto block by parent
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
-        NakamotoChainState::set_block_orphaned(&staging_tx, &nakamoto_header.parent_block_id)
+        staging_tx
+            .set_block_orphaned(&nakamoto_header.parent_block_id)
             .unwrap();
         assert_eq!(
             NakamotoChainState::get_nakamoto_block_status(
@@ -1264,31 +1305,38 @@ pub fn test_load_store_update_nakamoto_blocks() {
     // been processed
     {
         let (tx, staging_tx) = chainstate.headers_and_staging_tx_begin().unwrap();
+        let staging_conn = staging_tx.conn();
+        let sh = MockSortitionHandle::new(
+            nakamoto_block_2.header.consensus_hash.clone(),
+            nakamoto_block_2.header.block_hash(),
+            nakamoto_block_2.header.chain_length,
+        );
+
         assert_eq!(
-            NakamotoChainState::next_ready_nakamoto_block(staging_tx.conn(), &tx).unwrap(),
+            staging_conn.next_ready_nakamoto_block(&tx, &sh).unwrap(),
             None
         );
 
         // set parent epoch2 block processed
-        NakamotoChainState::set_block_processed(
-            &staging_tx,
-            &epoch2_header_info.index_block_hash(),
-        )
-        .unwrap();
+        staging_tx
+            .set_block_processed(&epoch2_header_info.index_block_hash())
+            .unwrap();
 
         // but it's not enough -- child's consensus hash needs to be burn_processable
         assert_eq!(
-            NakamotoChainState::next_ready_nakamoto_block(staging_tx.conn(), &tx).unwrap(),
+            staging_conn.next_ready_nakamoto_block(&tx, &sh).unwrap(),
             None
         );
 
         // set burn processed
-        NakamotoChainState::set_burn_block_processed(&staging_tx, &nakamoto_header.consensus_hash)
+        staging_tx
+            .set_burn_block_processed(&nakamoto_header.consensus_hash)
             .unwrap();
 
         // this works now
         assert_eq!(
-            NakamotoChainState::next_ready_nakamoto_block(staging_tx.conn(), &tx)
+            staging_conn
+                .next_ready_nakamoto_block(&tx, &sh)
                 .unwrap()
                 .unwrap()
                 .0,
@@ -1296,15 +1344,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // set parent nakamoto block processed
-        NakamotoChainState::set_block_processed(
-            &staging_tx,
-            &nakamoto_header_info.index_block_hash(),
-        )
-        .unwrap();
+        staging_tx
+            .set_block_processed(&nakamoto_header_info.index_block_hash())
+            .unwrap();
 
         // next nakamoto block
         assert_eq!(
-            NakamotoChainState::next_ready_nakamoto_block(staging_tx.conn(), &tx)
+            staging_conn
+                .next_ready_nakamoto_block(&tx, &sh)
                 .unwrap()
                 .unwrap()
                 .0,

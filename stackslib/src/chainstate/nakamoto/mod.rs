@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -102,11 +102,15 @@ use crate::{chainstate, monitoring};
 
 pub mod coordinator;
 pub mod miner;
-pub mod tenure;
-
 pub mod signer_set;
+pub mod staging_blocks;
+pub mod tenure;
 #[cfg(test)]
 pub mod tests;
+
+pub use self::staging_blocks::{
+    NakamotoStagingBlocksConn, NakamotoStagingBlocksConnRef, NakamotoStagingBlocksTx,
+};
 
 pub const NAKAMOTO_BLOCK_VERSION: u8 = 0;
 
@@ -129,44 +133,6 @@ impl FromSql for HeaderTypeNames {
 
 lazy_static! {
     pub static ref FIRST_STACKS_BLOCK_ID: StacksBlockId = StacksBlockId::new(&FIRST_BURNCHAIN_CONSENSUS_HASH, &FIRST_STACKS_BLOCK_HASH);
-
-    pub static ref NAKAMOTO_STAGING_DB_SCHEMA_1: Vec<String> = vec![
-      r#"
-      -- Table for staging nakamoto blocks
-      CREATE TABLE nakamoto_staging_blocks (
-                     -- SHA512/256 hash of this block
-                     block_hash TEXT NOT NULL,
-                     -- the consensus hash of the burnchain block that selected this block's miner's block-commit
-                     consensus_hash TEXT NOT NULL,
-                     -- the parent index_block_hash
-                     parent_block_id TEXT NOT NULL,
-
-                     -- has the burnchain block with this block's `consensus_hash` been processed?
-                     burn_attachable INT NOT NULL,
-                     -- has this block been processed?
-                     processed INT NOT NULL,
-                     -- set to 1 if this block can never be attached
-                     orphaned INT NOT NULL,
-
-                     height INT NOT NULL,
-
-                     -- used internally -- this is the StacksBlockId of this block's consensus hash and block hash
-                     index_block_hash TEXT NOT NULL,
-                     -- how long the block was in-flight
-                     download_time INT NOT NULL,
-                     -- when this block was stored
-                     arrival_time INT NOT NULL,
-                     -- when this block was processed
-                     processed_time INT NOT NULL,
-
-                     -- block data
-                     data BLOB NOT NULL,
-                    
-                     PRIMARY KEY(block_hash,consensus_hash)
-        );"#
-        .into(),
-        r#"CREATE INDEX by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#.into()
-    ];
 
     pub static ref NAKAMOTO_CHAINSTATE_SCHEMA_1: Vec<String> = vec![
     r#"
@@ -1181,341 +1147,81 @@ impl NakamotoBlock {
     }
 }
 
-pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
-
-impl Deref for NakamotoStagingBlocksConn {
-    type Target = rusqlite::Connection;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for NakamotoStagingBlocksConn {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl NakamotoStagingBlocksConn {
-    pub fn conn(&self) -> NakamotoStagingBlocksConnRef {
-        NakamotoStagingBlocksConnRef(&self.0)
-    }
-}
-
-pub struct NakamotoStagingBlocksConnRef<'a>(&'a rusqlite::Connection);
-
-impl<'a> NakamotoStagingBlocksConnRef<'a> {
-    pub fn conn(&self) -> NakamotoStagingBlocksConnRef<'a> {
-        NakamotoStagingBlocksConnRef(self.0)
-    }
-}
-
-impl Deref for NakamotoStagingBlocksConnRef<'_> {
-    type Target = rusqlite::Connection;
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-pub struct NakamotoStagingBlocksTx<'a>(rusqlite::Transaction<'a>);
-
-impl<'a> NakamotoStagingBlocksTx<'a> {
-    pub fn commit(self) -> Result<(), rusqlite::Error> {
-        self.0.commit()
-    }
-
-    pub fn conn(&self) -> NakamotoStagingBlocksConnRef {
-        NakamotoStagingBlocksConnRef(self.0.deref())
-    }
-}
-
-impl<'a> Deref for NakamotoStagingBlocksTx<'a> {
-    type Target = rusqlite::Transaction<'a>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<'a> DerefMut for NakamotoStagingBlocksTx<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl StacksChainState {
-    /// Begin a transaction against the staging blocks DB.
-    /// Note that this DB is (or will eventually be) in a separate database from the headers.
-    pub fn staging_db_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<NakamotoStagingBlocksTx<'a>, ChainstateError> {
-        let tx = tx_begin_immediate(&mut self.nakamoto_staging_blocks_conn)?;
-        Ok(NakamotoStagingBlocksTx(tx))
-    }
-
-    /// Begin a tx to both the headers DB and the staging DB
-    pub fn headers_and_staging_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<(rusqlite::Transaction<'a>, NakamotoStagingBlocksTx<'a>), ChainstateError> {
-        let header_tx = self
-            .state_index
-            .storage_tx()
-            .map_err(ChainstateError::DBError)?;
-        let staging_tx = tx_begin_immediate(&mut self.nakamoto_staging_blocks_conn)?;
-        Ok((header_tx, NakamotoStagingBlocksTx(staging_tx)))
-    }
-
-    /// Open a connection to the headers DB, and open a tx to the staging DB
-    pub fn headers_conn_and_staging_tx_begin<'a>(
-        &'a mut self,
-    ) -> Result<(&'a rusqlite::Connection, NakamotoStagingBlocksTx<'a>), ChainstateError> {
-        let header_conn = self.state_index.sqlite_conn();
-        let staging_tx = tx_begin_immediate(&mut self.nakamoto_staging_blocks_conn)?;
-        Ok((header_conn, NakamotoStagingBlocksTx(staging_tx)))
-    }
-
-    /// Get a ref to the nakamoto staging blocks connection
-    pub fn nakamoto_blocks_db(&self) -> NakamotoStagingBlocksConnRef {
-        NakamotoStagingBlocksConnRef(&self.nakamoto_staging_blocks_conn)
-    }
-
-    /// Get the path to the Nakamoto staging blocks DB.
-    /// It's separate from the headers DB in order to avoid DB contention between downloading
-    /// blocks and processing them.
-    pub fn get_nakamoto_staging_blocks_path(root_path: PathBuf) -> Result<String, ChainstateError> {
-        let mut nakamoto_blocks_path = Self::blocks_path(root_path);
-        nakamoto_blocks_path.push("nakamoto.sqlite");
-        Ok(nakamoto_blocks_path
-            .to_str()
-            .ok_or(ChainstateError::DBError(DBError::ParseError))?
-            .to_string())
-    }
-
-    /// Open and set up a DB for nakamoto staging blocks.
-    /// If it doesn't exist, then instantiate it if `readwrite` is true.
-    pub fn open_nakamoto_staging_blocks(
-        path: &str,
-        readwrite: bool,
-    ) -> Result<NakamotoStagingBlocksConn, ChainstateError> {
-        let exists = fs::metadata(&path).is_ok();
-        let flags = if !exists {
-            // try to instantiate
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
-            } else {
-                return Err(DBError::NotFoundError.into());
-            }
-        } else {
-            if readwrite {
-                OpenFlags::SQLITE_OPEN_READ_WRITE
-            } else {
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-            }
-        };
-        let conn = sqlite_open(path, flags, false)?;
-        if !exists {
-            for cmd in NAKAMOTO_STAGING_DB_SCHEMA_1.iter() {
-                conn.execute(cmd, NO_PARAMS)?;
-            }
-        }
-        Ok(NakamotoStagingBlocksConn(conn))
-    }
-}
-
 impl NakamotoChainState {
-    /// Notify the staging database that a given stacks block has been processed.
-    /// This will update the attachable status for children blocks, as well as marking the stacks
-    ///  block itself as processed.
-    pub fn set_block_processed(
-        staging_db_tx: &NakamotoStagingBlocksTx,
-        block: &StacksBlockId,
-    ) -> Result<(), ChainstateError> {
-        let clear_staged_block =
-            "UPDATE nakamoto_staging_blocks SET processed = 1, processed_time = ?2
-                                  WHERE index_block_hash = ?1";
-        staging_db_tx.execute(
-            &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
-        )?;
+    /// Infallibly set a block as processed.
+    /// Does not return until it succeeds.
+    fn infallible_set_block_processed(
+        stacks_chain_state: &mut StacksChainState,
+        block_id: &StacksBlockId,
+    ) {
+        loop {
+            let Ok(staging_block_tx) = stacks_chain_state.staging_db_tx_begin().map_err(|e| {
+                warn!("Failed to begin staging DB tx: {:?}", &e);
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-        Ok(())
-    }
+            let Ok(_) = staging_block_tx.set_block_processed(block_id).map_err(|e| {
+                warn!("Failed to mark {} as processed: {:?}", block_id, &e);
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-    /// Modify the staging database that a given stacks block can never be processed.
-    /// This will update the attachable status for children blocks, as well as marking the stacks
-    /// block itself as orphaned.
-    pub fn set_block_orphaned(
-        staging_db_tx: &NakamotoStagingBlocksTx,
-        block: &StacksBlockId,
-    ) -> Result<(), ChainstateError> {
-        let update_dependents = "UPDATE nakamoto_staging_blocks SET orphaned = 1
-                                 WHERE parent_block_id = ?";
+            let Ok(_) = staging_block_tx.commit().map_err(|e| {
+                warn!(
+                    "Failed to commit staging block tx for {}: {:?}",
+                    block_id, &e
+                );
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-        staging_db_tx.execute(&update_dependents, &[&block])?;
-
-        let clear_staged_block =
-            "UPDATE nakamoto_staging_blocks SET processed = 1, processed_time = ?2, orphaned = 1
-                                  WHERE index_block_hash = ?1";
-        staging_db_tx.execute(
-            &clear_staged_block,
-            params![&block, &u64_to_sql(get_epoch_time_secs())?],
-        )?;
-
-        Ok(())
-    }
-
-    /// Notify the staging database that a given burn block has been processed.
-    /// This is required for staged blocks to be eligible for processing.
-    pub fn set_burn_block_processed(
-        staging_db_tx: &NakamotoStagingBlocksTx,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<(), ChainstateError> {
-        let update_dependents = "UPDATE nakamoto_staging_blocks SET burn_attachable = 1
-                                 WHERE consensus_hash = ?";
-        staging_db_tx.execute(&update_dependents, &[consensus_hash])?;
-
-        Ok(())
-    }
-
-    /// Check to see if a block with a given consensus hash is burn-attachable
-    pub fn is_burn_attachable(
-        staging_db_conn: NakamotoStagingBlocksConnRef,
-        consensus_hash: &ConsensusHash,
-    ) -> Result<bool, ChainstateError> {
-        let sql = "SELECT 1 FROM nakamoto_staging_blocks WHERE burn_attachable = 1 AND consensus_hash = ?1";
-        let args: &[&dyn ToSql] = &[consensus_hash];
-        let res: Option<i64> = query_row(&staging_db_conn, sql, args)?;
-        Ok(res.is_some())
-    }
-
-    /// Determine whether or not we have processed a Nakamoto block.
-    /// NOTE: the relevant field queried from `nakamoto_staging_blocks` is updated by a separate
-    /// tx from block-processing, so it's imperative that the thread that calls this function is
-    /// the *same* thread as the one that processes blocks.
-    /// Returns Ok(true) if at least one block in `nakamoto_staging_blocks` has `processed = 1`
-    /// Returns Ok(false) if not
-    /// Returns Err(..) on DB error
-    fn has_processed_nakamoto_block(
-        staging_db_conn: NakamotoStagingBlocksConnRef,
-    ) -> Result<bool, ChainstateError> {
-        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE processed = 1 LIMIT 1";
-        let res: Option<i64> = query_row(&staging_db_conn, qry, NO_PARAMS)?;
-        Ok(res.is_some())
-    }
-
-    /// Get a Nakamoto block by index block hash, as well as its size.
-    /// Verifies its integrity.
-    /// Returns Ok(Some(block, size)) if the block was present
-    /// Returns Ok(None) if there were no such rows.
-    /// Returns Err(..) on DB error, including block corruption
-    pub fn get_nakamoto_block(
-        staging_db_conn: NakamotoStagingBlocksConnRef,
-        index_block_hash: &StacksBlockId,
-    ) -> Result<Option<(NakamotoBlock, u64)>, ChainstateError> {
-        let qry = "SELECT data FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args: &[&dyn ToSql] = &[index_block_hash];
-        let res: Option<Vec<u8>> = query_row(&staging_db_conn, qry, args)?;
-        let Some(block_bytes) = res else {
-            return Ok(None);
-        };
-        let block = NakamotoBlock::consensus_deserialize(&mut block_bytes.as_slice())?;
-        if &block.header.block_id() != index_block_hash {
-            error!(
-                "Staging DB corruption: expected {}, got {}",
-                index_block_hash,
-                &block.header.block_id()
-            );
-            return Err(DBError::Corruption.into());
+            break;
         }
-        Ok(Some((
-            block,
-            u64::try_from(block_bytes.len()).expect("FATAL: block is greater than a u64"),
-        )))
     }
 
-    /// Find the next ready-to-process Nakamoto block, given a connection to the staging blocks DB.
-    /// NOTE: the relevant field queried from `nakamoto_staging_blocks` are updated by a separate
-    /// tx from block-processing, so it's imperative that the thread that calls this function is
-    /// the *same* thread that goes to process blocks.
-    /// Returns (the block, the size of the block)
-    pub(crate) fn next_ready_nakamoto_block(
-        staging_db_conn: NakamotoStagingBlocksConnRef,
-        header_conn: &Connection,
-    ) -> Result<Option<(NakamotoBlock, u64)>, ChainstateError> {
-        let query = "SELECT child.data FROM nakamoto_staging_blocks child JOIN nakamoto_staging_blocks parent
-                     ON child.parent_block_id = parent.index_block_hash
-                     WHERE child.burn_attachable = 1
-                       AND child.orphaned = 0
-                       AND child.processed = 0
-                       AND parent.processed = 1
-                     ORDER BY child.height ASC";
-        staging_db_conn
-            .query_row_and_then(query, NO_PARAMS, |row| {
-                let data: Vec<u8> = row.get("data")?;
-                let block = NakamotoBlock::consensus_deserialize(&mut data.as_slice())?;
-                Ok(Some((
-                    block,
-                    u64::try_from(data.len()).expect("FATAL: block is bigger than a u64"),
-                )))
-            })
-            .or_else(|e| {
-                if let ChainstateError::DBError(DBError::SqliteError(
-                    rusqlite::Error::QueryReturnedNoRows,
-                )) = e
-                {
-                    // if at least one nakamoto block is processed, then the next ready block's
-                    // parent *must* be a Nakamoto block.  So if the below is true, then there are
-                    // no ready blocks.
-                    if Self::has_processed_nakamoto_block(staging_db_conn.conn())? {
-                        return Ok(None);
-                    }
+    /// Infallibly set a block as orphaned.
+    /// Does not return until it succeeds.
+    fn infallible_set_block_orphaned(
+        stacks_chain_state: &mut StacksChainState,
+        block_id: &StacksBlockId,
+    ) {
+        loop {
+            let Ok(staging_block_tx) = stacks_chain_state.staging_db_tx_begin().map_err(|e| {
+                warn!("Failed to begin staging DB tx: {:?}", &e);
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-                    // no nakamoto blocks processed yet, so the parent *must* be an epoch2 block!
-                    // go find it.  Note that while this is expensive, it only has to be done
-                    // _once_, and it will only touch at most one reward cycle's worth of blocks.
-                    let sql = "SELECT index_block_hash,parent_block_id FROM nakamoto_staging_blocks WHERE processed = 0 AND orphaned = 0 AND burn_attachable = 1 ORDER BY height ASC";
-                    let mut stmt = staging_db_conn.deref().prepare(sql)?;
-                    let mut qry = stmt.query(NO_PARAMS)?;
-                    let mut next_nakamoto_block_id = None;
-                    while let Some(row) = qry.next()? {
-                        let index_block_hash : StacksBlockId = row.get(0)?;
-                        let parent_block_id : StacksBlockId = row.get(1)?;
+            let Ok(_) = staging_block_tx.set_block_orphaned(&block_id).map_err(|e| {
+                warn!("Failed to mark {} as orphaned: {:?}", &block_id, &e);
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-                        let Some(_parent_epoch2_block) = Self::get_block_header_epoch2(header_conn, &parent_block_id)? else {
-                            continue;
-                        };
+            let Ok(_) = staging_block_tx.commit().map_err(|e| {
+                warn!(
+                    "Failed to commit staging block tx for {}: {:?}",
+                    &block_id, &e
+                );
+                e
+            }) else {
+                sleep_ms(1000);
+                continue;
+            };
 
-                        // epoch2 parent exists, so this Nakamoto block is processable!
-                        next_nakamoto_block_id = Some(index_block_hash);
-                        break;
-                    }
-                    let Some(next_nakamoto_block_id) = next_nakamoto_block_id else {
-                        // no stored nakamoto block had an epoch2 parent
-                        return Ok(None);
-                    };
-
-                    // need qry and stmt to stop borrowing staging_db_conn before we can use it
-                    // again
-                    drop(qry);
-                    drop(stmt);
-
-                    Self::get_nakamoto_block(staging_db_conn, &next_nakamoto_block_id)
-                } else {
-                    Err(e)
-                }
-            })
-    }
-
-    /// Extract and parse a nakamoto block from the DB, and verify its integrity.
-    pub fn load_nakamoto_block(
-        staging_db_conn: NakamotoStagingBlocksConnRef,
-        consensus_hash: &ConsensusHash,
-        block_hash: &BlockHeaderHash,
-    ) -> Result<Option<NakamotoBlock>, ChainstateError> {
-        Self::get_nakamoto_block(
-            staging_db_conn,
-            &StacksBlockId::new(consensus_hash, block_hash),
-        )
-        .and_then(|block_size_opt| Ok(block_size_opt.map(|(block, _size)| block)))
+            break;
+        }
     }
 
     /// Process the next ready block.
@@ -1529,10 +1235,9 @@ impl NakamotoChainState {
         sort_tx: &mut SortitionHandleTx,
         dispatcher_opt: Option<&'a T>,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
-        let Some((next_ready_block, block_size)) = Self::next_ready_nakamoto_block(
-            stacks_chain_state.nakamoto_blocks_db(),
-            stacks_chain_state.db(),
-        )?
+        let nakamoto_blocks_db = stacks_chain_state.nakamoto_blocks_db();
+        let Some((next_ready_block, block_size)) =
+            nakamoto_blocks_db.next_ready_nakamoto_block(stacks_chain_state.db(), sort_tx)?
         else {
             // no more blocks
             return Ok(None);
@@ -1586,7 +1291,7 @@ impl NakamotoChainState {
                   "expected parent_block_id" => %parent_block_id
             );
             let staging_block_tx = stacks_chain_state.staging_db_tx_begin()?;
-            let _ = Self::set_block_orphaned(&staging_block_tx, &block_id)?;
+            staging_block_tx.set_block_orphaned(&block_id)?;
             staging_block_tx.commit()?;
             return Err(ChainstateError::InvalidStacksBlock(msg.into()));
         }
@@ -1667,39 +1372,7 @@ impl NakamotoChainState {
             // being processed. Therefore, it's *very important* that block-processing happens
             // within the same, single thread.  Also, it's *very important* that this update
             // succeeds, since *we have already processed* the block.
-
-            loop {
-                let Ok(staging_block_tx) = stacks_chain_state.staging_db_tx_begin().map_err(|e| {
-                    warn!("Failed to begin staging DB tx: {:?}", &e);
-                    e
-                }) else {
-                    sleep_ms(1000);
-                    continue;
-                };
-
-                let Ok(_) = NakamotoChainState::set_block_orphaned(&staging_block_tx, &block_id)
-                    .map_err(|e| {
-                        warn!("Failed to mark {} as orphaned: {:?}", &block_id, &e);
-                        e
-                    })
-                else {
-                    sleep_ms(1000);
-                    continue;
-                };
-
-                let Ok(_) = staging_block_tx.commit().map_err(|e| {
-                    warn!(
-                        "Failed to commit staging block tx for {}: {:?}",
-                        &block_id, &e
-                    );
-                    e
-                }) else {
-                    sleep_ms(1000);
-                    continue;
-                };
-
-                break;
-            }
+            Self::infallible_set_block_orphaned(stacks_chain_state, &block_id);
             return Err(e);
         };
 
@@ -1736,38 +1409,7 @@ impl NakamotoChainState {
         // being processed. Therefore, it's *very important* that block-processing happens
         // within the same, single thread.  Also, it's *very important* that this update
         // succeeds, since *we have already processed* the block.
-        loop {
-            let Ok(staging_block_tx) = stacks_chain_state.staging_db_tx_begin().map_err(|e| {
-                warn!("Failed to begin staging DB tx: {:?}", &e);
-                e
-            }) else {
-                sleep_ms(1000);
-                continue;
-            };
-
-            let Ok(_) = NakamotoChainState::set_block_processed(&staging_block_tx, &block_id)
-                .map_err(|e| {
-                    warn!("Failed to mark {} as processed: {:?}", &block_id, &e);
-                    e
-                })
-            else {
-                sleep_ms(1000);
-                continue;
-            };
-
-            let Ok(_) = staging_block_tx.commit().map_err(|e| {
-                warn!(
-                    "Failed to commit staging block tx for {}: {:?}",
-                    &block_id, &e
-                );
-                e
-            }) else {
-                sleep_ms(1000);
-                continue;
-            };
-
-            break;
-        }
+        Self::infallible_set_block_processed(stacks_chain_state, &block_id);
 
         // announce the block, if we're connected to an event dispatcher
         if let Some(dispatcher) = dispatcher_opt {
@@ -1984,7 +1626,7 @@ impl NakamotoChainState {
             ],
         )?;
         if burn_attachable {
-            Self::set_burn_block_processed(staging_db_tx, &block.header.consensus_hash)?;
+            staging_db_tx.set_burn_block_processed(&block.header.consensus_hash)?;
         }
         Ok(())
     }

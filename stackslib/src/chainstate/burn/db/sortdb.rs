@@ -1011,6 +1011,16 @@ pub trait SortitionHandle {
     /// Get a ref to the PoX constants
     fn pox_constants(&self) -> &PoxConstants;
 
+    /// Get the sortition ID of the sortition history tip this handle represents
+    fn tip(&self) -> SortitionId;
+
+    /// Get the highest-processed Nakamoto block on this sortition history.
+    /// Returns Ok(Some(nakamoto-tip-ch, nakamoto-tip-bhh, nakamoto-tip-height))) on success, if
+    /// there was a tip found
+    /// Returns Ok(None) if no Nakamoto blocks are present on this sortition history
+    /// Returns Err(..) on DB errors
+    fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error>;
+
     /// is the given block a descendant of `potential_ancestor`?
     ///  * block_at_burn_height: the burn height of the sortition that chose the stacks block to check
     ///  * potential_ancestor: the stacks block hash of the potential ancestor
@@ -1414,6 +1424,16 @@ impl SortitionHandle for SortitionHandleTx<'_> {
     fn sqlite(&self) -> &Connection {
         self.tx()
     }
+
+    fn tip(&self) -> SortitionId {
+        self.context.chain_tip.clone()
+    }
+
+    fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        let sn = SortitionDB::get_block_snapshot(self.sqlite(), &self.context.chain_tip)?
+            .ok_or(db_error::NotFoundError)?;
+        SortitionDB::get_canonical_nakamoto_tip_hash_and_height(self.sqlite(), &sn)
+    }
 }
 
 impl SortitionHandle for SortitionHandleConn<'_> {
@@ -1434,6 +1454,16 @@ impl SortitionHandle for SortitionHandleConn<'_> {
 
     fn sqlite(&self) -> &Connection {
         self.conn()
+    }
+
+    fn tip(&self) -> SortitionId {
+        self.context.chain_tip.clone()
+    }
+
+    fn get_nakamoto_tip(&self) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        let sn = SortitionDB::get_block_snapshot(self.sqlite(), &self.context.chain_tip)?
+            .ok_or(db_error::NotFoundError)?;
+        SortitionDB::get_canonical_nakamoto_tip_hash_and_height(self.sqlite(), &sn)
     }
 }
 
@@ -4441,6 +4471,33 @@ impl SortitionDB {
         self.tx_handle_begin(&sortition_id).unwrap()
     }
 
+    /// Given a starting sortition ID, go and find the canonical Nakamoto tip
+    /// Returns Ok(Some(tip info)) on success
+    /// Returns Ok(None) if there are no Nakamoto blocks in this tip
+    /// Returns Err(..) on other DB error
+    pub fn get_canonical_nakamoto_tip_hash_and_height(
+        conn: &Connection,
+        tip: &BlockSnapshot,
+    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        let mut cursor = tip.clone();
+        loop {
+            let result_at_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
+                "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?",
+                &[&cursor.sortition_id],
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+            ).optional()?;
+            if let Some(stacks_tip) = result_at_tip {
+                return Ok(Some(stacks_tip));
+            }
+            let Some(next_cursor) =
+                SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id)?
+            else {
+                return Ok(None);
+            };
+            cursor = next_cursor
+        }
+    }
+
     /// Get the canonical Stacks chain tip -- this gets memoized on the canonical burn chain tip.
     pub fn get_canonical_stacks_chain_tip_hash_and_height(
         conn: &Connection,
@@ -4454,19 +4511,8 @@ impl SortitionDB {
         if cur_epoch.epoch_id >= StacksEpochId::Epoch30 {
             // nakamoto behavior -- look to the stacks_chain_tip table
             //  if the chain tip of the current sortition hasn't been set, have to iterate to parent
-            let mut cursor = sn;
-            loop {
-                let result_at_tip = conn.query_row_and_then(
-                    "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?",
-                    &[&cursor.sortition_id],
-                    |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
-                ).optional()?;
-                if let Some(stacks_tip) = result_at_tip {
-                    return Ok(stacks_tip);
-                }
-                cursor = SortitionDB::get_block_snapshot(conn, &cursor.parent_sortition_id)?
-                    .ok_or_else(|| db_error::NotFoundError)?;
-            }
+            return Self::get_canonical_nakamoto_tip_hash_and_height(conn, &sn)?
+                .ok_or(db_error::NotFoundError);
         }
 
         // epoch 2.x behavior -- look at the snapshot itself
