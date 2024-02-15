@@ -1375,7 +1375,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         }
         // select a random neighbor index, if exclude is set, and matches this
         //  neighbor, then use the next index (modulo the frontier length).
-        let mut neighbor_index = rnd.gen_range(0, frontier.len());
+        let mut neighbor_index = rnd.gen_range(0..frontier.len());
         for _ in 0..2 {
             // two attempts, in case our first attempt lands on `exclude`
             for (cnt, (nk, n)) in frontier.iter().enumerate() {
