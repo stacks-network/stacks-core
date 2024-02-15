@@ -258,11 +258,6 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
                         return Ok(None);
                     };
 
-                    // need qry and stmt to stop borrowing self before we can use it
-                    // again
-                    // drop(qry);
-                    // drop(stmt);
-
                     self.get_nakamoto_block(&next_nakamoto_block_id)
                 } else {
                     Err(e)
