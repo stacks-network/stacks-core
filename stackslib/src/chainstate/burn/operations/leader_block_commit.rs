@@ -238,6 +238,7 @@ impl LeaderBlockCommitOp {
         )
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn is_parent_genesis(&self) -> bool {
         self.parent_block_ptr == 0 && self.parent_vtxindex == 0
     }

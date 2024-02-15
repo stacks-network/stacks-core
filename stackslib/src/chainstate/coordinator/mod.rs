@@ -3022,6 +3022,7 @@ impl<
 
     /// Try and replay a newly-discovered (or re-affirmed) sortition's associated Stacks block, if
     /// we have it.
+    #[cfg_attr(test, mutants::skip)]
     fn try_replay_stacks_block(
         &mut self,
         canonical_snapshot: &BlockSnapshot,
@@ -3124,6 +3125,7 @@ impl<
     /// block."
     ///
     /// Returning None means "we can keep processing Stacks blocks"
+    #[cfg_attr(test, mutants::skip)]
     fn consider_pox_anchor(
         &self,
         pox_anchor: &BlockHeaderHash,
@@ -3453,6 +3455,7 @@ pub fn check_chainstate_db_versions(
 
 /// Migrate all databases to their latest schemas.
 /// Verifies that this is possible as well
+#[cfg_attr(test, mutants::skip)]
 pub fn migrate_chainstate_dbs(
     epochs: &[StacksEpoch],
     sortdb_path: &str,

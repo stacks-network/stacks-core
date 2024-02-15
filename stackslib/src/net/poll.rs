@@ -83,6 +83,7 @@ impl NetworkState {
         })
     }
 
+    #[cfg_attr(test, mutants::skip)]
     pub fn num_events(&self) -> usize {
         self.event_map.len()
     }

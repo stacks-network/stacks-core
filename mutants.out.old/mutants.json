@@ -1,0 +1,212 @@
+[
+  {
+    "package": "stackslib",
+    "file": "stackslib/src/net/chat.rs",
+    "function": {
+      "function_name": "ConversationP2P::supports_mempool_query",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 669,
+          "column": 5
+        },
+        "end": {
+          "line": 675,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 673,
+        "column": 58
+      },
+      "end": {
+        "line": 673,
+        "column": 59
+      }
+    },
+    "replacement": "&",
+    "genre": "BinaryOperator"
+  },
+  {
+    "package": "stackslib",
+    "file": "stackslib/src/net/chat.rs",
+    "function": {
+      "function_name": "ConversationP2P::supports_mempool_query",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 669,
+          "column": 5
+        },
+        "end": {
+          "line": 675,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 674,
+        "column": 24
+      },
+      "end": {
+        "line": 674,
+        "column": 25
+      }
+    },
+    "replacement": "^",
+    "genre": "BinaryOperator"
+  },
+  {
+    "package": "stackslib",
+    "file": "stackslib/src/net/chat.rs",
+    "function": {
+      "function_name": "ConversationP2P::supports_mempool_query",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 669,
+          "column": 5
+        },
+        "end": {
+          "line": 675,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 673,
+        "column": 9
+      },
+      "end": {
+        "line": 674,
+        "column": 57
+      }
+    },
+    "replacement": "false",
+    "genre": "FnValue"
+  },
+  {
+    "package": "stackslib",
+    "file": "stackslib/src/net/chat.rs",
+    "function": {
+      "function_name": "ConversationP2P::supports_mempool_query",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 669,
+          "column": 5
+        },
+        "end": {
+          "line": 675,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 673,
+        "column": 58
+      },
+      "end": {
+        "line": 673,
+        "column": 59
+      }
+    },
+    "replacement": "^",
+    "genre": "BinaryOperator"
+  },
+  {
+    "package": "stackslib",
+    "file": "stackslib/src/net/chat.rs",
+    "function": {
+      "function_name": "ConversationP2P::supports_mempool_query",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 669,
+          "column": 5
+        },
+        "end": {
+          "line": 675,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 674,
+        "column": 41
+      },
+      "end": {
+        "line": 674,
+        "column": 43
+      }
+    },
+    "replacement": "!=",
+    "genre": "BinaryOperator"
+  },
+  {
+    "package": "stackslib",
+    "file": "stackslib/src/net/chat.rs",
+    "function": {
+      "function_name": "ConversationP2P::supports_mempool_query",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 669,
+          "column": 5
+        },
+        "end": {
+          "line": 675,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 674,
+        "column": 24
+      },
+      "end": {
+        "line": 674,
+        "column": 25
+      }
+    },
+    "replacement": "|",
+    "genre": "BinaryOperator"
+  },
+  {
+    "package": "stackslib",
+    "file": "stackslib/src/net/chat.rs",
+    "function": {
+      "function_name": "ConversationP2P::supports_mempool_query",
+      "return_type": "-> bool",
+      "span": {
+        "start": {
+          "line": 669,
+          "column": 5
+        },
+        "end": {
+          "line": 675,
+          "column": 6
+        }
+      }
+    },
+    "span": {
+      "start": {
+        "line": 673,
+        "column": 9
+      },
+      "end": {
+        "line": 674,
+        "column": 57
+      }
+    },
+    "replacement": "true",
+    "genre": "FnValue"
+  }
+]
