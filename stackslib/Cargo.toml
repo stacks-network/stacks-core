@@ -33,7 +33,7 @@ path = "src/blockstack_cli.rs"
 [dependencies]
 rand = { workspace = true }
 rand_core = { workspace = true }
-rand_chacha = "0.3.1"
+rand_chacha = { workspace = true }
 serde = "1"
 serde_derive = "1"
 serde_stacker = "0.1"
@@ -81,8 +81,7 @@ version = "=0.24.2"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 
 [dependencies.ed25519-dalek]
-version = "=1.0.0-pre.3"
-features = ["serde"]
+workspace = true
 
 [dependencies.curve25519-dalek]
 version = "=2.0.0"

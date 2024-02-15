@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use ed25519_dalek::Keypair as VRFKeypair;
 use rand::rngs::ThreadRng;
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
@@ -868,12 +867,13 @@ fn test_burn_snapshot_sequence() {
 
     for i in 0..32 {
         let mut csprng = ChaChaRng::from_seed(Default::default());
-        let keypair: VRFKeypair = VRFKeypair::generate(&mut csprng);
+        let vrf_privkey = VRFPrivateKey(ed25519_dalek::SigningKey::generate(&mut csprng));
+        let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
 
-        let privkey_hex = to_hex(&keypair.secret.to_bytes());
+        let privkey_hex = vrf_privkey.to_hex();
         leader_private_keys.push(privkey_hex);
 
-        let pubkey_hex = to_hex(&keypair.public.to_bytes());
+        let pubkey_hex = vrf_pubkey.to_hex();
         leader_public_keys.push(pubkey_hex);
 
         let bitcoin_privkey = Secp256k1PrivateKey::new();
