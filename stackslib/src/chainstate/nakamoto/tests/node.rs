@@ -1115,8 +1115,21 @@ impl<'a> TestPeer<'a> {
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
 
+        let burn_height = self
+            .coord
+            .burnchain
+            .get_highest_burnchain_block()
+            .unwrap()
+            .unwrap()
+            .block_height;
+        let cycle = self
+            .miner
+            .burnchain
+            .block_height_to_reward_cycle(burn_height)
+            .expect("FATAL: failed to get reward cycle");
+
         // Ensure the signers are setup for the current cycle
-        // signers.generate_aggregate_key(cycle);
+        signers.generate_aggregate_key(cycle);
 
         let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,
