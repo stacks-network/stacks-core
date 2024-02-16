@@ -2,17 +2,6 @@
 (define-constant mock-pox-reward-wallet-invalid { version: 0x06, hashbytes: 0x00112233445566990011223344556699001122334455669900112233445566 })
 (define-constant mock-pox-hashbytes-invalid 0x00112233445566990011223344556699001122334455669900112233445566)
 
-(define-public (test-mock-set-stx-account)
-	(begin 
-		(unwrap! (contract-call? .pox-4 mock-set-stx-account 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 {locked: u1, unlock-height: u2100, unlocked: u0}) (err u111))
-		(asserts! (is-eq u1 (get locked (contract-call? .pox-4 get-stx-account 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5))) (err u111))
-		(ok true)))
-
-(define-public (test-get-mocked-stx-account)
-	(begin 
-		(asserts! (is-eq u0 (get unlock-height (contract-call? .pox-4 get-stx-account 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5))) (err u111))
-		(ok true)))
-
 (define-public (test-burn-height-to-reward-cycle)
 	(begin 
 		(asserts! (is-eq u1 (contract-call? .pox-4 burn-height-to-reward-cycle u2099)) (err u111))
