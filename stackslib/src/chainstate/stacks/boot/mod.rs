@@ -220,7 +220,7 @@ pub struct NakamotoSignerEntry {
     #[serde(serialize_with = "hex_serialize", deserialize_with = "hex_deserialize")]
     pub signing_key: [u8; 33],
     pub stacked_amt: u128,
-    pub slots: u32,
+    pub weight: u32,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -708,15 +708,15 @@ impl StacksChainState {
         let mut signer_set: Vec<_> = signer_set
             .into_iter()
             .filter_map(|(signing_key, stacked_amt)| {
-                let slots = u32::try_from(stacked_amt / threshold)
+                let weight = u32::try_from(stacked_amt / threshold)
                     .expect("CORRUPTION: Stacker claimed > u32::max() reward slots");
-                if slots == 0 {
+                if weight == 0 {
                     return None;
                 }
                 Some(NakamotoSignerEntry {
                     signing_key,
                     stacked_amt,
-                    slots,
+                    weight,
                 })
             })
             .collect();

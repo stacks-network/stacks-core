@@ -76,13 +76,13 @@ fn make_signer_units() {
             amount_stacked: amount,
         }
     }
-    fn stub_out(signer: u64, amount: u128, slots: u32) -> NakamotoSignerEntry {
+    fn stub_out(signer: u64, amount: u128, weight: u32) -> NakamotoSignerEntry {
         let mut signer_bytes = [0; SIGNERS_PK_LEN];
         signer_bytes[0..8].copy_from_slice(&signer.to_be_bytes());
         NakamotoSignerEntry {
             signing_key: signer_bytes,
             stacked_amt: amount,
-            slots,
+            weight,
         }
     }
 
@@ -93,7 +93,7 @@ fn make_signer_units() {
             .collect();
         let expected: Vec<_> = expected
             .iter()
-            .map(|(signer, amount, slots)| stub_out(*signer, *amount, *slots))
+            .map(|(signer, amount, weight)| stub_out(*signer, *amount, *weight))
             .collect();
         assert_eq!(
             StacksChainState::make_signer_set(threshold, &in_entries),

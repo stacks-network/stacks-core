@@ -274,7 +274,7 @@ impl NakamotoSigners {
                                 "signer".into(),
                                 Value::Principal(PrincipalData::from(signing_address)),
                             ),
-                            ("weight".into(), Value::UInt(signer.stacked_amt.into())),
+                            ("weight".into(), Value::UInt(signer.weight.into())),
                         ])
                         .expect(
                             "BUG: Failed to construct `{ signer: principal, weight: uint }` tuple",
