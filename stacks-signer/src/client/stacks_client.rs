@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
 // Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
@@ -15,6 +13,8 @@ use std::net::SocketAddr;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::net::SocketAddr;
+
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::{RewardSet, SIGNERS_VOTING_NAME};
@@ -117,10 +117,8 @@ impl StacksClient {
         &self.stacks_address
     }
 
-    /// Calculate the coordinator address by comparing the provided public keys against the stacks tip consensus hash
+    /// Calculate the ordered list of coordinator ids by comparing the provided public keys against the pox consensus hash
     pub fn calculate_coordinator_ids(&self, public_keys: &PublicKeys) -> Vec<u32> {
-        // TODO: return the entire list. Might be at the same block height for a long time and need to move to the second item in the list
-        // Add logic throughout signer to track the current coordinator list and offset in the list
         let pox_consensus_hash = match retry_with_exponential_backoff(|| {
             self.get_pox_consenus_hash()
                 .map_err(backoff::Error::transient)
@@ -181,8 +179,6 @@ impl StacksClient {
         value: ClarityValue,
     ) -> Result<Vec<(StacksAddress, u128)>, ClientError> {
         debug!("Parsing signer slots...");
-        // Due to .signers definition, the  signer slots is always an OK result of a list of tuples of signer addresses and the number of slots they have
-        // If this fails, we have bigger problems than the signer crashing...
         let value = value.clone().expect_result_ok()?;
         let values = value.expect_list()?;
         let mut signer_slots = Vec::with_capacity(values.len());
@@ -535,8 +531,6 @@ impl StacksClient {
         value: ClarityValue,
     ) -> Result<Option<Point>, ClientError> {
         debug!("Parsing aggregate public key...");
-        // Due to pox 4 definition, the aggregate public key is always an optional clarity value of 33 bytes hence the use of expect
-        // If this fails, we have bigger problems than the signer crashing...
         let opt = value.clone().expect_optional()?;
         let Some(inner_data) = opt else {
             return Ok(None);
@@ -577,43 +571,19 @@ impl StacksClient {
             ClarityValue::UInt(round as u128),
             ClarityValue::UInt(reward_cycle as u128),
         ];
+        let tx_fee = tx_fee.unwrap_or(0);
 
-        let tx_payload = TransactionPayload::ContractCall(TransactionContractCall {
-            address: contract_address,
+        Self::build_signed_contract_call_transaction(
+            &contract_address,
             contract_name,
             function_name,
-            function_args,
-        });
-        let public_key = StacksPublicKey::from_private(&self.stacks_private_key);
-        let tx_auth = TransactionAuth::Standard(
-            TransactionSpendingCondition::new_singlesig_p2pkh(public_key).ok_or(
-                ClientError::TransactionGenerationFailure(format!(
-                    "Failed to create spending condition from public key: {}",
-                    public_key.to_hex()
-                )),
-            )?,
-        );
-
-        let mut unsigned_tx = StacksTransaction::new(self.tx_version, tx_auth, tx_payload);
-        if let Some(tx_fee) = tx_fee {
-            unsigned_tx.set_tx_fee(tx_fee);
-        }
-        unsigned_tx.set_origin_nonce(nonce);
-
-        unsigned_tx.anchor_mode = TransactionAnchorMode::Any;
-        unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
-        unsigned_tx.chain_id = self.chain_id;
-
-        let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
-        tx_signer
-            .sign_origin(&self.stacks_private_key)
-            .map_err(|e| ClientError::TransactionGenerationFailure(e.to_string()))?;
-
-        tx_signer
-            .get_tx()
-            .ok_or(ClientError::TransactionGenerationFailure(
-                "Failed to generate transaction from a transaction signer".to_string(),
-            ))
+            &function_args,
+            &self.stacks_private_key,
+            self.tx_version,
+            self.chain_id,
+            nonce,
+            tx_fee,
+        )
     }
 
     /// Helper function to submit a transaction to the Stacks mempool

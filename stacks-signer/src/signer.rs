@@ -338,7 +338,7 @@ impl Signer {
                 // For mutability reasons, we need to take the block_info out of the map and add it back after processing
                 let Some(mut block_info) = self.blocks.remove(&signer_signature_hash) else {
                     // We have not seen this block before. Why are we getting a response for it?
-                    debug!("Received a block validate response for a block we have not seen before. Ignoring...");
+                    debug!("Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.signer_id);
                     return;
                 };
                 let is_valid = self.verify_block_transactions(stacks_client, &block_info.block);
@@ -378,7 +378,7 @@ impl Signer {
             }
         };
         if let Some(mut nonce_request) = block_info.nonce_request.take() {
-            debug!("Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...");
+            debug!("Signer #{}: Received a block validate response from the stacks node for a block we already received a nonce request for. Responding to the nonce request...", self.signer_id);
             // We have received validation from the stacks node. Determine our vote and update the request message
             Self::determine_vote(self.signer_id, block_info, &mut nonce_request);
             // Send the nonce request through with our vote
@@ -450,7 +450,10 @@ impl Signer {
             stacks_client
                 .submit_block_for_validation(block.clone())
                 .unwrap_or_else(|e| {
-                    warn!("Failed to submit block for validation: {e:?}");
+                    warn!(
+                        "Signer #{}: Failed to submit block for validation: {e:?}",
+                        self.signer_id
+                    );
                 });
         }
     }
@@ -467,7 +470,10 @@ impl Signer {
             .signing_round
             .process_inbound_messages(packets)
             .unwrap_or_else(|e| {
-                error!("Failed to process inbound messages as a signer: {e:?}");
+                error!(
+                    "Signer #{}: Failed to process inbound messages as a signer: {e:?}",
+                    self.signer_id
+                );
                 vec![]
             });
 
@@ -476,7 +482,10 @@ impl Signer {
             .coordinator
             .process_inbound_messages(packets)
             .unwrap_or_else(|e| {
-                error!("Failed to process inbound messages as a coordinator: {e:?}");
+                error!(
+                    "Signer #{}: Failed to process inbound messages as a coordinator: {e:?}",
+                    self.signer_id
+                );
                 (vec![], vec![])
             });
 
@@ -1208,6 +1217,9 @@ impl Signer {
         if new_aggregate_public_key.is_some()
             && old_aggregate_public_key != new_aggregate_public_key
         {
+            // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
+            // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
+            // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
             debug!(
                 "Signer #{}: Received a new aggregate public key ({new_aggregate_public_key:?}) for reward cycle {reward_cycle}. Overwriting its internal aggregate key ({old_aggregate_public_key:?})",
                 self.signer_id

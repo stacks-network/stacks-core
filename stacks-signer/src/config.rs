@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2023 Stacks Open Internet Foundation
+// Copyright (C) 2020-2024 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -34,7 +34,8 @@ use wsts::curve::scalar::Scalar;
 use wsts::state_machine::PublicKeys;
 
 const EVENT_TIMEOUT_MS: u64 = 5000;
-//TODO: make this zero once special cased transactions are allowed in the stacks node
+// Default transaction fee in microstacks (if unspecificed in the config file)
+// TODO: Use the fee estimation endpoint to get the default fee.
 const TX_FEE_MS: u64 = 10_000;
 
 #[derive(thiserror::Error, Debug)]
