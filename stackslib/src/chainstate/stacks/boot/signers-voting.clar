@@ -6,8 +6,8 @@
 (define-map votes {reward-cycle: uint, round: uint, signer: principal} {aggregate-public-key: (buff 33), signer-weight: uint})
 ;; maps dkg round and aggregate public key to weights of signers supporting this key so far
 (define-map tally {reward-cycle: uint, round: uint, aggregate-public-key: (buff 33)} uint)
-;; maps aggregate public keys to rewards cycles and rounds
-(define-map used-aggregate-public-keys (buff 33) {reward-cycle: uint, round: uint})
+;; maps aggregate public keys to rewards cycles
+(define-map used-aggregate-public-keys (buff 33) uint)
 
 (define-constant ERR_SIGNER_INDEX_MISMATCH u1)
 (define-constant ERR_INVALID_SIGNER_INDEX u2)
@@ -67,8 +67,8 @@
         (ok (get weight details))))
 
 ;; aggregate public key must be unique and can be used only in a single cycle-round pair
-(define-read-only (is-valid-aggregate-public-key (key (buff 33)) (dkg-id {reward-cycle: uint, round: uint}))
-    (is-eq (default-to dkg-id (map-get? used-aggregate-public-keys key)) dkg-id))
+(define-read-only (is-valid-aggregate-public-key (key (buff 33)) (reward-cycle uint))
+    (is-eq (default-to reward-cycle (map-get? used-aggregate-public-keys key)) reward-cycle))
 
 (define-read-only (is-in-prepare-phase (height uint))
     (< (mod (+ (- height (get first-burnchain-block-height pox-info))
@@ -113,13 +113,13 @@
         ;; Check that the aggregate public key is correct length
         (asserts! (is-eq (len key) u33) (err ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY))
         ;; Check that aggregate public key has not been used before
-        (asserts! (is-valid-aggregate-public-key key {reward-cycle: reward-cycle, round: round}) (err ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY))
+        (asserts! (is-valid-aggregate-public-key key reward-cycle) (err ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY))
         ;; Check that signer hasn't voted in reward-cycle & round
         (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, signer-weight: signer-weight}) (err ERR_DUPLICATE_VOTE))
         ;; Update tally aggregate public key candidate
         (map-set tally tally-key new-total)
         ;; Update used aggregate public keys
-        (map-set used-aggregate-public-keys key {reward-cycle: reward-cycle, round: round})
+        (map-set used-aggregate-public-keys key reward-cycle)
         (update-last-round reward-cycle round)
         (print {
             event: "voted",
