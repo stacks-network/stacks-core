@@ -364,8 +364,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
 
 /// In this test case, Alice votes in the first block of the last tenure of the prepare phase.
 /// Bob votes in the second block of that tenure.
-/// Alice can vote successfully.
-/// Bob is out of the voting window.
+/// Both can vote successfully.
 #[test]
 fn vote_for_aggregate_public_key_in_last_block() {
     let stacker_1 = TestStacker::from_seed(&[3, 4]);
@@ -465,8 +464,6 @@ fn vote_for_aggregate_public_key_in_last_block() {
 
     nakamoto_tenure(&mut peer, &mut test_signers, vec![vec![dummy_tx_1]]);
 
-    nakamoto_tenure(&mut peer, &mut test_signers, vec![vec![dummy_tx_2]]);
-
     // alice votes in first block of tenure
     // bob votes in second block of tenure
     let blocks_and_sizes =
@@ -474,6 +471,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
 
     // check alice's and bob's txs
     let blocks = observer.get_blocks();
+
     // alice's block
     let block = &blocks[blocks.len() - 2].clone();
     let receipts = &block.receipts;
@@ -499,13 +497,9 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let receipts = block.receipts.as_slice();
     assert_eq!(receipts.len(), 1);
 
-    // vote fails because the reward cycle has changed
-    //  and the signer set hasn't been set yet.
+    // bob's vote should succeed
     let tx1_bob = &receipts[0];
-    assert_eq!(
-        tx1_bob.result,
-        Value::err_uint(2) // err-out-of-voting-window
-    );
+    assert_eq!(tx1_bob.result, Value::okay_true());
 }
 
 fn nakamoto_tenure(
