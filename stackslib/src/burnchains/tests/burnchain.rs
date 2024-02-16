@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use rand::rngs::ThreadRng;
+use rand::thread_rng;
 use rand_chacha::ChaChaRng;
 use rand_core::SeedableRng;
 use serde::Serialize;
@@ -866,7 +867,7 @@ fn test_burn_snapshot_sequence() {
     let mut leader_bitcoin_addresses = vec![];
 
     for i in 0..32 {
-        let mut csprng = ChaChaRng::from_seed(Default::default());
+        let mut csprng: ThreadRng = thread_rng();
         let vrf_privkey = VRFPrivateKey(ed25519_dalek::SigningKey::generate(&mut csprng));
         let vrf_pubkey = VRFPublicKey::from_private(&vrf_privkey);
 

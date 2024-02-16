@@ -523,7 +523,7 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
 pub fn test_load_store_update_nakamoto_blocks() {
     let test_name = function_name!();
     let path = test_path(&test_name);
-    let pox_constants = PoxConstants::new(5, 3, 3, 25, 5, 0, 0, 0, 0, 0, 0, 0);
+    let pox_constants = PoxConstants::new(5, 3, 3, 25, 5, 0, 0, 0, 0, 0, 0);
     let epochs = StacksEpoch::unit_test_3_0_only(1);
     let _ = std::fs::remove_dir_all(&path);
     let burnchain_conf = get_burnchain(&path, Some(pox_constants.clone()));
