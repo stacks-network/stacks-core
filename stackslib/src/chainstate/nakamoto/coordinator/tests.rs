@@ -1204,8 +1204,19 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
             },
         );
 
+        let fees = blocks_and_sizes
+            .iter()
+            .map(|(block, _, _)| {
+                block
+                    .txs
+                    .iter()
+                    .map(|tx| tx.get_tx_fee() as u128)
+                    .sum::<u128>()
+            })
+            .sum::<u128>();
+
         consensus_hashes.push(consensus_hash);
-        fee_counts.push(num_blocks as u128);
+        fee_counts.push(fees);
         total_blocks += num_blocks;
 
         let mut blocks: Vec<NakamotoBlock> = blocks_and_sizes
@@ -1353,7 +1364,18 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
             assert_eq!(matured_reward.parent_miner.coinbase, 1000_000_000);
         }
 
-        if i < 11 {
+        if i == 8 {
+            // epoch2
+            assert_eq!(
+                matured_reward.parent_miner.tx_fees,
+                MinerPaymentTxFees::Epoch2 {
+                    // The signers voting transaction is paying a fee of 1 uSTX
+                    // currently, but this may change to pay 0.
+                    anchored: 1,
+                    streamed: 0,
+                }
+            );
+        } else if i < 11 {
             // epoch2
             assert_eq!(
                 matured_reward.parent_miner.tx_fees,
@@ -1387,7 +1409,18 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
         } else {
             assert_eq!(miner_reward.coinbase, 1000_000_000);
         }
-        if i < 10 {
+        if i == 7 {
+            // epoch2
+            assert_eq!(
+                miner_reward.tx_fees,
+                MinerPaymentTxFees::Epoch2 {
+                    // The signers voting transaction is paying a fee of 1 uSTX
+                    // currently, but this may change to pay 0.
+                    anchored: 1,
+                    streamed: 0,
+                }
+            );
+        } else if i < 10 {
             // epoch2
             assert_eq!(
                 miner_reward.tx_fees,

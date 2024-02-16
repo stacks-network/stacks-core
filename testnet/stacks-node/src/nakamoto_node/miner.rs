@@ -421,7 +421,6 @@ impl BlockMinerThread {
         mut signer: TestSigners,
         mut block: NakamotoBlock,
     ) -> Result<(), ChainstateError> {
-        signer.sign_nakamoto_block(&mut block);
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let chainstate_config = chain_state.config();
@@ -431,6 +430,16 @@ impl BlockMinerThread {
             self.burnchain.pox_constants.clone(),
         )
         .expect("FATAL: could not open sortition DB");
+
+        // Check if we need to update the signer key. This key needs to change
+        // on each tenure change or it will not match the public key that is
+        // retrieved from the signers contract.
+        let cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(block.header.chain_length)
+            .expect("FATAL: no reward cycle for burn block");
+        signer.sign_nakamoto_block(&mut block, cycle);
+
         let mut sortition_handle = sort_db.index_handle_at_tip();
         let aggregate_public_key = if block.header.chain_length <= 1 {
             signer.aggregate_public_key.clone()

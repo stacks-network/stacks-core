@@ -1038,7 +1038,13 @@ impl MockamotoNode {
             )?;
             aggregate_public_key
         };
-        self.self_signer.sign_nakamoto_block(&mut block);
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.conn())?;
+        let cycle = self
+            .sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(self.sortdb.first_block_height, burn_tip.block_height)
+            .unwrap();
+        self.self_signer.sign_nakamoto_block(&mut block, cycle);
         let staging_tx = self.chainstate.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
             &config,

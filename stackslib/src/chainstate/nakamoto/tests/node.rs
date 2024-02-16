@@ -122,6 +122,8 @@ pub struct TestSigners {
     pub threshold: u32,
     /// The key ids distributed among signer_parties
     pub party_key_ids: Vec<Vec<u32>>,
+    /// The cycle for which the signers are valid
+    pub cycle: u64,
 }
 
 impl Default for TestSigners {
@@ -168,12 +170,18 @@ impl Default for TestSigners {
             num_keys,
             threshold,
             party_key_ids,
+            cycle: 0,
         }
     }
 }
 
 impl TestSigners {
-    pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
+    pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock, cycle: u64) {
+        // Update the aggregate public key if the cycle has changed
+        if self.cycle != cycle {
+            self.generate_aggregate_key(cycle);
+        }
+
         let mut rng = rand_core::OsRng;
         let msg = block.header.signer_signature_hash().0;
         let (nonces, sig_shares, key_ids) =
@@ -190,8 +198,15 @@ impl TestSigners {
     }
 
     // Generate and assign a new aggregate public key
-    pub fn generate_aggregate_key(&mut self, seed: u64) -> Point {
-        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+    pub fn generate_aggregate_key(&mut self, cycle: u64) -> Point {
+        // If the key is already generated for this cycle, return it
+        if cycle == self.cycle {
+            debug!("Returning cached aggregate key for cycle {}", cycle);
+            return self.aggregate_public_key.clone();
+        }
+
+        debug!("Generating aggregate key for cycle {}", cycle);
+        let mut rng = ChaCha20Rng::seed_from_u64(cycle);
         let num_parties = self.party_key_ids.len().try_into().unwrap();
         // Create the parties
         self.signer_parties = self
@@ -221,6 +236,7 @@ impl TestSigners {
             .init(&self.poly_commitments)
             .expect("aggregator init failed");
         self.aggregate_public_key = sig_aggregator.poly[0];
+        self.cycle = cycle;
         self.aggregate_public_key.clone()
     }
 }
@@ -679,7 +695,11 @@ impl TestStacksNode {
                 Self::make_nakamoto_block_from_txs(builder, chainstate, &sortdb.index_conn(), txs)
                     .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
-            signers.sign_nakamoto_block(&mut nakamoto_block);
+            let cycle = miner
+                .burnchain
+                .block_height_to_reward_cycle(burn_tip.block_height)
+                .expect("FATAL: failed to get reward cycle");
+            signers.sign_nakamoto_block(&mut nakamoto_block, cycle);
 
             let block_id = nakamoto_block.block_id();
             debug!(
@@ -1094,6 +1114,9 @@ impl<'a> TestPeer<'a> {
     {
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
+
+        // Ensure the signers are setup for the current cycle
+        // signers.generate_aggregate_key(cycle);
 
         let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,

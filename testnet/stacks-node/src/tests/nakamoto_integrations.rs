@@ -1238,7 +1238,13 @@ fn block_proposal_api_endpoint() {
             .header
             .sign_miner(&privk)
             .expect("Miner failed to sign");
-        signer.sign_nakamoto_block(&mut p.block);
+        let burn_height = burnchain
+            .get_highest_burnchain_block()
+            .unwrap()
+            .unwrap()
+            .block_height;
+        let cycle = burnchain.block_height_to_reward_cycle(burn_height).unwrap();
+        signer.sign_nakamoto_block(&mut p.block, cycle);
         p
     };
 
