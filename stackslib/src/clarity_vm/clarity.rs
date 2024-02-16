@@ -1331,38 +1331,6 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             let pox_4_contract_tx =
                 StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
 
-            let initialized_agg_key = if !mainnet {
-                let agg_key_value_opt = self
-                    .with_readonly_clarity_env(
-                        false,
-                        self.chain_id,
-                        ClarityVersion::Clarity2,
-                        StacksAddress::burn_address(false).into(),
-                        None,
-                        LimitedCostTracker::Free,
-                        |vm_env| {
-                            vm_env.execute_contract_allow_private(
-                                &boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false),
-                                BOOT_TEST_POX_4_AGG_KEY_FNAME,
-                                &[],
-                                true,
-                            )
-                        },
-                    )
-                    .map(|agg_key_value| {
-                        Ok::<_, InterpreterError>(
-                            Value::buff_from(agg_key_value.expect_buff(33)?)
-                                .expect("failed to reconstruct buffer"),
-                        )
-                    })
-                    .ok()
-                    .transpose()
-                    .expect("FATAL: failed to load aggregate public key");
-                agg_key_value_opt
-            } else {
-                None
-            };
-
             let pox_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
                 debug!("Instantiate {} contract", &pox_4_contract_id);

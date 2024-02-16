@@ -102,6 +102,7 @@ pub mod miner;
 pub mod tenure;
 
 pub mod signer_set;
+pub mod test_signers;
 #[cfg(test)]
 pub mod tests;
 

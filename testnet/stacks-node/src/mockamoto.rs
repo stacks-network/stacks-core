@@ -44,7 +44,7 @@ use stacks::chainstate::coordinator::comm::CoordinatorReceivers;
 use stacks::chainstate::coordinator::{
     ChainsCoordinator, ChainsCoordinatorConfig, CoordinatorCommunication,
 };
-use stacks::chainstate::nakamoto::tests::node::TestSigners;
+use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
@@ -94,7 +94,6 @@ use crate::neon_node::{PeerThread, StacksNode, BLOCK_PROCESSOR_STACK_SIZE};
 use crate::syncctl::PoxSyncWatchdogComms;
 use crate::{Config, EventDispatcher};
 
-pub mod signer;
 #[cfg(test)]
 mod tests;
 
@@ -424,7 +423,7 @@ impl MockamotoNode {
         initial_balances.push((stacker.into(), 100_000_000_000_000));
 
         // Create a boot contract to initialize the aggregate public key prior to Pox-4 activation
-        let self_signer = TestSigners::single_signer();
+        let self_signer = TestSigners::default();
         let agg_pub_key = self_signer.aggregate_public_key.clone();
         info!("Mockamoto node setting agg public key"; "agg_pub_key" => %to_hex(&self_signer.aggregate_public_key.compress().data));
         let callback = move |clarity_tx: &mut ClarityTx| {
@@ -1034,7 +1033,6 @@ impl MockamotoNode {
             .block_height_to_reward_cycle(self.sortdb.first_block_height, burn_tip.block_height)
             .unwrap();
         self.self_signer.sign_nakamoto_block(&mut block, cycle);
-        let staging_tx = self.chainstate.staging_db_tx_begin()?;
 
         let aggregate_public_key = if chain_length <= 1 {
             self.self_signer.aggregate_public_key
@@ -1047,6 +1045,8 @@ impl MockamotoNode {
             )?;
             aggregate_public_key
         };
+        let staging_tx = self.chainstate.staging_db_tx_begin()?;
+
         NakamotoChainState::accept_block(
             &config,
             block,

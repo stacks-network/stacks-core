@@ -52,8 +52,9 @@ use crate::chainstate::burn::db::sortdb::{self, SortitionDB};
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use crate::chainstate::nakamoto::coordinator::tests::make_token_transfer;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::address::{PoxAddress, PoxAddressType20, PoxAddressType32};
 use crate::chainstate::stacks::boot::pox_2_tests::{
@@ -210,7 +211,7 @@ fn vote_for_aggregate_public_key_success() {
     // ignore tenure change tx
     // ignore tenure coinbase tx
 
-    // first vote should succeed
+    // Alice's vote should succeed
     let alice_vote_tx = &receipts[2];
     assert_eq!(alice_vote_tx.result, Value::okay_true());
     assert_eq!(alice_vote_tx.events.len(), 1);
@@ -237,7 +238,7 @@ fn vote_for_aggregate_public_key_success() {
         panic!("Expected SmartContractEvent, got {:?}", alice_vote_event);
     }
 
-    // second vote should fail with duplicate vote error
+    // Bob's vote should succeed
     let bob_vote_tx = &receipts[3];
     assert_eq!(bob_vote_tx.result, Value::okay_true());
     assert_eq!(bob_vote_tx.events.len(), 2);

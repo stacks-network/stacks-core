@@ -13,7 +13,7 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::tests::node::TestSigners;
+use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -506,11 +506,17 @@ lazy_static! {
 }
 
 impl Config {
+    #[cfg(any(test, feature = "testing"))]
     pub fn self_signing(&self) -> Option<TestSigners> {
         if !(self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto") {
             return None;
         }
         self.miner.self_signing_key.clone()
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn self_signing(&self) -> Option<TestSigners> {
+        return None;
     }
 
     /// get the up-to-date burnchain options from the config.
@@ -2363,7 +2369,6 @@ pub struct MinerConfigFile {
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
     pub mining_key: Option<String>,
-    pub self_signing_seed: Option<u64>,
     pub wait_on_interim_blocks_ms: Option<u64>,
     pub min_tx_count: Option<u64>,
     pub only_increase_tx_count: Option<bool>,
@@ -2419,11 +2424,7 @@ impl MinerConfigFile {
                 .as_ref()
                 .map(|x| Secp256k1PrivateKey::from_hex(x))
                 .transpose()?,
-            self_signing_key: self
-                .self_signing_seed
-                .as_ref()
-                .map(|x| TestSigners::from_seed(*x))
-                .or(miner_default_config.self_signing_key),
+            self_signing_key: Some(TestSigners::default()),
             wait_on_interim_blocks: self
                 .wait_on_interim_blocks_ms
                 .map(Duration::from_millis)

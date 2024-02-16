@@ -27,7 +27,7 @@ use stacks::burnchains::MagicBytes;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use stacks::chainstate::nakamoto::tests::node::TestSigners;
+use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
@@ -189,7 +189,7 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     let mining_key = Secp256k1PrivateKey::from_seed(&[1]);
     conf.miner.mining_key = Some(mining_key);
-    conf.miner.self_signing_key = Some(TestSigners::from_seed(7));
+    conf.miner.self_signing_key = Some(TestSigners::default());
 
     conf.node.miner = true;
     conf.node.wait_time_for_microblocks = 500;

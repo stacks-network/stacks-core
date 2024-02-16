@@ -37,8 +37,9 @@ use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::coordinator::tests::{boot_nakamoto, make_token_transfer};
+use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::pox_2_tests::with_clarity_db_ro;
 use crate::chainstate::stacks::boot::pox_4_tests::{
