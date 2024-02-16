@@ -1621,6 +1621,7 @@ pub mod test {
     use wsts::curve::point::Point;
     use {mio, rand};
 
+    use self::nakamoto::test_signers::TestSigners;
     use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -1637,7 +1638,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
-    use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+    use crate::chainstate::nakamoto::tests::node::TestStacker;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;

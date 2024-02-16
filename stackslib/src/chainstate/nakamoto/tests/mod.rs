@@ -52,7 +52,8 @@ use crate::chainstate::coordinator::tests::{
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::tenure::NakamotoTenure;
-use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+use crate::chainstate::nakamoto::test_signers::TestSigners;
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, FIRST_STACKS_BLOCK_ID,
 };

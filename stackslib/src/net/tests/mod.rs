@@ -36,8 +36,9 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::coordinator::tests::p2pkh_from;
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::test::{
