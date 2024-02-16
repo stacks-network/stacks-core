@@ -205,7 +205,7 @@ pub struct GlobalContext<'a, 'hooks> {
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
@@ -1123,6 +1123,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             .global_context
             .database
             .get_contract_size(contract_identifier)?;
+
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
         self.global_context.add_memory(contract_size)?;

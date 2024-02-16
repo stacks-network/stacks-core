@@ -38,7 +38,7 @@ use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::structures::{
-    ClarityDeserializable, ClaritySerializable, ContractMetadata, DataMapMetadata,
+    ClarityDeserializable, ClaritySerializable, DataMapMetadata,
     DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
     STXBalanceSnapshot, SimmedBlock,
 };
@@ -576,14 +576,6 @@ impl<'a> ClarityDatabase<'a> {
         )
     }
 
-    pub fn insert_contract2(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        contract_src: &str,
-    ) -> Result<()> {
-        todo!("insert contract2");
-    }
-
     #[deprecated]
     pub fn insert_contract_hash(
         &mut self,
@@ -762,6 +754,17 @@ impl<'a> ClarityDatabase<'a> {
         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
         self.insert_metadata(contract_identifier, &key, &data_size)?;
         Ok(())
+    }
+
+    pub fn insert_contract2(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        contract: Contract,
+        src: &str,
+        data_size: u32
+    ) -> Result<()> {
+        self.store.put_contract(src.to_string(), contract.contract_context);
+        todo!("insert contract2");
     }
 
     #[deprecated]

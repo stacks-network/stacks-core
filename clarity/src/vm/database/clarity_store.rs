@@ -21,7 +21,7 @@ use rusqlite::Connection;
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
-use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contexts::GlobalContext;
 use crate::vm::database::{
     BurnStateDB, ClarityDatabase, ClarityDeserializable, ClaritySerializable, HeadersDB,
@@ -33,9 +33,9 @@ use crate::vm::errors::{
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use crate::vm::Value;
+use crate::vm::{ContractContext, Value};
 
-use super::structures::{BlockData, ContractAnalysisData, ContractData};
+use super::structures::{BlockData, ContractAnalysisData, ContractData, PendingContract};
 
 pub struct NullBackingStore {}
 
@@ -126,56 +126,91 @@ pub trait ClarityBackingStore {
 
     /// Retrieves the specified contract from the backing store. Returns
     /// [CheckErrors::NoSuchContract] if the contract is not found.
-    fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Option<ContractData>> {
+    fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Option<ContractContext>> {
         let (bhh, contract_hash) = self.get_contract_hash(contract_identifier)?;
         let contract = SqliteConnection::get_contract(
                 self.get_side_store(),
                 &contract_identifier.issuer.to_string(),
                 &contract_identifier.name.to_string(),
                 &bhh
-            );
+            )?;
 
-        Ok(contract)
+        Ok(
+            if let Some(data) = contract {
+                Some(rmp_serde::decode::from_slice(&data.contract)?)
+            } else {
+                None
+            }
+        )
     }
 
     /// Inserts the provided contract data into the backing store at the current 
     /// chain tip.
-    fn insert_contract(&mut self, data: &mut ContractData) {
-        if data.id.is_some() {
-            panic!("ContractData must not have an id set when inserting into the backing store");
-        }
+    fn insert_contract(&mut self, data: &mut PendingContract) -> Result<ContractData> {
 
         let chain_tip_height = self.get_open_chain_tip_height();
         let chain_tip = self.get_open_chain_tip();
 
-        let contract_id = SqliteConnection::insert_contract(
+        // 'content-hash': src_hash
+        // 'contract-src': data.source
+        // 'contract-size': src_len
+        let src_bytes = data.source.as_bytes();
+        let src_hash = Sha512Trunc256Sum::from_data(&src_bytes);
+        let src_len = src_bytes.len();
+
+        // Compress the plain-text source code.
+        let mut src_compressed = Vec::<u8>::with_capacity(src_len);
+        lzzzz::lz4::compress_to_vec(src_bytes, &mut src_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
+            .expect("ERROR: Failed to compress contract source code.");
+        let src_compressed_len = src_compressed.len() as u32;
+
+        // Serialize and compress the contract AST.
+        let contract_serialized = rmp_serde::to_vec(&data.contract)
+            .expect("ERROR: Failed to serialize contract AST.");
+        let mut contract_compressed = Vec::<u8>::with_capacity(contract_serialized.len());
+        lzzzz::lz4::compress_to_vec(&contract_serialized, &mut contract_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
+            .expect("ERROR: Failed to compress contract AST.");
+        let contract_compressed_len = contract_compressed.len() as u32;
+
+        let mut data = ContractData {
+            id: 0,
+            issuer: data.contract_id.issuer.to_string(),
+            name: data.contract_id.name.to_string(),
+            source_plaintext_size: data.source.len() as u32,
+            source_size: src_compressed_len,
+            source: src_compressed,
+            contract: contract_compressed,
+            contract_size: contract_compressed_len,
+            data_size: data.data_size
+        };
+
+        SqliteConnection::insert_contract(
             self.get_side_store(),
             &chain_tip,
             chain_tip_height,
-            &data
-        );
+            &mut data
+        )?;
 
-        data.id = Some(contract_id);
+        Ok(data)
     }
 
     /// Inserts the provided contract analysis data into the backing store at 
     /// the current chain tip.
-    fn insert_contract_analysis(&mut self, contract_id: u32, serialized_analysis: Vec<u8>) {
+    fn insert_contract_analysis(&mut self, contract_id: u32, analysis: &ContractAnalysis) -> Result<()> {
 
-        let analysis_size = serialized_analysis.len() as u32;
-        let data = ContractAnalysisData {
-            contract_id,
-            analysis: serialized_analysis,
-            analysis_size,
-        };
+        let analysis_serialized = rmp_serde::to_vec(analysis)?;
+
+        let mut analysis_compressed = Vec::<u8>::with_capacity(analysis_serialized.len());
+        lzzzz::lz4::compress_to_vec(&analysis_serialized, &mut analysis_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)?;
 
         SqliteConnection::insert_contract_analysis(
             self.get_side_store(),
-            &data
-        );
+            contract_id,
+            &analysis_compressed
+        )
     }
 
-    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) {
+    fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) -> Result<()> {
         let bhh = self.get_open_chain_tip();
         SqliteConnection::insert_metadata(
             self.get_side_store(),

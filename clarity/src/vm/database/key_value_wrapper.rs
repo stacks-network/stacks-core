@@ -22,17 +22,18 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::{ContractCommitment, SpecialCaseHandler};
-use super::structures::{ContractAnalysisData, ContractData};
+use super::structures::{ContractAnalysisData, ContractData, PendingContract};
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::vm::analysis::{CheckErrors, ContractAnalysis};
 use crate::vm::ast::ContractAST;
+use crate::vm::contracts::Contract;
 use crate::vm::database::clarity_store::make_contract_hash_key;
 use crate::vm::errors::{InterpreterError, InterpreterResult};
 use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::{
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
 };
-use crate::vm::{StacksEpoch, Value};
+use crate::vm::{ContractContext, StacksEpoch, Value};
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;
@@ -113,24 +114,12 @@ pub struct ValueResult {
     pub serialized_byte_len: u64,
 }
 
-#[derive(Debug)]
-pub struct PendingContract<'a> {
-    pub contract_id: &'a QualifiedContractIdentifier,
-    /// The raw, compressed contract source code as binary data.
-    pub source_code: &'a str,
-    /// The size of the contract's memory footprint in bytes.
-    pub data_size: u32,
-    /// The serialized contract AST as binary data.
-    pub ast: &'a ContractAST
-}
-
 #[derive(Debug, Default )]
-pub struct RollbackContext<'a> {
+pub struct RollbackContext {
     edits: Vec<(String, RollbackValueCheck)>,
     metadata_edits: Vec<((QualifiedContractIdentifier, String), RollbackValueCheck)>,
-    pending_contract: Option<PendingContract<'a>>,
-    contract: Option<ContractData>,
-    contract_analysis: Option<Vec<u8>>,
+    pending_contract: Option<PendingContract>,
+    contract_analysis: Option<ContractAnalysis>,
 }
 
 pub struct RollbackWrapper<'a> {
@@ -148,7 +137,7 @@ pub struct RollbackWrapper<'a> {
     //   stack depth.
     //  TODO: The solution to this is to just have a _single_ edit stack, and merely store indexes
     //   to indicate a given contexts "start depth".
-    stack: Vec<RollbackContext<'a>>,
+    stack: Vec<RollbackContext>,
     query_pending_data: bool,
 }
 
@@ -156,14 +145,14 @@ pub struct RollbackWrapper<'a> {
 //   than a BackingStore pointer. This is useful to prevent
 //   a real mess of lifetime parameters in the database/context
 //   and eval code.
-pub struct RollbackWrapperPersistedLog<'a> {
+pub struct RollbackWrapperPersistedLog {
     lookup_map: HashMap<String, Vec<String>>,
     metadata_lookup_map: HashMap<(QualifiedContractIdentifier, String), Vec<String>>,
-    stack: Vec<RollbackContext<'a>>,
+    stack: Vec<RollbackContext>,
 }
 
-impl<'a> From<RollbackWrapper<'a>> for RollbackWrapperPersistedLog<'a> {
-    fn from(o: RollbackWrapper<'a>) -> RollbackWrapperPersistedLog<'a> {
+impl<'a> From<RollbackWrapper<'a>> for RollbackWrapperPersistedLog {
+    fn from(o: RollbackWrapper<'a>) -> RollbackWrapperPersistedLog {
         RollbackWrapperPersistedLog {
             lookup_map: o.lookup_map,
             metadata_lookup_map: o.metadata_lookup_map,
@@ -172,14 +161,14 @@ impl<'a> From<RollbackWrapper<'a>> for RollbackWrapperPersistedLog<'a> {
     }
 }
 
-impl Default for RollbackWrapperPersistedLog<'_> {
+impl Default for RollbackWrapperPersistedLog {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> RollbackWrapperPersistedLog<'a> {
-    pub fn new() -> RollbackWrapperPersistedLog<'a> {
+impl RollbackWrapperPersistedLog {
+    pub fn new() -> RollbackWrapperPersistedLog {
         RollbackWrapperPersistedLog {
             lookup_map: HashMap::new(),
             metadata_lookup_map: HashMap::new(),
@@ -232,7 +221,7 @@ impl<'a> RollbackWrapper<'a> {
 
     pub fn from_persisted_log(
         store: &'a mut dyn ClarityBackingStore,
-        log: RollbackWrapperPersistedLog<'a>,
+        log: RollbackWrapperPersistedLog,
     ) -> RollbackWrapper<'a> {
         RollbackWrapper {
             store,
@@ -292,19 +281,19 @@ impl<'a> RollbackWrapper<'a> {
                 next_up.metadata_edits.push((key, value));
             }
 
-            next_up.contract = last_item.contract.take();
+            next_up.pending_contract = last_item.pending_contract.take();
             next_up.contract_analysis = last_item.contract_analysis.take();
         } else {
-            if last_item.contract.is_some() {
-                let mut contract = last_item.contract.take().unwrap();
-                self.store.insert_contract(&mut contract);
-
-                let contract_id = contract.id.expect("failed to retrieve id of new contract");
+            if last_item.pending_contract.is_some() {
+                let mut pending_contract = last_item.pending_contract.take().unwrap();
+                let contract_data = self.store.insert_contract(&mut pending_contract)
+                    .expect("ERROR: failed to insert contract into backing store.");
 
                 // insert contract analysis
                 if last_item.contract_analysis.is_some() {
                     let contract_analysis = last_item.contract_analysis.take().unwrap();
-                    self.store.insert_contract_analysis(contract_id, contract_analysis);
+                    self.store.insert_contract_analysis(contract_data.id, &contract_analysis)
+                        .expect("ERROR: failed to insert contract analysis into backing store.");
                 }
             }
 
@@ -312,7 +301,7 @@ impl<'a> RollbackWrapper<'a> {
             let all_edits =
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
             if all_edits.len() > 0 {
-                self.store.put_all(all_edits).map_err(|e| {
+                self.store.put_all_data(all_edits).map_err(|e| {
                     InterpreterError::Expect(format!(
                         "ERROR: Failed to commit data to sql store: {e:?}"
                     ))
@@ -359,7 +348,9 @@ impl<'a> RollbackWrapper<'a> {
             .last_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
-        let analysis_serialized = rmp_serde::to_vec(analysis)
+        current.contract_analysis = Some(analysis.clone());
+
+        /*let analysis_serialized = rmp_serde::to_vec(analysis)
             .expect("ERROR: Failed to serialize contract analysis.");
 
         let mut analysis_compressed = Vec::<u8>::with_capacity(analysis_serialized.len());
@@ -367,56 +358,32 @@ impl<'a> RollbackWrapper<'a> {
         lzzzz::lz4::compress_to_vec(&analysis_serialized, &mut analysis_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
             .expect("ERROR: Failed to compress contract analysis.");
 
-        current.contract_analysis = Some(analysis_compressed);
+        current.contract_analysis = Some(analysis_compressed);*/
     }
 
     pub fn put_contract(
-        &mut self, 
-        src: &str,
-        ast: &ContractAST,
-        data_size: u32,
+        &mut self,
+        src: String,
+        contract: ContractContext
     ) {
-        let contract_id = &ast.contract_identifier;
-
-        // 'content-hash': contract_src_hash
-        // 'contract-src': contract_src
-        // 'contract-size': contract_src_len
-        let src_bytes = src.as_bytes();
-        let src_hash = Sha512Trunc256Sum::from_data(&src_bytes);
-        let src_len = src_bytes.len();
-
-        // Create the `data` entry for this contract and add it to the data edits
-        // for this rollback wrapper.
-        let key = make_contract_hash_key(contract_id);
-        let value = self.store.make_contract_commitment(src_hash);
-        self.put_data(&key, &value);
-        
-
-        // Compress the plain-text source code.
-        let mut src_compressed = Vec::<u8>::with_capacity(src_len);
-        lzzzz::lz4::compress_to_vec(src_bytes, &mut src_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
-            .expect("ERROR: Failed to compress contract source code.");
-        let src_compressed_len = src_compressed.len() as u32;
-
-        // Serialize and compress the contract AST.
-        let ast_serialized = rmp_serde::to_vec(&ast)
-            .expect("ERROR: Failed to serialize contract AST.");
-        let mut ast_compressed = Vec::<u8>::with_capacity(ast_serialized.len());
-        lzzzz::lz4::compress_to_vec(&ast_serialized, &mut ast_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
-            .expect("ERROR: Failed to compress contract AST.");
-        let ast_compressed_len = ast_compressed.len() as u32;
-
         let current = self
             .stack
             .last_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
-        if current.contract.is_some() {
+        if current.pending_contract.is_some() {
             panic!("ERROR: Clarity VM attempted to PUT a contract into a context that already has a contract.");
         }
 
+        current.pending_contract = Some(PendingContract {
+            contract_id: contract.contract_identifier.clone(),
+            source: src,
+            data_size: contract.data_size as u32,
+            contract
+        });
+
         // Set the contract for the current context.
-        current.contract = Some(ContractData {
+        /*current.contract = Some(ContractData {
             id: None,
             contract_issuer: contract_id.issuer.to_string(),
             contract_name: contract_id.name.to_string(),
@@ -426,7 +393,7 @@ impl<'a> RollbackWrapper<'a> {
             ast: ast_compressed,
             ast_size: ast_compressed_len,
             data_size
-        });
+        });*/
     }
 
     pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
@@ -611,7 +578,7 @@ impl<'a> RollbackWrapper<'a> {
         }
     }
 
-    pub fn get_contract_data(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractData> {
+    pub fn get_contract_ast(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractContext> {
         self.stack
             .last()
             .expect("ERROR: Clarity VM attempted GET on non-nested context.");
@@ -620,12 +587,9 @@ impl<'a> RollbackWrapper<'a> {
             self.stack
                 .iter()
                 .rev()
-                .filter_map(|x| x.contract.as_ref())
-                .find(|x| 
-                    x.contract_issuer == contract_identifier.issuer.to_string()
-                    && x.contract_name == contract_identifier.name.to_string()
-                )
-                .cloned()
+                .filter_map(|x| x.pending_contract.as_ref())
+                .find(|x| &x.contract_id == contract_identifier)
+                .map(|x| x.contract.clone())
                 .or_else(|| self.store.get_contract(contract_identifier)
                     .expect("ERROR: Clarity VM experienced a contract lookup failure.")
                 )

@@ -395,8 +395,8 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    // TODO: [Clarity] This serializes the marf value to hex and then looks up the value in the side store.
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    // This serializes the marf value to hex and then looks up the value in the side store.
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -418,7 +418,7 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .transpose()
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -564,7 +564,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn get(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -594,7 +594,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             .transpose()
     }
 
-    fn get_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {

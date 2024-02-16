@@ -89,9 +89,8 @@ impl SqliteConnection {
         conn: &Connection,
         bhh: &StacksBlockId,
         block_height: u32,
-        data: &ContractData
-    ) -> u32 {
-
+        data: &mut ContractData
+    ) -> Result<()> {
         let mut statement = conn.prepare_cached(
             "
             INSERT INTO contract (
@@ -103,38 +102,38 @@ impl SqliteConnection {
                 source_size, 
                 source_plaintext_size, 
                 data_size, 
-                ast, 
-                ast_size 
+                contract, 
+                contract_size 
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             );
             "
-        ).expect("Failed to prepare contract insert statement");
+        )?;
 
         let contract_id = statement.insert(
             [
-                &data.contract_issuer as &dyn ToSql, 
-                &data.contract_name as &dyn ToSql, 
+                &data.issuer as &dyn ToSql, 
+                &data.name as &dyn ToSql, 
                 &bhh.0.as_slice() as &dyn ToSql, 
                 &block_height as &dyn ToSql, 
-                &data.source_code as &dyn ToSql, 
-                &data.source_code_size as &dyn ToSql, 
-                &data.raw_source_code_size as &dyn ToSql, 
+                &data.source as &dyn ToSql, 
+                &data.source_size as &dyn ToSql, 
+                &data.source_plaintext_size as &dyn ToSql, 
                 &data.data_size as &dyn ToSql, 
-                &data.ast as &dyn ToSql, 
-                &data.ast_size as &dyn ToSql
-            ]).unwrap_or_else(|err| {
-                error!("Failed to insert contract: {:?}", err);
-                panic!("{}", SQL_FAIL_MESSAGE);
-            });
+                &data.contract as &dyn ToSql, 
+                &data.contract_size as &dyn ToSql
+            ])?;
 
-        contract_id as u32
+        data.id = contract_id as u32;
+
+        Ok(())
     }
 
     pub fn insert_contract_analysis(
         conn: &Connection,
-        data: &ContractAnalysisData,
-    ) {
+        contract_id: u32,
+        data: &[u8],
+    ) -> Result<()> {
         let mut statement = conn.prepare_cached(
             "
             INSERT INTO contract_analysis (
@@ -145,17 +144,16 @@ impl SqliteConnection {
                 ?, ?, ?
             );
             "
-            ).expect("Failed to prepare contract analysis insert statement");
+            )?;
 
         statement.insert(
             [
-                &data.contract_id as &dyn ToSql, 
-                &data.analysis as &dyn ToSql, 
-                &data.analysis_size as &dyn ToSql
-            ]).unwrap_or_else(|err| {
-                error!("Failed to insert contract analysis: {:?}", err);
-                panic!("{}", SQL_FAIL_MESSAGE);
-            });
+                &contract_id as &dyn ToSql, 
+                &data as &dyn ToSql, 
+                &(data.len() as u32) as &dyn ToSql
+            ])?;
+
+        Ok(())
     }
 
     pub fn get_contract(
@@ -163,7 +161,7 @@ impl SqliteConnection {
         contract_issuer: &str,
         contract_name: &str,
         bhh: &StacksBlockId,
-    ) -> Option<ContractData> {
+    ) -> Result<Option<ContractData>> {
         let mut statement = conn.prepare_cached(
                 "
                 SELECT 
@@ -176,8 +174,8 @@ impl SqliteConnection {
                     source_size, 
                     source_plaintext_size, 
                     data_size, 
-                    ast, 
-                    ast_size 
+                    contract, 
+                    contract_size 
                 FROM 
                     contract 
                 WHERE 
@@ -185,9 +183,9 @@ impl SqliteConnection {
                     AND name = ? 
                     AND block_hash = ?
                 "
-            ).expect("Failed to prepare contract select statement");
+            )?;
 
-        statement.query_row(
+        let result = statement.query_row(
             [
                 &contract_issuer as &dyn ToSql, 
                 &contract_name  as &dyn ToSql, 
@@ -195,28 +193,26 @@ impl SqliteConnection {
             ],
             |row| {
                 Ok(ContractData {
-                    id: Some(row.get(0)?),
-                    contract_issuer: row.get(1)?,
-                    contract_name: row.get(2)?,
-                    source_code: row.get(5)?,
-                    source_code_size: row.get(6)?,
-                    raw_source_code_size: row.get(7)?,
+                    id: row.get(0)?,
+                    issuer: row.get(1)?,
+                    name: row.get(2)?,
+                    source: row.get(5)?,
+                    source_size: row.get(6)?,
+                    source_plaintext_size: row.get(7)?,
                     data_size: row.get(8)?,
-                    ast: row.get(9)?,
-                    ast_size: row.get(10)?,
+                    contract: row.get(9)?,
+                    contract_size: row.get(10)?,
                 })
             })
-            .optional()
-            .unwrap_or_else(|err| {
-                error!("Failed to get contract: {:?}", err);
-                panic!("{}", SQL_FAIL_MESSAGE);
-            })
+            .optional()?;
+
+        Ok(result)
     }
 
     pub fn get_contract_analysis(
         conn: &Connection,
         contract_id: u32,
-    ) -> Option<ContractAnalysisData> {
+    ) -> Result<Option<ContractAnalysisData>> {
         let mut statement = conn.prepare_cached(
             "
             SELECT
@@ -229,7 +225,7 @@ impl SqliteConnection {
                 contract_id = ?
             ").expect("Failed to prepare contract analysis select statement");
 
-        statement.query_row(
+        let result = statement.query_row(
             [
                 &contract_id as &dyn ToSql
             ],
@@ -241,11 +237,9 @@ impl SqliteConnection {
                 })
             }
         )
-        .optional()
-        .unwrap_or_else(|err| {
-            error!("Failed to get contract analysis: {:?}", err);
-            panic!("{}", SQL_FAIL_MESSAGE);
-        })
+        .optional()?;
+
+        Ok(result)
     }
 
     pub fn insert_metadata(
@@ -360,8 +354,8 @@ impl SqliteConnection {
                     source_size INTEGER NOT NULL,
                     source_plaintext_size INTEGER NOT NULL,
                     data_size INTEGER NOT NULL,
-                    ast BINARY NOT NULL,
-                    ast_size INTEGER NOT NULL,
+                    contract BINARY NOT NULL,
+                    contract_size INTEGER NOT NULL,
                 
                     UNIQUE (issuer, name, block_hash)
                 );

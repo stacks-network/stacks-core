@@ -119,6 +119,39 @@ impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     }
 }
 
+impl From<rusqlite::Error> for Error {
+    fn from(err: rusqlite::Error) -> Self {
+        Error::Interpreter(InterpreterError::SqliteError(IncomparableError { err }))
+    }
+}
+
+impl From<rmp_serde::encode::Error> for Error {
+    fn from(err: rmp_serde::encode::Error) -> Self {
+        Error::Interpreter(InterpreterError::InterpreterError(format!(
+            "Failed to encode value: {}",
+            err
+        )))
+    }
+}
+
+impl From<rmp_serde::decode::Error> for Error {
+    fn from(err: rmp_serde::decode::Error) -> Self {
+        Error::Interpreter(InterpreterError::InterpreterError(format!(
+            "Failed to decode value: {}",
+            err
+        )))
+    }
+}
+
+impl From<lzzzz::Error> for Error {
+    fn from(err: lzzzz::Error) -> Self {
+        Error::Interpreter(InterpreterError::InterpreterError(format!(
+            "Failed to compress value: {}",
+            err
+        )))
+    }
+}
+
 impl PartialEq<Error> for Error {
     fn eq(&self, other: &Error) -> bool {
         match (self, other) {
