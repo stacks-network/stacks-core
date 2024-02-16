@@ -14,7 +14,7 @@ members = [
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]  
-wsts = { version = "8.0", default-features = false }
+wsts = { version = "8.1", default-features = false }
 ed25519-dalek = { version = "2.1.1", features = ["serde", "rand_core"] } 
 rand_core = "0.6"
 rand = "0.8"
