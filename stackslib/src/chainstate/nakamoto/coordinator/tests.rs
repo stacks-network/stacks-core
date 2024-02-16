@@ -1841,11 +1841,12 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
         None,
     );
 
-    let mut all_blocks = vec![];
+    let mut all_blocks: Vec<NakamotoBlock> = vec![];
     let mut all_burn_ops = vec![];
     let mut rc_blocks = vec![];
     let mut rc_burn_ops = vec![];
     let mut consensus_hashes = vec![];
+    let mut fee_counts = vec![];
     let stx_miner_key = peer.miner.nakamoto_miner_key();
 
     for i in 0..10 {
@@ -1864,6 +1865,41 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
 
         debug!("Next burnchain block: {}", &consensus_hash);
 
+        let block_height = peer
+            .config
+            .burnchain
+            .get_highest_burnchain_block()
+            .unwrap()
+            .unwrap()
+            .block_height;
+        // If we are in the prepare phase, check if we need to generate
+        // aggregate key votes
+        let txs = if peer.config.burnchain.is_in_prepare_phase(block_height) {
+            let cycle_id = peer
+                .config
+                .burnchain
+                .block_height_to_reward_cycle(block_height)
+                .unwrap();
+            let next_cycle_id = cycle_id as u128 + 1;
+
+            with_sortdb(&mut peer, |chainstate, sortdb| {
+                if let Some(tip) = all_blocks.last() {
+                    make_all_signers_vote_for_aggregate_key(
+                        chainstate,
+                        sortdb,
+                        &tip.block_id(),
+                        &mut test_signers,
+                        &test_stackers,
+                        next_cycle_id,
+                    )
+                } else {
+                    vec![]
+                }
+            })
+        } else {
+            vec![]
+        };
+
         // do a stx transfer in each block to a given recipient
         let recipient_addr =
             StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
@@ -1873,6 +1909,13 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
             &mut test_signers,
             |miner, chainstate, sortdb, blocks_so_far| {
                 if blocks_so_far.len() < 10 {
+                    // Include the aggregate key voting transactions in the first block.
+                    let mut txs = if blocks_so_far.is_empty() {
+                        txs.clone()
+                    } else {
+                        vec![]
+                    };
+
                     debug!("\n\nProduce block {}\n\n", blocks_so_far.len());
 
                     let account = get_account(chainstate, sortdb, &addr);
@@ -1886,13 +1929,14 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
                         1,
                         &recipient_addr,
                     );
+                    txs.push(stx_transfer);
 
                     let last_block_opt = blocks_so_far
                         .last()
                         .as_ref()
                         .map(|(block, _size, _cost)| block.header.block_id());
 
-                    let mut txs = vec![];
+                    let mut final_txs = vec![];
                     if let Some(last_block) = last_block_opt.as_ref() {
                         let tenure_extension = tenure_change.extend(
                             consensus_hash.clone(),
@@ -1901,16 +1945,29 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
                         );
                         let tenure_extension_tx =
                             miner.make_nakamoto_tenure_change(tenure_extension.clone());
-                        txs.push(tenure_extension_tx);
+                        final_txs.push(tenure_extension_tx);
                     }
-                    txs.append(&mut vec![stx_transfer]);
-                    txs
+                    final_txs.append(&mut txs);
+                    final_txs
                 } else {
                     vec![]
                 }
             },
         );
+
+        let fees = blocks_and_sizes
+            .iter()
+            .map(|(block, _, _)| {
+                block
+                    .txs
+                    .iter()
+                    .map(|tx| tx.get_tx_fee() as u128)
+                    .sum::<u128>()
+            })
+            .sum::<u128>();
+
         consensus_hashes.push(consensus_hash);
+        fee_counts.push(fees);
         let mut blocks: Vec<NakamotoBlock> = blocks_and_sizes
             .into_iter()
             .map(|(block, _, _)| block)
@@ -1987,6 +2044,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
     //            first 10          block    unmatured rewards
     //            blocks             11
     let mut expected_coinbase_rewards: u128 = 28800000000;
+    let mut fees_so_far: u128 = 0;
     for (i, ch) in consensus_hashes.into_iter().enumerate() {
         let sn = SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &ch)
             .unwrap()
@@ -2006,8 +2064,14 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
             .unwrap();
 
         // it's 1 * 10 because it's 1 uSTX per token-transfer, and 10 per tenure
-        let expected_total_tx_fees = 1 * 10 * (i as u128).saturating_sub(3);
+        let block_fee = if i > 3 {
+            fee_counts[i.saturating_sub(4)]
+        } else {
+            0
+        };
+        let expected_total_tx_fees = fees_so_far + block_fee;
         let expected_total_coinbase = expected_coinbase_rewards;
+        fees_so_far += block_fee;
 
         if i == 0 {
             // first tenure awards the last of the initial mining bonus
