@@ -121,11 +121,11 @@ impl Selector {
     pub fn get_coordinator(&self) -> (u32, ecdsa::PublicKey) {
         (
             self.coordinator_id,
-            self.public_keys
+            *self
+                .public_keys
                 .signers
                 .get(&self.coordinator_id)
-                .expect("FATAL: missing public key for selected coordinator id")
-                .clone(),
+                .expect("FATAL: missing public key for selected coordinator id"),
         )
     }
 }

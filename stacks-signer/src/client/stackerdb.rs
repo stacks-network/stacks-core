@@ -53,7 +53,7 @@ impl From<&SignerConfig> for StackerDB {
     fn from(config: &SignerConfig) -> Self {
         StackerDB::new(
             config.node_host,
-            config.stacks_private_key.clone(),
+            config.stacks_private_key,
             config.mainnet,
             config.reward_cycle,
             config.signer_slot_id,

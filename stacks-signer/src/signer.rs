@@ -1259,7 +1259,7 @@ impl Signer {
                         continue;
                     };
                     if Some(point) == self.coordinator.aggregate_public_key
-                        && round == self.coordinator.current_dkg_id as u64
+                        && round == self.coordinator.current_dkg_id
                     {
                         debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction for aggregate public key {point:?} for round {round}...", self.signer_id);
                         return Ok(());
@@ -1273,7 +1273,7 @@ impl Signer {
                 .get_vote_for_aggregate_public_key(
                     self.coordinator.current_dkg_id,
                     self.reward_cycle,
-                    stacks_client.get_signer_address().clone(),
+                    *stacks_client.get_signer_address(),
                 )?
                 .is_some()
             {

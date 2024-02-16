@@ -312,7 +312,7 @@ fn handle_generate_stacking_signature(
         &args.pox_address,
         &private_key, //
         args.reward_cycle.into(),
-        &args.method.topic(),
+        args.method.topic(),
         config.network.to_chain_id(),
         args.period.into(),
     )
@@ -417,14 +417,13 @@ pub mod tests {
             to_hex(signature.as_slice()),
             to_hex(public_key.to_bytes_compressed().as_slice()),
         );
-        let result = execute_v2(&program)
+        execute_v2(&program)
             .expect("FATAL: could not execute program")
             .expect("Expected result")
             .expect_result_ok()
             .expect("Expected ok result")
             .expect_bool()
-            .expect("Expected buff");
-        result
+            .expect("Expected buff")
     }
 
     #[test]

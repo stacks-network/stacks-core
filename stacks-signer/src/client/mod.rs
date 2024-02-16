@@ -444,9 +444,7 @@ pub(crate) mod tests {
                 let signer_public_key =
                     Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes())).unwrap();
                 signer_public_keys.insert(signer_id, signer_public_key);
-                public_keys
-                    .signers
-                    .insert(signer_id, ecdsa_public_key.clone());
+                public_keys.signers.insert(signer_id, ecdsa_public_key);
                 for k in start_key_id..end_key_id {
                     public_keys.key_ids.insert(k, ecdsa_public_key);
                     coordinator_key_ids
@@ -466,7 +464,7 @@ pub(crate) mod tests {
             let signer_public_key =
                 Point::try_from(&Compressed::from(public_key.to_bytes())).unwrap();
             signer_public_keys.insert(signer_id, signer_public_key);
-            public_keys.signers.insert(signer_id, public_key.clone());
+            public_keys.signers.insert(signer_id, public_key);
             for k in start_key_id..end_key_id {
                 public_keys.key_ids.insert(k, public_key);
                 coordinator_key_ids
@@ -483,7 +481,7 @@ pub(crate) mod tests {
                 &StacksPublicKey::from_slice(public_key.to_bytes().as_slice())
                     .expect("Failed to create stacks public key"),
             );
-            signer_address_ids.insert(address.clone(), signer_id);
+            signer_address_ids.insert(address, signer_id);
             addresses.push(address);
             start_key_id = end_key_id;
             coordinator_ids.push(signer_id);
