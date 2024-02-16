@@ -1096,7 +1096,7 @@ fn correct_burn_outs() {
         assert_eq!(reward_set.rewarded_addresses.len(), 1);
         assert_eq!(signers.len(), 1);
         // the signer should have 1 "slot", because they stacked the minimum stacking amount
-        assert_eq!(signers[0].slots, 1);
+        assert_eq!(signers[0].weight, 1);
     }
 
     run_loop_thread.join().unwrap();
