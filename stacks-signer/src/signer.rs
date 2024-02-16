@@ -110,12 +110,65 @@ pub enum State {
     Idle,
     /// The signer is executing a DKG or Sign round
     OperationInProgress,
-    /// The Signer has exceeded its tenure
-    TenureExceeded,
+}
+/// The stacks signer for a reward cycle
+pub enum Signer {
+    /// A registered signer
+    Registered(RegisteredSigner),
+    /// An unregistered signer
+    Unregistered(UnregisteredSigner),
 }
 
-/// The stacks signer for the rewrad cycle
-pub struct Signer {
+impl Signer {
+    /// Get the reward cycle of the internal signer
+    pub fn reward_cycle(&self) -> u64 {
+        match self {
+            Self::Registered(signer) => signer.reward_cycle,
+            Self::Unregistered(signer) => signer.reward_cycle,
+        }
+    }
+
+    /// Get the state of the internal signer
+    pub fn state(&self) -> State {
+        match self {
+            Self::Registered(signer) => signer.state.clone(),
+            Self::Unregistered(signer) => signer.state.clone(),
+        }
+    }
+}
+
+/// The stacks signer unregistered for the reward cycle
+pub struct UnregisteredSigner {
+    /// The reward cycle this signer belongs to
+    pub reward_cycle: u64,
+    /// the state of the signer (Can only be Idle)
+    pub state: State,
+}
+
+impl UnregisteredSigner {
+    /// Create a new signer which is not registered for the reward cycle
+    pub fn new(reward_cycle: u64) -> Self {
+        Self {
+            reward_cycle,
+            state: State::Idle,
+        }
+    }
+}
+
+impl From<SignerConfig> for Signer {
+    fn from(signer_config: SignerConfig) -> Self {
+        Self::Registered(RegisteredSigner::from(signer_config))
+    }
+}
+
+impl From<u64> for Signer {
+    fn from(reward_cycle: u64) -> Self {
+        Self::Unregistered(UnregisteredSigner::new(reward_cycle))
+    }
+}
+
+/// The stacks signer registered for the reward cycle
+pub struct RegisteredSigner {
     /// The coordinator for inbound messages for a specific reward cycle
     pub coordinator: FireCoordinator<v2::Aggregator>,
     /// The signing round used to sign messages for a specific reward cycle
@@ -143,7 +196,7 @@ pub struct Signer {
     pub coordinator_selector: Selector,
 }
 
-impl From<SignerConfig> for Signer {
+impl From<SignerConfig> for RegisteredSigner {
     fn from(signer_config: SignerConfig) -> Self {
         let stackerdb = StackerDB::from(&signer_config);
 
@@ -200,7 +253,7 @@ impl From<SignerConfig> for Signer {
     }
 }
 
-impl Signer {
+impl RegisteredSigner {
     /// Finish an operation and update the coordinator selector accordingly
     fn finish_operation(&mut self) {
         self.state = State::Idle;
@@ -315,13 +368,6 @@ impl Signer {
                     self.signer_id,
                 );
             }
-            State::TenureExceeded => {
-                // We have exceeded our tenure. Do nothing...
-                debug!(
-                    "Signer #{}: Waiting to clean up signer for reward cycle {}",
-                    self.signer_id, self.reward_cycle
-                );
-            }
         }
     }
 
@@ -331,6 +377,7 @@ impl Signer {
         stacks_client: &StacksClient,
         block_validate_response: &BlockValidateResponse,
         res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
     ) {
         let block_info = match block_validate_response {
             BlockValidateResponse::Ok(block_validate_ok) => {
@@ -341,7 +388,11 @@ impl Signer {
                     debug!("Signer #{}: Received a block validate response for a block we have not seen before. Ignoring...", self.signer_id);
                     return;
                 };
-                let is_valid = self.verify_block_transactions(stacks_client, &block_info.block);
+                let is_valid = self.verify_block_transactions(
+                    stacks_client,
+                    &block_info.block,
+                    current_reward_cycle,
+                );
                 block_info.valid = Some(is_valid);
                 info!(
                     "Signer #{}: Treating block validation for block {} as valid: {:?}",
@@ -386,7 +437,7 @@ impl Signer {
                 msg: Message::NonceRequest(nonce_request),
                 sig: vec![],
             };
-            self.handle_packets(stacks_client, res, &[packet]);
+            self.handle_packets(stacks_client, res, &[packet], current_reward_cycle);
         } else {
             let coordinator_id = self.coordinator_selector.get_coordinator().0;
             if block_info.valid.unwrap_or(false)
@@ -422,6 +473,7 @@ impl Signer {
         stacks_client: &StacksClient,
         res: Sender<Vec<OperationResult>>,
         messages: &[SignerMessage],
+        current_reward_cycle: u64,
     ) {
         let coordinator_pubkey = self.coordinator_selector.get_coordinator().1;
         let packets: Vec<Packet> = messages
@@ -435,7 +487,7 @@ impl Signer {
                 }
             })
             .collect();
-        self.handle_packets(stacks_client, res, &packets);
+        self.handle_packets(stacks_client, res, &packets, current_reward_cycle);
     }
 
     /// Handle proposed blocks submitted by the miners to stackerdb
@@ -465,6 +517,7 @@ impl Signer {
         stacks_client: &StacksClient,
         res: Sender<Vec<OperationResult>>,
         packets: &[Packet],
+        current_reward_cycle: u64,
     ) {
         let signer_outbound_messages = self
             .signing_round
@@ -492,7 +545,7 @@ impl Signer {
         if !operation_results.is_empty() {
             // We have finished a signing or DKG round, either successfully or due to error.
             // Regardless of the why, update our state to Idle as we should not expect the operation to continue.
-            self.process_operation_results(stacks_client, &operation_results);
+            self.process_operation_results(stacks_client, &operation_results, current_reward_cycle);
             self.send_operation_results(res, operation_results);
             self.finish_operation();
         } else if !packets.is_empty() && self.coordinator.state != CoordinatorState::Idle {
@@ -609,6 +662,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         block: &NakamotoBlock,
+        current_reward_cycle: u64,
     ) -> bool {
         let aggregate_key = retry_with_exponential_backoff(|| {
             stacks_client
@@ -629,7 +683,7 @@ impl Signer {
             .cloned()
             .collect::<Vec<_>>();
         if let Ok(expected_transactions) =
-            self.get_filtered_transactions(stacks_client, &signer_ids)
+            self.get_filtered_transactions(stacks_client, &signer_ids, current_reward_cycle)
         {
             //It might be worth building a hashset of the blocks' txids and checking that against the expected transaction's txid.
             let block_tx_hashset = block.txs.iter().map(|tx| tx.txid()).collect::<HashSet<_>>();
@@ -703,6 +757,7 @@ impl Signer {
         &self,
         stacks_client: &StacksClient,
         transaction: StacksTransaction,
+        current_reward_cycle: u64,
     ) -> Option<StacksTransaction> {
         // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
         let origin_address = transaction.origin_address();
@@ -741,8 +796,13 @@ impl Signer {
             return None;
         }
         let Ok(valid) = retry_with_exponential_backoff(|| {
-            self.verify_payload(stacks_client, &transaction, *origin_signer_id)
-                .map_err(backoff::Error::transient)
+            self.verify_payload(
+                stacks_client,
+                &transaction,
+                *origin_signer_id,
+                current_reward_cycle,
+            )
+            .map_err(backoff::Error::transient)
         }) else {
             warn!(
                 "Signer #{}: Unable to validate transaction payload. Filtering ({}).",
@@ -773,6 +833,7 @@ impl Signer {
         stacks_client: &StacksClient,
         transaction: &StacksTransaction,
         origin_signer_id: u32,
+        current_reward_cycle: u64,
     ) -> Result<bool, ClientError> {
         let TransactionPayload::ContractCall(payload) = &transaction.payload else {
             // Not a contract call so not a special cased vote for aggregate public key transaction
@@ -795,7 +856,7 @@ impl Signer {
             // The signer is attempting to vote for another signer id than their own
             return Ok(false);
         }
-        let next_reward_cycle = stacks_client.get_current_reward_cycle()?.wrapping_add(1);
+        let next_reward_cycle = current_reward_cycle.wrapping_add(1);
         if reward_cycle != next_reward_cycle {
             // The signer is attempting to vote for a reward cycle that is not the next reward cycle
             return Ok(false);
@@ -832,12 +893,15 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         signer_ids: &[u32],
+        current_reward_cycle: u64,
     ) -> Result<Vec<StacksTransaction>, ClientError> {
         let transactions = self
             .stackerdb
             .get_signer_transactions_with_retry(signer_ids)?
             .into_iter()
-            .filter_map(|transaction| self.verify_signer_transaction(stacks_client, transaction))
+            .filter_map(|transaction| {
+                self.verify_signer_transaction(stacks_client, transaction, current_reward_cycle)
+            })
             .collect();
         Ok(transactions)
     }
@@ -910,6 +974,7 @@ impl Signer {
         &mut self,
         stacks_client: &StacksClient,
         operation_results: &[OperationResult],
+        current_reward_cycle: u64,
     ) {
         for operation_result in operation_results {
             // Signers only every trigger non-taproot signing rounds over blocks. Ignore SignTaproot results
@@ -922,7 +987,7 @@ impl Signer {
                     debug!("Signer #{}: Received a signature result for a taproot signature. Nothing to broadcast as we currently sign blocks with a FROST signature.", self.signer_id);
                 }
                 OperationResult::Dkg(point) => {
-                    self.process_dkg(stacks_client, point);
+                    self.process_dkg(stacks_client, point, current_reward_cycle);
                 }
                 OperationResult::SignError(e) => {
                     self.process_sign_error(e);
@@ -935,7 +1000,12 @@ impl Signer {
     }
 
     /// Process a dkg result by broadcasting a vote to the stacks node
-    fn process_dkg(&mut self, stacks_client: &StacksClient, point: &Point) {
+    fn process_dkg(
+        &mut self,
+        stacks_client: &StacksClient,
+        point: &Point,
+        current_reward_cycle: u64,
+    ) {
         let epoch = stacks_client
             .get_node_epoch_with_retry()
             .unwrap_or(StacksEpochId::Epoch24);
@@ -949,7 +1019,7 @@ impl Signer {
             None
         };
         // Get our current nonce from the stacks node and compare it against what we have sitting in the stackerdb instance
-        let nonce = self.get_next_nonce(stacks_client);
+        let nonce = self.get_next_nonce(stacks_client, current_reward_cycle);
         match stacks_client.build_vote_for_aggregate_public_key(
             self.stackerdb.get_signer_slot_id(),
             self.coordinator.current_dkg_id,
@@ -959,7 +1029,9 @@ impl Signer {
             nonce,
         ) {
             Ok(transaction) => {
-                if let Err(e) = self.broadcast_dkg_vote(stacks_client, transaction, epoch) {
+                if let Err(e) =
+                    self.broadcast_dkg_vote(stacks_client, transaction, epoch, current_reward_cycle)
+                {
                     warn!(
                         "Signer #{}: Failed to broadcast DKG vote ({point:?}): {e:?}",
                         self.signer_id
@@ -976,7 +1048,7 @@ impl Signer {
     }
 
     /// Get the next available nonce, taking into consideration the nonce we have sitting in stackerdb as well as the account nonce
-    fn get_next_nonce(&mut self, stacks_client: &StacksClient) -> u64 {
+    fn get_next_nonce(&mut self, stacks_client: &StacksClient, current_reward_cycle: u64) -> u64 {
         let signer_address = stacks_client.get_signer_address();
         let mut next_nonce = stacks_client
             .get_account_nonce(signer_address)
@@ -988,7 +1060,7 @@ impl Signer {
             })
             .unwrap_or(0);
 
-        let current_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id]).map_err(|e| {
+        let current_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id], current_reward_cycle).map_err(|e| {
             warn!("Signer #{}: Failed to get old transactions: {e:?}. Defaulting to account nonce.", self.signer_id);
         }).unwrap_or_default();
 
@@ -1008,6 +1080,7 @@ impl Signer {
         stacks_client: &StacksClient,
         new_transaction: StacksTransaction,
         epoch: StacksEpochId,
+        current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
         let txid = new_transaction.txid();
         let aggregate_key = retry_with_exponential_backoff(|| {
@@ -1048,7 +1121,7 @@ impl Signer {
             );
             vec![]
         } else {
-            let mut new_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id]).map_err(|e| {
+            let mut new_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id], current_reward_cycle).map_err(|e| {
             warn!("Signer #{}: Failed to get old transactions: {e:?}. Potentially overwriting our existing stackerDB transactions", self.signer_id);
         }).unwrap_or_default();
             new_transactions.push(new_transaction);
@@ -1232,7 +1305,11 @@ impl Signer {
     }
 
     /// Update the DKG for the provided signer info, triggering it if required
-    pub fn update_dkg(&mut self, stacks_client: &StacksClient) -> Result<(), ClientError> {
+    pub fn update_dkg(
+        &mut self,
+        stacks_client: &StacksClient,
+        current_reward_cycle: u64,
+    ) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
         let new_aggregate_public_key = stacks_client.get_approved_aggregate_key(reward_cycle)?;
         let old_aggregate_public_key = self.coordinator.get_aggregate_public_key();
@@ -1260,7 +1337,7 @@ impl Signer {
             );
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
             // TODO: might be better to store these transactions on the side to prevent having to query the stacker db for every signer (only do on initilaization of a new signer for example and then listen for stacker db updates after that)
-            let old_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id]).map_err(|e| {
+            let old_transactions = self.get_filtered_transactions(stacks_client, &[self.signer_id], current_reward_cycle).map_err(|e| {
                 warn!("Signer #{}: Failed to get old transactions: {e:?}. Potentially overwriting our existing transactions", self.signer_id);
             }).unwrap_or_default();
             // Check if we have an existing vote transaction for the same round and reward cycle
@@ -1318,21 +1395,8 @@ impl Signer {
         stacks_client: &StacksClient,
         event: Option<&SignerEvent>,
         res: Sender<Vec<OperationResult>>,
+        current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
-        let current_reward_cycle = retry_with_exponential_backoff(|| {
-            stacks_client
-                .get_current_reward_cycle()
-                .map_err(backoff::Error::transient)
-        })?;
-        if current_reward_cycle > self.reward_cycle {
-            // We have advanced past our tenure as a signer. Nothing to do.
-            info!(
-                "Signer #{}: Signer has passed its tenure. Ignoring event...",
-                self.signer_id
-            );
-            self.state = State::TenureExceeded;
-            return Ok(());
-        }
         debug!("Signer #{}: Processing event: {event:?}", self.signer_id);
         match event {
             Some(SignerEvent::BlockValidationResponse(block_validate_response)) => {
@@ -1340,7 +1404,12 @@ impl Signer {
                     "Signer #{}: Received a block proposal result from the stacks node...",
                     self.signer_id
                 );
-                self.handle_block_validate_response(stacks_client, block_validate_response, res)
+                self.handle_block_validate_response(
+                    stacks_client,
+                    block_validate_response,
+                    res,
+                    current_reward_cycle,
+                )
             }
             Some(SignerEvent::SignerMessages(signer_set, messages)) => {
                 if *signer_set != self.stackerdb.get_signer_set() {
@@ -1352,7 +1421,7 @@ impl Signer {
                     self.signer_id,
                     messages.len()
                 );
-                self.handle_signer_messages(stacks_client, res, messages);
+                self.handle_signer_messages(stacks_client, res, messages, current_reward_cycle);
             }
             Some(SignerEvent::ProposedBlocks(blocks)) => {
                 if current_reward_cycle != self.reward_cycle {
@@ -1431,7 +1500,7 @@ mod tests {
     };
     use crate::client::{StacksClient, VOTE_FUNCTION_NAME};
     use crate::config::GlobalConfig;
-    use crate::signer::{BlockInfo, Signer};
+    use crate::signer::{BlockInfo, RegisteredSigner};
 
     #[test]
     #[serial]
@@ -1440,7 +1509,7 @@ mod tests {
         // Create a runloop of a valid signer
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let (signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
-        let mut signer = Signer::from(signer_config);
+        let mut signer = RegisteredSigner::from(signer_config);
 
         let signer_private_key = config.stacks_private_key;
         let non_signer_private_key = StacksPrivateKey::new();
@@ -1560,7 +1629,7 @@ mod tests {
         let stacks_client = StacksClient::from(&config);
         let h = spawn(move || {
             signer
-                .get_filtered_transactions(&stacks_client, &[0])
+                .get_filtered_transactions(&stacks_client, &[0], 0)
                 .unwrap()
         });
 
@@ -1589,7 +1658,7 @@ mod tests {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let (signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
         let stacks_client = StacksClient::from(&config);
-        let mut signer = Signer::from(signer_config);
+        let mut signer = RegisteredSigner::from(signer_config);
 
         let signer_private_key = config.stacks_private_key;
         let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.mainnet);
@@ -1651,7 +1720,7 @@ mod tests {
             BlockInfo::new(block.clone()),
         );
 
-        let h = spawn(move || signer.verify_block_transactions(&stacks_client, &block));
+        let h = spawn(move || signer.verify_block_transactions(&stacks_client, &block, 0));
 
         // Simulate the response to the request for transactions with the expected transaction
         let signer_message = SignerMessage::Transactions(vec![valid_tx]);
@@ -1706,7 +1775,7 @@ mod tests {
         signer_config.reward_cycle = 1;
 
         // valid transaction
-        let signer = Signer::from(signer_config.clone());
+        let signer = RegisteredSigner::from(signer_config.clone());
         let stacks_client = StacksClient::from(&config);
 
         let signer_private_key = config.stacks_private_key;
@@ -1734,13 +1803,6 @@ mod tests {
         )
         .unwrap();
 
-        let reward_cycle_response = build_get_pox_data_response(
-            Some(signer.reward_cycle.saturating_sub(1)),
-            None,
-            None,
-            None,
-        )
-        .0;
         let pox_info_response = build_get_pox_data_response(
             Some(signer.reward_cycle.saturating_sub(1)),
             Some(0),
@@ -1754,11 +1816,14 @@ mod tests {
 
         let h = spawn(move || {
             assert!(signer
-                .verify_payload(&stacks_client, &valid_transaction, signer.signer_id)
+                .verify_payload(
+                    &stacks_client,
+                    &valid_transaction,
+                    signer.signer_id,
+                    signer.reward_cycle.saturating_sub(1)
+                )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, reward_cycle_response.as_bytes());
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, pox_info_response.as_bytes());
         let mock_server = mock_server_from_config(&config);
@@ -1769,7 +1834,7 @@ mod tests {
         write_response(mock_server, last_round_response.as_bytes());
         h.join().unwrap();
 
-        let signer = Signer::from(signer_config.clone());
+        let signer = RegisteredSigner::from(signer_config.clone());
         // Create a invalid transaction that is not a contract call
         let invalid_not_contract_call = StacksTransaction {
             version: TransactionVersion::Testnet,
@@ -1926,13 +1991,18 @@ mod tests {
             invalid_function_arg_4,
         ] {
             let result = signer
-                .verify_payload(&stacks_client, &tx, signer.signer_id)
+                .verify_payload(
+                    &stacks_client,
+                    &tx,
+                    signer.signer_id,
+                    signer.reward_cycle.saturating_sub(1),
+                )
                 .unwrap();
             assert!(!result);
         }
 
         // Invalid reward cycle (voting for the current is not allowed. only the next)
-        let signer = Signer::from(signer_config.clone());
+        let signer = RegisteredSigner::from(signer_config.clone());
         let invalid_reward_cycle = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
@@ -1945,19 +2015,20 @@ mod tests {
             10,
         )
         .unwrap();
-        let (reward_cycle_response, _) =
-            build_get_pox_data_response(Some(signer.reward_cycle), None, None, None);
         let h = spawn(move || {
             assert!(!signer
-                .verify_payload(&stacks_client, &invalid_reward_cycle, signer.signer_id)
+                .verify_payload(
+                    &stacks_client,
+                    &invalid_reward_cycle,
+                    signer.signer_id,
+                    signer.reward_cycle
+                )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, reward_cycle_response.as_bytes());
         h.join().unwrap();
 
         // Invalid block height to vote
-        let signer = Signer::from(signer_config.clone());
+        let signer = RegisteredSigner::from(signer_config.clone());
         let stacks_client = StacksClient::from(&config);
         let invalid_reward_set = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
@@ -1972,14 +2043,6 @@ mod tests {
         )
         .unwrap();
 
-        // Valid reward cycle vote
-        let reward_cycle_response = build_get_pox_data_response(
-            Some(signer.reward_cycle.saturating_sub(1)),
-            None,
-            None,
-            None,
-        )
-        .0;
         // Invalid reward set not calculated (not in the second block onwards of the prepare phase)
         let pox_info_response = build_get_pox_data_response(
             Some(signer.reward_cycle.saturating_sub(1)),
@@ -1992,11 +2055,14 @@ mod tests {
 
         let h = spawn(move || {
             assert!(!signer
-                .verify_payload(&stacks_client, &invalid_reward_set, signer.signer_id)
+                .verify_payload(
+                    &stacks_client,
+                    &invalid_reward_set,
+                    signer.signer_id,
+                    signer.reward_cycle.saturating_sub(1)
+                )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, reward_cycle_response.as_bytes());
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, pox_info_response.as_bytes());
         let mock_server = mock_server_from_config(&config);
@@ -2004,7 +2070,7 @@ mod tests {
         h.join().unwrap();
 
         // Already voted
-        let signer = Signer::from(signer_config.clone());
+        let signer = RegisteredSigner::from(signer_config.clone());
         let stacks_client = StacksClient::from(&config);
         let invalid_already_voted = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
@@ -2019,14 +2085,6 @@ mod tests {
         )
         .unwrap();
 
-        // Valid reward cycle vote
-        let reward_cycle_response = build_get_pox_data_response(
-            Some(signer.reward_cycle.saturating_sub(1)),
-            None,
-            None,
-            None,
-        )
-        .0;
         let pox_info_response = build_get_pox_data_response(
             Some(signer.reward_cycle.saturating_sub(1)),
             Some(0),
@@ -2039,11 +2097,14 @@ mod tests {
 
         let h = spawn(move || {
             assert!(!signer
-                .verify_payload(&stacks_client, &invalid_already_voted, signer.signer_id)
+                .verify_payload(
+                    &stacks_client,
+                    &invalid_already_voted,
+                    signer.signer_id,
+                    signer.reward_cycle.saturating_sub(1)
+                )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, reward_cycle_response.as_bytes());
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, pox_info_response.as_bytes());
         let mock_server = mock_server_from_config(&config);
@@ -2053,7 +2114,7 @@ mod tests {
         h.join().unwrap();
 
         // Already voted
-        let signer = Signer::from(signer_config.clone());
+        let signer = RegisteredSigner::from(signer_config.clone());
         let stacks_client = StacksClient::from(&config);
         let round: u128 = 0;
         let invalid_already_voted = StacksClient::build_signed_contract_call_transaction(
@@ -2075,13 +2136,6 @@ mod tests {
         .unwrap();
 
         // invalid round number
-        let reward_cycle_response = build_get_pox_data_response(
-            Some(signer.reward_cycle.saturating_sub(1)),
-            None,
-            None,
-            None,
-        )
-        .0;
         let pox_info_response = build_get_pox_data_response(
             Some(signer.reward_cycle.saturating_sub(1)),
             Some(0),
@@ -2095,11 +2149,14 @@ mod tests {
 
         let h = spawn(move || {
             assert!(!signer
-                .verify_payload(&stacks_client, &invalid_already_voted, signer.signer_id)
+                .verify_payload(
+                    &stacks_client,
+                    &invalid_already_voted,
+                    signer.signer_id,
+                    signer.reward_cycle.saturating_sub(1)
+                )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, reward_cycle_response.as_bytes());
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, pox_info_response.as_bytes());
         let mock_server = mock_server_from_config(&config);

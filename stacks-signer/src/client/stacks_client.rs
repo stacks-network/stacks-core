@@ -17,7 +17,7 @@ use std::net::SocketAddr;
 
 use blockstack_lib::burnchains::Txid;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::boot::{RewardSet, SIGNERS_VOTING_NAME};
+use blockstack_lib::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME, SIGNERS_VOTING_NAME};
 use blockstack_lib::chainstate::stacks::{
     StacksTransaction, StacksTransactionSigner, TransactionAnchorMode, TransactionAuth,
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
@@ -119,10 +119,7 @@ impl StacksClient {
 
     /// Calculate the ordered list of coordinator ids by comparing the provided public keys against the pox consensus hash
     pub fn calculate_coordinator_ids(&self, public_keys: &PublicKeys) -> Vec<u32> {
-        let pox_consensus_hash = match retry_with_exponential_backoff(|| {
-            self.get_pox_consenus_hash()
-                .map_err(backoff::Error::transient)
-        }) {
+        let pox_consensus_hash = match self.get_pox_consenus_hash() {
             Ok(hash) => hash,
             Err(e) => {
                 debug!("Failed to get stacks tip consensus hash: {e:?}");
@@ -360,8 +357,12 @@ impl StacksClient {
     }
 
     /// Retrieve the vote of the signer for the given round
-    pub fn get_signer_vote(&self, round: u128) -> Result<Option<Point>, ClientError> {
-        let reward_cycle = ClarityValue::UInt(self.get_current_reward_cycle()? as u128);
+    pub fn get_signer_vote(
+        &self,
+        reward_cycle: u64,
+        round: u128,
+    ) -> Result<Option<Point>, ClientError> {
+        let reward_cycle = ClarityValue::UInt(reward_cycle as u128);
         let round = ClarityValue::UInt(round);
         let signer = ClarityValue::Principal(self.stacks_address.into());
         let contract_addr = boot_code_addr(self.mainnet);
@@ -381,10 +382,12 @@ impl StacksClient {
         if current_reward_cycle >= reward_cycle {
             // We have already entered into this reward cycle or beyond
             // therefore the reward set has already been calculated
+            debug!("Reward set has already been calculated for reward cycle {reward_cycle}.");
             return Ok(true);
         }
         if current_reward_cycle.wrapping_add(1) != reward_cycle {
             // We are not in the prepare phase of the reward cycle as the upcoming cycle nor are we in the current reward cycle...
+            debug!("Reward set has not been calculated for reward cycle {reward_cycle}. We are not in the requested reward cycle yet.");
             return Ok(false);
         }
         let burn_block_height = self.get_burn_block_height()?;
@@ -393,7 +396,7 @@ impl StacksClient {
     }
 
     /// Get the reward set from the stacks node for the given reward cycle
-    fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
+    pub fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
         debug!("Getting reward set for reward cycle {reward_cycle}...");
         let send_request = || {
             self.stacks_node_client
@@ -409,16 +412,25 @@ impl StacksClient {
         Ok(stackers_response.stacker_set)
     }
 
-    /// Get registered signers info for the given reward cycle
+    /// Get the registered signers for a specific reward cycle
+    /// Returns None if no signers are registered or its not Nakamoto cycle
     pub fn get_registered_signers_info(
         &self,
         reward_cycle: u64,
     ) -> Result<Option<RegisteredSignersInfo>, ClientError> {
-        let reward_set = self.get_reward_set(reward_cycle)?;
-        let Some(reward_set_signers) = reward_set.signers else {
+        debug!("Getting registered signers for reward cycle {reward_cycle}...");
+        let Ok(reward_set) = self.get_reward_set(reward_cycle) else {
+            warn!("No reward set found for reward cycle {reward_cycle}.");
             return Ok(None);
         };
-
+        let Some(reward_set_signers) = reward_set.signers else {
+            warn!("No reward set signers found for reward cycle {reward_cycle}.");
+            return Ok(None);
+        };
+        if reward_set_signers.is_empty() {
+            warn!("No registered signers found for reward cycle {reward_cycle}.");
+            return Ok(None);
+        }
         // signer uses a Vec<u32> for its key_ids, but coordinator uses a HashSet for each signer since it needs to do lots of lookups
         let mut weight_end = 1;
         let mut coordinator_key_ids = HashMap::with_capacity(4000);
@@ -432,10 +444,10 @@ impl StacksClient {
         for (i, entry) in reward_set_signers.iter().enumerate() {
             let signer_id = u32::try_from(i).expect("FATAL: number of signers exceeds u32::MAX");
             let ecdsa_public_key = ecdsa::PublicKey::try_from(entry.signing_key.as_slice()).map_err(|e| {
-                        ClientError::CorruptedRewardSet(format!(
-                                "Reward cycle {reward_cycle} failed to convert signing key to ecdsa::PublicKey: {e}"
-                            ))
-                        })?;
+                ClientError::CorruptedRewardSet(format!(
+                        "Reward cycle {reward_cycle} failed to convert signing key to ecdsa::PublicKey: {e}"
+                    ))
+                })?;
             let signer_public_key = Point::try_from(&Compressed::from(ecdsa_public_key.to_bytes()))
                 .map_err(|e| {
                     ClientError::CorruptedRewardSet(format!(
@@ -443,10 +455,10 @@ impl StacksClient {
                     ))
                 })?;
             let stacks_public_key = StacksPublicKey::from_slice(entry.signing_key.as_slice()).map_err(|e| {
-                            ClientError::CorruptedRewardSet(format!(
-                                "Reward cycle {reward_cycle} failed to convert signing key to StacksPublicKey: {e}"
-                            ))
-                        })?;
+                    ClientError::CorruptedRewardSet(format!(
+                        "Reward cycle {reward_cycle} failed to convert signing key to StacksPublicKey: {e}"
+                    ))
+                })?;
 
             let stacks_address = StacksAddress::p2pkh(self.mainnet, &stacks_public_key);
 
@@ -467,12 +479,36 @@ impl StacksClient {
                     .push(key_id);
             }
         }
+
+        let signer_set =
+            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
+        let signer_stackerdb_contract_id = boot_code_id(SIGNERS_NAME, self.mainnet);
+        // Get the signer writers from the stacker-db to find the signer slot id
+        let signer_slots_weights = self
+            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)
+            .unwrap();
+        let mut signer_slot_ids = HashMap::with_capacity(signer_slots_weights.len());
+        for (index, (address, _)) in signer_slots_weights.into_iter().enumerate() {
+            signer_slot_ids.insert(
+                address,
+                u32::try_from(index).expect("FATAL: number of signers exceeds u32::MAX"),
+            );
+        }
+
+        for address in signer_address_ids.keys().into_iter() {
+            if !signer_slot_ids.contains_key(address) {
+                debug!("Signer {address} does not have a slot id in the stackerdb");
+                return Ok(None);
+            }
+        }
+
         Ok(Some(RegisteredSignersInfo {
             public_keys,
             signer_key_ids,
             signer_address_ids,
             signer_public_keys,
             coordinator_key_ids,
+            signer_slot_ids,
         }))
     }
 
@@ -502,6 +538,7 @@ impl StacksClient {
     /// Get the current reward cycle from the stacks node
     pub fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
         let pox_data = self.get_pox_data()?;
+        println!("GOT REWARD CYCLE: {}", pox_data.reward_cycle_id);
         Ok(pox_data.reward_cycle_id)
     }
 

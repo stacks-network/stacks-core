@@ -124,6 +124,9 @@ pub struct RegisteredSignersInfo {
     pub signer_address_ids: HashMap<StacksAddress, u32>,
     /// The public keys for the reward cycle
     pub public_keys: PublicKeys,
+    /// The signer slot id for a signer address registered in stackerdb
+    /// This corresponds to their unique index when voting in a reward cycle
+    pub signer_slot_ids: HashMap<StacksAddress, u32>,
 }
 
 /// The Configuration info needed for an individual signer per reward cycle

@@ -426,6 +426,7 @@ pub(crate) mod tests {
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
         let mut signer_public_keys = HashMap::new();
+        let mut signer_slot_ids = HashMap::new();
         let mut coordinator_ids = vec![];
         let stacks_address = config.stacks_address;
         let ecdsa_private_key = config.ecdsa_private_key;
@@ -481,6 +482,7 @@ pub(crate) mod tests {
                 &StacksPublicKey::from_slice(public_key.to_bytes().as_slice())
                     .expect("Failed to create stacks public key"),
             );
+            signer_slot_ids.insert(address, signer_id); // Note in a real world situation, these would not always match
             signer_address_ids.insert(address, signer_id);
             addresses.push(address);
             start_key_id = end_key_id;
@@ -493,6 +495,7 @@ pub(crate) mod tests {
                 signer_slot_id: 0,
                 key_ids: signer_key_ids.get(&0).cloned().unwrap_or_default(),
                 registered_signers: RegisteredSignersInfo {
+                    signer_slot_ids,
                     public_keys,
                     coordinator_key_ids,
                     signer_key_ids,

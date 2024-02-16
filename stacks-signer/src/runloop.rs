@@ -16,8 +16,6 @@
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
-use blockstack_lib::util_lib::boot::boot_code_id;
 use hashbrown::HashMap;
 use libsigner::{SignerEvent, SignerRunLoop};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -85,41 +83,32 @@ impl RunLoop {
             // Accounts for Pre nakamoto by simply using the second block of a prepare phase as the criteria
             return Err(ClientError::RewardSetNotYetCalculated(reward_cycle));
         }
-        let current_addr = self.stacks_client.get_signer_address();
-
-        let signer_set =
-            u32::try_from(reward_cycle % 2).expect("FATAL: reward_cycle % 2 exceeds u32::MAX");
-        let signer_stackerdb_contract_id =
-            boot_code_id(SIGNERS_NAME, self.config.network.is_mainnet());
-        // Get the signer writers from the stacker-db to find the signer slot id
-        let Some(signer_slot_id) = self
-            .stacks_client
-            .get_stackerdb_signer_slots(&signer_stackerdb_contract_id, signer_set)?
-            .iter()
-            .position(|(address, _)| address == current_addr)
-            .map(|pos| u32::try_from(pos).expect("FATAL: number of signers exceeds u32::MAX"))
-        else {
-            warn!(
-                "Signer {current_addr} was not found in stacker db. Must not be registered for this reward cycle {reward_cycle}."
-            );
-            return Ok(None);
-        };
-
         // We can only register for a reward cycle if a reward set exists. We know that it should exist due to our earlier check for reward_set_calculated
         let Some(registered_signers) = self
             .stacks_client
             .get_registered_signers_info(reward_cycle)?
         else {
             warn!(
-                "No reward set found for reward cycle {reward_cycle}. Must not be a valid Nakamoto reward cycle."
+                "Failed to retrieve registered signers info for reward cycle {reward_cycle}. Must not be a valid Nakamoto reward cycle."
             );
             return Ok(None);
         };
-        let Some(signer_id) = registered_signers.signer_address_ids.get(current_addr) else {
-            warn!("Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}.");
+
+        let current_addr = self.stacks_client.get_signer_address();
+
+        let Some(signer_slot_id) = registered_signers.signer_slot_ids.get(current_addr) else {
+            warn!(
+                    "Signer {current_addr} was not found in stacker db. Must not be registered for this reward cycle {reward_cycle}."
+                );
             return Ok(None);
         };
-        debug!(
+        let Some(signer_id) = registered_signers.signer_address_ids.get(current_addr) else {
+            warn!(
+                "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
+            );
+            return Ok(None);
+        };
+        info!(
             "Signer #{signer_id} ({current_addr}) is registered for reward cycle {reward_cycle}."
         );
         let key_ids = registered_signers
@@ -133,7 +122,7 @@ impl RunLoop {
         Ok(Some(SignerConfig {
             reward_cycle,
             signer_id: *signer_id,
-            signer_slot_id,
+            signer_slot_id: *signer_slot_id,
             key_ids,
             registered_signers,
             coordinator_ids,
@@ -155,7 +144,7 @@ impl RunLoop {
         let reward_index = reward_cycle % 2;
         let mut needs_refresh = false;
         if let Some(stacks_signer) = self.stacks_signers.get_mut(&reward_index) {
-            let old_reward_cycle = stacks_signer.reward_cycle;
+            let old_reward_cycle = stacks_signer.reward_cycle();
             if old_reward_cycle == reward_cycle {
                 //If the signer is already registered for the reward cycle, we don't need to do anything further here
                 debug!("Signer is already configured for reward cycle {reward_cycle}. No need to update it's state machines.")
@@ -176,6 +165,8 @@ impl RunLoop {
             } else {
                 // Nothing to initialize. Signer is not registered for this reward cycle
                 debug!("Signer is not registered for reward cycle {reward_cycle}. Nothing to initialize.");
+                self.stacks_signers
+                    .insert(reward_index, Signer::from(reward_cycle));
             }
         }
         Ok(())
@@ -183,13 +174,9 @@ impl RunLoop {
 
     /// Refresh the signer configuration by retrieving the necessary information from the stacks node
     /// Note: this will trigger DKG if required
-    fn refresh_signers_with_retry(&mut self) -> Result<(), ClientError> {
+    fn refresh_signers_with_retry(&mut self, current_reward_cycle: u64) -> Result<(), ClientError> {
+        let next_reward_cycle = current_reward_cycle.saturating_add(1);
         retry_with_exponential_backoff(|| {
-            let current_reward_cycle = self
-                .stacks_client
-                .get_current_reward_cycle()
-                .map_err(backoff::Error::transient)?;
-            let next_reward_cycle = current_reward_cycle.saturating_add(1);
             if let Err(e) = self.refresh_signer_config(current_reward_cycle) {
                 match e {
                     ClientError::NotRegistered => {
@@ -214,20 +201,22 @@ impl RunLoop {
                 }
             }
             for stacks_signer in self.stacks_signers.values_mut() {
-                let updated_coordinator = stacks_signer
-                    .coordinator_selector
-                    .refresh_coordinator(&self.stacks_client);
-                if updated_coordinator {
-                    debug!(
-                        "Signer #{}: Coordinator has been updated. Resetting state to Idle.",
-                        stacks_signer.signer_id
-                    );
-                    stacks_signer.coordinator.state = CoordinatorState::Idle;
-                    stacks_signer.state = SignerState::Idle;
+                if let Signer::Registered(signer) = stacks_signer {
+                    let updated_coordinator = signer
+                        .coordinator_selector
+                        .refresh_coordinator(&self.stacks_client);
+                    if updated_coordinator {
+                        debug!(
+                            "Signer #{}: Coordinator has been updated. Resetting state to Idle.",
+                            signer.signer_id
+                        );
+                        signer.coordinator.state = CoordinatorState::Idle;
+                        signer.state = SignerState::Idle;
+                    }
+                    signer
+                        .update_dkg(&self.stacks_client, current_reward_cycle)
+                        .map_err(backoff::Error::transient)?;
                 }
-                stacks_signer
-                    .update_dkg(&self.stacks_client)
-                    .map_err(backoff::Error::transient)?;
             }
             if self.stacks_signers.is_empty() {
                 info!("Signer is not registered for the current {current_reward_cycle} or next {next_reward_cycle} reward cycles. Waiting for confirmed registration...");
@@ -238,23 +227,6 @@ impl RunLoop {
             self.state = State::Initialized;
             Ok(())
         })
-    }
-
-    /// Cleanup stale signers that have exceeded their tenure
-    fn cleanup_stale_signers(&mut self) {
-        let mut to_delete = Vec::with_capacity(self.stacks_signers.len());
-        for (index, stacks_signer) in self.stacks_signers.iter() {
-            if stacks_signer.state == SignerState::TenureExceeded {
-                debug!(
-                    "Deleting signer for stale reward cycle: {}.",
-                    stacks_signer.reward_cycle
-                );
-                to_delete.push(*index);
-            }
-        }
-        for index in to_delete {
-            self.stacks_signers.remove(&index);
-        }
     }
 }
 
@@ -277,7 +249,15 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             "Running one pass for the signer. Current state: {:?}",
             self.state
         );
-        if let Err(e) = self.refresh_signers_with_retry() {
+        let Ok(current_reward_cycle) = retry_with_exponential_backoff(|| {
+            self.stacks_client
+                .get_current_reward_cycle()
+                .map_err(backoff::Error::transient)
+        }) else {
+            error!("Failed to retrieve current reward cycle. Ignoring event: {event:?}");
+            return None;
+        };
+        if let Err(e) = self.refresh_signers_with_retry(current_reward_cycle) {
             if self.state == State::Uninitialized {
                 // If we were never actually initialized, we cannot process anything. Just return.
                 error!("Failed to initialize signers. Are you sure this signer is correctly registered for the current or next reward cycle?");
@@ -290,21 +270,31 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
         if let Some(command) = cmd {
             let reward_cycle = command.reward_cycle;
             if let Some(stacks_signer) = self.stacks_signers.get_mut(&(reward_cycle % 2)) {
-                if stacks_signer.reward_cycle != reward_cycle {
-                    warn!(
-                        "Signer #{}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}", stacks_signer.signer_id
+                match stacks_signer {
+                    Signer::Registered(signer) => {
+                        if signer.reward_cycle != reward_cycle {
+                            warn!(
+                        "Signer #{}: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}", signer.signer_id
                     );
-                } else {
-                    info!(
+                        } else {
+                            info!(
                         "Signer #{}: Queuing an external runloop command ({:?}): {command:?}",
-                        stacks_signer.signer_id,
-                        stacks_signer
+                        signer.signer_id,
+                        signer
                             .signing_round
                             .public_keys
                             .signers
-                            .get(&stacks_signer.signer_id)
+                            .get(&signer.signer_id)
                     );
-                    stacks_signer.commands.push_back(command.command);
+                            signer.commands.push_back(command.command);
+                        }
+                    }
+                    Signer::Unregistered(_) => {
+                        warn!(
+                            "Signer: not registered for reward cycle {reward_cycle}. Ignoring command: {command:?}"
+                        );
+                        return None;
+                    }
                 }
             } else {
                 warn!(
@@ -313,19 +303,29 @@ impl SignerRunLoop<Vec<OperationResult>, RunLoopCommand> for RunLoop {
             }
         }
         for stacks_signer in self.stacks_signers.values_mut() {
-            if let Err(e) =
-                stacks_signer.process_event(&self.stacks_client, event.as_ref(), res.clone())
-            {
-                error!(
-                    "Signer #{} for reward cycle {} errored processing event: {e}",
-                    stacks_signer.signer_id, stacks_signer.reward_cycle
-                );
+            match stacks_signer {
+                Signer::Registered(signer) => {
+                    if let Err(e) = signer.process_event(
+                        &self.stacks_client,
+                        event.as_ref(),
+                        res.clone(),
+                        current_reward_cycle,
+                    ) {
+                        error!(
+                            "Signer #{} for reward cycle {} errored processing event: {e}",
+                            signer.signer_id, signer.reward_cycle
+                        );
+                    }
+                    // After processing event, run the next command for each signer
+                    signer.process_next_command(&self.stacks_client);
+                }
+                Signer::Unregistered(_) => {
+                    warn!(
+                        "Signer is not registered for any reward cycle. Ignoring event: {event:?}"
+                    );
+                }
             }
-            // After processing event, run the next command for each signer
-            stacks_signer.process_next_command(&self.stacks_client);
         }
-        // Cleanup any stale signers
-        self.cleanup_stale_signers();
         None
     }
 }
