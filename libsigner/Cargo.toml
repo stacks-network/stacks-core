@@ -17,7 +17,7 @@ path = "./src/libsigner.rs"
 
 [dependencies]
 clarity = { path = "../clarity" }
-hashbrown = "0.14"
+hashbrown = { workspace = true }
 libc = "0.2"
 libstackerdb = { path = "../libstackerdb" }
 serde = "1"
