@@ -730,12 +730,13 @@ impl Relayer {
             );
             return Ok(false);
         };
-        let staging_db_tx = chainstate.db_tx_begin()?;
+        let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
             &config,
             block,
             sort_handle,
             &staging_db_tx,
+            headers_conn,
             &aggregate_public_key,
         )?;
         staging_db_tx.commit()?;
