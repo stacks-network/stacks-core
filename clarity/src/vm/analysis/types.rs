@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
+use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
