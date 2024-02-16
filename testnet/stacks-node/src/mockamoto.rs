@@ -1027,6 +1027,15 @@ impl MockamotoNode {
         let config = self.chainstate.config();
         let chain_length = block.header.chain_length;
         let mut sortition_handle = self.sortdb.index_handle_at_tip();
+        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.conn())?;
+        let cycle = self
+            .sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(self.sortdb.first_block_height, burn_tip.block_height)
+            .unwrap();
+        self.self_signer.sign_nakamoto_block(&mut block, cycle);
+        let staging_tx = self.chainstate.staging_db_tx_begin()?;
+
         let aggregate_public_key = if chain_length <= 1 {
             self.self_signer.aggregate_public_key
         } else {
@@ -1038,14 +1047,6 @@ impl MockamotoNode {
             )?;
             aggregate_public_key
         };
-        let burn_tip = SortitionDB::get_canonical_burn_chain_tip(&self.sortdb.conn())?;
-        let cycle = self
-            .sortdb
-            .pox_constants
-            .block_height_to_reward_cycle(self.sortdb.first_block_height, burn_tip.block_height)
-            .unwrap();
-        self.self_signer.sign_nakamoto_block(&mut block, cycle);
-        let staging_tx = self.chainstate.staging_db_tx_begin()?;
         NakamotoChainState::accept_block(
             &config,
             block,

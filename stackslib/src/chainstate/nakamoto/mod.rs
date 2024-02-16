@@ -1825,21 +1825,14 @@ impl NakamotoChainState {
         match chainstate.get_aggregate_public_key_pox_4(sortdb, at_block_id, rc)? {
             Some(key) => Ok(key),
             None => {
-                // if this is the first block in its reward cycle, it'll contain the effects of
-                // setting the aggregate public key for `rc`, but there will currently be no key
-                // for `rc`.  So, check `rc - 1`
-                chainstate
-                    .get_aggregate_public_key_pox_4(sortdb, at_block_id, rc.saturating_sub(1))?
-                    .ok_or_else(|| {
-                        warn!(
-                            "Failed to get aggregate public key";
-                            "block_id" => %at_block_id,
-                            "reward_cycle" => rc,
-                        );
-                        ChainstateError::InvalidStacksBlock(
-                            "Failed to get aggregate public key".into(),
-                        )
-                    })
+                warn!(
+                    "Failed to get aggregate public key";
+                    "block_id" => %at_block_id,
+                    "reward_cycle" => rc,
+                );
+                Err(ChainstateError::InvalidStacksBlock(
+                    "Failed to get aggregate public key".into(),
+                ))
             }
         }
     }
