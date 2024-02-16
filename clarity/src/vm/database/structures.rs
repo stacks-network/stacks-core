@@ -86,11 +86,8 @@ pub struct StoredContract {
 
 #[derive(Debug, Clone)]
 pub struct PendingContract {
-    pub contract_id: QualifiedContractIdentifier,
     /// The raw, compressed contract source code as binary data.
     pub source: String,
-    /// The size of the contract's memory footprint in bytes.
-    pub data_size: u32,
     /// The serialized contract as binary data.
     pub contract: ContractContext
 }
@@ -104,10 +101,8 @@ pub struct ContractData {
     pub name: String,
     /// The raw, compressed contract source code as binary data.
     pub source: Vec<u8>,
-    /// The size of the compressed contract source code in bytes.
+    /// The size of the plain-text contract source code in bytes.
     pub source_size: u32,
-    /// The size of the un-compressed contract source code in bytes.
-    pub source_plaintext_size: u32,
     /// The size of the contract's memory footprint in bytes.
     pub data_size: u32,
     /// The serialized contract AST as binary data.
@@ -428,7 +423,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
     pub fn save(self) -> Result<()> {
         let key = ClarityDatabase::make_key_for_account_balance(&self.principal);
-        self.db_ref.put(&key, &self.balance)
+        self.db_ref.put_data(&key, &self.balance)
     }
 
     pub fn transfer_to(mut self, recipient: &PrincipalData, amount: u128) -> Result<()> {
@@ -439,7 +434,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
         let recipient_key = ClarityDatabase::make_key_for_account_balance(recipient);
         let mut recipient_balance = self
             .db_ref
-            .get(&recipient_key)?
+            .get_data(&recipient_key)?
             .unwrap_or(STXBalance::zero());
 
         recipient_balance
@@ -447,7 +442,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
             .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
 
         self.debit(amount)?;
-        self.db_ref.put(&recipient_key, &recipient_balance)?;
+        self.db_ref.put_data(&recipient_key, &recipient_balance)?;
         self.save()?;
         Ok(())
     }

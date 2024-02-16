@@ -997,7 +997,8 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         let contract = self
             .global_context
             .database
-            .get_contract(contract_identifier)?;
+        //    .get_contract(contract_identifier)?;
+            .get_contract2(contract_identifier)?;
 
         let result = {
             let mut nested_env = Environment::new(
@@ -1129,7 +1130,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         self.global_context.add_memory(contract_size)?;
 
         finally_drop_memory!(self.global_context, contract_size; {
-            let contract = self.global_context.database.get_contract(contract_identifier)?;
+            let contract = self
+                .global_context
+                .database
+                //.get_contract(contract_identifier)?;
+                .get_contract2(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
                 .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
@@ -1332,7 +1337,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 let data_size = contract.contract_context.data_size;
                 self.global_context
                     .database
-                    .insert_contract(&contract_identifier, contract)?;
+                    .insert_contract(&contract_identifier, contract.clone())?;
+                self.global_context
+                    .database
+                    .insert_contract2(contract, contract_string)?;
                 self.global_context
                     .database
                     .set_contract_data_size(&contract_identifier, data_size)?;

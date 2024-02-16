@@ -146,7 +146,7 @@ impl From<rmp_serde::decode::Error> for Error {
 impl From<lzzzz::Error> for Error {
     fn from(err: lzzzz::Error) -> Self {
         Error::Interpreter(InterpreterError::InterpreterError(format!(
-            "Failed to compress value: {}",
+            "Compression failed: {}",
             err
         )))
     }

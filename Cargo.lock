@@ -722,10 +722,15 @@ dependencies = [
  "hashbrown 0.14.3",
 =======
  "exec_time",
+<<<<<<< HEAD
  "fast-lru",
 >>>>>>> 0cf2231ac (working on introducing new storage for clarity contracts and analyses)
+=======
+>>>>>>> 5df575e8e (rename of put/get to put_data/get_data for clarity. further work on contract storage.)
  "integer-sqrt",
  "lazy_static",
+ "lru",
+ "lz4_flex",
  "lzzzz",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -741,7 +746,6 @@ dependencies = [
  "slog",
  "stacks-common",
  "time 0.2.27",
- "uluru",
 ]
 
 [[package]]
@@ -1265,15 +1269,6 @@ name = "fallible-streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
-
-[[package]]
-name = "fast-lru"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2e954577541cf135e40670811f059f542180628391644982e45f358626dbd17"
-dependencies = [
- "arrayvec",
-]
 
 [[package]]
 name = "fastrand"
@@ -2086,6 +2081,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 dependencies = [
  "value-bag",
+]
+
+[[package]]
+name = "lru"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db2c024b41519440580066ba82aab04092b333e09066a5eb86c7c4890df31f22"
+dependencies = [
+ "hashbrown 0.14.3",
+]
+
+[[package]]
+name = "lz4_flex"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "912b45c753ff5f7f5208307e8ace7d2a2e30d024e26d3509f3dce546c044ce15"
+dependencies = [
+ "twox-hash",
 ]
 
 [[package]]
@@ -4312,6 +4325,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "1.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
+dependencies = [
+ "cfg-if 1.0.0",
+ "static_assertions",
+]
+
+[[package]]
 name = "typenum"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4333,15 +4356,6 @@ dependencies = [
  "crunchy",
  "hex",
  "static_assertions",
-]
-
-[[package]]
-name = "uluru"
-version = "3.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "794a32261a1f5eb6a4462c81b59cec87b5c27d5deea7dd1ac8fc781c41d226db"
-dependencies = [
- "arrayvec",
 ]
 
 [[package]]

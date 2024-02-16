@@ -13,7 +13,9 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::num::NonZeroUsize;
 
+use lru::LruCache;
 use serde_json;
 use stacks_common::address::AddressHashMode;
 use stacks_common::consts::{
@@ -53,6 +55,7 @@ use crate::vm::types::{
     byte_len_of_serialization, OptionalData, PrincipalData, QualifiedContractIdentifier,
     SequenceData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
 };
+use crate::vm::ContractContext;
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -82,6 +85,7 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
+    contract_cache: lru::LruCache<QualifiedContractIdentifier, ContractContext>
 }
 
 pub trait HeadersDB {
@@ -429,6 +433,7 @@ impl<'a> ClarityDatabase<'a> {
             store: RollbackWrapper::new(store),
             headers_db,
             burn_state_db,
+            contract_cache: LruCache::new(NonZeroUsize::new(100).unwrap()),
         }
     }
 
@@ -441,6 +446,7 @@ impl<'a> ClarityDatabase<'a> {
             store,
             headers_db,
             burn_state_db,
+            contract_cache: LruCache::new(NonZeroUsize::new(100).unwrap()),
         }
     }
 
@@ -473,7 +479,7 @@ impl<'a> ClarityDatabase<'a> {
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
-    pub fn put<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
+    pub fn put_data<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
         self.store.put_data(&key, &value.serialize())
     }
 
@@ -484,11 +490,11 @@ impl<'a> ClarityDatabase<'a> {
         Ok(byte_len_of_serialization(&serialized))
     }
 
-    pub fn get<T>(&mut self, key: &str) -> Result<Option<T>>
+    pub fn get_data<T>(&mut self, key: &str) -> Result<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
-        self.store.get::<T>(key)
+        self.store.get_data::<T>(key)
     }
 
     pub fn put_value(&mut self, key: &str, value: Value, epoch: &StacksEpochId) -> Result<()> {
@@ -758,13 +764,40 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn insert_contract2(
         &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
         contract: Contract,
-        src: &str,
-        data_size: u32
+        src: &str
     ) -> Result<()> {
-        self.store.put_contract(src.to_string(), contract.contract_context);
-        todo!("insert contract2");
+        let ctx = contract.contract_context;
+
+        self.store.put_contract(
+            src.to_string(), 
+            ctx.clone()
+        )?;
+
+        self.contract_cache.put(
+            ctx.contract_identifier.clone(), 
+            ctx
+        );
+
+        Ok(())
+    }
+
+    pub fn get_contract2(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<Contract> {
+        let contract_context = self.contract_cache
+            .get(contract_identifier)
+            .cloned()
+            .or_else(|| {
+                let ctx = self.store.get_contract(contract_identifier).ok()?;
+                self.contract_cache.put(ctx.contract_identifier.clone(), ctx.clone());
+                Some(ctx)
+            });
+    
+        contract_context
+            .map(|ctx| Contract { contract_context: ctx })
+            .ok_or_else(|| Error::Unchecked(CheckErrors::NoSuchContract(contract_identifier.to_string())))
     }
 
     #[deprecated]
@@ -807,7 +840,7 @@ impl<'a> ClarityDatabase<'a> {
     /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
     /// Clarity is updated in that epoch.
     pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId> {
-        let out = match self.get(Self::clarity_state_epoch_key())? {
+        let out = match self.get_data(Self::clarity_state_epoch_key())? {
             Some(x) => u32::try_into(x).map_err(|_| {
                 InterpreterError::Expect("Bad Clarity epoch version in stored Clarity state".into())
             })?,
@@ -818,7 +851,7 @@ impl<'a> ClarityDatabase<'a> {
 
     /// Should be called _after_ all of the epoch's initialization has been invoked
     pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) -> Result<()> {
-        self.put(Self::clarity_state_epoch_key(), &(epoch as u32))
+        self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
 
     /// Returns the _current_ total liquid ustx
@@ -1151,12 +1184,12 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_stx_btc_ops_processed(&mut self) -> Result<u64> {
         Ok(self
-            .get("vm_pox::stx_btc_ops::processed_blocks")?
+            .get_data("vm_pox::stx_btc_ops::processed_blocks")?
             .unwrap_or(0))
     }
 
     pub fn set_stx_btc_ops_processed(&mut self, processed: u64) -> Result<()> {
-        self.put("vm_pox::stx_btc_ops::processed_blocks", &processed)
+        self.put_data("vm_pox::stx_btc_ops::processed_blocks", &processed)
     }
 }
 
@@ -1178,7 +1211,7 @@ impl<'a> ClarityDatabase<'a> {
     ) -> Result<()> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
         let value = format!("{}", &height);
-        self.put(&key, &value)
+        self.put_data(&key, &value)
     }
 
     pub fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
@@ -1215,7 +1248,7 @@ impl<'a> ClarityDatabase<'a> {
         })?;
 
         let value_str = to_hex(&value_bytes);
-        self.put(&key, &value_str)
+        self.put_data(&key, &value_str)
     }
 
     pub fn get_microblock_pubkey_hash_height(
@@ -1223,7 +1256,7 @@ impl<'a> ClarityDatabase<'a> {
         pubkey_hash: &Hash160,
     ) -> Result<Option<u32>> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
-        self.get(&key)?
+        self.get_data(&key)?
             .map(|height_str: String| {
                 height_str.parse::<u32>().map_err(|_| {
                     InterpreterError::Expect(
@@ -1241,7 +1274,7 @@ impl<'a> ClarityDatabase<'a> {
         height: u32,
     ) -> Result<Option<(StandardPrincipalData, u16)>> {
         let key = ClarityDatabase::make_microblock_poison_key(height);
-        self.get(&key)?
+        self.get_data(&key)?
             .map(|reporter_hex_str: String| {
                 let reporter_value = Value::try_deserialize_hex_untyped(&reporter_hex_str)
                     .map_err(|_| {
@@ -1796,7 +1829,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        self.put(&supply_key, &(0_u128))?;
+        self.put_data(&supply_key, &(0_u128))?;
 
         Ok(data)
     }
@@ -1850,7 +1883,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        let current_supply: u128 = self.get(&key)?.ok_or_else(|| {
+        let current_supply: u128 = self.get_data(&key)?.ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM failed to track token supply.".into())
         })?;
 
@@ -1864,7 +1897,7 @@ impl<'a> ClarityDatabase<'a> {
             }
         }
 
-        self.put(&key, &new_supply)
+        self.put_data(&key, &new_supply)
     }
 
     pub fn checked_decrease_token_supply(
@@ -1878,7 +1911,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        let current_supply: u128 = self.get(&key)?.ok_or_else(|| {
+        let current_supply: u128 = self.get_data(&key)?.ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM failed to track token supply.".into())
         })?;
 
@@ -1888,7 +1921,7 @@ impl<'a> ClarityDatabase<'a> {
 
         let new_supply = current_supply - amount;
 
-        self.put(&key, &new_supply)
+        self.put_data(&key, &new_supply)
     }
 
     pub fn get_ft_balance(
@@ -1909,7 +1942,7 @@ impl<'a> ClarityDatabase<'a> {
             &principal.serialize(),
         );
 
-        let result = self.get(&key)?;
+        let result = self.get_data(&key)?;
         match result {
             None => Ok(0),
             Some(balance) => Ok(balance),
@@ -1929,7 +1962,7 @@ impl<'a> ClarityDatabase<'a> {
             token_name,
             &principal.serialize(),
         );
-        self.put(&key, &balance)
+        self.put_data(&key, &balance)
     }
 
     pub fn get_ft_supply(
@@ -1942,7 +1975,7 @@ impl<'a> ClarityDatabase<'a> {
             StoreType::CirculatingSupply,
             token_name,
         );
-        let supply = self.get(&key)?.ok_or_else(|| {
+        let supply = self.get_data(&key)?.ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM failed to track token supply.".into())
         })?;
         Ok(supply)
@@ -2118,7 +2151,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> Result<STXBalance> {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         debug!("Fetching account balance"; "principal" => %principal.to_string());
-        let result = self.get(&key)?;
+        let result = self.get_data(&key)?;
         Ok(match result {
             None => STXBalance::zero(),
             Some(balance) => balance,
@@ -2127,7 +2160,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> Result<u64> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
-        let result = self.get(&key)?;
+        let result = self.get_data(&key)?;
         Ok(match result {
             None => 0,
             Some(nonce) => nonce,
@@ -2136,7 +2169,7 @@ impl<'a> ClarityDatabase<'a> {
 
     pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) -> Result<()> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
-        self.put(&key, &nonce)
+        self.put_data(&key, &nonce)
     }
 }
 

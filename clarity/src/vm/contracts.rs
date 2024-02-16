@@ -25,7 +25,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::version::ClarityVersion;
 use crate::vm::{apply, eval_all, Value};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Contract {
     pub contract_context: ContractContext,
 }

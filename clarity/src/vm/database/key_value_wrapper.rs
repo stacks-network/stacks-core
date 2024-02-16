@@ -34,6 +34,7 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
 };
 use crate::vm::{ContractContext, StacksEpoch, Value};
+use crate::vm::errors::InterpreterResult as Result;
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;
@@ -349,23 +350,13 @@ impl<'a> RollbackWrapper<'a> {
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
         current.contract_analysis = Some(analysis.clone());
-
-        /*let analysis_serialized = rmp_serde::to_vec(analysis)
-            .expect("ERROR: Failed to serialize contract analysis.");
-
-        let mut analysis_compressed = Vec::<u8>::with_capacity(analysis_serialized.len());
-
-        lzzzz::lz4::compress_to_vec(&analysis_serialized, &mut analysis_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
-            .expect("ERROR: Failed to compress contract analysis.");
-
-        current.contract_analysis = Some(analysis_compressed);*/
     }
 
     pub fn put_contract(
         &mut self,
         src: String,
         contract: ContractContext
-    ) {
+    ) -> Result<()> {
         let current = self
             .stack
             .last_mut()
@@ -376,24 +367,33 @@ impl<'a> RollbackWrapper<'a> {
         }
 
         current.pending_contract = Some(PendingContract {
-            contract_id: contract.contract_identifier.clone(),
             source: src,
-            data_size: contract.data_size as u32,
             contract
         });
 
-        // Set the contract for the current context.
-        /*current.contract = Some(ContractData {
-            id: None,
-            contract_issuer: contract_id.issuer.to_string(),
-            contract_name: contract_id.name.to_string(),
-            source_code: src_compressed,
-            source_code_size: src_compressed_len,
-            raw_source_code_size: src_len as u32,
-            ast: ast_compressed,
-            ast_size: ast_compressed_len,
-            data_size
-        });*/
+        Ok(())
+    }
+
+    pub fn get_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier
+    ) -> Result<ContractContext> {
+        self.stack
+            .last()
+            .expect("ERROR: Clarity VM attempted GET CONTRACT on non-nested context.");
+
+        if self.query_pending_data {
+            if let Some(ctx) = self.stack.iter().rev().find_map(|x| x.pending_contract.as_ref()) {
+                if &ctx.contract.contract_identifier == contract_identifier {
+                    return Ok(ctx.contract.clone());
+                }
+            }
+        }
+
+        let contract = self.store.get_contract(contract_identifier)?
+            .ok_or_else(|| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+        Ok(contract)
     }
 
     pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
@@ -443,7 +443,7 @@ impl<'a> RollbackWrapper<'a> {
             .transpose()
     }
 
-    pub fn get<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
+    pub fn get_data<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -467,7 +467,7 @@ impl<'a> RollbackWrapper<'a> {
         value_hex: &str,
         expected: &TypeSignature,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult, SerializationError> {
+    ) -> std::result::Result<ValueResult, SerializationError> {
         let serialized_byte_len = value_hex.len() as u64 / 2;
         let sanitize = epoch.value_sanitizing();
         let value = Value::try_deserialize_hex(value_hex, expected, sanitize)?;
@@ -588,7 +588,7 @@ impl<'a> RollbackWrapper<'a> {
                 .iter()
                 .rev()
                 .filter_map(|x| x.pending_contract.as_ref())
-                .find(|x| &x.contract_id == contract_identifier)
+                .find(|x| &x.contract.contract_identifier == contract_identifier)
                 .map(|x| x.contract.clone())
                 .or_else(|| self.store.get_contract(contract_identifier)
                     .expect("ERROR: Clarity VM experienced a contract lookup failure.")

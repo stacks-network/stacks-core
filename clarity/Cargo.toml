@@ -34,8 +34,8 @@ hashbrown = { workspace = true }
 exec_time = "0.1.4"
 lzzzz = "1.0.4"
 rmp-serde = "1.1.2"
-fast-lru = "0.1.2"
-uluru = "3.0.0"
+lru = "0.12.2"
+lz4_flex = "0.11.2"
 
 [dependencies.serde_json]
 version = "1.0"

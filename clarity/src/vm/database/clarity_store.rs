@@ -127,7 +127,7 @@ pub trait ClarityBackingStore {
     /// Retrieves the specified contract from the backing store. Returns
     /// [CheckErrors::NoSuchContract] if the contract is not found.
     fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Option<ContractContext>> {
-        let (bhh, contract_hash) = self.get_contract_hash(contract_identifier)?;
+        let (bhh, _) = self.get_contract_hash(contract_identifier)?;
         let contract = SqliteConnection::get_contract(
                 self.get_side_store(),
                 &contract_identifier.issuer.to_string(),
@@ -137,7 +137,8 @@ pub trait ClarityBackingStore {
 
         Ok(
             if let Some(data) = contract {
-                Some(rmp_serde::decode::from_slice(&data.contract)?)
+                let decoded = lz4_flex::block::decompress(&data.contract, data.contract_size as usize).expect("ERROR: Failed to decompress contract AST.");
+                Some(rmp_serde::decode::from_slice(&decoded)?)
             } else {
                 None
             }
@@ -162,26 +163,29 @@ pub trait ClarityBackingStore {
         let mut src_compressed = Vec::<u8>::with_capacity(src_len);
         lzzzz::lz4::compress_to_vec(src_bytes, &mut src_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
             .expect("ERROR: Failed to compress contract source code.");
-        let src_compressed_len = src_compressed.len() as u32;
 
         // Serialize and compress the contract AST.
         let contract_serialized = rmp_serde::to_vec(&data.contract)
             .expect("ERROR: Failed to serialize contract AST.");
-        let mut contract_compressed = Vec::<u8>::with_capacity(contract_serialized.len());
-        lzzzz::lz4::compress_to_vec(&contract_serialized, &mut contract_compressed, lzzzz::lz4::ACC_LEVEL_DEFAULT)
-            .expect("ERROR: Failed to compress contract AST.");
-        let contract_compressed_len = contract_compressed.len() as u32;
+        let contract_serialized_len = contract_serialized.len() as u32;
+
+        let contract_compressed = lz4_flex::block::compress(&contract_serialized);
 
         let mut data = ContractData {
+            // This id will be updated with the actual id of the contract in the
+            // backing store upon insert.
             id: 0,
-            issuer: data.contract_id.issuer.to_string(),
-            name: data.contract_id.name.to_string(),
-            source_plaintext_size: data.source.len() as u32,
-            source_size: src_compressed_len,
+            issuer: data.contract.contract_identifier.issuer.to_string(),
+            name: data.contract.contract_identifier.name.to_string(),
+            // Plain-text contract source length, so that we know the size of
+            // buffer to allocate when decompressing.
+            source_size: src_len as u32,
             source: src_compressed,
             contract: contract_compressed,
-            contract_size: contract_compressed_len,
-            data_size: data.data_size
+            // Serialized contract length, so that we know the size of buffer
+            // to allocate when decompressing.
+            contract_size: contract_serialized_len,
+            data_size: data.contract.data_size as u32
         };
 
         SqliteConnection::insert_contract(

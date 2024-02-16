@@ -146,7 +146,7 @@ impl RPCRequestHandler for RPCGetContractSrcRequestHandler {
                                 .flatten()
                                 .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                         } else {
-                            db.get::<ContractCommitment>(&contract_commit_key)
+                            db.get_data::<ContractCommitment>(&contract_commit_key)
                                 .ok()
                                 .flatten()
                                 .map(|a| (a, None))?

@@ -100,12 +100,11 @@ impl SqliteConnection {
                 block_height, 
                 source, 
                 source_size, 
-                source_plaintext_size, 
                 data_size, 
                 contract, 
                 contract_size 
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
             );
             "
         )?;
@@ -118,7 +117,6 @@ impl SqliteConnection {
                 &block_height as &dyn ToSql, 
                 &data.source as &dyn ToSql, 
                 &data.source_size as &dyn ToSql, 
-                &data.source_plaintext_size as &dyn ToSql, 
                 &data.data_size as &dyn ToSql, 
                 &data.contract as &dyn ToSql, 
                 &data.contract_size as &dyn ToSql
@@ -171,8 +169,7 @@ impl SqliteConnection {
                     block_hash, 
                     block_height, 
                     source, 
-                    source_size, 
-                    source_plaintext_size, 
+                    source_size,
                     data_size, 
                     contract, 
                     contract_size 
@@ -198,10 +195,9 @@ impl SqliteConnection {
                     name: row.get(2)?,
                     source: row.get(5)?,
                     source_size: row.get(6)?,
-                    source_plaintext_size: row.get(7)?,
-                    data_size: row.get(8)?,
-                    contract: row.get(9)?,
-                    contract_size: row.get(10)?,
+                    data_size: row.get(7)?,
+                    contract: row.get(8)?,
+                    contract_size: row.get(9)?,
                 })
             })
             .optional()?;
@@ -352,7 +348,6 @@ impl SqliteConnection {
                     block_height INTEGER NOT NULL,
                     source BINARY NOT NULL,
                     source_size INTEGER NOT NULL,
-                    source_plaintext_size INTEGER NOT NULL,
                     data_size INTEGER NOT NULL,
                     contract BINARY NOT NULL,
                     contract_size INTEGER NOT NULL,

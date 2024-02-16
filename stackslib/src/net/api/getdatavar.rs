@@ -159,7 +159,7 @@ impl RPCRequestHandler for RPCGetDataVarRequestHandler {
                             .flatten()
                             .map(|(a, b)| (a, Some(format!("0x{}", to_hex(&b)))))?
                     } else {
-                        clarity_db.get(&key).ok().flatten().map(|a| (a, None))?
+                        clarity_db.get_data(&key).ok().flatten().map(|a| (a, None))?
                     };
 
                     let data = format!("0x{}", value_hex);
