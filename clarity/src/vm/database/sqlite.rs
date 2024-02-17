@@ -37,6 +37,7 @@ pub struct SqliteConnection {
 }
 
 fn sqlite_put_data(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    eprintln!("sqlite_put_data: {} -> {}", key, value);
     let params: [&dyn ToSql; 2] = [&key, &value];
     match conn.execute(
         "REPLACE INTO data_table (key, value) VALUES (?, ?)",
@@ -51,6 +52,7 @@ fn sqlite_put_data(conn: &Connection, key: &str, value: &str) -> Result<()> {
 }
 
 fn sqlite_get_data(conn: &Connection, key: &str) -> Result<Option<String>> {
+    eprintln!("sqlite_get_data: {}", key);
     trace!("sqlite_get {}", key);
     let params: [&dyn ToSql; 1] = [&key];
     let res = match conn
@@ -68,6 +70,7 @@ fn sqlite_get_data(conn: &Connection, key: &str) -> Result<Option<String>> {
         }
     };
 
+    eprintln!("sqlite_get_data: {:?} -> {:?}", key, &res);
     trace!("sqlite_get {}: {:?}", key, &res);
     res
 }

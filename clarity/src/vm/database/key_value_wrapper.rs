@@ -119,8 +119,8 @@ pub struct ValueResult {
 pub struct RollbackContext {
     edits: Vec<(String, RollbackValueCheck)>,
     metadata_edits: Vec<((QualifiedContractIdentifier, String), RollbackValueCheck)>,
-    pending_contract: Option<PendingContract>,
-    contract_analysis: Option<ContractAnalysis>,
+    pending_contracts: Vec<PendingContract>,
+    contract_analyses: Vec<ContractAnalysis>,
 }
 
 pub struct RollbackWrapper<'a> {
@@ -267,7 +267,22 @@ impl<'a> RollbackWrapper<'a> {
         self.stack.len()
     }
 
+    fn find_pending_contract(&self, contract_identifier: &QualifiedContractIdentifier) -> Option<&PendingContract> {
+        eprintln!("KV querying pending data");
+        for ctx in self.stack.iter().rev() {
+            for pending_contract in &ctx.pending_contracts {
+                eprintln!("... KV checking pending contract: {:?}", pending_contract.contract.contract_identifier);
+                if &pending_contract.contract.contract_identifier == contract_identifier {
+                    eprintln!("... KV found pending contract; returning true");
+                    return Some(pending_contract);
+                }
+            }
+        }
+        None
+    }
+
     pub fn commit(&mut self) -> Result<(), InterpreterError> {
+        eprintln!("KV commit");
         let mut last_item = self.stack.pop().ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
         })?;
@@ -282,20 +297,22 @@ impl<'a> RollbackWrapper<'a> {
                 next_up.metadata_edits.push((key, value));
             }
 
-            next_up.pending_contract = last_item.pending_contract.take();
-            next_up.contract_analysis = last_item.contract_analysis.take();
+            next_up.pending_contracts.append(&mut last_item.pending_contracts);
+            next_up.contract_analyses.append(&mut last_item.contract_analyses);
         } else {
-            if last_item.pending_contract.is_some() {
-                let mut pending_contract = last_item.pending_contract.take().unwrap();
-                let contract_data = self.store.insert_contract(&mut pending_contract)
+            let mut inserted_contracts = HashMap::<QualifiedContractIdentifier, u32>::new();
+            for mut contract in last_item.pending_contracts.drain(..) {
+                let contract_data = self.store.insert_contract(&mut contract)
                     .expect("ERROR: failed to insert contract into backing store.");
+                inserted_contracts.insert(contract.contract.contract_identifier.clone(), contract_data.id);
+            }
 
-                // insert contract analysis
-                if last_item.contract_analysis.is_some() {
-                    let contract_analysis = last_item.contract_analysis.take().unwrap();
-                    self.store.insert_contract_analysis(contract_data.id, &contract_analysis)
-                        .expect("ERROR: failed to insert contract analysis into backing store.");
-                }
+            for analysis in last_item.contract_analyses.drain(..) {
+                let id = inserted_contracts.get(&analysis.contract_identifier)
+                    .expect("ERROR: failed to find contract id for contract analysis.");
+
+                self.store.insert_contract_analysis(*id, &analysis)
+                    .expect("ERROR: failed to insert contract analysis into backing store.");
             }
 
             // stack is empty, committing to the backing store
@@ -349,9 +366,15 @@ impl<'a> RollbackWrapper<'a> {
             .last_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
-        current.contract_analysis = Some(analysis.clone());
+        current.contract_analyses.push(analysis.clone());
     }
 
+    /// Adds the provided contract to the uncommitted state of this [RollbackWrapper] 
+    /// instance, in the current stack frame. If there is no current stack frame, this
+    /// function will panic.
+    /// 
+    /// To begin a new stack frame, the `nest` function must be called. 
+    /// To persist these changes, the `commit` function must be called.
     pub fn put_contract(
         &mut self,
         src: String,
@@ -370,11 +393,7 @@ impl<'a> RollbackWrapper<'a> {
             .last_mut()
             .expect("ERROR: Clarity VM attempted PUT on non-nested context.");
 
-        if current.pending_contract.is_some() {
-            panic!("ERROR: Clarity VM attempted to PUT a contract into a context that already has a contract.");
-        }
-
-        current.pending_contract = Some(PendingContract {
+        current.pending_contracts.push(PendingContract {
             source: src,
             contract
         });
@@ -382,19 +401,22 @@ impl<'a> RollbackWrapper<'a> {
         Ok(())
     }
 
+    /// Retrieves the contract context for a given contract identifier. If 
+    /// `query_pending_data` is true on this [RollbackWrapper] instance, 
+    /// it will first check the uncommitted state of this instance for the 
+    /// contract. If it is not found, it will query the underlying store.
+    /// 
+    /// NOTE: Removed the requirement for a nested context for this function,
+    /// which was previously enforced by the `get_data` and `get_metadata` 
+    /// functions.
     pub fn get_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier
     ) -> Result<ContractContext> {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted GET CONTRACT on non-nested context.");
-
         if self.query_pending_data {
-            if let Some(ctx) = self.stack.iter().rev().find_map(|x| x.pending_contract.as_ref()) {
-                if &ctx.contract.contract_identifier == contract_identifier {
-                    return Ok(ctx.contract.clone());
-                }
+            if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
+                eprintln!("... KV found pending contract; returning true");
+                return Ok(pending_contract.contract.clone());
             }
         }
 
@@ -404,42 +426,53 @@ impl<'a> RollbackWrapper<'a> {
         Ok(contract)
     }
 
+    /// Checks if a contract exists. If `query_pending_data` is true on this
+    /// [RollbackWrapper] instance, it will first check the uncommitted state
+    /// of this instance for the contract. If it is not found, it will query the
+    /// underlying store.
+    /// 
+    /// NOTE: Removed the requirement for a nested context for this function,
+    /// which was previously enforced by the `get_data` and `get_metadata` functions.
     pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<bool> {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted HAS CONTRACT on non-nested context.");
-
+        eprintln!("KV  has contract for {}", contract_identifier);
         if self.query_pending_data {
-            eprintln!("KV querying pending data");
-            if let Some(ctx) = self.stack.iter().rev().find_map(|x| x.pending_contract.as_ref()) {
-                eprintln!("KV found pending contract");
-                if &ctx.contract.contract_identifier == contract_identifier {
-                    eprintln!("KV found matching pending contract; returning true");
-                    return Ok(true);
-                }
+            if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
+                eprintln!("... KV found pending contract; returning true");
+                return Ok(true);
             }
         }
 
-        eprintln!("KV querying store");
+        eprintln!("... KV querying store");
         Ok(self.store.contract_exists(contract_identifier)?)
     }
 
+    /// Retrieves and calculates the contract size (size of the contract's source code 
+    /// in bytes + the contract's data size) for a given contract identifier. If
+    /// `query_pending_data` is true on this [RollbackWrapper] instance, it will first
+    /// check the uncommitted state of this instance for the contract. If it is not found,
+    /// it will query the underlying store.
+    /// 
+    /// NOTE: Removed the requirement for a nested context for this function, which
+    /// was previously enforced by the `get_data` and `get_metadata` functions.
     pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u32> {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted GET CONTRACT SIZE on non-nested context.");
-
+        eprintln!("KV get contract size for {}", contract_identifier);
         if self.query_pending_data {
-            if let Some(ctx) = self.stack.iter().rev().find_map(|x| x.pending_contract.as_ref()) {
-                if &ctx.contract.contract_identifier == contract_identifier {
-                    return Ok(ctx.source.len() as u32 + ctx.contract.data_size as u32);
-                }
+            if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
+                eprintln!("... KV found pending contract; returning true");
+                return Ok(pending_contract.source.len() as u32 + pending_contract.contract.data_size as u32);
             }
         }
 
+        eprintln!("... KV querying store");
         Ok(self.store.get_contract_size(contract_identifier)?)
     }
 
+    /// Appends the provided key and value to the uncommitted state of this
+    /// [RollbackWrapper] instance, in the current stack frame. If there is
+    /// no current stack frame, this function will panic.
+    /// 
+    /// To begin a new stack frame, the `nest` function must be called.
+    /// To persist these changes, the `commit` function must be called.
     pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
         let current = self.stack.last_mut().ok_or_else(|| {
             InterpreterError::Expect(
@@ -621,27 +654,6 @@ impl<'a> RollbackWrapper<'a> {
         match lookup_result {
             Some(x) => Ok(Some(x)),
             None => self.store.get_metadata(contract, key),
-        }
-    }
-
-    pub fn get_contract_ast(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Option<ContractContext> {
-        self.stack
-            .last()
-            .expect("ERROR: Clarity VM attempted GET on non-nested context.");
-
-        if self.query_pending_data {
-            self.stack
-                .iter()
-                .rev()
-                .filter_map(|x| x.pending_contract.as_ref())
-                .find(|x| &x.contract.contract_identifier == contract_identifier)
-                .map(|x| x.contract.clone())
-                .or_else(|| self.store.get_contract(contract_identifier)
-                    .expect("ERROR: Clarity VM experienced a contract lookup failure.")
-                )
-        } else {
-            self.store.get_contract(contract_identifier)
-                .expect("ERROR: Clarity VM experienced a contract lookup failure.")
         }
     }
 

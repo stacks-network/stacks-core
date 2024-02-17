@@ -112,6 +112,8 @@ pub trait ClarityBackingStore {
     ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
         let key = make_contract_hash_key(contract);
 
+        eprintln!("STORE get_contract_hash for {contract} and key {key}");
+
         let contract_commitment = self
             .get_data(&key)?
             .map(|x| ContractCommitment::deserialize(&x))
@@ -128,16 +130,10 @@ pub trait ClarityBackingStore {
         Ok((bhh, contract_hash))
     }
 
-    fn get_contract_hash2(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier
-    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
-        todo!()
-    }
-
     /// Retrieves the specified contract from the backing store. Returns
     /// [None] if the contract is not found.
     fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Option<ContractContext>> {
+        eprintln!("STORE get_contract for {contract_identifier}");
         let (bhh, _) = self.get_contract_hash(contract_identifier)?;
 
         let contract = SqliteConnection::get_contract(
@@ -161,6 +157,7 @@ pub trait ClarityBackingStore {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<u32> {
+        eprintln!("STORE get_contract_size for {contract_identifier}");
         let (bhh, _) = self.get_contract_hash(contract_identifier)?;
 
         let sizes = SqliteConnection::get_contract_sizes(
@@ -175,13 +172,19 @@ pub trait ClarityBackingStore {
 
     /// Checks for the existance of the specified contract in the backing store.
     fn contract_exists(
-        &mut self, 
+        &mut self,
         contract_identifier: &QualifiedContractIdentifier
     ) -> Result<bool> {
-        eprintln!("STORE get_contract_hash for {contract_identifier}");
-        let (bhh, _) = self.get_contract_hash(contract_identifier)?;
+        eprintln!("STORE contract_exists for {contract_identifier}");
 
-        eprintln!("STORE query contract_exists for {contract_identifier}");
+        let (bhh, _) = match self.get_contract_hash(contract_identifier) {
+            Ok(x) => x,
+            Err(crate::vm::errors::Error::Unchecked(
+                CheckErrors::NoSuchContract(_))) => return Ok(false),
+            Err(e) => return Err(e),
+        };
+
+        
         let result = SqliteConnection::contract_exists(
             self.get_side_store(),
             &contract_identifier.issuer.to_string(),
@@ -199,7 +202,7 @@ pub trait ClarityBackingStore {
         &mut self, 
         data: &mut PendingContract
     ) -> Result<ContractData> {
-
+        eprintln!("STORE insert_contract for {}", &data.contract.contract_identifier);
         let chain_tip_height = self.get_open_chain_tip_height();
         let chain_tip = self.get_open_chain_tip();
 
@@ -253,7 +256,7 @@ pub trait ClarityBackingStore {
     /// Inserts the provided contract analysis data into the backing store at 
     /// the current chain tip.
     fn insert_contract_analysis(&mut self, contract_id: u32, analysis: &ContractAnalysis) -> Result<()> {
-
+        eprintln!("STORE insert_contract_analysis for {}", contract_id);
         let analysis_serialized = rmp_serde::to_vec(analysis)?;
 
         let mut analysis_compressed = Vec::<u8>::with_capacity(analysis_serialized.len());
