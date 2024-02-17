@@ -188,6 +188,15 @@ fn vote_for_aggregate_public_key_success() {
             0,
             cycle_id + 1,
         ),
+        // Alice casts vote twice
+        make_signers_vote_for_aggregate_public_key(
+            alice_key,
+            alice_nonce+1,
+            alice_index,
+            &aggregate_public_key,
+            0,
+            cycle_id + 1,
+        ),
         // Bob casts a vote for the aggregate public key
         make_signers_vote_for_aggregate_public_key(
             bob_key,
@@ -207,15 +216,17 @@ fn vote_for_aggregate_public_key_success() {
     // check the last two txs in the last block
     let block = observer.get_blocks().last().unwrap().clone();
     let receipts = block.receipts.as_slice();
-    assert_eq!(receipts.len(), 4);
+    assert_eq!(receipts.len(), 5);
     // ignore tenure change tx
     // ignore tenure coinbase tx
 
     // Alice's vote should succeed
     let alice_vote_tx = &receipts[2];
+    println!("alice_vote_tx: {:?}", alice_vote_tx);
     assert_eq!(alice_vote_tx.result, Value::okay_true());
     assert_eq!(alice_vote_tx.events.len(), 1);
     let alice_vote_event = &alice_vote_tx.events[0];
+    println!("alice_vote_event: {:?}", alice_vote_event);
     if let StacksTransactionEvent::SmartContractEvent(contract_event) = alice_vote_event {
         assert_eq!(
             contract_event.value,
@@ -239,10 +250,12 @@ fn vote_for_aggregate_public_key_success() {
     }
 
     // Bob's vote should succeed
-    let bob_vote_tx = &receipts[3];
+    let bob_vote_tx = &receipts[4];
+    println!("bob_vote_tx: {:?}", bob_vote_tx);
     assert_eq!(bob_vote_tx.result, Value::okay_true());
     assert_eq!(bob_vote_tx.events.len(), 2);
     let bob_vote_event = &bob_vote_tx.events[0];
+    println!("bob_vote_event: {:?}", bob_vote_event);
     if let StacksTransactionEvent::SmartContractEvent(contract_event) = bob_vote_event {
         assert_eq!(
             contract_event.value,
@@ -265,7 +278,18 @@ fn vote_for_aggregate_public_key_success() {
         panic!("Expected SmartContractEvent, got {:?}", bob_vote_event);
     }
 
+    // Bob vote should fail (duplicate vote)
+    let bob_vote_duplicate_tx = &receipts[3];
+    println!("bob_vote_duplicate_tx: {:?}", bob_vote_duplicate_tx);
+    let bob_vote_duplicate_tx_result = bob_vote_duplicate_tx.result.clone();
+    println!("bob_vote_duplicate_tx_result: {:?}", bob_vote_duplicate_tx_result);
+    assert_eq!(
+        bob_vote_duplicate_tx_result,
+        Value::err_uint(7) // err-duplicate-vote
+    );
+
     let approve_event = &bob_vote_tx.events[1];
+    println!("approve_event: {:?}", approve_event);
     if let StacksTransactionEvent::SmartContractEvent(contract_event) = approve_event {
         assert_eq!(
             contract_event.value,
