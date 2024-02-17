@@ -17,7 +17,6 @@
 
 use std::char::from_digit;
 use std::cmp::min;
-use std::default::Default;
 use std::io::{Cursor, Write};
 use std::{error, fmt, mem};
 

@@ -50,7 +50,6 @@ pub mod test_util;
 pub mod clarity;
 
 use std::collections::BTreeMap;
-use std::convert::{TryFrom, TryInto};
 
 use serde_json;
 use stacks_common::types::StacksEpochId;

@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashSet;
-use std::convert::{From, TryFrom};
 use std::{fmt, fs};
 
 use clarity::vm::types::{

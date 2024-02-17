@@ -2,7 +2,6 @@ use std::cmp;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
-use std::iter::FromIterator;
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::path::Path;
 

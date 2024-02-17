@@ -51,7 +51,6 @@ pub use stacks_common::{
 pub mod vm;
 
 pub mod boot_util {
-    use std::convert::TryFrom;
 
     use stacks_common::types::chainstate::StacksAddress;
 

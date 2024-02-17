@@ -32,7 +32,6 @@ pub mod syncctl;
 pub mod tenure;
 
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::{env, panic, process};
 
 use backtrace::Backtrace;
