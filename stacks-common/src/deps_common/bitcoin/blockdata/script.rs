@@ -24,7 +24,6 @@
 //! This module provides the structures and functions needed to support scripts.
 //!
 
-use std::default::Default;
 use std::mem::size_of;
 use std::{error, fmt};
 

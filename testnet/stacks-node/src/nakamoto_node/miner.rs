@@ -14,7 +14,6 @@ use std::collections::HashMap;
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::convert::TryFrom;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};

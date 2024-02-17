@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
 use std::io::prelude::*;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};

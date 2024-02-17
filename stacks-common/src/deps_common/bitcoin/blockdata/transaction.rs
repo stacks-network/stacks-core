@@ -23,7 +23,6 @@
 //! This module provides the structures and functions needed to support transactions.
 //!
 
-use std::default::Default;
 use std::fmt;
 use std::io::Write;
 
