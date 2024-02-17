@@ -586,7 +586,11 @@ impl TransactionResult {
                 // which code paths were hit, the user should really have attached an appropriate
                 // tx fee in the first place.  In Stacks 2.1, the code will debit the fee first, so
                 // this will no longer be an issue.
-                info!("Problematic transaction caused InvalidFee"; "txid" => %tx.txid());
+                info!("Problematic transaction caused InvalidFee";
+                      "txid" => %tx.txid(),
+                      "origin" => %tx.get_origin().get_address(false),
+                      "payload" => ?tx.payload,
+                );
                 return (true, Error::InvalidFee);
             }
             e => e,

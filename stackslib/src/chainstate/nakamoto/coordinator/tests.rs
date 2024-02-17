@@ -136,7 +136,7 @@ pub fn make_all_signers_vote_for_aggregate_key(
     test_stackers: &[TestStacker],
     cycle_id: u128,
 ) -> Vec<StacksTransaction> {
-    debug!("Trigger signers vote for cycle {}", cycle_id);
+    info!("Trigger signers vote for cycle {}", cycle_id);
 
     // Check if we already have an aggregate key for this cycle
     if chainstate
@@ -195,7 +195,7 @@ pub fn make_all_signers_vote_for_aggregate_key(
     }
 
     // Vote for the aggregate key for each signer
-    debug!("Trigger votes for cycle {}", cycle_id);
+    info!("Trigger votes for cycle {}", cycle_id);
     signers
         .iter()
         .map(|(addr, (signer_key, index))| {
