@@ -44,7 +44,7 @@ impl StacksChainState {
         contract_id: &QualifiedContractIdentifier,
     ) -> Result<Option<Contract>, Error> {
         clarity_tx
-            .with_clarity_db_readonly(|ref mut db| match db.get_contract(contract_id) {
+            .with_clarity_db_readonly(|ref mut db| match db.get_contract2(contract_id) {
                 Ok(c) => Ok(Some(c)),
                 Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchContract(_))) => Ok(None),
                 Err(e) => Err(clarity_error::Interpreter(e)),

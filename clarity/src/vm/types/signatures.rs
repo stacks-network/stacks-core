@@ -75,14 +75,17 @@ impl AssetIdentifier {
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct TupleTypeSignature {
     type_map: BTreeMap<ClarityName, TypeSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct BufferLength(u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct StringUTF8Length(u32);
 
 // INVARIANTS enforced by the Type Signatures.
@@ -93,6 +96,7 @@ pub struct StringUTF8Length(u32);
 //        (i.e., the only function that can be called by the constructor before
 //         it fails) is the `.size()` method, which may be used to check the size.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum TypeSignature {
     NoType,
     IntType,
@@ -121,6 +125,7 @@ pub enum TypeSignature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum SequenceSubtype {
     BufferType(BufferLength),
     ListType(ListTypeData),
@@ -145,12 +150,14 @@ impl SequenceSubtype {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum StringSubtype {
     ASCII(BufferLength),
     UTF8(StringUTF8Length),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum CallableSubtype {
     Principal(QualifiedContractIdentifier),
     Trait(TraitIdentifier),
@@ -220,12 +227,14 @@ pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(Stri
 )));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct ListTypeData {
     max_len: u32,
     entry_type: Box<TypeSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub struct FunctionSignature {
     pub args: Vec<TypeSignature>,
     pub returns: TypeSignature,

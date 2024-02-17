@@ -142,7 +142,7 @@ impl RPCRequestHandler for RPCGetConstantValRequestHandler {
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
-                        let contract = clarity_db.get_contract(&contract_identifier).ok()?;
+                        let contract = clarity_db.get_contract2(&contract_identifier).ok()?;
 
                         let cst = contract
                             .contract_context

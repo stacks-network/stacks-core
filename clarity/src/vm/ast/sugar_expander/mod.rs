@@ -77,14 +77,14 @@ impl SugarExpander {
                 PreSymbolicExpressionType::List(pre_exprs) => {
                     let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
                     let expression = self.transform(drain, contract_ast)?;
-                    SymbolicExpression::list(expression.into_boxed_slice())
+                    SymbolicExpression::list(expression)
                 }
                 PreSymbolicExpressionType::Tuple(pre_exprs) => {
                     let drain = PreExpressionsDrain::new(pre_exprs.to_vec().drain(..), None);
                     let expression = self.transform(drain, contract_ast)?;
                     let mut pairs = expression
                         .chunks(2)
-                        .map(|pair| pair.to_vec().into_boxed_slice())
+                        .map(|pair| pair.to_vec())
                         .map(SymbolicExpression::list)
                         .collect::<Vec<_>>();
                     pairs.insert(
@@ -96,7 +96,7 @@ impl SugarExpander {
                                 .map_err(|_| ParseErrors::InterpreterFailure)?,
                         ),
                     );
-                    SymbolicExpression::list(pairs.into_boxed_slice())
+                    SymbolicExpression::list(pairs)
                 }
                 PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
                     let contract_identifier =
@@ -277,7 +277,7 @@ mod test {
         start_column: u32,
         end_line: u32,
         end_column: u32,
-        x: Box<[SymbolicExpression]>,
+        x: Vec<SymbolicExpression>,
     ) -> SymbolicExpression {
         let mut e = SymbolicExpression::list(x);
         e.set_span(start_line, start_column, end_line, end_column);
@@ -395,42 +395,42 @@ mod test {
                 3,
                 6,
                 11,
-                Box::new([
+                vec![
                     make_atom("let", 1, 4, 1, 6),
                     make_list(
                         1,
                         8,
                         1,
                         20,
-                        Box::new([
+                        vec![
                             make_list(
                                 1,
                                 9,
                                 1,
                                 13,
-                                Box::new([
+                                vec![
                                     make_atom("x", 1, 10, 1, 10),
                                     make_literal_value(Value::Int(1), 1, 12, 1, 12),
-                                ]),
+                                ],
                             ),
                             make_list(
                                 1,
                                 15,
                                 1,
                                 19,
-                                Box::new([
+                                vec![
                                     make_atom("y", 1, 16, 1, 16),
                                     make_literal_value(Value::Int(2), 1, 18, 1, 18),
-                                ]),
+                                ],
                             ),
-                        ]),
+                        ],
                     ),
                     make_list(
                         2,
                         5,
                         6,
                         10,
-                        Box::new([
+                        vec![
                             make_atom("+", 2, 6, 2, 6),
                             make_atom("x", 2, 8, 2, 8),
                             make_list(
@@ -438,41 +438,41 @@ mod test {
                                 9,
                                 5,
                                 16,
-                                Box::new([
+                                vec![
                                     make_atom("let", 4, 10, 4, 12),
                                     make_list(
                                         4,
                                         14,
                                         4,
                                         20,
-                                        Box::new([make_list(
+                                        vec![make_list(
                                             4,
                                             15,
                                             4,
                                             19,
-                                            Box::new([
+                                            vec![
                                                 make_atom("x", 4, 16, 4, 16),
                                                 make_literal_value(Value::Int(3), 4, 18, 4, 18),
-                                            ]),
-                                        )]),
+                                            ],
+                                        )],
                                     ),
                                     make_list(
                                         5,
                                         9,
                                         5,
                                         15,
-                                        Box::new([
+                                        vec![
                                             make_atom("+", 5, 10, 5, 10),
                                             make_atom("x", 5, 12, 5, 12),
                                             make_atom("y", 5, 14, 5, 14),
-                                        ]),
+                                        ],
                                     ),
-                                ]),
+                                ],
                             ),
                             make_atom("x", 6, 9, 6, 9),
-                        ]),
+                        ],
                     ),
-                ]),
+                ],
             ),
             make_atom("x", 6, 13, 6, 13),
             make_atom("y", 6, 15, 6, 15),
@@ -508,19 +508,19 @@ mod test {
             1,
             1,
             9,
-            Box::new([
+            vec![
                 make_atom("tuple", 0, 0, 0, 0),
                 make_list(
                     0,
                     0,
                     0,
                     0,
-                    Box::new([
+                    vec![
                         make_atom("id", 1, 2, 1, 3),
                         make_literal_value(Value::Int(1337), 1, 5, 1, 8),
-                    ]),
+                    ],
                 ),
-            ]),
+            ],
         )];
         let contract_id = QualifiedContractIdentifier::parse(
             "S1G2081040G2081040G2081040G208105NK8PE5.contract-a",
@@ -859,7 +859,7 @@ mod test {
                 end_column: 20,
             },
         )];
-        let list = make_list(1, 1, 4, 1, Box::new([foo]));
+        let list = make_list(1, 1, 4, 1, vec![foo]);
         let ast = vec![list];
 
         let contract_id = QualifiedContractIdentifier::parse(

@@ -809,7 +809,7 @@ fn special_contract_of(
         Some(trait_data) => {
             env.global_context
                 .database
-                .get_contract(&trait_data.contract_identifier)
+                .get_contract2(&trait_data.contract_identifier)
                 .map_err(|_e| {
                     CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
                 })?;

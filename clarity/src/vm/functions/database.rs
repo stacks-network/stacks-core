@@ -107,7 +107,7 @@ pub fn special_contract_call(
                     let contract_to_check = env
                         .global_context
                         .database
-                        .get_contract(&trait_data.contract_identifier)
+                        .get_contract2(&trait_data.contract_identifier)
                         .map_err(|_e| {
                             CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
                         })?;
@@ -133,7 +133,7 @@ pub fn special_contract_call(
                         let contract_defining_trait = env
                             .global_context
                             .database
-                            .get_contract(&trait_identifier.contract_identifier)
+                            .get_contract2(&trait_identifier.contract_identifier)
                             .map_err(|_e| {
                                 CheckErrors::NoSuchContract(
                                     trait_identifier.contract_identifier.to_string(),

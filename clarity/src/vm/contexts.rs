@@ -18,6 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::mem::replace;
 
+#[cfg(test)]
+use fake::Dummy;
 use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
@@ -206,6 +208,7 @@ pub struct GlobalContext<'a, 'hooks> {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg_attr(test, derive(Dummy))]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
     pub variables: HashMap<ClarityName, Value>,
@@ -1120,10 +1123,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         read_only: bool,
         allow_private: bool,
     ) -> Result<Value> {
-        let contract_size = self
+        let contract_size: u64 = self
             .global_context
             .database
-            .get_contract_size(contract_identifier)?;
+            .get_contract_size2(contract_identifier)?
+            .into();
 
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 
@@ -1305,7 +1309,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             if self
                 .global_context
                 .database
-                .has_contract(&contract_identifier)
+                .has_contract2(&contract_identifier)?
             {
                 return Err(
                     CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into(),
@@ -1315,9 +1319,9 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             // first, store the contract _content hash_ in the data store.
             //    this is necessary before creating and accessing metadata fields in the data store,
             //      --or-- storing any analysis metadata in the data store.
-            self.global_context
-                .database
-                .insert_contract_hash(&contract_identifier, contract_string)?;
+            //self.global_context
+            //    .database
+            //    .insert_contract_hash(&contract_identifier, contract_string)?;
             let memory_use = contract_string.len() as u64;
             self.add_memory(memory_use)?;
 
@@ -1334,16 +1338,16 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
         match result {
             Ok(contract) => {
-                let data_size = contract.contract_context.data_size;
-                self.global_context
-                    .database
-                    .insert_contract(&contract_identifier, contract.clone())?;
+                //let data_size = contract.contract_context.data_size;
+                //self.global_context
+                //    .database
+                //    .insert_contract(&contract_identifier, contract.clone())?;
                 self.global_context
                     .database
                     .insert_contract2(contract, contract_string)?;
-                self.global_context
-                    .database
-                    .set_contract_data_size(&contract_identifier, data_size)?;
+                //self.global_context
+                //    .database
+                //    .set_contract_data_size(&contract_identifier, data_size)?;
 
                 self.global_context.commit()?;
                 Ok(())

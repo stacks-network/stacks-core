@@ -28,7 +28,7 @@ use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 
-use super::structures::{ContractAnalysisData, ContractData};
+use super::structures::{ContractAnalysisData, ContractData, ContractSizeData};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 
@@ -85,6 +85,72 @@ impl SqliteConnection {
         sqlite_get_data(conn, key)
     }
 
+    pub fn get_contract_sizes(conn: &Connection, issuer: &str, name: &str, bhh: &StacksBlockId) -> Result<ContractSizeData> {
+        let mut statement = conn.prepare_cached(
+            "
+            SELECT 
+                source_size,
+                data_size,
+                contract_size
+            FROM 
+                contract 
+            WHERE 
+                issuer = ? 
+                AND name = ? 
+                AND block_hash = ?
+            "
+        )?;
+
+        let result = statement.query_row(
+            [
+                &issuer as &dyn ToSql, 
+                &name as &dyn ToSql, 
+                &bhh.0.as_slice() as &dyn ToSql
+            ],
+            |row| {
+                Ok(
+                    ContractSizeData {
+                        source_size: row.get(0)?,
+                        data_size: row.get(1)?,
+                        contract_size: row.get(2)?,
+                    }
+                )
+            })?;
+        
+        Ok(result)
+    }
+
+    /// Checks if a contract exists which was deployed at the given block height
+    /// and has the given issuer and name.
+    pub fn contract_exists(conn: &Connection, issuer: &str, name: &str, bhh: &StacksBlockId) -> Result<bool> {
+        let mut statement = conn.prepare_cached(
+            "
+            SELECT EXISTS(
+                SELECT 
+                    1 
+                FROM 
+                    contract 
+                WHERE 
+                    issuer = ? 
+                    AND name = ? 
+                    AND block_hash = ?
+            );
+            "
+        )?;
+
+        let result = statement.query_row(
+            [
+                &issuer as &dyn ToSql, 
+                &name as &dyn ToSql, 
+                &bhh.0.as_slice() as &dyn ToSql
+            ],
+            |row| {
+                Ok(row.get::<_, u32>(0)?)
+            })?;
+        
+        Ok(result == 1)
+    }
+
     pub fn insert_contract(
         conn: &Connection,
         bhh: &StacksBlockId,
@@ -102,9 +168,10 @@ impl SqliteConnection {
                 source_size, 
                 data_size, 
                 contract, 
-                contract_size 
+                contract_size,
+                contract_hash
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             );
             "
         )?;
@@ -119,7 +186,8 @@ impl SqliteConnection {
                 &data.source_size as &dyn ToSql, 
                 &data.data_size as &dyn ToSql, 
                 &data.contract as &dyn ToSql, 
-                &data.contract_size as &dyn ToSql
+                &data.contract_size as &dyn ToSql,
+                &data.contract_hash as &dyn ToSql
             ])?;
 
         data.id = contract_id as u32;
@@ -172,7 +240,8 @@ impl SqliteConnection {
                     source_size,
                     data_size, 
                     contract, 
-                    contract_size 
+                    contract_size,
+                    contract_hash
                 FROM 
                     contract 
                 WHERE 
@@ -198,6 +267,7 @@ impl SqliteConnection {
                     data_size: row.get(7)?,
                     contract: row.get(8)?,
                     contract_size: row.get(9)?,
+                    contract_hash: row.get(10)?,
                 })
             })
             .optional()?;
@@ -351,6 +421,7 @@ impl SqliteConnection {
                     data_size INTEGER NOT NULL,
                     contract BINARY NOT NULL,
                     contract_size INTEGER NOT NULL,
+                    contract_hash BINARY NOT NULL,
                 
                     UNIQUE (issuer, name, block_hash)
                 );

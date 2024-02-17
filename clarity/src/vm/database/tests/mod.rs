@@ -1,11 +1,15 @@
 use rand::{Rng, RngCore};
+use randomizer::Randomizer;
 use stacks_common::types::chainstate::StacksBlockId;
+
+use crate::vm::types::QualifiedContractIdentifier;
 
 use super::structures::ContractData;
 
 mod sqlite;
-mod kv_wrapper;
-mod clarity_db;
+mod kv;
+mod db;
+mod store;
 
 fn random_bhh() -> [u8; 32] {
     let mut bhh = [0u8; 32];
@@ -34,10 +38,12 @@ fn random_height() -> u32 {
 }
 
 fn random_string(len: usize) -> String {
-    rand::thread_rng()
+    let result = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(len)
-        .collect()
+        .collect();
+
+    String::from_utf8(result).unwrap()
 }
 
 fn assert_contract_eq(left: ContractData, right: ContractData) {
@@ -50,21 +56,29 @@ fn assert_contract_eq(left: ContractData, right: ContractData) {
     assert_eq!(left.data_size, right.data_size);
 }
 
-fn random_contract_data() -> ContractData {
+fn random_contract_data() -> (QualifiedContractIdentifier, ContractData) {
     let src_bytes = random_bytes_random_len(100, 1000);
     let src_len = src_bytes.len() as u32;
     let contract_bytes = random_bytes_random_len(100, 1000);
     let contract_len = contract_bytes.len() as u32;
     let data_size = random_u32(100, 1000);
+    
+    let identifier = QualifiedContractIdentifier::local(
+        &Randomizer::ALPHABETICAL(10).string().unwrap()
+    ).unwrap();
 
-    ContractData {
-        id: 0,
-        issuer: random_string(20),
-        name: random_string(20),
-        source: src_bytes.clone(),
-        source_size: src_len as u32,
-        contract: contract_bytes,
-        contract_size: contract_len,
-        data_size
-    }
+    (
+        identifier.clone(),
+        ContractData {
+            id: 0,
+            issuer: identifier.issuer.to_string(),
+            name: identifier.name.to_string(),
+            source: src_bytes.clone(),
+            source_size: src_len as u32,
+            contract: contract_bytes,
+            contract_size: contract_len,
+            data_size,
+            contract_hash: random_bhh().to_vec(),
+        }
+    )
 }

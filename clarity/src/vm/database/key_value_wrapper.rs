@@ -396,6 +396,42 @@ impl<'a> RollbackWrapper<'a> {
         Ok(contract)
     }
 
+    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<bool> {
+        self.stack
+            .last()
+            .expect("ERROR: Clarity VM attempted HAS CONTRACT on non-nested context.");
+
+        if self.query_pending_data {
+            eprintln!("KV querying pending data");
+            if let Some(ctx) = self.stack.iter().rev().find_map(|x| x.pending_contract.as_ref()) {
+                eprintln!("KV found pending contract");
+                if &ctx.contract.contract_identifier == contract_identifier {
+                    eprintln!("KV found matching pending contract; returning true");
+                    return Ok(true);
+                }
+            }
+        }
+
+        eprintln!("KV querying store");
+        Ok(self.store.contract_exists(contract_identifier)?)
+    }
+
+    pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u32> {
+        self.stack
+            .last()
+            .expect("ERROR: Clarity VM attempted GET CONTRACT SIZE on non-nested context.");
+
+        if self.query_pending_data {
+            if let Some(ctx) = self.stack.iter().rev().find_map(|x| x.pending_contract.as_ref()) {
+                if &ctx.contract.contract_identifier == contract_identifier {
+                    return Ok(ctx.source.len() as u32 + ctx.contract.data_size as u32);
+                }
+            }
+        }
+
+        Ok(self.store.get_contract_size(contract_identifier)?)
+    }
+
     pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
         let current = self.stack.last_mut().ok_or_else(|| {
             InterpreterError::Expect(

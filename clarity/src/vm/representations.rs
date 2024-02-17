@@ -74,6 +74,7 @@ guarded_string!(
     RuntimeErrorType,
     RuntimeErrorType::BadNameValue
 );
+
 guarded_string!(
     ContractName,
     "ContractName",
@@ -409,16 +410,18 @@ impl PreSymbolicExpression {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
-    List(Box<[SymbolicExpression]>),
+    List(Vec<SymbolicExpression>),
     LiteralValue(Value),
     Field(TraitIdentifier),
     TraitReference(ClarityName, TraitDefinition),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum TraitDefinition {
     Defined(TraitIdentifier),
     Imported(TraitIdentifier),
@@ -444,6 +447,7 @@ where
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,
     // this id field is used by compiler passes to store information in
@@ -544,7 +548,7 @@ impl SymbolicExpression {
         }
     }
 
-    pub fn list(val: Box<[SymbolicExpression]>) -> SymbolicExpression {
+    pub fn list(val: Vec<SymbolicExpression>) -> SymbolicExpression {
         SymbolicExpression {
             expr: SymbolicExpressionType::List(val),
             ..SymbolicExpression::cons()
@@ -652,6 +656,7 @@ impl fmt::Display for SymbolicExpression {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Span {
     pub start_line: u32,
     pub start_column: u32,

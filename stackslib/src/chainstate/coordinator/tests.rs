@@ -4181,7 +4181,7 @@ fn test_epoch_switch_cost_contract_instantiation() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
                     conn.with_clarity_db_readonly(|db| {
-                        db.get_contract(&boot_code_id(COSTS_2_NAME, false))
+                        db.get_contract2(&boot_code_id(COSTS_2_NAME, false))
                     })
                 },
             )
@@ -4385,7 +4385,7 @@ fn test_epoch_switch_pox_2_contract_instantiation() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
                     conn.with_clarity_db_readonly(|db| {
-                        db.get_contract(&boot_code_id(POX_2_NAME, false))
+                        db.get_contract2(&boot_code_id(POX_2_NAME, false))
                     })
                 },
             )
@@ -4593,7 +4593,7 @@ fn test_epoch_switch_pox_3_contract_instantiation() {
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
                     conn.with_clarity_db_readonly(|db| {
-                        db.get_contract(&boot_code_id(POX_3_NAME, false))
+                        db.get_contract2(&boot_code_id(POX_3_NAME, false))
                     })
                 },
             )
@@ -4839,7 +4839,7 @@ fn atlas_stop_start() {
                 &sort_db.index_conn(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
-                    conn.with_clarity_db_readonly(|db| db.get_contract(&boot_code_id("bns", false)))
+                    conn.with_clarity_db_readonly(|db| db.get_contract2(&boot_code_id("bns", false)))
                 },
             )
             .unwrap();

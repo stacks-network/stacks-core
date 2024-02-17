@@ -2,7 +2,7 @@
 use rand::RngCore;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use crate::vm::database::{tests::{assert_contract_eq, random_contract_data}, *};
+use crate::vm::{database::{tests::{assert_contract_eq, random_contract_data}, *}, types::QualifiedContractIdentifier};
 
 use self::structures::{ContractData, ContractAnalysisData};
 
@@ -31,7 +31,7 @@ fn insert_contract() {
     let bhh = random_stacks_block_id();
     let height = random_height();
 
-    let mut contract = random_contract_data();
+    let (_, mut contract) = random_contract_data();
 
     SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
         .expect("failed to insert contract");
@@ -47,8 +47,8 @@ fn get_contract() {
     let bhh = random_stacks_block_id();
     let height = random_height();
 
-    let mut contract1 = random_contract_data();
-    let mut contract2 = random_contract_data();
+    let (_, mut contract1) = random_contract_data();
+    let (_, mut contract2) = random_contract_data();
 
     let contract1_id = SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract1)
         .expect("failed to insert contract1");
@@ -97,6 +97,65 @@ fn get_contract() {
 }
 
 #[test]
+fn contract_exists() {
+    let conn = SqliteConnection::memory()
+        .unwrap();
+
+    let bhh = random_stacks_block_id();
+    let height = random_height();
+
+    let (_, mut contract) = random_contract_data();
+
+    SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
+        .expect("failed to insert contract");
+
+    assert_eq!(contract.id, 1);
+
+    let exists = SqliteConnection::contract_exists(
+            &conn, 
+            &contract.issuer, 
+            &contract.name, 
+            &bhh
+        )
+        .expect("failed to check if contract exists");
+
+    assert!(exists);
+
+    let exists = SqliteConnection::contract_exists(
+            &conn, 
+            &random_string(20), 
+            &random_string(20), 
+            &bhh
+        )
+        .expect("failed to check if contract exists");
+
+    assert!(!exists);
+}
+
+#[test]
+fn get_contract_sizes() {
+    let conn = SqliteConnection::memory()
+        .unwrap();
+
+    let bhh = random_stacks_block_id();
+    let height = random_height();
+
+    let (_, mut contract) = random_contract_data();
+
+    SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
+        .expect("failed to insert contract");
+
+    assert_eq!(contract.id, 1);
+
+    let sizes = SqliteConnection::get_contract_sizes(&conn, &contract.issuer, &contract.name, &bhh)
+        .expect("failed to get contract sizes");
+
+    assert_eq!(sizes.contract_size, contract.contract_size);
+    assert_eq!(sizes.data_size, contract.data_size);
+    assert_eq!(sizes.source_size, contract.source_size);
+}
+
+#[test]
 fn insert_contract_analysis() {
     let conn = SqliteConnection::memory()
         .unwrap();
@@ -106,7 +165,7 @@ fn insert_contract_analysis() {
     let height = random_height();
 
     // Create a random contract
-    let mut contract = random_contract_data();
+    let (_, mut contract) = random_contract_data();
     SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
         .expect("failed to insert contract");
     assert_eq!(contract.id, 1);

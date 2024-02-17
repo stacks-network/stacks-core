@@ -92,6 +92,13 @@ pub struct PendingContract {
     pub contract: ContractContext
 }
 
+#[derive(Debug, Clone)]
+pub struct ContractSizeData {
+    pub contract_size: u32,
+    pub data_size: u32,
+    pub source_size: u32
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContractData {
     pub id: u32,
@@ -109,6 +116,8 @@ pub struct ContractData {
     pub contract: Vec<u8>,
     /// The size of the serialized contract AST in bytes.
     pub contract_size: u32,
+    /// The 32-byte hash of the contract.
+    pub contract_hash: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +138,7 @@ pub struct BlockData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(::fake::Dummy))]
 pub struct FungibleTokenMetadata {
     pub total_supply: Option<u128>,
 }
@@ -136,6 +146,7 @@ pub struct FungibleTokenMetadata {
 clarity_serializable!(FungibleTokenMetadata);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct NonFungibleTokenMetadata {
     pub key_type: TypeSignature,
 }
@@ -143,6 +154,7 @@ pub struct NonFungibleTokenMetadata {
 clarity_serializable!(NonFungibleTokenMetadata);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct DataMapMetadata {
     pub key_type: TypeSignature,
     pub value_type: TypeSignature,
@@ -151,6 +163,7 @@ pub struct DataMapMetadata {
 clarity_serializable!(DataMapMetadata);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct DataVariableMetadata {
     pub value_type: TypeSignature,
 }

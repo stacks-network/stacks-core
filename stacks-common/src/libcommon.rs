@@ -13,6 +13,9 @@ extern crate slog;
 #[macro_use]
 extern crate serde_derive;
 
+#[cfg(test)]
+pub extern crate fake;
+
 #[cfg(unix)]
 extern crate nix;
 

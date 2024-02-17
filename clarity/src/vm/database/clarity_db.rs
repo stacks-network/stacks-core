@@ -800,6 +800,26 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| Error::Unchecked(CheckErrors::NoSuchContract(contract_identifier.to_string())))
     }
 
+    pub fn has_contract2(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<bool> {
+        let exists = self.contract_cache.contains(contract_identifier);
+        eprintln!("exists (cache hit): {exists}");
+
+        if !exists {
+            let result = self.store.has_contract(contract_identifier)?;
+            eprintln!("result (store): {result}");
+            return Ok(result);
+        }
+
+        Ok(exists)
+    }
+
+    pub fn get_contract_size2(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<u32> {
+        self.store.get_contract_size(contract_identifier)
+    }
+
     #[deprecated]
     pub fn insert_contract(
         &mut self,

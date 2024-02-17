@@ -818,7 +818,7 @@ impl TrackerData {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
             if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
-                let contract_context = match clarity_db.get_contract(&cost_function_ref.contract_id)
+                let contract_context = match clarity_db.get_contract2(&cost_function_ref.contract_id)
                 {
                     Ok(contract) => contract.contract_context,
                     Err(e) => {
@@ -839,7 +839,7 @@ impl TrackerData {
 
         for (_, circuit_target) in self.contract_call_circuits.iter() {
             if !cost_contracts.contains_key(&circuit_target.contract_id) {
-                let contract_context = match clarity_db.get_contract(&circuit_target.contract_id) {
+                let contract_context = match clarity_db.get_contract2(&circuit_target.contract_id) {
                     Ok(contract) => contract.contract_context,
                     Err(e) => {
                         error!("Failed to load intended Clarity cost contract";
@@ -989,7 +989,7 @@ fn compute_cost(
         )));
     }
 
-    let function_invocation = [SymbolicExpression::list(program.into_boxed_slice())];
+    let function_invocation = [SymbolicExpression::list(program)];
 
     let eval_result = eval_all(
         &function_invocation,

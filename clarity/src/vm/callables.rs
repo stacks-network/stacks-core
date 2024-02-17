@@ -56,6 +56,7 @@ pub enum CallableType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum DefineType {
     ReadOnly,
     Public,
@@ -63,6 +64,7 @@ pub enum DefineType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct DefinedFunction {
     identifier: FunctionIdentifier,
     name: ClarityName,
@@ -120,6 +122,7 @@ pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct FunctionIdentifier {
     identifier: String,
 }

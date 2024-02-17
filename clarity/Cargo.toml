@@ -51,6 +51,9 @@ features = ["std"]
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
+randomizer = "0.1.2"
+mockall = "0.12.1"
+fake = { version = "2.9.2", features = ["derive"] }
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
 # criterion = "0.3"
