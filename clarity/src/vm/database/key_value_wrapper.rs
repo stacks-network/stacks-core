@@ -357,6 +357,14 @@ impl<'a> RollbackWrapper<'a> {
         src: String,
         contract: ContractContext
     ) -> Result<()> {
+        let content_hash = Sha512Trunc256Sum::from_data(src.as_bytes());
+        let key = make_contract_hash_key(&contract.contract_identifier);
+        let value = self.store.make_contract_commitment(content_hash);
+        self.put_data(&key, &value);
+
+        eprintln!("KV put contract: {:?}", contract.contract_identifier);
+        eprintln!("... with k/v: {:?} / {:?}", key, value);
+
         let current = self
             .stack
             .last_mut()
@@ -552,6 +560,8 @@ impl<'a> RollbackWrapper<'a> {
         self.store.get_block_at_height(block_height)
     }
 
+    /// Creates the initial contract commitment for a new contract. This creates
+    /// a key in the form of "clarity-contract::{contract.display()}" 
     pub fn prepare_for_contract_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,

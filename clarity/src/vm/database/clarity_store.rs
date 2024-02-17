@@ -128,6 +128,13 @@ pub trait ClarityBackingStore {
         Ok((bhh, contract_hash))
     }
 
+    fn get_contract_hash2(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+        todo!()
+    }
+
     /// Retrieves the specified contract from the backing store. Returns
     /// [None] if the contract is not found.
     fn get_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<Option<ContractContext>> {
@@ -172,8 +179,7 @@ pub trait ClarityBackingStore {
         contract_identifier: &QualifiedContractIdentifier
     ) -> Result<bool> {
         eprintln!("STORE get_contract_hash for {contract_identifier}");
-        let (bhh, _) = self.get_contract_hash(contract_identifier)
-            .expect("ERROR: Failed to get contract hash.");
+        let (bhh, _) = self.get_contract_hash(contract_identifier)?;
 
         eprintln!("STORE query contract_exists for {contract_identifier}");
         let result = SqliteConnection::contract_exists(
