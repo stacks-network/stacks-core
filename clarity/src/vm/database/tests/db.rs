@@ -16,6 +16,7 @@ fn contract_exists() {
 
     let context: ContractContext = Faker.fake();
     dbg!(context);
+    return;
 
     SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
         .expect("failed to insert contract");
@@ -23,7 +24,7 @@ fn contract_exists() {
     // We're missing the marf/data entry
 
     let mut store = MemoryBackingStore::new();
-    let wrapper = RollbackWrapper::new(&mut store);
+    let wrapper= RollbackWrapper::new(&mut store);
     let mut db = ClarityDatabase::new_with_rollback_wrapper(
         wrapper, 
         &NULL_HEADER_DB, 

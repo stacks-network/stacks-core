@@ -19,7 +19,7 @@ use std::fmt;
 use std::mem::replace;
 
 #[cfg(test)]
-use fake::Dummy;
+use fake::{Faker, Dummy};
 use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
