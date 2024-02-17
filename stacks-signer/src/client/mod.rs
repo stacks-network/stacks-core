@@ -422,7 +422,7 @@ pub(crate) mod tests {
         let mut coordinator_key_ids = HashMap::new();
         let mut signer_key_ids = HashMap::new();
         let mut addresses = vec![];
-        let mut signer_address_ids = HashMap::new();
+        let mut signer_ids = HashMap::new();
         let mut start_key_id = 1u32;
         let mut end_key_id = start_key_id;
         let mut signer_public_keys = HashMap::new();
@@ -483,7 +483,7 @@ pub(crate) mod tests {
                     .expect("Failed to create stacks public key"),
             );
             signer_slot_ids.insert(address, signer_id); // Note in a real world situation, these would not always match
-            signer_address_ids.insert(address, signer_id);
+            signer_ids.insert(address, signer_id);
             addresses.push(address);
             start_key_id = end_key_id;
             coordinator_ids.push(signer_id);
@@ -499,7 +499,7 @@ pub(crate) mod tests {
                     public_keys,
                     coordinator_key_ids,
                     signer_key_ids,
-                    signer_address_ids,
+                    signer_ids,
                     signer_public_keys,
                 },
                 coordinator_ids,

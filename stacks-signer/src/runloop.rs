@@ -72,7 +72,7 @@ impl From<GlobalConfig> for RunLoop {
 }
 
 impl RunLoop {
-    /// Get a signer configruation for a specific reward cycle from the stacks node
+    /// Get a signer configuration for a specific reward cycle from the stacks node
     fn get_signer_config(
         &mut self,
         reward_cycle: u64,
@@ -102,7 +102,7 @@ impl RunLoop {
                 );
             return Ok(None);
         };
-        let Some(signer_id) = registered_signers.signer_address_ids.get(current_addr) else {
+        let Some(signer_id) = registered_signers.signer_ids.get(current_addr) else {
             warn!(
                 "Signer {current_addr} was found in stacker db but not the reward set for reward cycle {reward_cycle}."
             );

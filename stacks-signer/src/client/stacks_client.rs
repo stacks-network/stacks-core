@@ -356,24 +356,6 @@ impl StacksClient {
         Ok(round)
     }
 
-    /// Retrieve the vote of the signer for the given round
-    pub fn get_signer_vote(
-        &self,
-        reward_cycle: u64,
-        round: u128,
-    ) -> Result<Option<Point>, ClientError> {
-        let reward_cycle = ClarityValue::UInt(reward_cycle as u128);
-        let round = ClarityValue::UInt(round);
-        let signer = ClarityValue::Principal(self.stacks_address.into());
-        let contract_addr = boot_code_addr(self.mainnet);
-        let contract_name = ContractName::from(SIGNERS_VOTING_NAME);
-        let function = ClarityName::from("get-vote");
-        let function_args = &[reward_cycle, round, signer];
-        let value =
-            self.read_only_contract_call(&contract_addr, &contract_name, &function, function_args)?;
-        self.parse_aggregate_public_key(value)
-    }
-
     /// Get whether the reward set has been determined for the provided reward cycle.
     /// i.e the node has passed the first block of the new reward cycle's prepare phase
     pub fn reward_set_calculated(&self, reward_cycle: u64) -> Result<bool, ClientError> {
@@ -435,7 +417,7 @@ impl StacksClient {
         let mut weight_end = 1;
         let mut coordinator_key_ids = HashMap::with_capacity(4000);
         let mut signer_key_ids = HashMap::with_capacity(reward_set_signers.len());
-        let mut signer_address_ids = HashMap::with_capacity(reward_set_signers.len());
+        let mut signer_ids = HashMap::with_capacity(reward_set_signers.len());
         let mut public_keys = PublicKeys {
             signers: HashMap::with_capacity(reward_set_signers.len()),
             key_ids: HashMap::with_capacity(4000),
@@ -462,7 +444,7 @@ impl StacksClient {
 
             let stacks_address = StacksAddress::p2pkh(self.mainnet, &stacks_public_key);
 
-            signer_address_ids.insert(stacks_address, signer_id);
+            signer_ids.insert(stacks_address, signer_id);
             signer_public_keys.insert(signer_id, signer_public_key);
             let weight_start = weight_end;
             weight_end = weight_start + entry.slots;
@@ -495,7 +477,7 @@ impl StacksClient {
             );
         }
 
-        for address in signer_address_ids.keys().into_iter() {
+        for address in signer_ids.keys().into_iter() {
             if !signer_slot_ids.contains_key(address) {
                 debug!("Signer {address} does not have a slot id in the stackerdb");
                 return Ok(None);
@@ -505,10 +487,10 @@ impl StacksClient {
         Ok(Some(RegisteredSignersInfo {
             public_keys,
             signer_key_ids,
-            signer_address_ids,
+            signer_ids,
+            signer_slot_ids,
             signer_public_keys,
             coordinator_key_ids,
-            signer_slot_ids,
         }))
     }
 

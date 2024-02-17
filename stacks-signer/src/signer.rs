@@ -187,7 +187,9 @@ pub struct RegisteredSigner {
     /// The signer id
     pub signer_id: u32,
     /// The addresses of other signers mapped to their signer ID
-    pub signer_address_ids: HashMap<StacksAddress, u32>,
+    pub signer_ids: HashMap<StacksAddress, u32>,
+    /// The addresses of other signers mapped to their signer slot ID
+    pub signer_slot_ids: HashMap<StacksAddress, u32>,
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
     /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
@@ -245,7 +247,8 @@ impl From<SignerConfig> for RegisteredSigner {
             stackerdb,
             mainnet: signer_config.mainnet,
             signer_id: signer_config.signer_id,
-            signer_address_ids: signer_config.registered_signers.signer_address_ids,
+            signer_ids: signer_config.registered_signers.signer_ids,
+            signer_slot_ids: signer_config.registered_signers.signer_slot_ids,
             reward_cycle: signer_config.reward_cycle,
             tx_fee_ms: signer_config.tx_fee_ms,
             coordinator_selector,
@@ -762,7 +765,7 @@ impl RegisteredSigner {
         // Filter out transactions that have already been confirmed (can happen if a signer did not update stacker db since the last block was processed)
         let origin_address = transaction.origin_address();
         let origin_nonce = transaction.get_origin_nonce();
-        let Some(origin_signer_id) = self.signer_address_ids.get(&origin_address) else {
+        let Some(origin_signer_id) = self.signer_slot_ids.get(&origin_address) else {
             debug!(
                 "Signer #{}: Unrecognized origin address ({origin_address}). Filtering ({}).",
                 self.signer_id,
