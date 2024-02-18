@@ -70,7 +70,7 @@ fn sqlite_get_data(conn: &Connection, key: &str) -> Result<Option<String>> {
         }
     };
 
-    eprintln!("sqlite_get_data: {:?} -> {:?}", key, &res);
+    eprintln!(" -> {:?}", &res);
     trace!("sqlite_get {}: {:?}", key, &res);
     res
 }
@@ -342,6 +342,11 @@ impl SqliteConnection {
         from: &StacksBlockId,
         to: &StacksBlockId,
     ) -> Result<()> {
+        if from == to {
+            return Ok(());
+        }
+        
+        eprintln!("commit_metadata_to: {} -> {}", from, to);
         let params = [to, from];
         if let Err(e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",

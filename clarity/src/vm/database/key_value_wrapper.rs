@@ -282,7 +282,7 @@ impl<'a> RollbackWrapper<'a> {
     }
 
     pub fn commit(&mut self) -> Result<(), InterpreterError> {
-        eprintln!("KV commit");
+        trace!("KV commit");
         let mut last_item = self.stack.pop().ok_or_else(|| {
             InterpreterError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
         })?;
@@ -318,6 +318,7 @@ impl<'a> RollbackWrapper<'a> {
             // stack is empty, committing to the backing store
             let all_edits =
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
+            trace!("... KV data edit count: {}", all_edits.len());
             if all_edits.len() > 0 {
                 self.store.put_all_data(all_edits).map_err(|e| {
                     InterpreterError::Expect(format!(
@@ -330,6 +331,7 @@ impl<'a> RollbackWrapper<'a> {
                 last_item.metadata_edits,
                 &mut self.metadata_lookup_map,
             )?;
+            trace!("... KV meta-data edit count: {}", metadata_edits.len());
             if metadata_edits.len() > 0 {
                 self.store.put_all_metadata(metadata_edits).map_err(|e| {
                     InterpreterError::Expect(format!(
@@ -413,9 +415,10 @@ impl<'a> RollbackWrapper<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier
     ) -> Result<ContractContext> {
+        trace!("KV get contract for {}", contract_identifier);
         if self.query_pending_data {
             if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
-                eprintln!("... KV found pending contract; returning true");
+                trace!("... KV found pending contract; returning true");
                 return Ok(pending_contract.contract.clone());
             }
         }
@@ -434,15 +437,15 @@ impl<'a> RollbackWrapper<'a> {
     /// NOTE: Removed the requirement for a nested context for this function,
     /// which was previously enforced by the `get_data` and `get_metadata` functions.
     pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<bool> {
-        eprintln!("KV  has contract for {}", contract_identifier);
+        trace!("KV  has contract for {}", contract_identifier);
         if self.query_pending_data {
-            if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
-                eprintln!("... KV found pending contract; returning true");
+            if self.find_pending_contract(contract_identifier).is_some() {
+                trace!("... KV found pending contract; returning true");
                 return Ok(true);
             }
         }
 
-        eprintln!("... KV querying store");
+        trace!("... KV querying store");
         Ok(self.store.contract_exists(contract_identifier)?)
     }
 
@@ -455,15 +458,15 @@ impl<'a> RollbackWrapper<'a> {
     /// NOTE: Removed the requirement for a nested context for this function, which
     /// was previously enforced by the `get_data` and `get_metadata` functions.
     pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u32> {
-        eprintln!("KV get contract size for {}", contract_identifier);
+        trace!("KV get contract size for {}", contract_identifier);
         if self.query_pending_data {
             if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
-                eprintln!("... KV found pending contract; returning true");
+                trace!("... KV found pending contract; returning true");
                 return Ok(pending_contract.source.len() as u32 + pending_contract.contract.data_size as u32);
             }
         }
 
-        eprintln!("... KV querying store");
+        trace!("... KV querying store");
         Ok(self.store.get_contract_size(contract_identifier)?)
     }
 
