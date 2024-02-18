@@ -12,11 +12,11 @@
 (define-constant ERR_SIGNER_INDEX_MISMATCH u1)
 (define-constant ERR_INVALID_SIGNER_INDEX u2)
 (define-constant ERR_OUT_OF_VOTING_WINDOW u3)
-(define-constant ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY u5)
-(define-constant ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY u6)
-(define-constant ERR_DUPLICATE_VOTE u7)
-(define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS u8)
-(define-constant ERR_INVALID_ROUND u9)
+(define-constant ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY u4)
+(define-constant ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY u5)
+(define-constant ERR_DUPLICATE_VOTE u6)
+(define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS u7)
+(define-constant ERR_INVALID_ROUND u8)
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))

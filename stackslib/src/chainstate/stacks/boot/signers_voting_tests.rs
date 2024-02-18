@@ -144,7 +144,6 @@ fn vote_for_aggregate_public_key_success() {
     // Test setup
     let alice = TestStacker::from_seed(&[3, 4]);
     let bob = TestStacker::from_seed(&[5, 6]);
-    let charlie = TestStacker::from_seed(&[7, 8]);
     let observer = TestEventObserver::new();
 
     // Alice - Signer 1
@@ -156,11 +155,6 @@ fn vote_for_aggregate_public_key_success() {
     let bob_key = &bob.signer_private_key;
     let bob_address = key_to_stacks_addr(bob_key);
     let bob_principal = PrincipalData::from(bob_address);
-
-    // Charlie - Doesn't register, throws invalid signer index
-    let charlie_key = &charlie.signer_private_key;
-    let charlie_address = key_to_stacks_addr(charlie_key);
-    let charlie_principal = PrincipalData::from(charlie_address);
 
     let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
         function_name!(),
@@ -175,20 +169,15 @@ fn vote_for_aggregate_public_key_success() {
     // Alice and Bob will each have voted once while booting to Nakamoto
     let alice_nonce = 1;
     let bob_nonce = 1;
-    let charlie_nonce = 1;
 
     let cycle_id = current_reward_cycle;
 
     // create vote txs
     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
-    println!("Alice index: {}", alice_index);
-    println!("Bob index: {}", bob_index);
+
     let aggregate_public_key_point: Point = Point::new();
     let aggregate_public_key = Value::buff_from(aggregate_public_key_point.compress().data.to_vec()).expect("Failed to serialize aggregate public key");
-    // let aggregate_public_key_value =
-    //     Value::buff_from(aggregate_public_key.compress().data.to_vec())
-    //         .expect("Failed to serialize aggregate public key");
 
     let aggregate_public_key_ill_formed = Value::buff_from_byte(0x00);
 
@@ -247,24 +236,15 @@ fn vote_for_aggregate_public_key_success() {
             0,
             cycle_id + 1,
         ),
-        // Charlie casts a vote for the aggregate public key - should return invalid signer index error
-        // make_signers_vote_for_aggregate_public_key(
-        //     charlie_key,
-        //     charlie_nonce,
-        //     2,
-        //     &aggregate_public_key,
-        //     0,
-        //     cycle_id + 1,
-        // ),
-        // Bob casts a vote with a non-existant index - should return signer index mismatch error
-        // make_signers_vote_for_aggregate_public_key(
-        //     bob_key,
-        //     bob_nonce,
-        //     2,
-        //     &aggregate_public_key,
-        //     0,
-        //     cycle_id + 1,
-        // ),
+        // Bob casts a vote correctly
+        make_signers_vote_for_aggregate_public_key(
+            bob_key,
+            bob_nonce,
+            bob_index,
+            aggregate_public_key.clone(),
+            0,
+            cycle_id + 1,
+        ),
     ];
 
     //
@@ -275,15 +255,13 @@ fn vote_for_aggregate_public_key_success() {
     // check the last two txs in the last block
     let block = observer.get_blocks().last().unwrap().clone();
     let receipts = block.receipts.as_slice();
-    assert_eq!(receipts.len(), 8);
+    assert_eq!(receipts.len(), 9);
     // ignore tenure change tx
     // ignore tenure coinbase tx
 
      // Alice's first vote should fail (signer mismatch)
      let alice_first_vote_tx = &receipts[2];
-     println!("alice_first_vote_tx: {:?}", alice_first_vote_tx);
      let alice_first_vote_tx_result = alice_first_vote_tx.result.clone();
-     println!("alice_first_vote_tx_result: {:?}", alice_first_vote_tx_result);
      assert_eq!(
         alice_first_vote_tx_result,
          Value::err_uint(1) // ERR_SIGNER_INDEX_MISMATCH
@@ -291,9 +269,7 @@ fn vote_for_aggregate_public_key_success() {
 
     // Alice's second vote should fail (invalid signer)
     let alice_second_vote_tx = &receipts[3];
-    println!("alice_second_vote_tx: {:?}", alice_second_vote_tx);
     let alice_second_vote_tx_result = alice_second_vote_tx.result.clone();
-    println!("alice_second_vote_tx_result: {:?}", alice_second_vote_tx_result);
     assert_eq!(
         alice_second_vote_tx_result,
         Value::err_uint(2) // ERR_INVALID_SIGNER_INDEX
@@ -301,31 +277,25 @@ fn vote_for_aggregate_public_key_success() {
 
     // Alice's third vote should fail (ill formed aggregate public key)
     let alice_third_vote_tx = &receipts[4];
-    println!("alice_third_vote_tx: {:?}", alice_third_vote_tx);
     let alice_third_vote_tx_result = alice_third_vote_tx.result.clone();
-    println!("alice_third_vote_tx_result: {:?}", alice_third_vote_tx_result);
     assert_eq!(
         alice_third_vote_tx_result,
-        Value::err_uint(5) // ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY
+        Value::err_uint(4) // ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY
     );
 
     // Alice's fourth vote should fail (failed to retrieve signers)
     let alice_fourth_vote_tx = &receipts[5];
-    println!("alice_fourth_vote_tx: {:?}", alice_fourth_vote_tx);
     let alice_fourth_vote_tx_result = alice_fourth_vote_tx.result.clone();
-    println!("alice_fourth_vote_tx_result: {:?}", alice_fourth_vote_tx_result);
     assert_eq!(
         alice_fourth_vote_tx_result,
-        Value::err_uint(8) // ERR_FAILED_TO_RETRIEVE_SIGNERS
+        Value::err_uint(7) // ERR_FAILED_TO_RETRIEVE_SIGNERS
     );
 
     // Alice's fifth  vote, correct vote should succeed
     let alice_fifth_vote_tx = &receipts[6];
-    println!("alice_fifth_vote_tx: {:?}", alice_fifth_vote_tx);
     assert_eq!(alice_fifth_vote_tx.result, Value::okay_true());
     assert_eq!(alice_fifth_vote_tx.events.len(), 1);
     let alice_vote_event = &alice_fifth_vote_tx.events[0];
-    println!("alice_vote_event: {:?}", alice_vote_event);
     if let StacksTransactionEvent::SmartContractEvent(contract_event) = alice_vote_event {
         assert_eq!(
             contract_event.value,
@@ -350,75 +320,37 @@ fn vote_for_aggregate_public_key_success() {
 
     // Alice's sixth vote should fail (duplicate vote)
     let alice_sixth_vote_tx = &receipts[7];
-    println!("alice_sixth_vote_tx: {:?}", alice_sixth_vote_tx);
     let alice_sixth_vote_tx_result = alice_sixth_vote_tx.result.clone();
-    println!("alice_sixth_vote_tx_result: {:?}", alice_sixth_vote_tx_result);
     assert_eq!(
         alice_sixth_vote_tx_result,
-        Value::err_uint(7) // ERR_DUPLICATE_VOTE
+        Value::err_uint(6) // ERR_DUPLICATE_VOTE
     );
 
-    // Alice second vote should fail (duplicate vote)
-    // let alice_vote_duplicate_tx = &receipts[3];
-    // println!("alice_vote_duplicate_tx: {:?}", alice_vote_duplicate_tx);
-    // let alice_vote_duplicate_tx_result = alice_vote_duplicate_tx.result.clone();
-    // println!("alice_vote_duplicate_tx_result: {:?}", alice_vote_duplicate_tx_result);
-    // assert_eq!(
-    //     alice_vote_duplicate_tx_result,
-    //     Value::err_uint(1) // err-duplicate-vote
-    // );
-
-    // let approve_event = &alice_vote_duplicate_tx.events[0];
-    // println!("approve_event: {:?}", approve_event);
-    // if let StacksTransactionEvent::SmartContractEvent(contract_event) = approve_event {
-    //     assert_eq!(
-    //         contract_event.value,
-    //         TupleData::from_data(vec![
-    //             (
-    //                 "event".into(),
-    //                 Value::string_ascii_from_bytes(
-    //                     "approved-aggregate-public-key".as_bytes().to_vec()
-    //                 )
-    //                 .expect("Failed to create string")
-    //             ),
-    //             ("key".into(), aggregate_public_key_value.clone()),
-    //             ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
-    //         ])
-    //         .expect("Failed to create tuple")
-    //         .into()
-    //     );
-    // } else {
-    //     panic!("Expected SmartContractEvent, got {:?}", approve_event);
-    // }
-
-    // Bob's vote should succeed
-    // let bob_vote_tx = &receipts[4];
-    // println!("bob_vote_tx: {:?}", bob_vote_tx);
-    // assert_eq!(bob_vote_tx.result, Value::okay_true());
-    // assert_eq!(bob_vote_tx.events.len(), 2);
-    // let bob_vote_event = &bob_vote_tx.events[0];
-    // println!("bob_vote_event: {:?}", bob_vote_event);
-    // if let StacksTransactionEvent::SmartContractEvent(contract_event) = bob_vote_event {
-    //     assert_eq!(
-    //         contract_event.value,
-    //         TupleData::from_data(vec![
-    //             (
-    //                 "event".into(),
-    //                 Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
-    //                     .expect("Failed to create string")
-    //             ),
-    //             ("key".into(), aggregate_public_key_value.clone()),
-    //             ("new-total".into(), Value::UInt(4)),
-    //             ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
-    //             ("round".into(), Value::UInt(0)),
-    //             ("signer".into(), Value::Principal(bob_principal.clone())),
-    //         ])
-    //         .expect("Failed to create tuple")
-    //         .into()
-    //     );
-    // } else {
-    //     panic!("Expected SmartContractEvent, got {:?}", bob_vote_event);
-    // }
+    // Bob's first vote, correct vote should succeed in setting the aggregate public key
+    let bob_first_vote_tx = &receipts[8];
+    assert_eq!(bob_first_vote_tx.result, Value::okay_true());
+    assert_eq!(bob_first_vote_tx.events.len(), 2);
+    let approve_event = &bob_first_vote_tx.events[1];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = approve_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes(
+                        "approved-aggregate-public-key".as_bytes().to_vec()
+                    )
+                    .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key.clone()),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", approve_event);
+    }
 
 }
 
