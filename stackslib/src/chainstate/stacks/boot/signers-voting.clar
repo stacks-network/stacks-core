@@ -15,9 +15,8 @@
 (define-constant ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY u5)
 (define-constant ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY u6)
 (define-constant ERR_DUPLICATE_VOTE u7)
-(define-constant ERR_INVALID_BURN_BLOCK_HEIGHT u8)
-(define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS u9)
-(define-constant ERR_INVALID_ROUND u10)
+(define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS u8)
+(define-constant ERR_INVALID_ROUND u9)
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
