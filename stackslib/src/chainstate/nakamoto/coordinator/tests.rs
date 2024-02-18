@@ -204,7 +204,8 @@ pub fn make_all_signers_vote_for_aggregate_key(
                 signer_key,
                 account.nonce,
                 *index as u128,
-                Value::buff_from(test_signers.aggregate_public_key.compress().data.to_vec()).expect("Failed to serialize aggregate public key"),
+                Value::buff_from(test_signers.aggregate_public_key.compress().data.to_vec())
+                    .expect("Failed to serialize aggregate public key"),
                 0,
                 cycle_id,
             )
