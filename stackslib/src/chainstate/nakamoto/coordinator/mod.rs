@@ -888,7 +888,7 @@ impl<
 
             // mark this burn block as processed in the nakamoto chainstate
             let tx = self.chain_state_db.staging_db_tx_begin()?;
-            NakamotoChainState::set_burn_block_processed(&tx, &next_snapshot.consensus_hash)?;
+            tx.set_burn_block_processed(&next_snapshot.consensus_hash)?;
             tx.commit().map_err(DBError::SqliteError)?;
 
             let sortition_id = next_snapshot.sortition_id;

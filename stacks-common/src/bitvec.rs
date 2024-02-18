@@ -162,6 +162,13 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
         }
         Ok(())
     }
+
+    /// Set all bits to zero
+    pub fn clear(&mut self) {
+        for i in 0..self.data.len() {
+            self.data[i] = 0;
+        }
+    }
 }
 
 #[cfg(test)]

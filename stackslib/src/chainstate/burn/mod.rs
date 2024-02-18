@@ -150,8 +150,8 @@ impl SortitionHash {
         if max < 2 {
             return (0..max).collect();
         }
-        let first = rng.gen_range(0, max);
-        let try_second = rng.gen_range(0, max - 1);
+        let first = rng.gen_range(0..max);
+        let try_second = rng.gen_range(0..(max - 1));
         let second = if first == try_second {
             // "swap" try_second with max
             max - 1

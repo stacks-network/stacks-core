@@ -1719,7 +1719,13 @@ impl ConversationP2P {
             chainstate,
             reward_cycle,
         )?;
-        let nakamoto_inv = NakamotoInvData::new(&bitvec_bools);
+        let nakamoto_inv = NakamotoInvData::try_from(&bitvec_bools).map_err(|e| {
+            warn!(
+                "Failed to create a NakamotoInv response to {:?}: {:?}",
+                get_nakamoto_inv, &e
+            );
+            e
+        })?;
 
         Ok(StacksMessageType::NakamotoInv(nakamoto_inv))
     }
@@ -1757,9 +1763,7 @@ impl ConversationP2P {
                     "{:?}: Disable inv chat -- pretend like we have nothing",
                     network.get_local_peer()
                 );
-                for i in 0..tenure_inv_data.tenures.len() {
-                    tenure_inv_data.tenures[i] = 0;
-                }
+                tenure_inv_data.tenures.clear();
             }
         }
 
@@ -5617,11 +5621,13 @@ mod test {
             // convo 2 returned a tenure-inv for all tenures
             match reply_1.payload {
                 StacksMessageType::NakamotoInv(ref data) => {
-                    assert_eq!(data.bitlen, 10);
+                    assert_eq!(data.tenures.len(), 10);
                     test_debug!("data: {:?}", data);
 
                     // all burn blocks had sortitions, but we have no tenures :(
-                    assert_eq!(data.tenures, vec![0, 0]);
+                    for i in 0..10 {
+                        assert_eq!(data.tenures.get(i).unwrap(), false);
+                    }
                 }
                 x => {
                     error!("received invalid payload: {:?}", &x);
