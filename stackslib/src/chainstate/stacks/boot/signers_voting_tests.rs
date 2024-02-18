@@ -137,8 +137,9 @@ pub fn prepare_pox4_test<'a>(
     )
 }
 
-/// In this test case, Alice and Bob both successfully vote for the same key
-/// and the key is accepted.
+/// In this test case, Alice & Bob both successfully vote for the same key
+/// Alice votes first, casting one correct vote & four incorrect votes
+/// that hit all tenure-agnostic errors. Bob votes once, successfully.
 #[test]
 fn vote_for_aggregate_public_key_success() {
     // Test setup
