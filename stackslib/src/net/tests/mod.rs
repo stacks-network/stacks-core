@@ -938,7 +938,7 @@ fn test_boot_nakamoto_peer() {
         NakamotoBootTenure::Sortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
     ];
 
-    let mut plan = NakamotoBootPlan::new(&function_name!())
+    let plan = NakamotoBootPlan::new(&function_name!())
         .with_private_key(private_key)
         .with_pox_constants(10, 3)
         .with_initial_balances(vec![(addr.into(), 1_000_000)])

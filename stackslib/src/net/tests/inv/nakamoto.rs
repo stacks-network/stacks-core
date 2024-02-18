@@ -404,7 +404,7 @@ fn make_nakamoto_peers_from_invs<'a>(
         }
     }
 
-    let mut plan = NakamotoBootPlan::new(test_name)
+    let plan = NakamotoBootPlan::new(test_name)
         .with_private_key(private_key)
         .with_pox_constants(rc_len, prepare_len)
         .with_initial_balances(vec![(addr.into(), 1_000_000)])
