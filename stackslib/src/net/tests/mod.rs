@@ -214,6 +214,7 @@ impl NakamotoBootPlan {
         blocks: &[NakamotoBlock],
         other_peers: &mut [TestPeer],
     ) {
+        info!("Applying block to other peers"; "block_height" => ?burn_ops.first().map(|op| op.block_height()));
         for (i, peer) in other_peers.iter_mut().enumerate() {
             peer.next_burnchain_block(burn_ops.to_vec());
 
@@ -422,7 +423,13 @@ impl NakamotoBootPlan {
             .burnchain
             .is_in_prepare_phase(sortition_height.into())
         {
-            stacks_block = peer.tenure_with_txs(&vec![], &mut peer_nonce);
+            stacks_block = peer.tenure_with_txs(&[], &mut peer_nonce);
+            other_peers
+                .iter_mut()
+                .zip(other_peer_nonces.iter_mut())
+                .for_each(|(peer, nonce)| {
+                    peer.tenure_with_txs(&[], nonce);
+                });
             let tip = {
                 let sort_db = peer.sortdb.as_mut().unwrap();
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
