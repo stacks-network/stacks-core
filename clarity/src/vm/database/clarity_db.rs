@@ -34,7 +34,7 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
-use super::structures::ContractData;
+use super::structures::{ContractData, GetContractResult, StoredContract};
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
@@ -84,7 +84,8 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
-    contract_cache: lru::LruCache<QualifiedContractIdentifier, ContractContext>,
+    contract_cache: lru::LruCache<QualifiedContractIdentifier, StoredContract>,
+    analysis_cache: lru::LruCache<QualifiedContractIdentifier, ContractAnalysis>,
 }
 
 pub trait HeadersDB {
@@ -432,7 +433,8 @@ impl<'a> ClarityDatabase<'a> {
             store: RollbackWrapper::new(store),
             headers_db,
             burn_state_db,
-            contract_cache: LruCache::new(NonZeroUsize::new(100).unwrap()),
+            contract_cache: LruCache::new(NonZeroUsize::new(10).unwrap()),
+            analysis_cache: LruCache::new(NonZeroUsize::new(10).unwrap())
         }
     }
 
@@ -445,7 +447,8 @@ impl<'a> ClarityDatabase<'a> {
             store,
             headers_db,
             burn_state_db,
-            contract_cache: LruCache::new(NonZeroUsize::new(100).unwrap()),
+            contract_cache: LruCache::new(NonZeroUsize::new(10).unwrap()),
+            analysis_cache: LruCache::new(NonZeroUsize::new(10).unwrap())
         }
     }
 
@@ -530,7 +533,7 @@ impl<'a> ClarityDatabase<'a> {
 
         let size = serialized.len() as u64;
         let hex_serialized = to_hex(serialized.as_slice());
-        self.store.put_data(key, &hex_serialized);
+        self.store.put_data(key, &hex_serialized)?;
 
         Ok(pre_sanitized_size.unwrap_or(size))
     }
@@ -766,9 +769,6 @@ impl<'a> ClarityDatabase<'a> {
 
         self.store.put_contract(src.to_string(), ctx.clone())?;
 
-        self.contract_cache
-            .put(ctx.contract_identifier.clone(), ctx);
-
         Ok(())
     }
 
@@ -776,23 +776,25 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
-        let contract_context = self
+        self
             .contract_cache
             .get(contract_identifier)
-            .cloned()
+            .map(|x| x.contract.clone())
             .or_else(|| {
                 let ctx = self.store.get_contract(contract_identifier).ok()?;
-                self.contract_cache
-                    .put(ctx.contract_identifier.clone(), ctx.clone());
-                Some(ctx)
-            });
-
-        contract_context
+                match ctx {
+                    GetContractResult::Pending(pending) => 
+                        Some(pending.contract),
+                    GetContractResult::Stored(stored) => {
+                        let context = stored.contract.clone();
+                        self.contract_cache.put(contract_identifier.clone(), stored);
+                        Some(context)
+                    },
+                    GetContractResult::NotFound => None
+                }
+            }).ok_or(Error::Unchecked(CheckErrors::NoSuchContract(contract_identifier.to_string())))
             .map(|ctx| Contract {
                 contract_context: ctx,
-            })
-            .ok_or_else(|| {
-                Error::Unchecked(CheckErrors::NoSuchContract(contract_identifier.to_string()))
             })
     }
 

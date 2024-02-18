@@ -22,7 +22,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, VRFSeed};
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 
 use super::structures::{
-    BlockData, ContractAnalysisData, ContractData, ContractSizeData, PendingContract,
+    BlockData, ContractAnalysisData, ContractData, ContractSizeData, PendingContract, StoredContract,
 };
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::vm::contexts::GlobalContext;
@@ -31,8 +31,8 @@ use crate::vm::database::{
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::errors::{
-    CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result,
-    InterpreterResult, RuntimeErrorType,
+    CheckErrors, IncomparableError, InterpreterError,
+    InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -110,25 +110,36 @@ pub trait ClarityBackingStore {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> Result<Option<(StacksBlockId, Sha512Trunc256Sum)>> {
         let key = make_contract_hash_key(contract);
 
         trace!("STORE get_contract_hash for {contract} and key {key}");
 
-        let contract_commitment = self
-            .get_data(&key)?
-            .map(|x| ContractCommitment::deserialize(&x))
-            .ok_or_else(|| CheckErrors::NoSuchContract(contract.to_string()))?;
+        let contract_commitment_serialized = self.get_data(&key)?;
+        
+        if let Some(serialized) = contract_commitment_serialized {
+            let deserialized = ContractCommitment::deserialize(&serialized)
+                .map_err(|e| InterpreterError::InterpreterError(e.to_string()))?;
+            
+            let bhh = self.get_block_at_height(deserialized.block_height)
+                .ok_or_else(|| InterpreterError::Expect(
+                    "Should always be able to map from height to block hash when looking up contract information.".into())
+                )?;
 
-        let ContractCommitment {
-            block_height,
-            hash: contract_hash,
-        } = contract_commitment?;
+            Ok(Some((bhh, deserialized.hash)))
+        } else {
+            Ok(None)
+        }
+
+
+        /*    
+
+        let (block_height, contract_hash) = contract_commitment?;
 
         let bhh = self.get_block_at_height(block_height)
             .ok_or_else(|| InterpreterError::Expect("Should always be able to map from height to block hash when looking up contract information.".into()))?;
         
-        Ok((bhh, contract_hash))
+        Ok(Some((bhh, contract_hash)))*/
     }
 
     /// Retrieves the specified contract from the backing store. Returns
@@ -136,24 +147,41 @@ pub trait ClarityBackingStore {
     fn get_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Option<ContractContext>> {
+    ) -> Result<Option<StoredContract>> {
         trace!("STORE get_contract for {contract_identifier}");
-        let (bhh, _) = self.get_contract_hash(contract_identifier)?;
+        let contract_hash = self.get_contract_hash(contract_identifier)?;
 
-        let contract = SqliteConnection::get_contract(
-            self.get_side_store(),
-            &contract_identifier.issuer.to_string(),
-            &contract_identifier.name.to_string(),
-            &bhh,
-        )?;
+        if let Some((bhh, contract_hash)) = contract_hash {
+            let contract = SqliteConnection::get_contract(
+                self.get_side_store(),
+                &contract_identifier.issuer.to_string(),
+                &contract_identifier.name.to_string(),
+                &bhh,
+            )?;
 
-        Ok(if let Some(data) = contract {
-            let decoded = lz4_flex::block::decompress(&data.contract, data.contract_size as usize)
-                .expect("ERROR: Failed to decompress contract AST.");
-            Some(rmp_serde::decode::from_slice(&decoded)?)
+            Ok(if let Some(data) = contract {
+                let context_decompressed = lz4_flex::block::decompress(&data.contract, data.contract_size as usize)?;
+                let context = rmp_serde::decode::from_slice(&context_decompressed)?;
+
+                let src_decompressed = lz4_flex::block::decompress(&data.source, data.source_size as usize)?;
+
+                Some(StoredContract {
+                    id: data.id,
+                    issuer: data.issuer,
+                    name: data.name,
+                    contract: context,
+                    source_size: src_decompressed.len() as u32,
+                    source: String::from_utf8(src_decompressed)?,
+                    data_size: data.data_size,
+                    block_hash: bhh,
+                    contract_hash,
+                })
+            } else {
+                None
+            })
         } else {
-            None
-        })
+            Ok(None)
+        }
     }
 
     fn get_contract_size(
@@ -161,7 +189,8 @@ pub trait ClarityBackingStore {
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<u32> {
         trace!("STORE get_contract_size for {contract_identifier}");
-        let (bhh, _) = self.get_contract_hash(contract_identifier)?;
+        let (bhh, _) = self.get_contract_hash(contract_identifier)?
+            .ok_or(InterpreterError::Expect("Contract not found.".into()))?;
 
         let sizes = SqliteConnection::get_contract_sizes(
             self.get_side_store(),
@@ -180,12 +209,9 @@ pub trait ClarityBackingStore {
     ) -> Result<bool> {
         trace!("STORE contract_exists for {contract_identifier}");
 
-        let (bhh, _) = match self.get_contract_hash(contract_identifier) {
-            Ok(x) => x,
-            Err(crate::vm::errors::Error::Unchecked(CheckErrors::NoSuchContract(_))) => {
-                return Ok(false)
-            }
-            Err(e) => return Err(e),
+        let (bhh, _) = match self.get_contract_hash(contract_identifier)? {
+            Some(x) => x,
+            None => return Ok(false),
         };
 
         let result = SqliteConnection::contract_exists(
@@ -199,15 +225,15 @@ pub trait ClarityBackingStore {
         Ok(result)
     }
 
-    /// Inserts the provided contract data into the backing store at the current
-    /// chain tip.
+    /// Inserts the provided contract data into the backing store.
     fn insert_contract(&mut self, data: &mut PendingContract) -> Result<ContractData> {
-        trace!(
-            "STORE insert_contract for {}",
-            &data.contract.contract_identifier
-        );
-        let chain_tip_height = self.get_open_chain_tip_height();
-        let chain_tip = self.get_open_chain_tip();
+        let contract_identifier = &data.contract.contract_identifier;
+        trace!("STORE insert_contract for {contract_identifier}");
+        //let chain_tip_height = self.get_open_chain_tip_height();
+        //let chain_tip = self.get_open_chain_tip();
+
+        let (bhh, _) = self.get_contract_hash(contract_identifier)?
+            .ok_or(InterpreterError::Expect("Contract not found.".into()))?;
 
         // 'content-hash': src_hash
         // 'contract-src': data.source
@@ -222,12 +248,11 @@ pub trait ClarityBackingStore {
             src_bytes,
             &mut src_compressed,
             lzzzz::lz4::ACC_LEVEL_DEFAULT,
-        )
-        .expect("ERROR: Failed to compress contract source code.");
+        )?;
 
         // Serialize and compress the contract AST.
         let contract_serialized =
-            rmp_serde::to_vec(&data.contract).expect("ERROR: Failed to serialize contract AST.");
+            rmp_serde::to_vec(&data.contract)?;
         let contract_serialized_len = contract_serialized.len() as u32;
 
         let contract_compressed = lz4_flex::block::compress(&contract_serialized);
@@ -252,8 +277,7 @@ pub trait ClarityBackingStore {
 
         SqliteConnection::insert_contract(
             self.get_side_store(),
-            &chain_tip,
-            chain_tip_height,
+            &bhh,
             &mut data,
         )?;
 
@@ -300,8 +324,11 @@ pub trait ClarityBackingStore {
         contract: &QualifiedContractIdentifier,
         key: &str,
     ) -> Result<Option<String>> {
-        let (bhh, _) = self.get_contract_hash(contract)?;
-        SqliteConnection::get_metadata(self.get_side_store(), &bhh, &contract.to_string(), key)
+        if let Some((bhh, _)) = self.get_contract_hash(contract)? {
+            SqliteConnection::get_metadata(self.get_side_store(), &bhh, &contract.to_string(), key)
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_metadata_manual(
@@ -309,13 +336,14 @@ pub trait ClarityBackingStore {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
+    ) -> std::result::Result<Option<String>, crate::vm::errors::Error> {
         let bhh = self.get_block_at_height(at_height)
             .ok_or_else(|| {
                 warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
                 RuntimeErrorType::BadBlockHeight(at_height.to_string())
             })?;
-        SqliteConnection::get_metadata(self.get_side_store(), &bhh, &contract.to_string(), key)
+        let result = SqliteConnection::get_metadata(self.get_side_store(), &bhh, &contract.to_string(), key)?;
+        Ok(result)
     }
 
     fn put_all_metadata(
@@ -346,7 +374,7 @@ impl ClaritySerializable for ContractCommitment {
 }
 
 impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
-    fn deserialize(input: &str) -> Result<ContractCommitment> {
+    fn deserialize(input: &str) -> std::result::Result<ContractCommitment, crate::vm::errors::Error> {
         if input.len() != 72 {
             return Err(InterpreterError::Expect("Unexpected input length".into()).into());
         }
@@ -455,7 +483,7 @@ impl MemoryBackingStore {
 }
 
 impl ClarityBackingStore for MemoryBackingStore {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 

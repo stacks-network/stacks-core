@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::{ContractCommitment, SpecialCaseHandler};
-use super::structures::{ContractAnalysisData, ContractData, PendingContract};
+use super::structures::{ContractAnalysisData, ContractData, GetContractResult, PendingContract, StoredContract};
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::vm::analysis::{CheckErrors, ContractAnalysis};
 use crate::vm::ast::ContractAST;
@@ -309,32 +309,10 @@ impl<'a> RollbackWrapper<'a> {
                 .contract_analyses
                 .append(&mut last_item.contract_analyses);
         } else {
-            let mut inserted_contracts = HashMap::<QualifiedContractIdentifier, u32>::new();
-            for mut contract in last_item.pending_contracts.drain(..) {
-                let contract_data = self
-                    .store
-                    .insert_contract(&mut contract)
-                    .expect("ERROR: failed to insert contract into backing store.");
-                inserted_contracts.insert(
-                    contract.contract.contract_identifier.clone(),
-                    contract_data.id,
-                );
-            }
-
-            for analysis in last_item.contract_analyses.drain(..) {
-                let id = inserted_contracts
-                    .get(&analysis.contract_identifier)
-                    .expect("ERROR: failed to find contract id for contract analysis.");
-
-                self.store
-                    .insert_contract_analysis(*id, &analysis)
-                    .expect("ERROR: failed to insert contract analysis into backing store.");
-            }
-
             // stack is empty, committing to the backing store
             let all_edits =
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
-            trace!("... KV data edit count: {}", all_edits.len());
+                trace!("... KV data edit count: {}", all_edits.len());
             if all_edits.len() > 0 {
                 self.store.put_all_data(all_edits).map_err(|e| {
                     InterpreterError::Expect(format!(
@@ -354,6 +332,34 @@ impl<'a> RollbackWrapper<'a> {
                         "ERROR: Failed to commit data to sql store: {e:?}"
                     ))
                 })?;
+            }
+
+            let mut inserted_contracts = HashMap::<QualifiedContractIdentifier, u32>::new();
+            for mut contract in last_item.pending_contracts.drain(..) {
+                let contract_data = self
+                    .store
+                    .insert_contract(&mut contract)
+                    .map_err(|e| {
+                        InterpreterError::Expect(format!("ERROR: failed to insert contract into backing store: {e:?}"))
+                    })?;
+                inserted_contracts.insert(
+                    contract.contract.contract_identifier.clone(),
+                    contract_data.id,
+                );
+            }
+
+            for analysis in last_item.contract_analyses.drain(..) {
+                let id = inserted_contracts
+                    .get(&analysis.contract_identifier)
+                    .ok_or_else(|| {
+                        InterpreterError::Expect("ERROR: failed to find contract id for contract analysis.".into())
+                    })?;
+
+                self.store
+                    .insert_contract_analysis(*id, &analysis)
+                    .map_err(|e| {
+                        InterpreterError::Expect(format!("ERROR: failed to insert contract analysis into backing store: {:?}", e))
+                    })?;
             }
         }
 
@@ -390,11 +396,11 @@ impl<'a> RollbackWrapper<'a> {
     ///
     /// To begin a new stack frame, the `nest` function must be called.
     /// To persist these changes, the `commit` function must be called.
-    pub fn put_contract(&mut self, src: String, contract: ContractContext) -> Result<()> {
+    pub fn put_contract(&mut self, src: String, contract: ContractContext) -> InterpreterResult<()> {
         let content_hash = Sha512Trunc256Sum::from_data(src.as_bytes());
         let key = make_contract_hash_key(&contract.contract_identifier);
         let value = self.store.make_contract_commitment(content_hash);
-        self.put_data(&key, &value);
+        self.put_data(&key, &value)?;
 
         eprintln!("KV put contract: {:?}", contract.contract_identifier);
         eprintln!("... with k/v: {:?} / {:?}", key, value);
@@ -423,21 +429,19 @@ impl<'a> RollbackWrapper<'a> {
     pub fn get_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<ContractContext> {
+    ) -> InterpreterResult<GetContractResult> {
         trace!("KV get contract for {}", contract_identifier);
         if self.query_pending_data {
             if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
                 trace!("... KV found pending contract; returning true");
-                return Ok(pending_contract.contract.clone());
+                return Ok(GetContractResult::Pending(pending_contract.clone()));
             }
         }
 
-        let contract = self
-            .store
-            .get_contract(contract_identifier)?
-            .ok_or_else(|| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
-
-        Ok(contract)
+        match self.store.get_contract(contract_identifier)? {
+            Some(stored) => Ok(GetContractResult::Stored(stored)),
+            None => Ok(GetContractResult::NotFound),
+        }
     }
 
     /// Checks if a contract exists. If `query_pending_data` is true on this
@@ -450,7 +454,7 @@ impl<'a> RollbackWrapper<'a> {
     pub fn has_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<bool> {
+    ) -> InterpreterResult<bool> {
         trace!("KV  has contract for {}", contract_identifier);
         if self.query_pending_data {
             if self.find_pending_contract(contract_identifier).is_some() {
@@ -474,7 +478,7 @@ impl<'a> RollbackWrapper<'a> {
     pub fn get_contract_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<u32> {
+    ) -> InterpreterResult<u32> {
         trace!("KV get contract size for {}", contract_identifier);
         if self.query_pending_data {
             if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
@@ -519,14 +523,13 @@ impl<'a> RollbackWrapper<'a> {
         bhh: StacksBlockId,
         query_pending_data: bool,
     ) -> InterpreterResult<StacksBlockId> {
-        self.store.set_block_hash(bhh).map(|x| {
-            // use and_then so that query_pending_data is only set once set_block_hash succeeds
-            //  this doesn't matter in practice, because a set_block_hash failure always aborts
-            //  the transaction with a runtime error (destroying its environment), but it's much
-            //  better practice to do this, especially if the abort behavior changes in the future.
-            self.query_pending_data = query_pending_data;
-            x
-        })
+        // use and_then so that query_pending_data is only set once set_block_hash succeeds
+        //  this doesn't matter in practice, because a set_block_hash failure always aborts
+        //  the transaction with a runtime error (destroying its environment), but it's much
+        //  better practice to do this, especially if the abort behavior changes in the future.
+        let block_id = self.store.set_block_hash(bhh)?;
+        self.query_pending_data = query_pending_data;
+        Ok(block_id)
     }
 
     /// this function will only return commitment proofs for values _already_ materialized
@@ -674,7 +677,7 @@ impl<'a> RollbackWrapper<'a> {
 
         match lookup_result {
             Some(x) => Ok(Some(x)),
-            None => self.store.get_metadata(contract, key),
+            None => Ok(self.store.get_metadata(contract, key)?),
         }
     }
 
@@ -718,7 +721,7 @@ impl<'a> RollbackWrapper<'a> {
         if self.query_pending_data && self.lookup_map.contains_key(key) {
             Ok(true)
         } else {
-            self.store.has_data_entry(key)
+            Ok(self.store.has_data_entry(key)?)
         }
     }
 

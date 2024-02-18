@@ -27,7 +27,8 @@ use super::structures::{ContractAnalysisData, ContractData, ContractSizeData};
 use crate::vm::contracts::Contract;
 use crate::vm::database::structures::BlockData;
 use crate::vm::errors::{
-    Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    Error, IncomparableError, InterpreterError, RuntimeErrorType,
+    InterpreterResult as Result
 };
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
@@ -37,7 +38,7 @@ pub struct SqliteConnection {
 }
 
 fn sqlite_put_data(conn: &Connection, key: &str, value: &str) -> Result<()> {
-    eprintln!("sqlite_put_data: {} -> {}", key, value);
+    trace!("sqlite_put_data: {} -> {}", key, value);
     let params: [&dyn ToSql; 2] = [&key, &value];
     match conn.execute(
         "REPLACE INTO data_table (key, value) VALUES (?, ?)",
@@ -52,8 +53,7 @@ fn sqlite_put_data(conn: &Connection, key: &str, value: &str) -> Result<()> {
 }
 
 fn sqlite_get_data(conn: &Connection, key: &str) -> Result<Option<String>> {
-    eprintln!("sqlite_get_data: {}", key);
-    trace!("sqlite_get {}", key);
+    trace!("sqlite_get_data: {}", key);
     let params: [&dyn ToSql; 1] = [&key];
     let res = match conn
         .query_row(
@@ -70,7 +70,7 @@ fn sqlite_get_data(conn: &Connection, key: &str) -> Result<Option<String>> {
         }
     };
 
-    eprintln!(" -> {:?}", &res);
+    //trace!(" -> {:?}", &res);
     trace!("sqlite_get {}: {:?}", key, &res);
     res
 }
@@ -165,7 +165,6 @@ impl SqliteConnection {
     pub fn insert_contract(
         conn: &Connection,
         bhh: &StacksBlockId,
-        block_height: u32,
         data: &mut ContractData,
     ) -> Result<()> {
         let mut statement = conn.prepare_cached(
@@ -174,7 +173,6 @@ impl SqliteConnection {
                 issuer, 
                 name, 
                 block_hash, 
-                block_height, 
                 source, 
                 source_size, 
                 data_size, 
@@ -182,7 +180,7 @@ impl SqliteConnection {
                 contract_size,
                 contract_hash
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
             );
             ",
         )?;
@@ -191,7 +189,6 @@ impl SqliteConnection {
             &data.issuer as &dyn ToSql,
             &data.name as &dyn ToSql,
             &bhh.0.as_slice() as &dyn ToSql,
-            &block_height as &dyn ToSql,
             &data.source as &dyn ToSql,
             &data.source_size as &dyn ToSql,
             &data.data_size as &dyn ToSql,
@@ -244,7 +241,6 @@ impl SqliteConnection {
                     issuer, 
                     name, 
                     block_hash, 
-                    block_height, 
                     source, 
                     source_size,
                     data_size, 
@@ -272,12 +268,12 @@ impl SqliteConnection {
                         id: row.get(0)?,
                         issuer: row.get(1)?,
                         name: row.get(2)?,
-                        source: row.get(5)?,
-                        source_size: row.get(6)?,
-                        data_size: row.get(7)?,
-                        contract: row.get(8)?,
-                        contract_size: row.get(9)?,
-                        contract_hash: row.get(10)?,
+                        source: row.get(4)?,
+                        source_size: row.get(5)?,
+                        data_size: row.get(6)?,
+                        contract: row.get(7)?,
+                        contract_size: row.get(8)?,
+                        contract_hash: row.get(9)?,
                     })
                 },
             )
@@ -430,7 +426,6 @@ impl SqliteConnection {
                     issuer TEXT NOT NULL,
                     name TEXT NOT NULL,
                     block_hash BINARY NOT NULL,
-                    block_height INTEGER NOT NULL,
                     source BINARY NOT NULL,
                     source_size INTEGER NOT NULL,
                     data_size INTEGER NOT NULL,

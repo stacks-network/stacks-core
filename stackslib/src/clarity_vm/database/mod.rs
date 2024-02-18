@@ -728,11 +728,11 @@ impl ClarityBackingStore for MemoryBackingStore {
         Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get_data_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         SqliteConnection::get_data(self.get_side_store(), key)
     }
 
-    fn get_data_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get_data(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 

@@ -382,7 +382,7 @@ pub fn synthesize_pox_2_or_3_event_info(
     test_debug!("Evaluate snippet:\n{}", &code_snippet);
     test_debug!("Evaluate data code:\n{}", &data_snippet);
 
-    let pox_2_contract = global_context.database.get_contract(contract_id)?;
+    let pox_2_contract = global_context.database.get_contract2(contract_id)?;
 
     let event_info = global_context
         .special_cc_handler_execute_read_only(

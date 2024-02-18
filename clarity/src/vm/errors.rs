@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::error::Error as ErrorTrait;
+use std::string::FromUtf8Error;
 use std::{error, fmt};
 
 use rusqlite::Error as SqliteError;
@@ -119,6 +120,33 @@ impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     }
 }
 
+impl From<lz4_flex::block::CompressError> for Error {
+    fn from(err: lz4_flex::block::CompressError) -> Self {
+        Error::Interpreter(InterpreterError::Expect(format!(
+            "Compression failed: {}",
+            err
+        )))
+    }
+}
+
+impl From<lz4_flex::block::DecompressError> for Error {
+    fn from(err: lz4_flex::block::DecompressError) -> Self {
+        Error::Interpreter(InterpreterError::Expect(format!(
+            "Decompression failed: {}",
+            err
+        )))
+    }
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(err: FromUtf8Error) -> Self {
+        Error::Interpreter(InterpreterError::Expect(format!(
+            "Failed to convert bytes to string: {}",
+            err
+        )))
+    }
+}
+
 impl From<rusqlite::Error> for Error {
     fn from(err: rusqlite::Error) -> Self {
         Error::Interpreter(InterpreterError::SqliteError(IncomparableError { err }))
@@ -127,7 +155,7 @@ impl From<rusqlite::Error> for Error {
 
 impl From<rmp_serde::encode::Error> for Error {
     fn from(err: rmp_serde::encode::Error) -> Self {
-        Error::Interpreter(InterpreterError::InterpreterError(format!(
+        Error::Interpreter(InterpreterError::Expect(format!(
             "Failed to encode value: {}",
             err
         )))
@@ -136,7 +164,7 @@ impl From<rmp_serde::encode::Error> for Error {
 
 impl From<rmp_serde::decode::Error> for Error {
     fn from(err: rmp_serde::decode::Error) -> Self {
-        Error::Interpreter(InterpreterError::InterpreterError(format!(
+        Error::Interpreter(InterpreterError::Expect(format!(
             "Failed to decode value: {}",
             err
         )))
@@ -145,7 +173,7 @@ impl From<rmp_serde::decode::Error> for Error {
 
 impl From<lzzzz::Error> for Error {
     fn from(err: lzzzz::Error) -> Self {
-        Error::Interpreter(InterpreterError::InterpreterError(format!(
+        Error::Interpreter(InterpreterError::Expect(format!(
             "Compression failed: {}",
             err
         )))

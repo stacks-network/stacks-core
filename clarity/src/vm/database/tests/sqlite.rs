@@ -27,11 +27,10 @@ fn insert_contract() {
     let conn = SqliteConnection::memory().unwrap();
 
     let bhh = random_stacks_block_id();
-    let height = random_height();
 
     let (_, mut contract) = random_contract_data();
 
-    SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
+    SqliteConnection::insert_contract(&conn, &bhh, &mut contract)
         .expect("failed to insert contract");
 
     assert_eq!(contract.id, 1);
@@ -42,14 +41,13 @@ fn get_contract() {
     let conn = SqliteConnection::memory().unwrap();
 
     let bhh = random_stacks_block_id();
-    let height = random_height();
 
     let (_, mut contract1) = random_contract_data();
     let (_, mut contract2) = random_contract_data();
 
-    let contract1_id = SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract1)
+    let contract1_id = SqliteConnection::insert_contract(&conn, &bhh, &mut contract1)
         .expect("failed to insert contract1");
-    let contract2_id = SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract2)
+    let contract2_id = SqliteConnection::insert_contract(&conn, &bhh, &mut contract2)
         .expect("failed to insert contract2");
 
     assert_eq!(contract1.id, 1);
@@ -86,11 +84,10 @@ fn contract_exists() {
     let conn = SqliteConnection::memory().unwrap();
 
     let bhh = random_stacks_block_id();
-    let height = random_height();
 
     let (_, mut contract) = random_contract_data();
 
-    SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
+    SqliteConnection::insert_contract(&conn, &bhh, &mut contract)
         .expect("failed to insert contract");
 
     assert_eq!(contract.id, 1);
@@ -112,11 +109,10 @@ fn get_contract_sizes() {
     let conn = SqliteConnection::memory().unwrap();
 
     let bhh = random_stacks_block_id();
-    let height = random_height();
 
     let (_, mut contract) = random_contract_data();
 
-    SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
+    SqliteConnection::insert_contract(&conn, &bhh, &mut contract)
         .expect("failed to insert contract");
 
     assert_eq!(contract.id, 1);
@@ -135,11 +131,10 @@ fn insert_contract_analysis() {
 
     // Random block/height
     let bhh = random_stacks_block_id();
-    let height = random_height();
 
     // Create a random contract
     let (_, mut contract) = random_contract_data();
-    SqliteConnection::insert_contract(&conn, &bhh, height, &mut contract)
+    SqliteConnection::insert_contract(&conn, &bhh, &mut contract)
         .expect("failed to insert contract");
     assert_eq!(contract.id, 1);
 

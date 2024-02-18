@@ -17,7 +17,8 @@
 use std::io::Write;
 
 use serde::Deserialize;
-use stacks_common::util::hash::{hex_bytes, to_hex};
+use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::ContractAST;
@@ -78,11 +79,23 @@ macro_rules! clarity_serializable {
 
 #[derive(Debug, Clone)]
 pub struct StoredContract {
-    pub contract_id: u32,
-    pub identifier: QualifiedContractIdentifier,
-    pub ast: ContractAST,
-    pub contract_size: u32,
+    pub id: u32,
+    pub issuer: String,
+    pub name: String,
+    pub source: String,
+    pub contract: ContractContext,
+    pub block_hash: StacksBlockId,
+    pub contract_hash: Sha512Trunc256Sum,
+    /// The size of the contract's plain-text source in bytes.
+    pub source_size: u32,
+    /// The contract's in-memory footprint in bytes.
     pub data_size: u32,
+}
+
+impl StoredContract {
+    pub fn contract_size(&self) -> u32 {
+        self.source_size + self.data_size
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +104,13 @@ pub struct PendingContract {
     pub source: String,
     /// The serialized contract as binary data.
     pub contract: ContractContext,
+}
+
+#[derive(Debug, Clone)]
+pub enum GetContractResult {
+    Stored(StoredContract),
+    Pending(PendingContract),
+    NotFound,
 }
 
 #[derive(Debug, Clone)]
