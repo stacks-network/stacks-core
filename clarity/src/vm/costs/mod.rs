@@ -818,11 +818,11 @@ impl TrackerData {
                 ClarityCostFunctionReference::new(boot_costs_id.clone(), f.get_name())
             });
             if !cost_contracts.contains_key(&cost_function_ref.contract_id) {
-                let contract_context = match clarity_db.get_contract2(&cost_function_ref.contract_id)
-                {
-                    Ok(contract) => contract.contract_context,
-                    Err(e) => {
-                        error!("Failed to load intended Clarity cost contract";
+                let contract_context =
+                    match clarity_db.get_contract2(&cost_function_ref.contract_id) {
+                        Ok(contract) => contract.contract_context,
+                        Err(e) => {
+                            error!("Failed to load intended Clarity cost contract";
                                "contract" => %cost_function_ref.contract_id,
                                "error" => ?e);
                         clarity_db

@@ -14,21 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use exec_time::exec_time;
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
-    params, Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row, Savepoint, NO_PARAMS
+    params, Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
+    Savepoint, NO_PARAMS,
 };
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::db_common::tx_busy_handler;
-use exec_time::exec_time;
 
+use super::structures::{ContractAnalysisData, ContractData, ContractSizeData};
 use crate::vm::contracts::Contract;
 use crate::vm::database::structures::BlockData;
 use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-
-use super::structures::{ContractAnalysisData, ContractData, ContractSizeData};
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
 
@@ -88,7 +88,12 @@ impl SqliteConnection {
         sqlite_get_data(conn, key)
     }
 
-    pub fn get_contract_sizes(conn: &Connection, issuer: &str, name: &str, bhh: &StacksBlockId) -> Result<ContractSizeData> {
+    pub fn get_contract_sizes(
+        conn: &Connection,
+        issuer: &str,
+        name: &str,
+        bhh: &StacksBlockId,
+    ) -> Result<ContractSizeData> {
         let mut statement = conn.prepare_cached(
             "
             SELECT 
@@ -101,31 +106,35 @@ impl SqliteConnection {
                 issuer = ? 
                 AND name = ? 
                 AND block_hash = ?
-            "
+            ",
         )?;
 
         let result = statement.query_row(
             [
-                &issuer as &dyn ToSql, 
-                &name as &dyn ToSql, 
-                &bhh.0.as_slice() as &dyn ToSql
+                &issuer as &dyn ToSql,
+                &name as &dyn ToSql,
+                &bhh.0.as_slice() as &dyn ToSql,
             ],
             |row| {
-                Ok(
-                    ContractSizeData {
-                        source_size: row.get(0)?,
-                        data_size: row.get(1)?,
-                        contract_size: row.get(2)?,
-                    }
-                )
-            })?;
-        
+                Ok(ContractSizeData {
+                    source_size: row.get(0)?,
+                    data_size: row.get(1)?,
+                    contract_size: row.get(2)?,
+                })
+            },
+        )?;
+
         Ok(result)
     }
 
     /// Checks if a contract exists which was deployed at the given block height
     /// and has the given issuer and name.
-    pub fn contract_exists(conn: &Connection, issuer: &str, name: &str, bhh: &StacksBlockId) -> Result<bool> {
+    pub fn contract_exists(
+        conn: &Connection,
+        issuer: &str,
+        name: &str,
+        bhh: &StacksBlockId,
+    ) -> Result<bool> {
         let mut statement = conn.prepare_cached(
             "
             SELECT EXISTS(
@@ -138,19 +147,18 @@ impl SqliteConnection {
                     AND name = ? 
                     AND block_hash = ?
             );
-            "
+            ",
         )?;
 
         let result = statement.query_row(
             [
-                &issuer as &dyn ToSql, 
-                &name as &dyn ToSql, 
-                &bhh.0.as_slice() as &dyn ToSql
+                &issuer as &dyn ToSql,
+                &name as &dyn ToSql,
+                &bhh.0.as_slice() as &dyn ToSql,
             ],
-            |row| {
-                Ok(row.get::<_, u32>(0)?)
-            })?;
-        
+            |row| Ok(row.get::<_, u32>(0)?),
+        )?;
+
         Ok(result == 1)
     }
 
@@ -158,7 +166,7 @@ impl SqliteConnection {
         conn: &Connection,
         bhh: &StacksBlockId,
         block_height: u32,
-        data: &mut ContractData
+        data: &mut ContractData,
     ) -> Result<()> {
         let mut statement = conn.prepare_cached(
             "
@@ -176,22 +184,21 @@ impl SqliteConnection {
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             );
-            "
+            ",
         )?;
 
-        let contract_id = statement.insert(
-            [
-                &data.issuer as &dyn ToSql, 
-                &data.name as &dyn ToSql, 
-                &bhh.0.as_slice() as &dyn ToSql, 
-                &block_height as &dyn ToSql, 
-                &data.source as &dyn ToSql, 
-                &data.source_size as &dyn ToSql, 
-                &data.data_size as &dyn ToSql, 
-                &data.contract as &dyn ToSql, 
-                &data.contract_size as &dyn ToSql,
-                &data.contract_hash as &dyn ToSql
-            ])?;
+        let contract_id = statement.insert([
+            &data.issuer as &dyn ToSql,
+            &data.name as &dyn ToSql,
+            &bhh.0.as_slice() as &dyn ToSql,
+            &block_height as &dyn ToSql,
+            &data.source as &dyn ToSql,
+            &data.source_size as &dyn ToSql,
+            &data.data_size as &dyn ToSql,
+            &data.contract as &dyn ToSql,
+            &data.contract_size as &dyn ToSql,
+            &data.contract_hash as &dyn ToSql,
+        ])?;
 
         data.id = contract_id as u32;
 
@@ -212,15 +219,14 @@ impl SqliteConnection {
             ) VALUES (
                 ?, ?, ?
             );
-            "
-            )?;
+            ",
+        )?;
 
-        statement.insert(
-            [
-                &contract_id as &dyn ToSql, 
-                &data as &dyn ToSql, 
-                &(data.len() as u32) as &dyn ToSql
-            ])?;
+        statement.insert([
+            &contract_id as &dyn ToSql,
+            &data as &dyn ToSql,
+            &(data.len() as u32) as &dyn ToSql,
+        ])?;
 
         Ok(())
     }
@@ -232,7 +238,7 @@ impl SqliteConnection {
         bhh: &StacksBlockId,
     ) -> Result<Option<ContractData>> {
         let mut statement = conn.prepare_cached(
-                "
+            "
                 SELECT 
                     id, 
                     issuer, 
@@ -251,28 +257,30 @@ impl SqliteConnection {
                     issuer = ? 
                     AND name = ? 
                     AND block_hash = ?
-                "
-            )?;
+                ",
+        )?;
 
-        let result = statement.query_row(
-            [
-                &contract_issuer as &dyn ToSql, 
-                &contract_name  as &dyn ToSql, 
-                &bhh.0.as_slice() as &dyn ToSql
-            ],
-            |row| {
-                Ok(ContractData {
-                    id: row.get(0)?,
-                    issuer: row.get(1)?,
-                    name: row.get(2)?,
-                    source: row.get(5)?,
-                    source_size: row.get(6)?,
-                    data_size: row.get(7)?,
-                    contract: row.get(8)?,
-                    contract_size: row.get(9)?,
-                    contract_hash: row.get(10)?,
-                })
-            })
+        let result = statement
+            .query_row(
+                [
+                    &contract_issuer as &dyn ToSql,
+                    &contract_name as &dyn ToSql,
+                    &bhh.0.as_slice() as &dyn ToSql,
+                ],
+                |row| {
+                    Ok(ContractData {
+                        id: row.get(0)?,
+                        issuer: row.get(1)?,
+                        name: row.get(2)?,
+                        source: row.get(5)?,
+                        source_size: row.get(6)?,
+                        data_size: row.get(7)?,
+                        contract: row.get(8)?,
+                        contract_size: row.get(9)?,
+                        contract_hash: row.get(10)?,
+                    })
+                },
+            )
             .optional()?;
 
         Ok(result)
@@ -282,8 +290,9 @@ impl SqliteConnection {
         conn: &Connection,
         contract_id: u32,
     ) -> Result<Option<ContractAnalysisData>> {
-        let mut statement = conn.prepare_cached(
-            "
+        let mut statement = conn
+            .prepare_cached(
+                "
             SELECT
                 contract_id,
                 analysis,
@@ -292,21 +301,19 @@ impl SqliteConnection {
                 contract_analysis
             WHERE
                 contract_id = ?
-            ").expect("Failed to prepare contract analysis select statement");
+            ",
+            )
+            .expect("Failed to prepare contract analysis select statement");
 
-        let result = statement.query_row(
-            [
-                &contract_id as &dyn ToSql
-            ],
-            |row| {
+        let result = statement
+            .query_row([&contract_id as &dyn ToSql], |row| {
                 Ok(ContractAnalysisData {
                     contract_id: row.get(0)?,
                     analysis: row.get(1)?,
                     analysis_size: row.get(2)?,
                 })
-            }
-        )
-        .optional()?;
+            })
+            .optional()?;
 
         Ok(result)
     }
@@ -345,7 +352,7 @@ impl SqliteConnection {
         if from == to {
             return Ok(());
         }
-        
+
         eprintln!("commit_metadata_to: {} -> {}", from, to);
         let params = [to, from];
         if let Err(e) = conn.execute(
@@ -458,7 +465,7 @@ impl SqliteConnection {
 
         Ok(())
     }
-    
+
     pub fn memory() -> Result<Connection> {
         let contract_db = SqliteConnection::inner_open(":memory:")?;
         SqliteConnection::initialize_conn(&contract_db)?;
@@ -488,7 +495,7 @@ impl SqliteConnection {
             .query_row(sql, &["contract"], |row| row.get(0))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
-            let _: String = conn
+        let _: String = conn
             .query_row(sql, &["contract_analysis"], |row| row.get(0))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 

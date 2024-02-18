@@ -27,7 +27,8 @@ use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::types::{
-    OptionalData, PrincipalData, QualifiedContractIdentifier, TupleTypeSignature, TypeSignature, Value, NONE
+    OptionalData, PrincipalData, QualifiedContractIdentifier, TupleTypeSignature, TypeSignature,
+    Value, NONE,
 };
 use crate::vm::ContractContext;
 
@@ -89,14 +90,14 @@ pub struct PendingContract {
     /// The raw, compressed contract source code as binary data.
     pub source: String,
     /// The serialized contract as binary data.
-    pub contract: ContractContext
+    pub contract: ContractContext,
 }
 
 #[derive(Debug, Clone)]
 pub struct ContractSizeData {
     pub contract_size: u32,
     pub data_size: u32,
-    pub source_size: u32
+    pub source_size: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -40,9 +40,8 @@ use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::structures::{
-    ClarityDeserializable, ClaritySerializable, DataMapMetadata,
-    DataVariableMetadata, FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance,
-    STXBalanceSnapshot, SimmedBlock,
+    ClarityDeserializable, ClaritySerializable, DataMapMetadata, DataVariableMetadata,
+    FungibleTokenMetadata, NonFungibleTokenMetadata, STXBalance, STXBalanceSnapshot, SimmedBlock,
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
@@ -85,7 +84,7 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
-    contract_cache: lru::LruCache<QualifiedContractIdentifier, ContractContext>
+    contract_cache: lru::LruCache<QualifiedContractIdentifier, ContractContext>,
 }
 
 pub trait HeadersDB {
@@ -762,22 +761,13 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
-    pub fn insert_contract2(
-        &mut self,
-        contract: Contract,
-        src: &str
-    ) -> Result<()> {
+    pub fn insert_contract2(&mut self, contract: Contract, src: &str) -> Result<()> {
         let ctx = contract.contract_context;
 
-        self.store.put_contract(
-            src.to_string(), 
-            ctx.clone()
-        )?;
+        self.store.put_contract(src.to_string(), ctx.clone())?;
 
-        self.contract_cache.put(
-            ctx.contract_identifier.clone(), 
-            ctx
-        );
+        self.contract_cache
+            .put(ctx.contract_identifier.clone(), ctx);
 
         Ok(())
     }
@@ -786,21 +776,30 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
-        let contract_context = self.contract_cache
+        let contract_context = self
+            .contract_cache
             .get(contract_identifier)
             .cloned()
             .or_else(|| {
                 let ctx = self.store.get_contract(contract_identifier).ok()?;
-                self.contract_cache.put(ctx.contract_identifier.clone(), ctx.clone());
+                self.contract_cache
+                    .put(ctx.contract_identifier.clone(), ctx.clone());
                 Some(ctx)
             });
-    
+
         contract_context
-            .map(|ctx| Contract { contract_context: ctx })
-            .ok_or_else(|| Error::Unchecked(CheckErrors::NoSuchContract(contract_identifier.to_string())))
+            .map(|ctx| Contract {
+                contract_context: ctx,
+            })
+            .ok_or_else(|| {
+                Error::Unchecked(CheckErrors::NoSuchContract(contract_identifier.to_string()))
+            })
     }
 
-    pub fn has_contract2(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<bool> {
+    pub fn has_contract2(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<bool> {
         let exists = self.contract_cache.contains(contract_identifier);
         eprintln!("exists (cache hit): {exists}");
 

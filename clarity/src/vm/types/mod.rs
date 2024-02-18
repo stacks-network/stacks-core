@@ -31,6 +31,8 @@ use stacks_common::util::hash;
 use crate::vm::errors::{
     CheckErrors, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
+#[cfg(test)]
+use crate::vm::fakes::*;
 use crate::vm::representations::{
     ClarityName, ContractName, SymbolicExpression, SymbolicExpressionType,
 };
@@ -41,8 +43,6 @@ pub use crate::vm::types::signatures::{
     BUFF_33, BUFF_64, BUFF_65,
 };
 use crate::vm::ClarityVersion;
-#[cfg(test)]
-use crate::vm::fakes::*;
 
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
 pub const BOUND_VALUE_SERIALIZATION_BYTES: u32 = MAX_VALUE_SIZE * 2;
@@ -75,10 +75,7 @@ pub struct ListData {
 }
 
 #[derive(Clone, Eq, PartialEq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-pub struct StandardPrincipalData(
-    pub u8, 
-    pub [u8; 20]
-);
+pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
 impl StandardPrincipalData {
     pub fn transient() -> StandardPrincipalData {

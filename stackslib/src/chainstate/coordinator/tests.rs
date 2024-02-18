@@ -4839,7 +4839,9 @@ fn atlas_stop_start() {
                 &sort_db.index_conn(),
                 &StacksBlockId::new(&stacks_tip.0, &stacks_tip.1),
                 |conn| {
-                    conn.with_clarity_db_readonly(|db| db.get_contract2(&boot_code_id("bns", false)))
+                    conn.with_clarity_db_readonly(|db| {
+                        db.get_contract2(&boot_code_id("bns", false))
+                    })
                 },
             )
             .unwrap();

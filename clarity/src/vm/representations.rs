@@ -21,12 +21,12 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 
 use lazy_static::lazy_static;
+#[cfg(test)]
+use fake::Faker;
 use regex::Regex;
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
 };
-#[cfg(test)]
-use fake::Faker;
 
 use crate::vm::errors::RuntimeErrorType;
 use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier, Value};

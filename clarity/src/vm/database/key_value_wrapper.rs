@@ -34,7 +34,6 @@ use crate::vm::types::{
     QualifiedContractIdentifier, SequenceData, SequenceSubtype, TupleData, TypeSignature,
 };
 use crate::vm::{ContractContext, StacksEpoch, Value};
-use crate::vm::errors::InterpreterResult as Result;
 
 #[cfg(rollback_value_check)]
 type RollbackValueCheck = String;
@@ -115,7 +114,7 @@ pub struct ValueResult {
     pub serialized_byte_len: u64,
 }
 
-#[derive(Debug, Default )]
+#[derive(Debug, Default)]
 pub struct RollbackContext {
     edits: Vec<(String, RollbackValueCheck)>,
     metadata_edits: Vec<((QualifiedContractIdentifier, String), RollbackValueCheck)>,
@@ -267,11 +266,17 @@ impl<'a> RollbackWrapper<'a> {
         self.stack.len()
     }
 
-    fn find_pending_contract(&self, contract_identifier: &QualifiedContractIdentifier) -> Option<&PendingContract> {
+    fn find_pending_contract(
+        &self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Option<&PendingContract> {
         eprintln!("KV querying pending data");
         for ctx in self.stack.iter().rev() {
             for pending_contract in &ctx.pending_contracts {
-                eprintln!("... KV checking pending contract: {:?}", pending_contract.contract.contract_identifier);
+                eprintln!(
+                    "... KV checking pending contract: {:?}",
+                    pending_contract.contract.contract_identifier
+                );
                 if &pending_contract.contract.contract_identifier == contract_identifier {
                     eprintln!("... KV found pending contract; returning true");
                     return Some(pending_contract);
@@ -297,21 +302,32 @@ impl<'a> RollbackWrapper<'a> {
                 next_up.metadata_edits.push((key, value));
             }
 
-            next_up.pending_contracts.append(&mut last_item.pending_contracts);
-            next_up.contract_analyses.append(&mut last_item.contract_analyses);
+            next_up
+                .pending_contracts
+                .append(&mut last_item.pending_contracts);
+            next_up
+                .contract_analyses
+                .append(&mut last_item.contract_analyses);
         } else {
             let mut inserted_contracts = HashMap::<QualifiedContractIdentifier, u32>::new();
             for mut contract in last_item.pending_contracts.drain(..) {
-                let contract_data = self.store.insert_contract(&mut contract)
+                let contract_data = self
+                    .store
+                    .insert_contract(&mut contract)
                     .expect("ERROR: failed to insert contract into backing store.");
-                inserted_contracts.insert(contract.contract.contract_identifier.clone(), contract_data.id);
+                inserted_contracts.insert(
+                    contract.contract.contract_identifier.clone(),
+                    contract_data.id,
+                );
             }
 
             for analysis in last_item.contract_analyses.drain(..) {
-                let id = inserted_contracts.get(&analysis.contract_identifier)
+                let id = inserted_contracts
+                    .get(&analysis.contract_identifier)
                     .expect("ERROR: failed to find contract id for contract analysis.");
 
-                self.store.insert_contract_analysis(*id, &analysis)
+                self.store
+                    .insert_contract_analysis(*id, &analysis)
                     .expect("ERROR: failed to insert contract analysis into backing store.");
             }
 
@@ -359,10 +375,7 @@ fn inner_put<T>(
 }
 
 impl<'a> RollbackWrapper<'a> {
-    pub fn put_contract_analysis(
-        &mut self,
-        analysis: &ContractAnalysis
-    ) {
+    pub fn put_contract_analysis(&mut self, analysis: &ContractAnalysis) {
         let current = self
             .stack
             .last_mut()
@@ -371,17 +384,13 @@ impl<'a> RollbackWrapper<'a> {
         current.contract_analyses.push(analysis.clone());
     }
 
-    /// Adds the provided contract to the uncommitted state of this [RollbackWrapper] 
+    /// Adds the provided contract to the uncommitted state of this [RollbackWrapper]
     /// instance, in the current stack frame. If there is no current stack frame, this
     /// function will panic.
-    /// 
-    /// To begin a new stack frame, the `nest` function must be called. 
+    ///
+    /// To begin a new stack frame, the `nest` function must be called.
     /// To persist these changes, the `commit` function must be called.
-    pub fn put_contract(
-        &mut self,
-        src: String,
-        contract: ContractContext
-    ) -> Result<()> {
+    pub fn put_contract(&mut self, src: String, contract: ContractContext) -> Result<()> {
         let content_hash = Sha512Trunc256Sum::from_data(src.as_bytes());
         let key = make_contract_hash_key(&contract.contract_identifier);
         let value = self.store.make_contract_commitment(content_hash);
@@ -397,23 +406,23 @@ impl<'a> RollbackWrapper<'a> {
 
         current.pending_contracts.push(PendingContract {
             source: src,
-            contract
+            contract,
         });
 
         Ok(())
     }
 
-    /// Retrieves the contract context for a given contract identifier. If 
-    /// `query_pending_data` is true on this [RollbackWrapper] instance, 
-    /// it will first check the uncommitted state of this instance for the 
+    /// Retrieves the contract context for a given contract identifier. If
+    /// `query_pending_data` is true on this [RollbackWrapper] instance,
+    /// it will first check the uncommitted state of this instance for the
     /// contract. If it is not found, it will query the underlying store.
-    /// 
+    ///
     /// NOTE: Removed the requirement for a nested context for this function,
-    /// which was previously enforced by the `get_data` and `get_metadata` 
+    /// which was previously enforced by the `get_data` and `get_metadata`
     /// functions.
     pub fn get_contract(
         &mut self,
-        contract_identifier: &QualifiedContractIdentifier
+        contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<ContractContext> {
         trace!("KV get contract for {}", contract_identifier);
         if self.query_pending_data {
@@ -423,7 +432,9 @@ impl<'a> RollbackWrapper<'a> {
             }
         }
 
-        let contract = self.store.get_contract(contract_identifier)?
+        let contract = self
+            .store
+            .get_contract(contract_identifier)?
             .ok_or_else(|| CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
 
         Ok(contract)
@@ -433,10 +444,13 @@ impl<'a> RollbackWrapper<'a> {
     /// [RollbackWrapper] instance, it will first check the uncommitted state
     /// of this instance for the contract. If it is not found, it will query the
     /// underlying store.
-    /// 
+    ///
     /// NOTE: Removed the requirement for a nested context for this function,
     /// which was previously enforced by the `get_data` and `get_metadata` functions.
-    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<bool> {
+    pub fn has_contract(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<bool> {
         trace!("KV  has contract for {}", contract_identifier);
         if self.query_pending_data {
             if self.find_pending_contract(contract_identifier).is_some() {
@@ -449,20 +463,24 @@ impl<'a> RollbackWrapper<'a> {
         Ok(self.store.contract_exists(contract_identifier)?)
     }
 
-    /// Retrieves and calculates the contract size (size of the contract's source code 
+    /// Retrieves and calculates the contract size (size of the contract's source code
     /// in bytes + the contract's data size) for a given contract identifier. If
     /// `query_pending_data` is true on this [RollbackWrapper] instance, it will first
     /// check the uncommitted state of this instance for the contract. If it is not found,
     /// it will query the underlying store.
-    /// 
+    ///
     /// NOTE: Removed the requirement for a nested context for this function, which
     /// was previously enforced by the `get_data` and `get_metadata` functions.
-    pub fn get_contract_size(&mut self, contract_identifier: &QualifiedContractIdentifier) -> Result<u32> {
+    pub fn get_contract_size(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<u32> {
         trace!("KV get contract size for {}", contract_identifier);
         if self.query_pending_data {
             if let Some(pending_contract) = self.find_pending_contract(contract_identifier) {
                 trace!("... KV found pending contract; returning true");
-                return Ok(pending_contract.source.len() as u32 + pending_contract.contract.data_size as u32);
+                return Ok(pending_contract.source.len() as u32
+                    + pending_contract.contract.data_size as u32);
             }
         }
 
@@ -473,7 +491,7 @@ impl<'a> RollbackWrapper<'a> {
     /// Appends the provided key and value to the uncommitted state of this
     /// [RollbackWrapper] instance, in the current stack frame. If there is
     /// no current stack frame, this function will panic.
-    /// 
+    ///
     /// To begin a new stack frame, the `nest` function must be called.
     /// To persist these changes, the `commit` function must be called.
     pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
@@ -597,7 +615,7 @@ impl<'a> RollbackWrapper<'a> {
     }
 
     /// Creates the initial contract commitment for a new contract. This creates
-    /// a key in the form of "clarity-contract::{contract.display()}" 
+    /// a key in the form of "clarity-contract::{contract.display()}"
     pub fn prepare_for_contract_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,

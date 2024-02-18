@@ -2,13 +2,12 @@ use rand::{Rng, RngCore};
 use randomizer::Randomizer;
 use stacks_common::types::chainstate::StacksBlockId;
 
+use super::structures::ContractData;
 use crate::vm::types::QualifiedContractIdentifier;
 
-use super::structures::ContractData;
-
-mod sqlite;
-mod kv;
 mod db;
+mod kv;
+mod sqlite;
 mod store;
 
 fn random_bhh() -> [u8; 32] {
@@ -18,8 +17,7 @@ fn random_bhh() -> [u8; 32] {
 }
 
 fn random_stacks_block_id() -> StacksBlockId {
-    StacksBlockId::from_bytes(&random_bhh())
-        .expect("failed to create random StacksBlockId")
+    StacksBlockId::from_bytes(&random_bhh()).expect("failed to create random StacksBlockId")
 }
 
 fn random_bytes_random_len(min_len: usize, max_len: usize) -> Vec<u8> {
@@ -62,10 +60,10 @@ fn random_contract_data() -> (QualifiedContractIdentifier, ContractData) {
     let contract_bytes = random_bytes_random_len(100, 1000);
     let contract_len = contract_bytes.len() as u32;
     let data_size = random_u32(100, 1000);
-    
-    let identifier = QualifiedContractIdentifier::local(
-        &Randomizer::ALPHABETICAL(10).string().unwrap()
-    ).unwrap();
+
+    let identifier =
+        QualifiedContractIdentifier::local(&Randomizer::ALPHABETICAL(10).string().unwrap())
+            .unwrap();
 
     (
         identifier.clone(),
@@ -79,6 +77,6 @@ fn random_contract_data() -> (QualifiedContractIdentifier, ContractData) {
             contract_size: contract_len,
             data_size,
             contract_hash: random_bhh().to_vec(),
-        }
+        },
     )
 }

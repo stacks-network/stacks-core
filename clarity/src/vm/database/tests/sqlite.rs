@@ -1,32 +1,30 @@
-
 use rand::RngCore;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use crate::vm::{database::{tests::{assert_contract_eq, random_contract_data}, *}, types::QualifiedContractIdentifier};
-
-use self::structures::{ContractData, ContractAnalysisData};
-
-use super::{random_bhh, random_bytes_random_len, random_height, random_stacks_block_id, random_string, random_u32};
+use self::structures::{ContractAnalysisData, ContractData};
+use super::{
+    random_bhh, random_bytes_random_len, random_height, random_stacks_block_id, random_string,
+    random_u32,
+};
+use crate::vm::database::tests::{assert_contract_eq, random_contract_data};
+use crate::vm::database::*;
+use crate::vm::types::QualifiedContractIdentifier;
 
 #[test]
 fn can_create_and_initialize_database() {
-    let conn = SqliteConnection::memory()
-        .expect("failed to create in-memory SQLite database");
+    let conn = SqliteConnection::memory().expect("failed to create in-memory SQLite database");
 
     // The first call runs this, but let's make sure it's idempotent, and
     // just in-case someone changes that...
-    SqliteConnection::initialize_conn(&conn)
-        .expect("failed to initialize connection");
+    SqliteConnection::initialize_conn(&conn).expect("failed to initialize connection");
 
     // The first call runs this, but just in-case someone changes that...
-    SqliteConnection::check_schema(&conn)
-        .expect("failed to check schema");
+    SqliteConnection::check_schema(&conn).expect("failed to check schema");
 }
 
 #[test]
 fn insert_contract() {
-    let conn = SqliteConnection::memory()
-        .unwrap();
+    let conn = SqliteConnection::memory().unwrap();
 
     let bhh = random_stacks_block_id();
     let height = random_height();
@@ -41,8 +39,7 @@ fn insert_contract() {
 
 #[test]
 fn get_contract() {
-    let conn = SqliteConnection::memory()
-        .unwrap();
+    let conn = SqliteConnection::memory().unwrap();
 
     let bhh = random_stacks_block_id();
     let height = random_height();
@@ -59,47 +56,34 @@ fn get_contract() {
     assert_eq!(contract2.id, 2);
 
     // Retrieve first contract
-    let contract1_retrieved = SqliteConnection::get_contract(
-            &conn,
-            &contract1.issuer,
-            &contract1.name, 
-            &bhh
-        )
-        .expect("failed to retrieve contract1")
-        .expect("contract1 was not found");
+    let contract1_retrieved =
+        SqliteConnection::get_contract(&conn, &contract1.issuer, &contract1.name, &bhh)
+            .expect("failed to retrieve contract1")
+            .expect("contract1 was not found");
 
     assert_eq!(contract1_retrieved.id, contract1.id);
     assert_contract_eq(contract1, contract1_retrieved);
 
     // Retrieve second contract
-    let contract2_retrieved = SqliteConnection::get_contract(
-            &conn, 
-            &contract2.issuer, 
-            &contract2.name, 
-            &bhh
-        )
-        .expect("failed to retrieve contract2")
-        .expect("contract2 was not found");
+    let contract2_retrieved =
+        SqliteConnection::get_contract(&conn, &contract2.issuer, &contract2.name, &bhh)
+            .expect("failed to retrieve contract2")
+            .expect("contract2 was not found");
 
     assert_eq!(contract2_retrieved.id, contract2.id);
     assert_contract_eq(contract2, contract2_retrieved);
 
     // Retrieve non-existent contract
-    let contract3_retrieved = SqliteConnection::get_contract(
-            &conn,
-            &random_string(20),
-            &random_string(20),
-            &bhh
-        )
-        .expect("failed to retrieve contract3");
+    let contract3_retrieved =
+        SqliteConnection::get_contract(&conn, &random_string(20), &random_string(20), &bhh)
+            .expect("failed to retrieve contract3");
 
     assert!(contract3_retrieved.is_none());
 }
 
 #[test]
 fn contract_exists() {
-    let conn = SqliteConnection::memory()
-        .unwrap();
+    let conn = SqliteConnection::memory().unwrap();
 
     let bhh = random_stacks_block_id();
     let height = random_height();
@@ -111,31 +95,21 @@ fn contract_exists() {
 
     assert_eq!(contract.id, 1);
 
-    let exists = SqliteConnection::contract_exists(
-            &conn, 
-            &contract.issuer, 
-            &contract.name, 
-            &bhh
-        )
+    let exists = SqliteConnection::contract_exists(&conn, &contract.issuer, &contract.name, &bhh)
         .expect("failed to check if contract exists");
 
     assert!(exists);
 
-    let exists = SqliteConnection::contract_exists(
-            &conn, 
-            &random_string(20), 
-            &random_string(20), 
-            &bhh
-        )
-        .expect("failed to check if contract exists");
+    let exists =
+        SqliteConnection::contract_exists(&conn, &random_string(20), &random_string(20), &bhh)
+            .expect("failed to check if contract exists");
 
     assert!(!exists);
 }
 
 #[test]
 fn get_contract_sizes() {
-    let conn = SqliteConnection::memory()
-        .unwrap();
+    let conn = SqliteConnection::memory().unwrap();
 
     let bhh = random_stacks_block_id();
     let height = random_height();
@@ -157,8 +131,7 @@ fn get_contract_sizes() {
 
 #[test]
 fn insert_contract_analysis() {
-    let conn = SqliteConnection::memory()
-        .unwrap();
+    let conn = SqliteConnection::memory().unwrap();
 
     // Random block/height
     let bhh = random_stacks_block_id();
@@ -179,8 +152,7 @@ fn insert_contract_analysis() {
 #[test]
 #[should_panic]
 fn insert_contract_analysis_with_bad_contract_id() {
-    let conn = SqliteConnection::memory()
-        .unwrap();
+    let conn = SqliteConnection::memory().unwrap();
 
     // Random block/height
     let bhh = random_stacks_block_id();

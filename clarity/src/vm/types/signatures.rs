@@ -22,11 +22,11 @@ use std::{cmp, fmt};
 // TypeSignatures
 use hashbrown::HashSet;
 use lazy_static::lazy_static;
+#[cfg(test)]
+use fake::Faker;
 use stacks_common::address::c32;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
-#[cfg(test)]
-use fake::Faker;
 
 use crate::vm::costs::{cost_functions, runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, Error as VMError, IncomparableError, RuntimeErrorType};
