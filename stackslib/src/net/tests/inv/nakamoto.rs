@@ -461,15 +461,17 @@ fn test_nakamoto_invs_full() {
 fn test_nakamoto_invs_alternating() {
     let observer = TestEventObserver::new();
     let bitvecs = vec![
-        vec![true, false, true, false, true, true, true, true, true, true],
         vec![
-            false, true, false, true, false, true, true, true, true, true,
+            true, false, true, false, true, false, true, true, true, true,
+        ],
+        vec![
+            false, true, false, true, false, true, false, true, true, true,
         ],
         vec![
             true, false, true, false, true, false, true, true, true, true,
         ],
         vec![
-            false, true, false, true, false, true, true, true, true, true,
+            false, true, false, true, false, true, false, true, true, true,
         ],
         vec![
             true, false, true, false, true, false, true, true, true, true,
@@ -493,22 +495,22 @@ fn test_nakamoto_invs_sparse() {
     let observer = TestEventObserver::new();
     let bitvecs = vec![
         vec![
-            true, false, false, false, false, false, true, true, true, true,
+            true, false, false, false, false, false, false, true, true, true,
         ],
         vec![
-            false, true, false, false, false, false, true, true, true, true,
+            false, true, false, false, false, false, false, true, true, true,
         ],
         vec![
-            false, false, true, false, false, false, true, true, true, true,
+            false, false, true, false, false, false, false, true, true, true,
         ],
         vec![
-            false, false, false, true, false, false, true, true, true, true,
+            false, false, false, true, false, false, false, true, true, true,
         ],
         vec![
-            false, false, false, false, true, false, true, true, true, true,
+            false, false, false, false, true, false, false, true, true, true,
         ],
         vec![
-            false, false, false, false, false, true, true, true, true, true,
+            false, false, false, false, false, true, false, true, true, true,
         ],
         vec![
             false, false, false, false, false, false, true, true, true, true,
@@ -531,20 +533,22 @@ fn test_nakamoto_invs_sparse() {
 fn test_nakamoto_invs_different_anchor_blocks() {
     let observer = TestEventObserver::new();
     let bitvecs = vec![
-        vec![true, true, true, true, true, true, true, true, true, true],
-        vec![true, true, true, true, true, false, true, true, true, true],
-        vec![true, true, true, true, false, false, true, true, true, true],
+        vec![true, true, true, true, true, true, false, true, true, true],
+        vec![true, true, true, true, true, false, false, true, true, true],
         vec![
-            true, true, true, false, false, false, true, true, true, true,
+            true, true, true, true, false, false, false, true, true, true,
         ],
         vec![
-            true, true, false, false, false, false, true, true, true, true,
+            true, true, true, false, false, false, false, true, true, true,
         ],
         vec![
-            true, false, false, false, false, false, true, true, true, true,
+            true, true, false, false, false, false, false, true, true, true,
         ],
         vec![
-            false, false, false, false, false, false, true, true, true, true,
+            true, false, false, false, false, false, false, true, true, true,
+        ],
+        vec![
+            false, false, false, false, false, false, false, true, true, true,
         ],
     ];
 

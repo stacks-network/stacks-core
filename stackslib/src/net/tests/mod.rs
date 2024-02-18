@@ -535,41 +535,9 @@ impl NakamotoBootPlan {
                     blocks_since_last_tenure = 0;
 
                     let first_burn_ht = peer.sortdb().first_block_height;
-                    let voting_txs = if self
-                        .pox_constants
-                        .is_in_prepare_phase(first_burn_ht, burn_ht)
-                    {
-                        let tip = peer
-                            .with_db_state(|sortdb, chainst, _, _| {
-                                Ok(NakamotoChainState::get_canonical_block_header(
-                                    chainst.db(),
-                                    sortdb,
-                                )
-                                .unwrap()
-                                .unwrap())
-                            })
-                            .unwrap();
-                        let cycle_id = self
-                            .pox_constants
-                            .block_height_to_reward_cycle(first_burn_ht, burn_ht)
-                            .unwrap();
-
-                        peer.with_db_state(|sortdb, chainstate, _, _| {
-                            Ok(make_all_signers_vote_for_aggregate_key(
-                                chainstate,
-                                sortdb,
-                                &tip.index_block_hash(),
-                                &mut self.test_signers,
-                                &self.test_stackers,
-                                u128::from(cycle_id + 1),
-                            ))
-                        })
-                        .unwrap()
-                    } else {
-                        vec![]
-                    };
-
-                    num_expected_transactions += voting_txs.len();
+                    let pox_constants = self.pox_constants.clone();
+                    let mut test_signers = self.test_signers.clone();
+                    let test_stackers = self.test_stackers.clone();
 
                     let blocks_and_sizes = peer.make_nakamoto_tenure(
                         tenure_change_tx,
@@ -582,11 +550,30 @@ impl NakamotoBootPlan {
                             let next_step = &boot_steps[i];
                             i += 1;
 
-                            let mut txs = if blocks_so_far.len() == 0 {
-                                voting_txs.clone()
+                            let mut txs = vec![];
+                            // check if the stacker/signers need to vote for an aggregate key. if so, append those transactions
+                            //  to the end of the block.
+                            // NOTE: this will only work the block after .signers is updated, because `make_all_signers_vote...`
+                            //  checks the chainstate as of `tip` to obtain the signer vector. this means that some tests may
+                            //  need to produce an extra block in a tenure in order to get the signer votes in place.
+                            //  The alternative to doing this would be to either manually build the signer vector or to refactor
+                            //  the testpeer such that a callback is provided during the actual mining of the block with a
+                            //  `ClarityBlockConnection`.
+                            let mut voting_txs = if self.pox_constants.is_in_prepare_phase(first_burn_ht, burn_ht) {
+                                let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb).unwrap().unwrap();
+                                let cycle_id = 1 + self.pox_constants.block_height_to_reward_cycle(first_burn_ht, burn_ht).unwrap();
+                                make_all_signers_vote_for_aggregate_key(
+                                    chainstate,
+                                    sortdb,
+                                    &tip.index_block_hash(),
+                                    &mut test_signers,
+                                    &test_stackers,
+                                    u128::from(cycle_id),
+                                )
                             } else {
                                 vec![]
                             };
+
                             let last_block_opt = blocks_so_far
                                 .last()
                                 .as_ref()
@@ -617,6 +604,9 @@ impl NakamotoBootPlan {
                                     num_expected_transactions += transactions.len();
                                 }
                             }
+
+                            num_expected_transactions += voting_txs.len();
+                            txs.append(&mut voting_txs);
 
                             blocks_since_last_tenure += 1;
                             txs
@@ -779,12 +769,15 @@ fn test_boot_nakamoto_peer() {
             NakamotoBootStep::Block(vec![next_stx_transfer()]),
             NakamotoBootStep::TenureExtend(vec![next_stx_transfer()]),
         ]),
+        NakamotoBootTenure::NoSortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
         // prepare phase for 2
         NakamotoBootTenure::NoSortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
-        NakamotoBootTenure::Sortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
+        NakamotoBootTenure::Sortition(vec![
+            NakamotoBootStep::Block(vec![next_stx_transfer()]),
+            NakamotoBootStep::Block(vec![next_stx_transfer()]),
+        ]),
         NakamotoBootTenure::Sortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
         // reward cycle 2
-        NakamotoBootTenure::Sortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
         NakamotoBootTenure::Sortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
         NakamotoBootTenure::NoSortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
         NakamotoBootTenure::NoSortition(vec![NakamotoBootStep::Block(vec![next_stx_transfer()])]),
