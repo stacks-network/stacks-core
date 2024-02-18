@@ -3949,14 +3949,14 @@ impl PeerNetwork {
                     self.nakamoto_work_state = PeerNetworkWorkState::BlockDownload;
                 }
                 PeerNetworkWorkState::BlockDownload => {
-                    info!(
+                    debug!(
                         "{:?}: Block download for Nakamoto is not yet implemented",
                         self.get_local_peer()
                     );
                     self.nakamoto_work_state = PeerNetworkWorkState::AntiEntropy;
                 }
                 PeerNetworkWorkState::AntiEntropy => {
-                    info!(
+                    debug!(
                         "{:?}: Block anti-entropy for Nakamoto is not yet implemented",
                         self.get_local_peer()
                     );

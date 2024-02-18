@@ -1704,7 +1704,7 @@ impl NakamotoChainState {
             aggregate_public_key,
         )? {
             let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
-            warn!("{}", msg);
+            warn!("{}", msg; "aggregate_key" => %aggregate_public_key);
             return Err(ChainstateError::InvalidStacksBlock(msg));
         }
 

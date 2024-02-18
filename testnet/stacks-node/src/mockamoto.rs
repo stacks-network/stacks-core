@@ -836,7 +836,7 @@ impl MockamotoNode {
             Some(AddressHashMode::SerializeP2PKH),
         );
 
-        let signer_sk = Secp256k1PrivateKey::from_seed(&miner_nonce.to_be_bytes());
+        let signer_sk = Secp256k1PrivateKey::from_seed(&[1, 2, 3, 4]);
         let signer_key = Secp256k1PublicKey::from_private(&signer_sk).to_bytes_compressed();
         let signer_addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -925,14 +925,11 @@ impl MockamotoNode {
             )?;
             StacksChainState::get_nonce(&mut clarity_conn, &signer_addr)
         };
-        let aggregate_public_key_val = ClarityValue::buff_from(
-            self.self_signer
-                .aggregate_public_key
-                .compress()
-                .data
-                .to_vec(),
-        )
-        .expect("Failed to serialize aggregate public key");
+        let mut next_signer = self.self_signer.clone();
+        let next_agg_key = next_signer.generate_aggregate_key(reward_cycle + 1);
+        let aggregate_public_key_val =
+            ClarityValue::buff_from(next_agg_key.compress().data.to_vec())
+                .expect("Failed to serialize aggregate public key");
         let vote_payload = TransactionPayload::new_contract_call(
             boot_code_addr(false),
             SIGNERS_VOTING_NAME,
