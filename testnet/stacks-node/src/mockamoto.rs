@@ -49,6 +49,7 @@ use stacks::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SetupBlockResult,
 };
 use stacks::chainstate::stacks::address::PoxAddress;
+use stacks::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
 use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
 use stacks::chainstate::stacks::miner::{
     BlockBuilder, BlockBuilderSettings, BlockLimitFunction, MinerStatus, TransactionResult,
@@ -69,6 +70,7 @@ use stacks::core::{
 use stacks::net::atlas::{AtlasConfig, AtlasDB};
 use stacks::net::relay::Relayer;
 use stacks::net::stackerdb::StackerDBs;
+use stacks::util_lib::boot::boot_code_addr;
 use stacks::util_lib::db::Error as DBError;
 use stacks::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -836,6 +838,14 @@ impl MockamotoNode {
 
         let signer_sk = Secp256k1PrivateKey::from_seed(&miner_nonce.to_be_bytes());
         let signer_key = Secp256k1PublicKey::from_private(&signer_sk).to_bytes_compressed();
+        let signer_addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![Secp256k1PublicKey::from_private(&signer_sk)],
+        )
+        .unwrap()
+        .into();
 
         let block_height = sortition_tip.block_height;
         let reward_cycle = self
@@ -904,6 +914,48 @@ impl MockamotoNode {
         stack_stx_tx_signer.sign_origin(&self.miner_key).unwrap();
         let stacks_stx_tx = stack_stx_tx_signer.get_tx().unwrap();
 
+        let signer_nonce = if is_genesis {
+            0
+        } else {
+            let sortdb_conn = self.sortdb.index_conn();
+            let mut clarity_conn = clarity_instance.read_only_connection_checked(
+                &parent_block_id,
+                &chainstate_tx,
+                &sortdb_conn,
+            )?;
+            StacksChainState::get_nonce(&mut clarity_conn, &signer_addr)
+        };
+        let aggregate_public_key_val = ClarityValue::buff_from(
+            self.self_signer
+                .aggregate_public_key
+                .compress()
+                .data
+                .to_vec(),
+        )
+        .expect("Failed to serialize aggregate public key");
+        let vote_payload = TransactionPayload::new_contract_call(
+            boot_code_addr(false),
+            SIGNERS_VOTING_NAME,
+            "vote-for-aggregate-public-key",
+            vec![
+                ClarityValue::UInt(0),
+                aggregate_public_key_val,
+                ClarityValue::UInt(0),
+                ClarityValue::UInt((reward_cycle + 1).into()),
+            ],
+        )
+        .unwrap();
+        let mut vote_tx = StacksTransaction::new(
+            TransactionVersion::Testnet,
+            TransactionAuth::from_p2pkh(&signer_sk).unwrap(),
+            vote_payload,
+        );
+        vote_tx.chain_id = chain_id;
+        vote_tx.set_origin_nonce(signer_nonce);
+        let mut vote_tx_signer = StacksTransactionSigner::new(&vote_tx);
+        vote_tx_signer.sign_origin(&signer_sk).unwrap();
+        let vote_tx = vote_tx_signer.get_tx().unwrap();
+
         let sortdb_handle = self.sortdb.index_conn();
         let SetupBlockResult {
             mut clarity_tx,
@@ -928,7 +980,7 @@ impl MockamotoNode {
             false,
         )?;
 
-        let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx];
+        let txs = vec![tenure_tx, coinbase_tx, stacks_stx_tx, vote_tx];
 
         let _ = match StacksChainState::process_block_transactions(
             &mut clarity_tx,
