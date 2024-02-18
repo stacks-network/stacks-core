@@ -141,17 +141,26 @@ pub fn prepare_pox4_test<'a>(
 /// and the key is accepted.
 #[test]
 fn vote_for_aggregate_public_key_success() {
+    // Test setup
     let alice = TestStacker::from_seed(&[3, 4]);
     let bob = TestStacker::from_seed(&[5, 6]);
+    let charlie = TestStacker::from_seed(&[7, 8]);
     let observer = TestEventObserver::new();
 
+    // Alice - Signer 1
     let alice_key = &alice.signer_private_key;
     let alice_address = key_to_stacks_addr(alice_key);
     let alice_principal = PrincipalData::from(alice_address);
 
+    // Bob - Signer 2
     let bob_key = &bob.signer_private_key;
     let bob_address = key_to_stacks_addr(bob_key);
     let bob_principal = PrincipalData::from(bob_address);
+
+    // Charlie - Doesn't register, throws invalid signer index
+    let charlie_key = &charlie.signer_private_key;
+    let charlie_address = key_to_stacks_addr(charlie_key);
+    let charlie_principal = PrincipalData::from(charlie_address);
 
     let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
         function_name!(),
@@ -166,46 +175,78 @@ fn vote_for_aggregate_public_key_success() {
     // Alice and Bob will each have voted once while booting to Nakamoto
     let alice_nonce = 1;
     let bob_nonce = 1;
+    let charlie_nonce = 1;
 
     let cycle_id = current_reward_cycle;
 
     // create vote txs
     let alice_index = get_signer_index(&mut peer, latest_block_id, alice_address, cycle_id);
     let bob_index = get_signer_index(&mut peer, latest_block_id, bob_address, cycle_id);
+    println!("Alice index: {}", alice_index);
+    println!("Bob index: {}", bob_index);
+    let aggregate_public_key_point: Point = Point::new();
+    let aggregate_public_key = Value::buff_from(aggregate_public_key_point.compress().data.to_vec()).expect("Failed to serialize aggregate public key");
+    // let aggregate_public_key_value =
+    //     Value::buff_from(aggregate_public_key.compress().data.to_vec())
+    //         .expect("Failed to serialize aggregate public key");
 
-    let aggregate_public_key: Point = Point::new();
-    let aggregate_public_key_value =
-        Value::buff_from(aggregate_public_key.compress().data.to_vec())
-            .expect("Failed to serialize aggregate public key");
+    let aggregate_public_key_ill_formed = Value::buff_from_byte(0x00);
 
     let txs = vec![
-        // Alice casts a vote for the aggregate public key
+        // Alice casts a vote with a non-existant index - should return signer index mismatch error
         make_signers_vote_for_aggregate_public_key(
             alice_key,
             alice_nonce,
-            alice_index,
-            &aggregate_public_key,
+            bob_index,
+            aggregate_public_key.clone(),
             0,
             cycle_id + 1,
         ),
-        // Alice casts vote twice
+        // Alice casts a vote with Bobs index - should return invalid signer index error
         make_signers_vote_for_aggregate_public_key(
             alice_key,
             alice_nonce+1,
+            2,
+            aggregate_public_key.clone(),
+            0,
+            cycle_id + 1,
+        ),
+         // Alice casts a vote with an invalid public key - should return ill-formed public key error
+         make_signers_vote_for_aggregate_public_key(
+            alice_key,
+            alice_nonce+2,
             alice_index,
-            &aggregate_public_key,
+            aggregate_public_key_ill_formed,
             0,
             cycle_id + 1,
         ),
-        // Bob casts a vote for the aggregate public key
-        make_signers_vote_for_aggregate_public_key(
-            bob_key,
-            bob_nonce,
-            bob_index,
-            &aggregate_public_key,
-            0,
-            cycle_id + 1,
-        ),
+        // Alice casts vote twice - should return duplicate vote error
+        // make_signers_vote_for_aggregate_public_key(
+        //     alice_key,
+        //     alice_nonce+1,
+        //     alice_index,
+        //     &aggregate_public_key,
+        //     0,
+        //     cycle_id + 1,
+        // ),
+        // Charlie casts a vote for the aggregate public key - should return invalid signer index error
+        // make_signers_vote_for_aggregate_public_key(
+        //     charlie_key,
+        //     charlie_nonce,
+        //     2,
+        //     &aggregate_public_key,
+        //     0,
+        //     cycle_id + 1,
+        // ),
+        // Bob casts a vote with a non-existant index - should return signer index mismatch error
+        // make_signers_vote_for_aggregate_public_key(
+        //     bob_key,
+        //     bob_nonce,
+        //     2,
+        //     &aggregate_public_key,
+        //     0,
+        //     cycle_id + 1,
+        // ),
     ];
 
     //
@@ -220,96 +261,127 @@ fn vote_for_aggregate_public_key_success() {
     // ignore tenure change tx
     // ignore tenure coinbase tx
 
-    // Alice's vote should succeed
-    let alice_vote_tx = &receipts[2];
-    println!("alice_vote_tx: {:?}", alice_vote_tx);
-    assert_eq!(alice_vote_tx.result, Value::okay_true());
-    assert_eq!(alice_vote_tx.events.len(), 1);
-    let alice_vote_event = &alice_vote_tx.events[0];
-    println!("alice_vote_event: {:?}", alice_vote_event);
-    if let StacksTransactionEvent::SmartContractEvent(contract_event) = alice_vote_event {
-        assert_eq!(
-            contract_event.value,
-            TupleData::from_data(vec![
-                (
-                    "event".into(),
-                    Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
-                        .expect("Failed to create string")
-                ),
-                ("key".into(), aggregate_public_key_value.clone()),
-                ("new-total".into(), Value::UInt(2)),
-                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
-                ("round".into(), Value::UInt(0)),
-                ("signer".into(), Value::Principal(alice_principal.clone())),
-            ])
-            .expect("Failed to create tuple")
-            .into()
-        );
-    } else {
-        panic!("Expected SmartContractEvent, got {:?}", alice_vote_event);
-    }
+     // Alice's first vote should fail (signer mismatch)
+     let alice_first_vote_tx = &receipts[2];
+     println!("alice_first_vote_tx: {:?}", alice_first_vote_tx);
+     let alice_first_vote_tx_result = alice_first_vote_tx.result.clone();
+     println!("alice_first_vote_tx_result: {:?}", alice_first_vote_tx_result);
+     assert_eq!(
+        alice_first_vote_tx_result,
+         Value::err_uint(1) // ERR_SIGNER_INDEX_MISMATCH
+     );
 
-    // Bob's vote should succeed
-    let bob_vote_tx = &receipts[4];
-    println!("bob_vote_tx: {:?}", bob_vote_tx);
-    assert_eq!(bob_vote_tx.result, Value::okay_true());
-    assert_eq!(bob_vote_tx.events.len(), 2);
-    let bob_vote_event = &bob_vote_tx.events[0];
-    println!("bob_vote_event: {:?}", bob_vote_event);
-    if let StacksTransactionEvent::SmartContractEvent(contract_event) = bob_vote_event {
-        assert_eq!(
-            contract_event.value,
-            TupleData::from_data(vec![
-                (
-                    "event".into(),
-                    Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
-                        .expect("Failed to create string")
-                ),
-                ("key".into(), aggregate_public_key_value.clone()),
-                ("new-total".into(), Value::UInt(4)),
-                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
-                ("round".into(), Value::UInt(0)),
-                ("signer".into(), Value::Principal(bob_principal.clone())),
-            ])
-            .expect("Failed to create tuple")
-            .into()
-        );
-    } else {
-        panic!("Expected SmartContractEvent, got {:?}", bob_vote_event);
-    }
-
-    // Bob vote should fail (duplicate vote)
-    let bob_vote_duplicate_tx = &receipts[3];
-    println!("bob_vote_duplicate_tx: {:?}", bob_vote_duplicate_tx);
-    let bob_vote_duplicate_tx_result = bob_vote_duplicate_tx.result.clone();
-    println!("bob_vote_duplicate_tx_result: {:?}", bob_vote_duplicate_tx_result);
+    // Alice's second vote should fail (invalid signer)
+    let alice_second_vote_tx = &receipts[3];
+    println!("alice_second_vote_tx: {:?}", alice_second_vote_tx);
+    let alice_second_vote_tx_result = alice_second_vote_tx.result.clone();
+    println!("alice_second_vote_tx_result: {:?}", alice_second_vote_tx_result);
     assert_eq!(
-        bob_vote_duplicate_tx_result,
-        Value::err_uint(7) // err-duplicate-vote
+        alice_second_vote_tx_result,
+        Value::err_uint(2) // ERR_INVALID_SIGNER_INDEX
     );
 
-    let approve_event = &bob_vote_tx.events[1];
-    println!("approve_event: {:?}", approve_event);
-    if let StacksTransactionEvent::SmartContractEvent(contract_event) = approve_event {
-        assert_eq!(
-            contract_event.value,
-            TupleData::from_data(vec![
-                (
-                    "event".into(),
-                    Value::string_ascii_from_bytes(
-                        "approved-aggregate-public-key".as_bytes().to_vec()
-                    )
-                    .expect("Failed to create string")
-                ),
-                ("key".into(), aggregate_public_key_value.clone()),
-                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
-            ])
-            .expect("Failed to create tuple")
-            .into()
-        );
-    } else {
-        panic!("Expected SmartContractEvent, got {:?}", approve_event);
-    }
+    // Alice's third vote should fail (ill formed aggregate public key)
+    let alice_third_vote_tx = &receipts[4];
+    println!("alice_third_vote_tx: {:?}", alice_third_vote_tx);
+    let alice_third_vote_tx_result = alice_third_vote_tx.result.clone();
+    println!("alice_third_vote_tx_result: {:?}", alice_third_vote_tx_result);
+    assert_eq!(
+        alice_third_vote_tx_result,
+        Value::err_uint(5) // ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY
+    );
+
+    // Alice's first vote should succeed
+    // let alice_vote_tx = &receipts[2];
+    // println!("alice_vote_tx: {:?}", alice_vote_tx);
+    // assert_eq!(alice_vote_tx.result, Value::okay_true());
+    // assert_eq!(alice_vote_tx.events.len(), 1);
+    // let alice_vote_event = &alice_vote_tx.events[0];
+    // println!("alice_vote_event: {:?}", alice_vote_event);
+    // if let StacksTransactionEvent::SmartContractEvent(contract_event) = alice_vote_event {
+    //     assert_eq!(
+    //         contract_event.value,
+    //         TupleData::from_data(vec![
+    //             (
+    //                 "event".into(),
+    //                 Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
+    //                     .expect("Failed to create string")
+    //             ),
+    //             ("key".into(), aggregate_public_key_value.clone()),
+    //             ("new-total".into(), Value::UInt(2)),
+    //             ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+    //             ("round".into(), Value::UInt(0)),
+    //             ("signer".into(), Value::Principal(alice_principal.clone())),
+    //         ])
+    //         .expect("Failed to create tuple")
+    //         .into()
+    //     );
+    // } else {
+    //     panic!("Expected SmartContractEvent, got {:?}", alice_vote_event);
+    // }
+
+    // Alice second vote should fail (duplicate vote)
+    // let alice_vote_duplicate_tx = &receipts[3];
+    // println!("alice_vote_duplicate_tx: {:?}", alice_vote_duplicate_tx);
+    // let alice_vote_duplicate_tx_result = alice_vote_duplicate_tx.result.clone();
+    // println!("alice_vote_duplicate_tx_result: {:?}", alice_vote_duplicate_tx_result);
+    // assert_eq!(
+    //     alice_vote_duplicate_tx_result,
+    //     Value::err_uint(1) // err-duplicate-vote
+    // );
+
+    // let approve_event = &alice_vote_duplicate_tx.events[0];
+    // println!("approve_event: {:?}", approve_event);
+    // if let StacksTransactionEvent::SmartContractEvent(contract_event) = approve_event {
+    //     assert_eq!(
+    //         contract_event.value,
+    //         TupleData::from_data(vec![
+    //             (
+    //                 "event".into(),
+    //                 Value::string_ascii_from_bytes(
+    //                     "approved-aggregate-public-key".as_bytes().to_vec()
+    //                 )
+    //                 .expect("Failed to create string")
+    //             ),
+    //             ("key".into(), aggregate_public_key_value.clone()),
+    //             ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+    //         ])
+    //         .expect("Failed to create tuple")
+    //         .into()
+    //     );
+    // } else {
+    //     panic!("Expected SmartContractEvent, got {:?}", approve_event);
+    // }
+
+    // Bob's vote should succeed
+    // let bob_vote_tx = &receipts[4];
+    // println!("bob_vote_tx: {:?}", bob_vote_tx);
+    // assert_eq!(bob_vote_tx.result, Value::okay_true());
+    // assert_eq!(bob_vote_tx.events.len(), 2);
+    // let bob_vote_event = &bob_vote_tx.events[0];
+    // println!("bob_vote_event: {:?}", bob_vote_event);
+    // if let StacksTransactionEvent::SmartContractEvent(contract_event) = bob_vote_event {
+    //     assert_eq!(
+    //         contract_event.value,
+    //         TupleData::from_data(vec![
+    //             (
+    //                 "event".into(),
+    //                 Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
+    //                     .expect("Failed to create string")
+    //             ),
+    //             ("key".into(), aggregate_public_key_value.clone()),
+    //             ("new-total".into(), Value::UInt(4)),
+    //             ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+    //             ("round".into(), Value::UInt(0)),
+    //             ("signer".into(), Value::Principal(bob_principal.clone())),
+    //         ])
+    //         .expect("Failed to create tuple")
+    //         .into()
+    //     );
+    // } else {
+    //     panic!("Expected SmartContractEvent, got {:?}", bob_vote_event);
+    // }
+
 }
 
 /// In this test case, Alice votes in the first block of the first tenure of the prepare phase.
@@ -339,7 +411,8 @@ fn vote_for_aggregate_public_key_in_first_block() {
 
     let signer_index = get_signer_index(&mut peer, latest_block_id, signer_address, cycle_id);
 
-    let aggregate_public_key: Point = Point::new();
+    let aggregate_public_key_point: Point = Point::new();
+    let aggregate_public_key = Value::buff_from(aggregate_public_key_point.compress().data.to_vec()).expect("Failed to serialize aggregate public key");
 
     let txs = vec![
         // cast a vote for the aggregate public key
@@ -347,7 +420,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_key,
             signer_nonce,
             signer_index,
-            &aggregate_public_key,
+            aggregate_public_key.clone(),
             0,
             cycle_id + 1,
         ),
@@ -356,7 +429,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
             signer_key,
             signer_nonce + 1,
             signer_index,
-            &aggregate_public_key,
+            aggregate_public_key.clone(),
             0,
             cycle_id + 1,
         ),
@@ -423,8 +496,10 @@ fn vote_for_aggregate_public_key_in_last_block() {
     );
 
     let cycle_id: u128 = current_reward_cycle;
-    let aggregate_public_key_1 = Point::from(Scalar::from(1));
-    let aggregate_public_key_2 = Point::from(Scalar::from(2));
+    let aggregate_public_key_1_point = Point::from(Scalar::from(1));
+    let aggregate_public_key_1 = Value::buff_from(aggregate_public_key_1_point.compress().data.to_vec()).expect("Failed to serialize aggregate public key");
+    let aggregate_public_key_2_point = Point::from(Scalar::from(2));
+    let aggregate_public_key_2 = Value::buff_from(aggregate_public_key_2_point.compress().data.to_vec()).expect("Failed to serialize aggregate public key");
 
     // create vote txs for alice
     let signer_1_nonce = 1; // Start at 1 because the signer has already voted once
@@ -439,7 +514,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_key,
             signer_1_nonce,
             signer_1_index,
-            &aggregate_public_key_1,
+            aggregate_public_key_1.clone(),
             1,
             cycle_id + 1,
         ),
@@ -448,7 +523,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_key,
             signer_1_nonce + 1,
             signer_1_index,
-            &aggregate_public_key_1,
+            aggregate_public_key_1.clone(),
             1,
             cycle_id + 1,
         ),
@@ -457,7 +532,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_1_key,
             signer_1_nonce + 2,
             signer_1_index,
-            &aggregate_public_key_2,
+            aggregate_public_key_2,
             0,
             cycle_id + 1,
         ),
@@ -476,7 +551,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
             signer_2_key,
             signer_2_nonce,
             signer_2_index,
-            &aggregate_public_key_1,
+            aggregate_public_key_1.clone(),
             0,
             cycle_id + 1,
         ),

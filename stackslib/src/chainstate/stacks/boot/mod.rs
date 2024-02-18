@@ -1907,14 +1907,14 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         signer_index: u128,
-        aggregate_public_key: &Point,
+        aggregate_public_key: Value,
         round: u128,
         cycle: u128,
     ) -> StacksTransaction {
         debug!("Vote for aggregate key in cycle {}, round {}", cycle, round);
 
-        let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
-            .expect("Failed to serialize aggregate public key");
+        // let aggregate_public_key = Value::buff_from(aggregate_public_key.compress().data.to_vec())
+        //     .expect("Failed to serialize aggregate public key");
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             SIGNERS_VOTING_NAME,
