@@ -43,6 +43,7 @@ use rusqlite::ToSql;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec,
     BURNCHAIN_HEADER_HASH_ENCODED_SIZE,
@@ -881,11 +882,11 @@ pub struct GetNakamotoInvData {
 /// (2) the remote node not only has the tenure blocks, but has processed them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NakamotoInvData {
-    /// Number of bits this tenure bit vector has (not to exceed the reward cycle length).
-    pub bitlen: u16,
     /// The tenure bitvector.  tenures[i] & (1 << j) != 0 means that this peer has all the blocks
-    /// for the tenure which began in sortition 8*i + j.
-    pub tenures: Vec<u8>,
+    /// for the tenure which began in sortition 8*i + j.  There will never be more than 1 reward
+    /// cycle's worth of bits here, and since the largest supported reward cycle is 2100 blocks
+    /// long (i.e. mainnet),
+    pub tenures: BitVec<2100>,
 }
 
 /// Request for a PoX bitvector range.

@@ -1045,13 +1045,13 @@ impl MockamotoNode {
             )?;
             aggregate_public_key
         };
-        let staging_tx = self.chainstate.staging_db_tx_begin()?;
-
+        let (headers_conn, staging_tx) = self.chainstate.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &config,
             block,
             &mut sortition_handle,
             &staging_tx,
+            headers_conn,
             &aggregate_public_key,
         )?;
         staging_tx.commit()?;

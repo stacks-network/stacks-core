@@ -404,12 +404,13 @@ impl BlockMinerThread {
                 ChainstateError::InvalidStacksBlock(format!("Invalid Nakamoto block: {e:?}"))
             })?;
         block.header.signer_signature = signature;
-        let staging_tx = chain_state.staging_db_tx_begin()?;
+        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
             block,
             &mut sortition_handle,
             &staging_tx,
+            headers_conn,
             &aggregate_public_key,
         )?;
         staging_tx.commit()?;
@@ -453,12 +454,13 @@ impl BlockMinerThread {
             aggregate_public_key
         };
 
-        let staging_tx = chain_state.staging_db_tx_begin()?;
+        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
             block,
             &mut sortition_handle,
             &staging_tx,
+            headers_conn,
             &aggregate_public_key,
         )?;
         staging_tx.commit()?;
