@@ -3384,6 +3384,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libsigner",
+ "mutants",
  "pico-args",
  "rand 0.8.5",
  "rand_core 0.6.4",

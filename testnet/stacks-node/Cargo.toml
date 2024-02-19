@@ -44,6 +44,7 @@ stacks-signer = { path = "../../stacks-signer" }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 wsts = {workspace = true}
+mutants = "0.0.3"
 
 [dependencies.rusqlite]
 version = "=0.24.2"

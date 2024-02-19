@@ -205,11 +205,13 @@ impl<T> Globals<T> {
     }
 
     /// Signal system-wide stop
+    #[cfg_attr(test, mutants::skip)]
     pub fn signal_stop(&self) {
         self.should_keep_running.store(false, Ordering::SeqCst);
     }
 
     /// Should we keep running?
+    #[cfg_attr(test, mutants::skip)]
     pub fn keep_running(&self) -> bool {
         self.should_keep_running.load(Ordering::SeqCst)
     }
