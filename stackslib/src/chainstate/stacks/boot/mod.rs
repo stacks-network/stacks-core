@@ -1907,6 +1907,27 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         signer_index: u128,
+        aggregate_public_key: &Point,
+        round: u128,
+        cycle: u128,
+    ) -> StacksTransaction {
+        let aggregate_public_key_val =
+            Value::buff_from(aggregate_public_key.compress().data.to_vec())
+                .expect("Failed to serialize aggregate public key");
+        make_signers_vote_for_aggregate_public_key_value(
+            key,
+            nonce,
+            signer_index,
+            aggregate_public_key_val,
+            round,
+            cycle,
+        )
+    }
+
+    pub fn make_signers_vote_for_aggregate_public_key_value(
+        key: &StacksPrivateKey,
+        nonce: u64,
+        signer_index: u128,
         aggregate_public_key: Value,
         round: u128,
         cycle: u128,

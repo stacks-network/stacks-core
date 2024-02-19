@@ -42,7 +42,8 @@ use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::signers_tests::{readonly_call, readonly_call_with_sortdb};
 use crate::chainstate::stacks::boot::test::{
     key_to_stacks_addr, make_pox_4_lockup, make_signer_key_signature,
-    make_signers_vote_for_aggregate_public_key, with_sortdb,
+    make_signers_vote_for_aggregate_public_key, make_signers_vote_for_aggregate_public_key_value,
+    with_sortdb,
 };
 use crate::chainstate::stacks::boot::{MINERS_NAME, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksAccount, StacksChainState};
@@ -200,7 +201,7 @@ pub fn make_all_signers_vote_for_aggregate_key(
         .iter()
         .map(|(addr, (signer_key, index))| {
             let account = get_account(chainstate, sortdb, &addr);
-            make_signers_vote_for_aggregate_public_key(
+            make_signers_vote_for_aggregate_public_key_value(
                 signer_key,
                 account.nonce,
                 *index as u128,
