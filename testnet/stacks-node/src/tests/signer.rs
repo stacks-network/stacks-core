@@ -41,6 +41,7 @@ use wsts::state_machine::OperationResult;
 use wsts::taproot::SchnorrProof;
 
 use crate::config::{Config as NeonConfig, EventKeyType, EventObserverConfig, InitialBalance};
+use crate::event_dispatcher::MinedNakamotoBlockEvent;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::bitcoin_regtest::BitcoinCoreController;
@@ -156,35 +157,16 @@ impl SignerTest {
         set_dkg
     }
 
-    fn mine_nakamoto_block(&mut self, timeout: Duration) {
-        info!("Nakamoto miner started...");
-        let (vrfs_submitted, commits_submitted) = (
-            self.running_nodes.vrfs_submitted.clone(),
-            self.running_nodes.commits_submitted.clone(),
-        );
-        // first block wakes up the run loop, wait until a key registration has been submitted.
-        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
-            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
-            Ok(vrf_count >= 1)
-        })
-        .unwrap();
-
-        info!("Successfully triggered first block to wake up the miner runloop.");
-        // second block should confirm the VRF register, wait until a block commit is submitted
-        next_block_and(&mut self.running_nodes.btc_regtest_controller, 60, || {
-            let commits_count = commits_submitted.load(Ordering::SeqCst);
-            Ok(commits_count >= 1)
-        })
-        .unwrap();
-
+    fn mine_nakamoto_block(&mut self, timeout: Duration) -> MinedNakamotoBlockEvent {
+        let commits_submitted = self.running_nodes.commits_submitted.clone();
         let mined_block_time = Instant::now();
-        info!("Mining first Nakamoto block");
-        let _ = next_block_and_mine_commit(
+        next_block_and_mine_commit(
             &mut self.running_nodes.btc_regtest_controller,
             60,
             &self.running_nodes.coord_channel,
             &commits_submitted,
-        );
+        )
+        .unwrap();
 
         let t_start = Instant::now();
         while test_observer::get_mined_nakamoto_blocks().is_empty() {
@@ -199,6 +181,25 @@ impl SignerTest {
             "Nakamoto block mine time elapsed: {:?}",
             mined_block_elapsed_time
         );
+        test_observer::get_mined_nakamoto_blocks().pop().unwrap()
+    }
+
+    fn wait_for_validate_ok_response(&mut self, timeout: Duration) -> Sha512Trunc256Sum {
+        // Wait for the block to show up in the test observer (Don't have to wait long as if we have received a mined block already,
+        // we know that the signers have already received their block proposal events via their event observers)
+        let t_start = Instant::now();
+        while test_observer::get_proposal_responses().is_empty() {
+            assert!(
+                t_start.elapsed() < timeout,
+                "Timed out while waiting for block proposal event"
+            );
+            thread::sleep(Duration::from_secs(1));
+        }
+        let validate_responses = test_observer::get_proposal_responses();
+        match validate_responses.first().expect("No block proposal") {
+            BlockValidateResponse::Ok(block_validated) => block_validated.signer_signature_hash,
+            _ => panic!("Unexpected response"),
+        }
     }
 
     fn wait_for_dkg(&mut self, timeout: Duration) -> Point {
@@ -336,7 +337,7 @@ impl SignerTest {
             epoch_30_boundary,
             &self.running_nodes.conf,
         );
-        info!("Advanced to Nakamoto! Ready to Sign Blocks!");
+        info!("Advanced to Nakamoto epoch 3.0 boundary {epoch_30_boundary}! Ready to Sign Blocks!");
     }
 
     fn get_current_reward_cycle(&self) -> u64 {
@@ -819,38 +820,52 @@ fn stackerdb_block_proposal() {
     info!("------------------------- Test Setup -------------------------");
     let mut signer_test = SignerTest::new(5);
     let timeout = Duration::from_secs(200);
+    let short_timeout = Duration::from_secs(30);
+
     let key = signer_test.boot_to_epoch_3(timeout);
+    let (vrfs_submitted, commits_submitted) = (
+        signer_test.running_nodes.vrfs_submitted.clone(),
+        signer_test.running_nodes.commits_submitted.clone(),
+    );
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+            Ok(vrf_count >= 1)
+        },
+    )
+    .unwrap();
+
+    info!("Successfully triggered first block to wake up the miner runloop.");
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        },
+    )
+    .unwrap();
+
     signer_test.mine_nakamoto_block(timeout);
 
-    info!("------------------------- Verify Sign Round -------------------------");
-    let short_timeout = Duration::from_secs(30);
-    let frost_signatures = signer_test.wait_for_frost_signatures(short_timeout);
+    info!("------------------------- Test Block Proposal -------------------------");
+    // Verify that the signers accepted the proposed block, sending back a validate ok response
+    let proposed_signer_signature_hash = signer_test.wait_for_validate_ok_response(short_timeout);
 
-    info!("------------------------- Verify Block Proposal Response -------------------------");
-    // Wait for the block to show up in the test observer (Don't have to wait long as if we have received a mined block already,
-    // we know that the signers have already received their block proposal events via their event observers)
-    let t_start = Instant::now();
-    while test_observer::get_proposal_responses().is_empty() {
-        assert!(
-            t_start.elapsed() < short_timeout,
-            "Timed out while waiting for block proposal event"
-        );
-        thread::sleep(Duration::from_secs(1));
-    }
-    let validate_responses = test_observer::get_proposal_responses();
-    let proposed_signer_signature_hash =
-        match validate_responses.first().expect("No block proposal") {
-            BlockValidateResponse::Ok(block_validated) => block_validated.signer_signature_hash,
-            _ => panic!("Unexpected response"),
-        };
+    info!("------------------------- Test Block Signed -------------------------");
+    // Verify that the signers signed the proposed block
+    let frost_signatures = signer_test.wait_for_frost_signatures(short_timeout);
     for signature in &frost_signatures {
         assert!(
             signature.verify(&key, proposed_signer_signature_hash.0.as_slice()),
             "Signature verification failed"
         );
     }
-
-    info!("------------------------- Verify Block Signature Returned to Miners -------------------------");
+    info!("------------------------- Test Signers Broadcast Block -------------------------");
     // Verify that the signers broadcasted a signed NakamotoBlock back to the .signers contract
     let t_start = Instant::now();
     let mut chunk = None;
@@ -974,7 +989,34 @@ fn stackerdb_block_proposal_filters_bad_transactions() {
         .send_message_with_retry(SignerMessage::Transactions(txs))
         .expect("Failed to write expected transactions to stackerdb");
 
-    signer_test.mine_nakamoto_block(timeout);
+    let (vrfs_submitted, commits_submitted) = (
+        signer_test.running_nodes.vrfs_submitted.clone(),
+        signer_test.running_nodes.commits_submitted.clone(),
+    );
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+            Ok(vrf_count >= 1)
+        },
+    )
+    .unwrap();
+
+    info!("Successfully triggered first block to wake up the miner runloop.");
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        },
+    )
+    .unwrap();
+
+    let mined_block_event = signer_test.mine_nakamoto_block(timeout);
 
     info!("------------------------- Test Block Accepted -------------------------");
 
@@ -1015,8 +1057,6 @@ fn stackerdb_block_proposal_filters_bad_transactions() {
     }
 
     info!("------------------------- Verify Nakamoto Block Mined -------------------------");
-    let mined_block_events = test_observer::get_mined_nakamoto_blocks();
-    let mined_block_event = mined_block_events.first().expect("No mined block");
     let mut mined_valid_tx = false;
     for tx_event in &mined_block_event.tx_events {
         let TransactionEvent::Success(tx_success) = tx_event else {
@@ -1034,6 +1074,155 @@ fn stackerdb_block_proposal_filters_bad_transactions() {
     }
     if !mined_valid_tx {
         panic!("Signers did not enforce the miner to include the valid transaction in the block");
+    }
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test that signers can handle a transition between Nakamoto reward cycles
+///
+/// Test Setup:
+/// The test spins up five stacks signers, one miner Nakamoto node, and a corresponding bitcoind.
+/// The stacks node is advanced to epoch 2.5, triggering a DKG round. The stacks node is then advanced
+/// to Epoch 3.0 boundary to allow block signing.
+///
+/// Test Execution:
+/// The node mines multiple Nakamoto reward cycles, sending blocks to observing signers to sign and return.
+///
+/// Test Assertion:
+/// Signers perform DKG for Nakamoto reward cycle N.
+/// Signers sign Nakamoto blocks for miners in reward cycle N.
+/// Miner successfully mine these signed blocks in reward cycle N.
+/// Signers perform DKG for the next Nakamoto reward cycle N + 1.
+/// Signers sign Nakamoto blocks for miners in reward cycle N + 1.
+/// Miner successfully mine these signed blocks in reward cycle N + 1.
+fn stackerdb_reward_cycle_transitions() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let mut signer_test = SignerTest::new(5);
+    let timeout = Duration::from_secs(200);
+    let set_dkg_1 = signer_test.boot_to_epoch_3(timeout); // Boot to epoch 3.0 boundary
+    let (vrfs_submitted, commits_submitted) = (
+        signer_test.running_nodes.vrfs_submitted.clone(),
+        signer_test.running_nodes.commits_submitted.clone(),
+    );
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+            Ok(vrf_count >= 1)
+        },
+    )
+    .unwrap();
+
+    info!("Successfully triggered first block to wake up the miner runloop.");
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(
+        &mut signer_test.running_nodes.btc_regtest_controller,
+        60,
+        || {
+            let commits_count = commits_submitted.load(Ordering::SeqCst);
+            Ok(commits_count >= 1)
+        },
+    )
+    .unwrap();
+
+    let curr_reward_cycle = signer_test.get_current_reward_cycle();
+    let prepare_phase_len = signer_test
+        .running_nodes
+        .conf
+        .get_burnchain()
+        .pox_constants
+        .prepare_length as u64;
+    let current_block_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+    let next_reward_cycle = curr_reward_cycle.saturating_add(1);
+    let next_reward_cycle_boundary = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_burnchain()
+        .reward_cycle_to_block_height(next_reward_cycle)
+        .saturating_sub(1);
+    let next_reward_cycle_reward_set_calculation =
+        next_reward_cycle_boundary.saturating_sub(prepare_phase_len);
+
+    info!("------------------------- Test Nakamoto Block Mining in Reward Cycle {curr_reward_cycle} -------------------------");
+
+    debug!("At block height {current_block_height} in reward cycle {curr_reward_cycle}");
+
+    let nmb_blocks_to_mine =
+        next_reward_cycle_reward_set_calculation.saturating_sub(current_block_height);
+    debug!(
+        "Mining {} Nakamoto blocks to reach next reward cycle reward set calculation at block height {next_reward_cycle_reward_set_calculation}",
+        nmb_blocks_to_mine
+    );
+    for _ in 0..=nmb_blocks_to_mine {
+        signer_test.mine_nakamoto_block(timeout);
+        signer_test.wait_for_validate_ok_response(timeout);
+        signer_test.wait_for_frost_signatures(timeout);
+    }
+
+    info!("------------------------- Test DKG for Next Reward Cycle {next_reward_cycle} -------------------------");
+    let current_block_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+
+    debug!("At block height {current_block_height} in reward cycle {curr_reward_cycle}");
+    debug!("Wait for the next reward cycle {next_reward_cycle} dkg to be calculated by the new signers");
+
+    let set_dkg_2 = signer_test.wait_for_dkg(timeout);
+    assert_ne!(set_dkg_1, set_dkg_2);
+
+    debug!("DKG has been calculated for the next reward cycle {next_reward_cycle}");
+
+    let current_block_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+
+    let nmb_blocks_to_mine = next_reward_cycle_boundary.saturating_sub(current_block_height);
+
+    debug!(
+        "Mining {} Nakamoto blocks to reach next reward cycle {next_reward_cycle} boundary block height {next_reward_cycle_boundary}",
+        nmb_blocks_to_mine
+    );
+    for _ in 0..nmb_blocks_to_mine {
+        signer_test.mine_nakamoto_block(timeout);
+        signer_test.wait_for_validate_ok_response(timeout);
+        signer_test.wait_for_frost_signatures(timeout);
+    }
+
+    info!("------------------------- Test Nakamoto Block Mining in Reward Cycle {next_reward_cycle} -------------------------");
+    let current_block_height = signer_test
+        .running_nodes
+        .btc_regtest_controller
+        .get_headers_height();
+
+    debug!("At block height {current_block_height} in reward cycle {next_reward_cycle}");
+    info!(
+        "Mining first Nakamoto block of reward cycle {}...",
+        next_reward_cycle
+    );
+    signer_test.mine_nakamoto_block(timeout);
+    let hash = signer_test.wait_for_validate_ok_response(timeout);
+    let signatures = signer_test.wait_for_frost_signatures(timeout);
+    // Verify the signers accepted the proposed block and are using the new DKG to sign it
+    for signature in &signatures {
+        assert!(signature.verify(&set_dkg_2, hash.0.as_slice()));
     }
     signer_test.shutdown();
 }

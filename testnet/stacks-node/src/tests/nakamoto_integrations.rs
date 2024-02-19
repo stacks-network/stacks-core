@@ -595,13 +595,14 @@ pub fn boot_to_epoch_3_reward_set(
     let epoch_3 = &epochs[StacksEpoch::find_epoch_by_id(&epochs, StacksEpochId::Epoch30).unwrap()];
     let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
     let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
+
+    let epoch_3_start_height = epoch_3.start_height;
     assert!(
-        epoch_3.start_height > 0,
-        "Epoch 3 start height must be greater than 0"
+        epoch_3_start_height > 0,
+        "Epoch 3.0 start height must be greater than 0"
     );
-    let epoch_3_reward_cycle_boundary = epoch_3.start_height;
-    let epoch_3_reward_cycle_boundary = epoch_3_reward_cycle_boundary
-        .saturating_sub(epoch_3_reward_cycle_boundary % reward_cycle_len);
+    let epoch_3_reward_cycle_boundary =
+        epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
     let epoch_3_reward_set_calculation_boundary =
         epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
     let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(1);
@@ -617,6 +618,16 @@ pub fn boot_to_epoch_3_reward_set(
         .get_burnchain()
         .block_height_to_reward_cycle(block_height)
         .unwrap();
+    let lock_period = 12;
+    debug!("Test Cycle Info";
+     "prepare_phase_len" => {prepare_phase_len},
+     "reward_cycle_len" => {reward_cycle_len},
+     "block_height" => {block_height},
+     "reward_cycle" => {reward_cycle},
+     "epoch_3_reward_cycle_boundary" => {epoch_3_reward_cycle_boundary},
+     "epoch_3_reward_set_calculation" => {epoch_3_reward_set_calculation},
+     "epoch_3_start_height" => {epoch_3_start_height},
+    );
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
@@ -630,7 +641,7 @@ pub fn boot_to_epoch_3_reward_set(
             reward_cycle.into(),
             &Pox4SignatureTopic::StackStx,
             CHAIN_ID_TESTNET,
-            12_u128,
+            lock_period,
         )
         .unwrap()
         .to_rsv();
@@ -646,8 +657,8 @@ pub fn boot_to_epoch_3_reward_set(
             &[
                 clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
                 pox_addr_tuple.clone(),
-                clarity::vm::Value::UInt(205),
-                clarity::vm::Value::UInt(12),
+                clarity::vm::Value::UInt(block_height as u128),
+                clarity::vm::Value::UInt(lock_period),
                 clarity::vm::Value::buff_from(signature).unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
             ],
