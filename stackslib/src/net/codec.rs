@@ -25,6 +25,7 @@ use clarity::vm::ContractName;
 use rand;
 use rand::Rng;
 use sha2::{Digest, Sha512_256};
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, read_next_at_most, read_next_exact, write_next, Error as codec_error,
     StacksMessageCodec, MAX_MESSAGE_LEN, MAX_RELAYERS_LEN, PREAMBLE_ENCODED_SIZE,
@@ -276,7 +277,17 @@ impl BlocksInvData {
     }
 
     pub fn compress_bools(bits: &Vec<bool>) -> Vec<u8> {
-        NakamotoInvData::bools_to_bitvec(bits)
+        let bvl: u16 = bits
+            .len()
+            .try_into()
+            .expect("FATAL: tried to compress more than u16::MAX bools");
+        let mut bitvec = vec![0u8; bitvec_len(bvl) as usize];
+        for (i, bit) in bits.iter().enumerate() {
+            if *bit {
+                bitvec[i / 8] |= 1u8 << (i % 8);
+            }
+        }
+        bitvec
     }
 
     pub fn has_ith_block(&self, block_index: u16) -> bool {
@@ -314,64 +325,32 @@ impl StacksMessageCodec for GetNakamotoInvData {
 
 impl StacksMessageCodec for NakamotoInvData {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
-        write_next(fd, &self.bitlen)?;
         write_next(fd, &self.tenures)?;
         Ok(())
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
-        let bitlen: u16 = read_next(fd)?;
-        if bitlen == 0 {
-            return Err(codec_error::DeserializeError(
-                "BlocksInv must contain at least one block/microblock bit".to_string(),
-            ));
-        }
-
-        let tenures: Vec<u8> = read_next_exact::<_, u8>(fd, bitvec_len(bitlen).into())?;
-        Ok(Self { bitlen, tenures })
+        Ok(Self {
+            tenures: read_next(fd)?,
+        })
     }
 }
 
 impl NakamotoInvData {
-    pub fn empty() -> Self {
-        Self {
-            bitlen: 0,
-            tenures: vec![],
-        }
-    }
-
-    pub fn new(bits: &[bool]) -> Self {
-        let bvl: u16 = bits
-            .len()
-            .try_into()
-            .expect("FATAL: tried to compress more than u16::MAX bools");
-        Self {
-            bitlen: bvl,
-            tenures: Self::bools_to_bitvec(bits),
-        }
-    }
-
-    pub fn bools_to_bitvec(bits: &[bool]) -> Vec<u8> {
-        let bvl: u16 = bits
-            .len()
-            .try_into()
-            .expect("FATAL: tried to compress more than u16::MAX bools");
-        let mut bitvec = vec![0u8; bitvec_len(bvl) as usize];
-        for (i, bit) in bits.iter().enumerate() {
-            if *bit {
-                bitvec[i / 8] |= 1u8 << (i % 8);
-            }
-        }
-        bitvec
+    pub fn try_from(bits: &[bool]) -> Result<Self, codec_error> {
+        Ok(Self {
+            tenures: BitVec::<2100>::try_from(bits).map_err(|e| {
+                codec_error::SerializeError(format!(
+                    "Could not serialize vec of {} bools: {}",
+                    bits.len(),
+                    e
+                ))
+            })?,
+        })
     }
 
     pub fn has_ith_tenure(&self, tenure_index: u16) -> bool {
-        if tenure_index >= self.bitlen {
-            return false;
-        }
-        let idx =
-            usize::try_from(tenure_index).expect("can't get usize from u16 on this architecture");
-        self.tenures[idx / 8] & (1 << (tenure_index % 8)) != 0
+        self.tenures.get(tenure_index).unwrap_or(false)
     }
 }
 
@@ -1091,7 +1070,7 @@ impl StacksMessageType {
                 format!("GetNakamotoInv({})", &m.consensus_hash,)
             }
             StacksMessageType::NakamotoInv(ref m) => {
-                format!("NakamotoInv({},{:?})", m.bitlen, &m.tenures)
+                format!("NakamotoInv({:?})", &m.tenures)
             }
         }
     }
@@ -1575,6 +1554,7 @@ impl ProtocolFamily for StacksP2P {
 
 #[cfg(test)]
 pub mod test {
+    use stacks_common::bitvec::BitVec;
     use stacks_common::codec::NEIGHBOR_ADDRESS_ENCODED_SIZE;
     use stacks_common::util::hash::hex_bytes;
     use stacks_common::util::secp256k1::*;
@@ -2406,45 +2386,51 @@ pub mod test {
     #[test]
     fn codec_NakamotoInv() {
         let nakamoto_inv = NakamotoInvData {
-            tenures: vec![0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff],
-            bitlen: 64,
+            tenures: BitVec::<2100>::try_from(
+                // 0xdd
+                vec![
+                    true, false, true, true, true, false, true, true, // 0xee
+                    false, true, true, true, false, true, true, true, // 0xaa
+                    false, true, false, true, false, true, false, true, // 0xdd
+                    true, false, true, true, true, false, true, true, // 0xbb
+                    true, true, false, true, true, true, false, true, // 0xee
+                    false, true, true, true, false, true, true, true, // 0xee
+                    false, true, true, true, false, true, true, true, // 0xff
+                    true, true, true, true, true, true, true, true,
+                ]
+                .as_slice(),
+            )
+            .unwrap(),
         };
 
         let nakamoto_inv_bytes = vec![
             // bitlen
-            0x00, 0x40, // tenures.len()
-            0x00, 0x00, 0x00, 0x08, // tenures
+            0x00, 0x40, // vec len
+            0x00, 0x00, 0x00, 0x08, // bits
             0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff,
         ];
 
         check_codec_and_corruption::<NakamotoInvData>(&nakamoto_inv, &nakamoto_inv_bytes);
 
-        // test that read_next_exact() works for the tenures bitvec
-        let long_bitlen = NakamotoInvData {
-            bitlen: 1,
-            tenures: vec![0xff, 0x01],
-        };
-        assert!(check_deserialize_failure::<NakamotoInvData>(&long_bitlen));
-
-        let short_bitlen = NakamotoInvData {
-            bitlen: 9,
-            tenures: vec![0xff],
-        };
-        assert!(check_deserialize_failure::<NakamotoInvData>(&short_bitlen));
-
-        // works for empty ones
-        let nakamoto_inv = NakamotoInvData {
-            tenures: vec![],
-            bitlen: 0,
-        };
-
+        // should fail
         let nakamoto_inv_bytes = vec![
             // bitlen
-            0x00, 0x00, // tenures.len()
+            0x00, 0x20, // vec len
+            0x00, 0x00, 0x00, 0x05, // bits
             0x00, 0x00, 0x00, 0x00,
         ];
 
-        assert!(check_deserialize_failure::<NakamotoInvData>(&nakamoto_inv));
+        let _ = NakamotoInvData::consensus_deserialize(&mut &nakamoto_inv_bytes[..]).unwrap_err();
+
+        // should fail
+        let nakamoto_inv_bytes = vec![
+            // bitlen
+            0x00, 0x21, // vec len
+            0x00, 0x00, 0x00, 0x04, // bits
+            0x00, 0x00, 0x00, 0x00,
+        ];
+
+        let _ = NakamotoInvData::consensus_deserialize(&mut &nakamoto_inv_bytes[..]).unwrap_err();
     }
 
     #[test]
@@ -2624,8 +2610,24 @@ pub mod test {
                 consensus_hash: ConsensusHash([0x01; 20]),
             }),
             StacksMessageType::NakamotoInv(NakamotoInvData {
-                tenures: vec![0xdd, 0xee, 0xaa, 0xdd, 0xbb, 0xee, 0xee, 0xff],
-                bitlen: 64
+                tenures: BitVec::<2100>::try_from(
+                    // 0xdd
+                    vec![true, true, false, true, true, true, false, true,
+                    // 0xee
+                    true, true, true, false, true, true, true, false,
+                    // 0xaa
+                    true, false, true, false, true, false, true, false,
+                    // 0xdd
+                    true, true, false, true, true, true, false, true,
+                    // 0xbb
+                    true, false, true, true, true, false, true, true,
+                    // 0xee
+                    true, true, true, false, true, true, true, false,
+                    // 0xee
+                    true, true, true, false, true, true, true, false,
+                    // 0xff
+                    true, true, true, true, true, true, true, true].as_slice()
+                ).unwrap()
             }),
         ];
 

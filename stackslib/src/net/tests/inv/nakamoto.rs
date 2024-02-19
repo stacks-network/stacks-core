@@ -23,7 +23,9 @@ use std::thread::JoinHandle;
 use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
+use stacks_common::types::net::PeerAddress;
 use stacks_common::types::StacksEpoch;
+use stacks_common::util::hash::Hash160;
 
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
@@ -40,12 +42,13 @@ use crate::chainstate::stacks::{
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::StacksEpochExtension;
-use crate::net::inv::nakamoto::InvGenerator;
+use crate::net::inv::nakamoto::{InvGenerator, NakamotoInvStateMachine, NakamotoTenureInv};
+use crate::net::neighbors::comms::NeighborComms;
 use crate::net::test::{TestEventObserver, TestPeer};
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};
 use crate::net::{
-    Error as NetError, GetNakamotoInvData, HandshakeData, NakamotoInvData, StacksMessage,
-    StacksMessageType,
+    Error as NetError, GetNakamotoInvData, HandshakeData, NakamotoInvData, NeighborAddress,
+    PeerNetworkComms, StacksMessage, StacksMessageType,
 };
 use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
@@ -204,8 +207,11 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
         let StacksMessageType::NakamotoInv(inv) = inv else {
             panic!("Did not receive an inv for reward cycle {}", rc);
         };
-        assert_eq!(NakamotoInvData::bools_to_bitvec(&bitvec), inv.tenures);
-        assert_eq!(bitvec.len() as u16, inv.bitlen);
+        assert_eq!(
+            NakamotoInvData::try_from(&bitvec).unwrap().tenures,
+            inv.tenures
+        );
+        assert_eq!(bitvec.len() as u16, inv.tenures.len());
     }
 }
 
@@ -253,8 +259,11 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
         let StacksMessageType::NakamotoInv(inv) = inv else {
             panic!("Did not receive an inv for reward cycle {}", rc);
         };
-        assert_eq!(NakamotoInvData::bools_to_bitvec(&bitvec), inv.tenures);
-        assert_eq!(bitvec.len() as u16, inv.bitlen);
+        assert_eq!(
+            NakamotoInvData::try_from(&bitvec).unwrap().tenures,
+            inv.tenures
+        );
+        assert_eq!(bitvec.len() as u16, inv.tenures.len());
     }
 }
 
@@ -306,18 +315,24 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
         let StacksMessageType::NakamotoInv(inv) = inv else {
             panic!("Did not receive an inv for reward cycle {}", rc);
         };
-        assert_eq!(NakamotoInvData::bools_to_bitvec(&bitvec), inv.tenures);
-        assert_eq!(bitvec.len() as u16, inv.bitlen);
+        assert_eq!(
+            NakamotoInvData::try_from(&bitvec).unwrap().tenures,
+            inv.tenures
+        );
+        assert_eq!(bitvec.len() as u16, inv.tenures.len());
     }
 }
 
-fn make_nakamoto_peer_from_invs<'a>(
+/// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
+/// the peers here.  However, it appears unavoidable to the borrow-checker.
+fn make_nakamoto_peers_from_invs<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
     rc_len: u32,
     prepare_len: u32,
     bitvecs: Vec<Vec<bool>>,
-) -> TestPeer<'a> {
+    num_peers: usize,
+) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
     for bitvec in bitvecs.iter() {
         assert_eq!(bitvec.len() as u32, rc_len);
     }
@@ -392,10 +407,21 @@ fn make_nakamoto_peer_from_invs<'a>(
     let plan = NakamotoBootPlan::new(test_name)
         .with_private_key(private_key)
         .with_pox_constants(rc_len, prepare_len)
-        .with_initial_balances(vec![(addr.into(), 1_000_000)]);
+        .with_initial_balances(vec![(addr.into(), 1_000_000)])
+        .with_extra_peers(num_peers);
 
-    let peer = plan.boot_into_nakamoto_peer(boot_tenures, Some(observer));
-    peer
+    let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(observer));
+    (peer, other_peers)
+}
+
+fn make_nakamoto_peer_from_invs<'a>(
+    test_name: &str,
+    observer: &'a TestEventObserver,
+    rc_len: u32,
+    prepare_len: u32,
+    bitvecs: Vec<Vec<bool>>,
+) -> TestPeer<'a> {
+    make_nakamoto_peers_from_invs(test_name, observer, rc_len, prepare_len, bitvecs, 0).0
 }
 
 fn check_inv_messages(
@@ -408,9 +434,9 @@ fn check_inv_messages(
         let StacksMessageType::NakamotoInv(inv) = msg else {
             panic!("Did not receive an inv for reward cycle {}", msg_idx);
         };
-        for bit in 0..(inv.bitlen as usize) {
+        for bit in 0..(inv.tenures.len() as usize) {
             let burn_block_height = (msg_idx as u64) * u64::from(rc_len) + (bit as u64);
-            let msg_bit = inv.tenures[bit / 8] & (1 << (bit % 8)) != 0;
+            let msg_bit = inv.tenures.get(bit as u16).unwrap_or(false);
             if burn_block_height < nakamoto_start_burn_height {
                 // inv doesn't cover epoch 2
                 assert!(
@@ -430,6 +456,50 @@ fn check_inv_messages(
             };
             assert_eq!(msg_bit, expected_bit, "Bit {} in message {} is {}, but expected {}. burn_block_height = {}, inv_offset = {}, bitvec_idx = {}, nakamoto_start_burn_height = {}",
                        bit, msg_idx, msg_bit, expected_bit, burn_block_height, inv_offset, bitvec_idx, nakamoto_start_burn_height);
+        }
+    }
+}
+
+fn check_inv_state(
+    bitvecs: Vec<Vec<bool>>,
+    rc_len: u32,
+    nakamoto_start_burn_height: u64,
+    inv_state: &NakamotoTenureInv,
+) {
+    for (i, (tenure_rc, tenure_inv)) in inv_state.tenures_inv.iter().enumerate() {
+        for bit in 0..(rc_len as usize) {
+            let msg_bit = if bit / 8 >= tenure_inv.len().into() {
+                // only allowed at the end
+                debug!(
+                    "bit = {}, tenure_rc = {}, tenure_inv = {:?}",
+                    bit, tenure_rc, &tenure_inv
+                );
+                assert_eq!(i, inv_state.tenures_inv.len() - 1);
+                false
+            } else {
+                tenure_inv.get(bit.try_into().unwrap()).unwrap_or(false)
+            };
+
+            let burn_block_height = (*tenure_rc as u64) * u64::from(rc_len) + (bit as u64);
+            if burn_block_height < nakamoto_start_burn_height {
+                // inv doesn't cover epoch 2
+                assert!(
+                    !msg_bit,
+                    "Bit {} in tenure {} is set but is before nakamoto-start height {} ({})",
+                    bit, tenure_rc, nakamoto_start_burn_height, burn_block_height
+                );
+                continue;
+            }
+
+            let inv_offset: u64 = burn_block_height - nakamoto_start_burn_height;
+            let bitvec_idx = (inv_offset / u64::from(rc_len)) as usize;
+            let expected_bit = if bitvec_idx >= bitvecs.len() {
+                false
+            } else {
+                bitvecs[bitvec_idx][(inv_offset % u64::from(rc_len)) as usize]
+            };
+            assert_eq!(msg_bit, expected_bit, "Bit {} in tenure {} is {}, but expected {}. burn_block_height = {}, inv_offset = {}, bitvec_idx = {}, nakamoto_start_burn_height = {}",
+                       bit, tenure_rc, msg_bit, expected_bit, burn_block_height, inv_offset, bitvec_idx, nakamoto_start_burn_height);
         }
     }
 }
@@ -562,4 +632,390 @@ fn test_nakamoto_invs_different_anchor_blocks() {
     eprintln!("{:#?}", &reward_cycle_invs);
     assert_eq!(reward_cycle_invs.len(), 12);
     check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
+}
+
+#[test]
+fn test_nakamoto_tenure_inv() {
+    let na = NeighborAddress {
+        addrbytes: PeerAddress([
+            0xff, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f,
+        ]),
+        port: 65535,
+        public_key_hash: Hash160([0x11; 20]),
+    };
+    let mut nakamoto_inv = NakamotoTenureInv::new(100, 100, na);
+    assert!(!nakamoto_inv.has_ith_tenure(0));
+    assert!(!nakamoto_inv.has_ith_tenure(99));
+    assert!(!nakamoto_inv.has_ith_tenure(100));
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 0);
+
+    let full_tenure = NakamotoInvData::try_from(&[true; 100]).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 1);
+    assert!(learned);
+
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.tenures, 1);
+    assert!(!learned);
+
+    debug!("nakamoto_inv = {:?}", &nakamoto_inv);
+    for i in 0..200 {
+        assert!(!nakamoto_inv.has_ith_tenure(i));
+    }
+    for i in 200..300 {
+        assert!(nakamoto_inv.has_ith_tenure(i));
+    }
+    assert!(!nakamoto_inv.has_ith_tenure(199));
+    assert!(nakamoto_inv.has_ith_tenure(200));
+    assert!(!nakamoto_inv.has_ith_tenure(300));
+    assert!(!nakamoto_inv.has_ith_tenure(301));
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 1);
+
+    let mut partial_tenure_bools = vec![];
+    for i in 0..100 {
+        partial_tenure_bools.push(i % 2 == 0);
+    }
+
+    // has_ith_tenure() works (non-triial case)
+    let partial_tenure = NakamotoInvData::try_from(&partial_tenure_bools).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(partial_tenure.clone().tenures, 2);
+    assert!(learned);
+
+    for i in 300..400 {
+        assert_eq!(nakamoto_inv.has_ith_tenure(i), i % 2 == 0);
+    }
+    assert!(!nakamoto_inv.has_ith_tenure(199));
+    assert!(nakamoto_inv.has_ith_tenure(299));
+    assert!(nakamoto_inv.has_ith_tenure(300));
+    assert!(nakamoto_inv.has_ith_tenure(398));
+    assert!(!nakamoto_inv.has_ith_tenure(399));
+    assert!(!nakamoto_inv.has_ith_tenure(400));
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 2);
+
+    // supports sparse updates
+    let full_tenure = NakamotoInvData::try_from(&[true; 100]).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.tenures, 4);
+    assert!(learned);
+
+    for i in 400..500 {
+        assert!(!nakamoto_inv.has_ith_tenure(i));
+    }
+    for i in 500..600 {
+        assert!(nakamoto_inv.has_ith_tenure(i));
+    }
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 4);
+
+    // can overwrite tenures
+    let full_tenure = NakamotoInvData::try_from(&[true; 100]).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 2);
+    assert!(learned);
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 4);
+
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 2);
+    assert!(!learned);
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 4);
+
+    for i in 300..400 {
+        assert!(nakamoto_inv.has_ith_tenure(i));
+    }
+
+    // partial data
+    let partial_tenure = NakamotoInvData::try_from(&[true; 50]).unwrap();
+    let learned = nakamoto_inv.merge_tenure_inv(full_tenure.clone().tenures, 5);
+    assert!(learned);
+    assert_eq!(nakamoto_inv.highest_reward_cycle(), 5);
+
+    // state machine advances when we say so
+    assert_eq!(nakamoto_inv.reward_cycle(), 0);
+    assert!(nakamoto_inv.is_online());
+    nakamoto_inv.set_online(false);
+    assert!(!nakamoto_inv.is_online());
+
+    nakamoto_inv.next_reward_cycle();
+    assert_eq!(nakamoto_inv.reward_cycle(), 1);
+
+    nakamoto_inv.try_reset_comms(0, 0, 0);
+    assert_eq!(nakamoto_inv.reward_cycle(), 0);
+    assert!(nakamoto_inv.is_online());
+}
+
+#[test]
+fn test_nakamoto_inv_sync_state_machine() {
+    let observer = TestEventObserver::new();
+    let bitvecs = vec![
+        // full rc
+        vec![true, true, true, true, true, true, true, true, true, true],
+        // sparse rc
+        vec![
+            true, false, false, false, false, false, false, true, true, true,
+        ],
+        // atlernating rc
+        vec![
+            false, true, false, true, false, true, false, true, true, true,
+        ],
+        // sparse rc
+        vec![
+            false, false, false, false, false, false, true, true, true, true,
+        ],
+        // full rc
+        vec![true, true, true, true, true, true, true, true, true, true],
+    ];
+
+    // boot two peers, and cannibalize the second one for its network and sortdb so we can use them
+    // to directly drive a state machine.
+    let (mut peer, mut other_peers) =
+        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 3, bitvecs.clone(), 1);
+    let mut other_peer = other_peers.pop().unwrap();
+
+    let nakamoto_start =
+        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+
+    let tip = {
+        let sort_db = peer.sortdb.as_mut().unwrap();
+        SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap()
+    };
+    let total_rcs = peer
+        .config
+        .burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap()
+        + 1;
+
+    // run peer and other_peer until they connect
+    loop {
+        let _ = peer.step_with_ibd(false);
+        let _ = other_peer.step_with_ibd(false);
+
+        let event_ids: Vec<usize> = peer
+            .network
+            .iter_peer_event_ids()
+            .map(|e_id| *e_id)
+            .collect();
+        let other_event_ids: Vec<usize> = other_peer
+            .network
+            .iter_peer_event_ids()
+            .map(|e_id| *e_id)
+            .collect();
+
+        if event_ids.len() > 0 && other_event_ids.len() > 0 {
+            break;
+        }
+    }
+
+    debug!("Peers are connected");
+    let peer_addr = NeighborAddress::from_neighbor(&peer.to_neighbor());
+
+    let (sx, rx) = sync_channel(1);
+    let mut inv_machine = NakamotoInvStateMachine::new(PeerNetworkComms::new());
+
+    // ::scope is necessary because Rust is forced to think that `other_peers` has the same lifetime
+    // as `observer`, which prohibits running a bare thread in which `other_peers` outlives
+    // `observer`
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let sortdb = other_peer.sortdb.take().unwrap();
+            inv_machine
+                .process_getnakamotoinv_begins(&mut other_peer.network, &sortdb, false)
+                .unwrap();
+            other_peer.sortdb = Some(sortdb);
+
+            let mut last_learned_rc = 0;
+            loop {
+                let _ = other_peer.step_with_ibd(false);
+                let ev_ids: Vec<_> = other_peer.network.iter_peer_event_ids().collect();
+                if ev_ids.len() == 0 {
+                    // disconnected
+                    panic!("Disconnected");
+                }
+
+                let (num_msgs, learned) = inv_machine
+                    .process_getnakamotoinv_finishes(&mut other_peer.network)
+                    .unwrap();
+
+                for (_, inv) in inv_machine.inventories.iter() {
+                    debug!(
+                        "inv is at rc {}, last learned rc is {}, total rcs = {}",
+                        inv.reward_cycle(),
+                        last_learned_rc,
+                        total_rcs
+                    );
+                    last_learned_rc = last_learned_rc.max(inv.reward_cycle());
+                }
+
+                if last_learned_rc >= total_rcs {
+                    break;
+                }
+
+                let sortdb = other_peer.sortdb.take().unwrap();
+                inv_machine
+                    .process_getnakamotoinv_begins(&mut other_peer.network, &sortdb, false)
+                    .unwrap();
+                other_peer.sortdb = Some(sortdb);
+            }
+
+            sx.send(true).unwrap();
+        });
+
+        loop {
+            let _ = peer.step_with_ibd(false);
+            if rx.try_recv().is_ok() {
+                break;
+            }
+        }
+    });
+
+    // inv_machine learned everything
+    for (_, inv) in inv_machine.inventories.iter() {
+        debug!("Check inv state: {:?}", inv);
+        check_inv_state(bitvecs.clone(), 10, nakamoto_start, inv);
+    }
+}
+
+#[test]
+fn test_nakamoto_inv_sync_across_epoch_change() {
+    let observer = TestEventObserver::new();
+    let bitvecs = vec![
+        // full rc
+        vec![true, true, true, true, true, true, true, true, true, true],
+        // sparse rc
+        vec![
+            true, false, false, false, false, false, false, true, true, true,
+        ],
+        // atlernating rc
+        vec![
+            false, true, false, true, false, true, false, true, true, true,
+        ],
+        // sparse rc
+        vec![
+            false, false, false, false, false, false, true, true, true, true,
+        ],
+        // full rc
+        vec![true, true, true, true, true, true, true, true, true, true],
+    ];
+
+    // boot two peers, and cannibalize the second one for its network and sortdb so we can use them
+    // to directly drive a state machine.
+    let (mut peer, mut other_peers) =
+        make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 3, bitvecs.clone(), 1);
+    let mut other_peer = other_peers.pop().unwrap();
+
+    let nakamoto_start =
+        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+
+    let tip = {
+        let sort_db = peer.sortdb.as_mut().unwrap();
+        SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap()
+    };
+    let total_rcs = peer
+        .config
+        .burnchain
+        .block_height_to_reward_cycle(tip.block_height)
+        .unwrap();
+
+    // run peer and other_peer until they connect
+    loop {
+        let _ = peer.step_with_ibd(false);
+        let _ = other_peer.step_with_ibd(false);
+
+        let event_ids: Vec<usize> = peer
+            .network
+            .iter_peer_event_ids()
+            .map(|e_id| *e_id)
+            .collect();
+        let other_event_ids: Vec<usize> = other_peer
+            .network
+            .iter_peer_event_ids()
+            .map(|e_id| *e_id)
+            .collect();
+
+        if event_ids.len() > 0 && other_event_ids.len() > 0 {
+            break;
+        }
+    }
+
+    debug!("Peers are connected");
+
+    // force peers to sync their epoch 2.x inventories
+    let old_burn_chain_tip = peer.network.burnchain_tip.block_height;
+    let num_epoch2_blocks = nakamoto_start - 26; // TestPeer starts making blocks at sortition 26
+
+    // check epoch 2.x state machine
+    let mut round = 0;
+    let mut inv_1_count = 0;
+    let mut inv_2_count = 0;
+    let mut highest_rc_1 = 0;
+    let mut highest_rc_2 = 0;
+
+    let burn_tip_start = peer.network.get_current_epoch().start_height;
+
+    while inv_1_count < num_epoch2_blocks
+        || inv_2_count < num_epoch2_blocks
+        || highest_rc_1 < total_rcs
+        || highest_rc_2 < total_rcs
+    {
+        // trick the work loop into thinking that the current chain view is this
+        peer.network.connection_opts.force_nakamoto_epoch_transition = true;
+        other_peer
+            .network
+            .connection_opts
+            .force_nakamoto_epoch_transition = true;
+
+        let _ = peer.step_with_ibd(false);
+        let _ = other_peer.step_with_ibd(false);
+
+        inv_1_count = peer
+            .network
+            .inv_state
+            .as_ref()
+            .map(|inv| inv.get_inv_num_blocks(&other_peer.to_neighbor().addr))
+            .unwrap_or(0);
+        inv_2_count = other_peer
+            .network
+            .inv_state
+            .as_ref()
+            .map(|inv| inv.get_inv_num_blocks(&peer.to_neighbor().addr))
+            .unwrap_or(0);
+
+        highest_rc_1 = peer
+            .network
+            .inv_state_nakamoto
+            .as_ref()
+            .map(|inv| inv.highest_reward_cycle())
+            .unwrap_or(0);
+        highest_rc_2 = other_peer
+            .network
+            .inv_state_nakamoto
+            .as_ref()
+            .map(|inv| inv.highest_reward_cycle())
+            .unwrap_or(0);
+
+        // nothing should break
+        match peer.network.inv_state {
+            Some(ref inv) => {
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
+            }
+            None => {}
+        }
+
+        match other_peer.network.inv_state {
+            Some(ref inv) => {
+                assert_eq!(inv.get_broken_peers().len(), 0);
+                assert_eq!(inv.get_dead_peers().len(), 0);
+                assert_eq!(inv.get_diverged_peers().len(), 0);
+            }
+            None => {}
+        }
+
+        round += 1;
+
+        info!(
+            "Epoch 2.x state machine: Peer 1: {}, Peer 2: {} (total {})",
+            inv_1_count, inv_2_count, num_epoch2_blocks
+        );
+        info!(
+            "Nakamoto state machine: Peer 1: {}, Peer 2: {} (total {})",
+            highest_rc_1, highest_rc_2, total_rcs
+        );
+    }
 }
