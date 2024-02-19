@@ -432,7 +432,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     let alice_first_vote_tx_result = alice_first_vote_tx.result.clone();
     assert_eq!(
         alice_first_vote_tx_result,
-        Value::err_uint(1) // ERR_SIGNER_INDEX_MISMATCH
+        Value::err_uint(10) // ERR_SIGNER_INDEX_MISMATCH
     );
 
     // Alice's second vote should fail (invalid signer)
@@ -440,7 +440,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     let alice_second_vote_tx_result = alice_second_vote_tx.result.clone();
     assert_eq!(
         alice_second_vote_tx_result,
-        Value::err_uint(2) // ERR_INVALID_SIGNER_INDEX
+        Value::err_uint(11) // ERR_INVALID_SIGNER_INDEX
     );
 
     // Alice's third vote should fail (ill formed aggregate public key)
@@ -448,7 +448,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     let alice_third_vote_tx_result = alice_third_vote_tx.result.clone();
     assert_eq!(
         alice_third_vote_tx_result,
-        Value::err_uint(4) // ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY
+        Value::err_uint(13) // ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY
     );
 
     // Alice's fourth vote should fail (failed to retrieve signers)
@@ -456,7 +456,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     let alice_fourth_vote_tx_result = alice_fourth_vote_tx.result.clone();
     assert_eq!(
         alice_fourth_vote_tx_result,
-        Value::err_uint(7) // ERR_FAILED_TO_RETRIEVE_SIGNERS
+        Value::err_uint(16) // ERR_FAILED_TO_RETRIEVE_SIGNERS
     );
 
     // Alice's fifth  vote, correct vote should succeed
@@ -491,7 +491,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     let alice_sixth_vote_tx_result = alice_sixth_vote_tx.result.clone();
     assert_eq!(
         alice_sixth_vote_tx_result,
-        Value::err_uint(6) // ERR_DUPLICATE_VOTE
+        Value::err_uint(15) // ERR_DUPLICATE_VOTE
     );
 
     // Bob's first vote should fail (invalid round)
@@ -499,7 +499,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     let bob_first_vote_tx_result = bob_first_vote_tx.result.clone();
     assert_eq!(
         bob_first_vote_tx_result,
-        Value::err_uint(8) // ERR_INVALID_ROUND
+        Value::err_uint(17) // ERR_INVALID_ROUND
     );
 
     // Bob's second vote should succeed and reach the threshold, setting the aggregate public key
@@ -621,7 +621,7 @@ fn vote_for_aggregate_public_key_in_first_block() {
     let alice_second_vote_tx = &receipts[3];
     assert_eq!(
         alice_second_vote_tx.result,
-        Value::err_uint(6) // ERR_DUPLICATE_VOTE
+        Value::err_uint(15) // ERR_DUPLICATE_VOTE
     );
 }
 
@@ -748,7 +748,7 @@ fn vote_for_aggregate_public_key_in_last_block() {
     let alice_second_vote_tx = &receipts[3];
     assert_eq!(
         alice_second_vote_tx.result,
-        Value::err_uint(6) // ERR_DUPLICATE_VOTE
+        Value::err_uint(15) // ERR_DUPLICATE_VOTE
     );
 
     // third vote should succeed even though it is on an old round
