@@ -54,8 +54,7 @@ use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
-use stacks_common::types::PrivateKey;
-use stacks_common::util::hash::{to_hex, Sha512Sum};
+use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
@@ -977,6 +976,12 @@ fn correct_burn_outs() {
     }
 
     let stacker_accounts = accounts[0..3].to_vec();
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
 
     test_observer::spawn();
     let observer_port = test_observer::EVENT_OBSERVER_PORT;
@@ -1030,6 +1035,7 @@ fn correct_burn_outs() {
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let stacker_accounts_copy = stacker_accounts.clone();
     let _stacker_thread = thread::Builder::new()
         .name("stacker".into())
         .spawn(move || loop {
@@ -1053,7 +1059,7 @@ fn correct_burn_outs() {
                 );
                 continue;
             }
-            let Some(account) = stacker_accounts.iter().find_map(|(sk, addr)| {
+            let Some(account) = stacker_accounts_copy.iter().find_map(|(sk, addr)| {
                 let account = get_account(&http_origin, &addr);
                 if account.locked == 0 {
                     Some((sk, addr, account))
@@ -1070,17 +1076,12 @@ fn correct_burn_outs() {
             );
             let pox_addr_tuple: clarity::vm::Value =
                 pox_addr.clone().as_clarity_tuple().unwrap().into();
-            // create a new SK, mixing in the nonce, because signing keys cannot (currently)
-            //  be reused.
-            let mut seed_inputs = account.0.to_bytes();
-            seed_inputs.extend_from_slice(&account.2.nonce.to_be_bytes());
-            let new_sk = StacksPrivateKey::from_seed(Sha512Sum::from_data(&seed_inputs).as_bytes());
-            let pk_bytes = StacksPublicKey::from_private(&new_sk).to_bytes_compressed();
+            let pk_bytes = StacksPublicKey::from_private(&sender_signer_sk).to_bytes_compressed();
 
             let reward_cycle = pox_info.current_cycle.id;
             let signature = make_pox_4_signer_key_signature(
                 &pox_addr,
-                &new_sk,
+                &sender_signer_sk,
                 reward_cycle.into(),
                 &Pox4SignatureTopic::StackStx,
                 CHAIN_ID_TESTNET,
@@ -1110,6 +1111,29 @@ fn correct_burn_outs() {
             thread::sleep(Duration::from_secs(10));
         })
         .unwrap();
+
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let prepare_phase_start = btc_regtest_controller
+        .get_burnchain()
+        .pox_constants
+        .prepare_phase_start(
+            btc_regtest_controller.get_burnchain().first_block_height,
+            reward_cycle,
+        );
+
+    // Run until the prepare phase
+    run_until_burnchain_height(
+        &mut btc_regtest_controller,
+        &blocks_processed,
+        prepare_phase_start,
+        &naka_conf,
+    );
+
+    signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
 
     run_until_burnchain_height(
         &mut btc_regtest_controller,
@@ -1179,6 +1203,8 @@ fn correct_burn_outs() {
             tip_sn.block_height > prior_tip,
             "The new burnchain tip must have been processed"
         );
+
+        signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
     }
 
     coord_channel
