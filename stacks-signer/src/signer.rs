@@ -289,10 +289,10 @@ impl RegisteredSigner {
                 // The dkg id will increment internally following "start_dkg_round" so do not increment it here
                 self.coordinator.current_dkg_id = vote_round.unwrap_or(0);
                 info!(
-                    "Signer #{}: Starting DKG vote round {}, for reward cycle {}",
-                    self.signer_id,
-                    self.coordinator.current_dkg_id.wrapping_add(1),
-                    self.reward_cycle
+                    "Signer #{}: Starting DKG vote",
+                    self.signer_id;
+                    "round" => self.coordinator.current_dkg_id.wrapping_add(1),
+                    "cycle" => self.reward_cycle,
                 );
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
@@ -319,7 +319,11 @@ impl RegisteredSigner {
                     debug!("Signer #{}: Received a sign command for a block we are already signing over. Ignore it.", self.signer_id);
                     return;
                 }
-                info!("Signer #{}: Signing block: {block:?}", self.signer_id);
+                info!("Signer #{}: Signing block", self.signer_id;
+                         "block_consensus_hash" => %block.header.consensus_hash,
+                         "block_height" => block.header.chain_length,
+                         "pre_sign_block_id" => %block.block_id(),
+                );
                 match self.coordinator.start_signing_round(
                     &block.serialize_to_vec(),
                     *is_taproot,

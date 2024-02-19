@@ -490,7 +490,7 @@ impl RunLoop {
             }) as Box<dyn FnOnce(&mut ClarityTx)>;
             Some(callback)
         } else {
-            warn!("Neon node booting with no aggregate public key. Must have signers available to sign blocks.");
+            debug!("Neon node booting with no aggregate public key. Must have signers available to sign blocks.");
             None
         };
 

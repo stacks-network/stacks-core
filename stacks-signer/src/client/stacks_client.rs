@@ -520,7 +520,6 @@ impl StacksClient {
     /// Get the current reward cycle from the stacks node
     pub fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
         let pox_data = self.get_pox_data()?;
-        println!("GOT REWARD CYCLE: {}", pox_data.reward_cycle_id);
         Ok(pox_data.reward_cycle_id)
     }
 
