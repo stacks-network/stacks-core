@@ -19,6 +19,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
 
 use lazy_static::lazy_static;
+use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
@@ -137,6 +138,24 @@ impl<'a> DerefMut for NakamotoStagingBlocksTx<'a> {
     }
 }
 
+impl NakamotoStagingBlocksConn {
+    /// Open a Blob handle to a Nakamoto block
+    pub fn open_nakamoto_block<'a>(
+        &'a self,
+        rowid: i64,
+        readwrite: bool,
+    ) -> Result<Blob<'a>, ChainstateError> {
+        let blob = self.blob_open(
+            rusqlite::DatabaseName::Main,
+            "nakamoto_staging_blocks",
+            "data",
+            rowid,
+            !readwrite,
+        )?;
+        Ok(blob)
+    }
+}
+
 impl<'a> NakamotoStagingBlocksConnRef<'a> {
     /// Determine whether or not we have processed at least one Nakamoto block in this sortition history.
     /// NOTE: the relevant field queried from `nakamoto_staging_blocks` is updated by a separate
@@ -161,10 +180,35 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
         Ok(res.is_some())
     }
 
+    /// Determine if we have a particular block
+    /// Returns Ok(true) if so
+    /// Returns Ok(false) if not
+    /// Returns Err(..) on DB error
+    pub fn has_nakamoto_block(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<bool, ChainstateError> {
+        let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[index_block_hash];
+        let res: Option<i64> = query_row(self, qry, args)?;
+        Ok(res.is_some())
+    }
+
+    /// Get the rowid of a Nakamoto block
+    pub fn get_nakamoto_block_rowid(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<i64>, ChainstateError> {
+        let sql = "SELECT rowid FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[index_block_hash];
+        let res: Option<i64> = query_row(self, sql, args)?;
+        Ok(res)
+    }
+
     /// Get a Nakamoto block by index block hash, as well as its size.
     /// Verifies its integrity.
     /// Returns Ok(Some(block, size)) if the block was present
-    /// Returns Ok(None) if there were no such rows.
+    /// Returns Ok(None) if there was no such block
     /// Returns Err(..) on DB error, including block corruption
     pub fn get_nakamoto_block(
         &self,
@@ -189,6 +233,25 @@ impl<'a> NakamotoStagingBlocksConnRef<'a> {
             block,
             u64::try_from(block_bytes.len()).expect("FATAL: block is greater than a u64"),
         )))
+    }
+
+    /// Get the size of a Nakamoto block, given its index block hash
+    /// Returns Ok(Some(size)) if the block was present
+    /// Returns Ok(None) if there was no such block
+    /// Returns Err(..) on DB error, including block corruption
+    pub fn get_nakamoto_block_size(
+        &self,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<u64>, ChainstateError> {
+        let qry = "SELECT length(data) FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
+        let args: &[&dyn ToSql] = &[index_block_hash];
+        let res: Option<i64> = query_row(self, qry, args)?;
+        let Some(size_i64) = res else {
+            return Ok(None);
+        };
+        Ok(Some(
+            u64::try_from(size_i64).expect("FATAL: block exceeds i64::MAX"),
+        ))
     }
 
     /// Find the next ready-to-process Nakamoto block, given a connection to the staging blocks DB.
@@ -355,13 +418,20 @@ impl StacksChainState {
     /// Get the path to the Nakamoto staging blocks DB.
     /// It's separate from the headers DB in order to avoid DB contention between downloading
     /// blocks and processing them.
-    pub fn get_nakamoto_staging_blocks_path(root_path: PathBuf) -> Result<String, ChainstateError> {
+    pub fn static_get_nakamoto_staging_blocks_path(
+        root_path: PathBuf,
+    ) -> Result<String, ChainstateError> {
         let mut nakamoto_blocks_path = Self::blocks_path(root_path);
         nakamoto_blocks_path.push("nakamoto.sqlite");
         Ok(nakamoto_blocks_path
             .to_str()
             .ok_or(ChainstateError::DBError(DBError::ParseError))?
             .to_string())
+    }
+
+    /// Get the path to the Nakamoto staging blocks DB.
+    pub fn get_nakamoto_staging_blocks_path(&self) -> Result<String, ChainstateError> {
+        Self::static_get_nakamoto_staging_blocks_path(PathBuf::from(self.root_path.as_str()))
     }
 
     /// Open and set up a DB for nakamoto staging blocks.
