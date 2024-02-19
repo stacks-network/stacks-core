@@ -1791,7 +1791,7 @@ impl StacksChainState {
             .to_string();
 
         let nakamoto_staging_blocks_path =
-            StacksChainState::get_nakamoto_staging_blocks_path(path.clone())?;
+            StacksChainState::static_get_nakamoto_staging_blocks_path(path.clone())?;
         let nakamoto_staging_blocks_conn =
             StacksChainState::open_nakamoto_staging_blocks(&nakamoto_staging_blocks_path, true)?;
 
