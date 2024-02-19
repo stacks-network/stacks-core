@@ -26,6 +26,7 @@ use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
 use clarity::vm::{ClarityVersion, SymbolicExpression, Value};
 use lazy_static::{__Deref, lazy_static};
+use rusqlite::blob::Blob;
 use rusqlite::types::{FromSql, FromSqlError};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, ToSql, NO_PARAMS};
 use sha2::{Digest as Sha2Digest, Sha512_256};
@@ -1707,10 +1708,10 @@ impl NakamotoChainState {
             return Err(ChainstateError::InvalidStacksBlock(msg));
         }
 
-        // if the burnchain block of this Stacks block's tenure has been processed, then it
-        // is ready to be processed from the perspective of the burnchain
-        let burn_attachable =
-            SortitionDB::has_block_snapshot_consensus(&db_handle, &block.header.consensus_hash)?;
+        // if we pass all the tests, then along the way, we will have verified (in
+        // Self::validate_nakamoto_block_burnchain) that the consensus hash of this block is on the
+        // same sortition history as `db_handle` (and thus it must be burn_attachable)
+        let burn_attachable = true;
 
         let _block_id = block.block_id();
         Self::store_block(staging_db_tx, block, burn_attachable)?;
@@ -1872,6 +1873,18 @@ impl NakamotoChainState {
             }
         }
         Ok(None)
+    }
+
+    /// Load a Nakamoto header
+    pub fn get_block_header_nakamoto(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })?;
+        Ok(result)
     }
 
     /// Load an epoch2 header
@@ -2805,8 +2818,10 @@ impl NakamotoChainState {
 
         // look up this block's sortition's burnchain block hash and height.
         // It must exist in the same Bitcoin fork as our `burn_dbconn`.
-        let (burn_header_hash, burn_header_height) =
+        let tenure_block_snapshot =
             Self::check_sortition_exists(burn_dbconn, &block.header.consensus_hash)?;
+        let burn_header_hash = tenure_block_snapshot.burn_header_hash.clone();
+        let burn_header_height = tenure_block_snapshot.block_height;
         let block_hash = block.header.block_hash();
 
         let new_tenure = match block.is_wellformed_tenure_start_block() {
@@ -2854,7 +2869,7 @@ impl NakamotoChainState {
             Self::get_coinbase_height(chainstate_tx.deref(), &parent_block_id)?.ok_or_else(
                 || {
                     warn!(
-                        "Parent of Nakamoto block in block headers DB yet";
+                        "Parent of Nakamoto block is not in block headers DB yet";
                         "block_hash" => %block.header.block_hash(),
                         "parent_block_hash" => %parent_block_hash,
                         "parent_block_id" => %parent_block_id
@@ -2863,6 +2878,46 @@ impl NakamotoChainState {
                 },
             )?
         };
+
+        // this block's tenure's block-commit contains the hash of the parent tenure's tenure-start
+        // block.
+        // (note that we can't check this earlier, since we need the parent tenure to have been
+        // processed)
+        if new_tenure && parent_chain_tip.is_nakamoto_block() {
+            let tenure_block_commit = burn_dbconn
+                .get_block_commit(
+                    &tenure_block_snapshot.winning_block_txid,
+                    &tenure_block_snapshot.sortition_id,
+                )?
+                .ok_or_else(|| {
+                    warn!("Invalid Nakamoto block: has no block-commit in its sortition";
+                          "block_id" => %block.header.block_id(),
+                          "sortition_id" => %tenure_block_snapshot.sortition_id,
+                          "block_commit_txid" => %tenure_block_snapshot.winning_block_txid);
+                    ChainstateError::NoSuchBlockError
+                })?;
+
+            let parent_tenure_start_header =
+                Self::get_nakamoto_tenure_start_block_header(chainstate_tx.tx(), &parent_ch)?
+                    .ok_or_else(|| {
+                        warn!("Invalid Nakamoto block: no start-tenure block for parent";
+                          "parent_consensus_hash" => %parent_ch,
+                          "block_id" => %block.header.block_id());
+
+                        ChainstateError::NoSuchBlockError
+                    })?;
+
+            if parent_tenure_start_header.index_block_hash() != tenure_block_commit.last_tenure_id()
+            {
+                warn!("Invalid Nakamoto block: its tenure's block-commit's block ID hash does not match its parent tenure's start block";
+                      "block_id" => %block.header.block_id(),
+                      "parent_consensus_hash" => %parent_ch,
+                      "parent_tenure_start_block_id" => %parent_tenure_start_header.index_block_hash(),
+                      "block_commit.last_tenure_id" => %tenure_block_commit.last_tenure_id());
+
+                return Err(ChainstateError::NoSuchBlockError);
+            }
+        }
 
         // verify VRF proof, if present
         // only need to do this once per tenure
