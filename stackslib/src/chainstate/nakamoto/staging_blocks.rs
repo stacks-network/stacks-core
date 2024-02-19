@@ -37,45 +37,42 @@ use crate::util_lib::db::{
     DBConn, Error as DBError, FromRow,
 };
 
-lazy_static! {
-    pub static ref NAKAMOTO_STAGING_DB_SCHEMA_1: Vec<String> = vec![
-      r#"
-      -- Table for staging nakamoto blocks
-      CREATE TABLE nakamoto_staging_blocks (
-                     -- SHA512/256 hash of this block
-                     block_hash TEXT NOT NULL,
-                     -- the consensus hash of the burnchain block that selected this block's miner's block-commit
-                     consensus_hash TEXT NOT NULL,
-                     -- the parent index_block_hash
-                     parent_block_id TEXT NOT NULL,
+pub const NAKAMOTO_STAGING_DB_SCHEMA_1: &'static [&'static str] = &[
+    r#"
+  -- Table for staging nakamoto blocks
+  CREATE TABLE nakamoto_staging_blocks (
+                 -- SHA512/256 hash of this block
+                 block_hash TEXT NOT NULL,
+                 -- the consensus hash of the burnchain block that selected this block's miner's block-commit
+                 consensus_hash TEXT NOT NULL,
+                 -- the parent index_block_hash
+                 parent_block_id TEXT NOT NULL,
 
-                     -- has the burnchain block with this block's `consensus_hash` been processed?
-                     burn_attachable INT NOT NULL,
-                     -- has this block been processed?
-                     processed INT NOT NULL,
-                     -- set to 1 if this block can never be attached
-                     orphaned INT NOT NULL,
+                 -- has the burnchain block with this block's `consensus_hash` been processed?
+                 burn_attachable INT NOT NULL,
+                 -- has this block been processed?
+                 processed INT NOT NULL,
+                 -- set to 1 if this block can never be attached
+                 orphaned INT NOT NULL,
 
-                     height INT NOT NULL,
+                 height INT NOT NULL,
 
-                     -- used internally -- this is the StacksBlockId of this block's consensus hash and block hash
-                     index_block_hash TEXT NOT NULL,
-                     -- how long the block was in-flight
-                     download_time INT NOT NULL,
-                     -- when this block was stored
-                     arrival_time INT NOT NULL,
-                     -- when this block was processed
-                     processed_time INT NOT NULL,
+                 -- used internally -- this is the StacksBlockId of this block's consensus hash and block hash
+                 index_block_hash TEXT NOT NULL,
+                 -- how long the block was in-flight
+                 download_time INT NOT NULL,
+                 -- when this block was stored
+                 arrival_time INT NOT NULL,
+                 -- when this block was processed
+                 processed_time INT NOT NULL,
 
-                     -- block data
-                     data BLOB NOT NULL,
-                    
-                     PRIMARY KEY(block_hash,consensus_hash)
-        );"#
-        .into(),
-        r#"CREATE INDEX by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#.into()
-    ];
-}
+                 -- block data
+                 data BLOB NOT NULL,
+                
+                 PRIMARY KEY(block_hash,consensus_hash)
+    );"#,
+    r#"CREATE INDEX by_index_block_hash ON nakamoto_staging_blocks(index_block_hash);"#,
+];
 
 pub struct NakamotoStagingBlocksConn(rusqlite::Connection);
 

@@ -352,7 +352,7 @@ impl NakamotoTenureInv {
     /// Returns the reward cycle to query.
     pub fn next_reward_cycle(&mut self) -> u64 {
         let query_rc = self.cur_reward_cycle;
-        self.cur_reward_cycle += 1;
+        self.cur_reward_cycle = self.cur_reward_cycle.saturating_add(1);
         query_rc
     }
 
