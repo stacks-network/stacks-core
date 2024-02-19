@@ -17,11 +17,13 @@
 (define-constant ERR_DUPLICATE_VOTE u7)
 (define-constant ERR_INVALID_BURN_BLOCK_HEIGHT u8)
 (define-constant ERR_FAILED_TO_RETRIEVE_SIGNERS u9)
+(define-constant ERR_INVALID_ROUND u10)
 
 (define-constant pox-info
     (unwrap-panic (contract-call? .pox-4 get-pox-info)))
 
-;; Threshold consensus (in 3 digit %)
+;; Threshold consensus, expressed as parts-per-thousand to allow for integer
+;; division with higher precision (e.g. 700 for 70%).
 (define-constant threshold-consensus u700)
 
 ;; Maps reward-cycle ids to last round
@@ -97,30 +99,52 @@
             (map-set cycle-total-weight reward-cycle total)
             (ok total))))
 
+(define-private (update-last-round (reward-cycle uint) (round uint))
+    (ok (match (map-get? rounds reward-cycle)
+        last-round (begin
+            (asserts! (<= round (+ last-round u1)) (err ERR_INVALID_ROUND))
+            (and (> round last-round) (map-set rounds reward-cycle round)))
+        (map-set rounds reward-cycle round))))
+
 ;; Signer vote for the aggregate public key of the next reward cycle
-;;  The vote happens in the prepare phase of the current reward cycle but may be ran more than
-;;  once resulting in different 'rounds.' Each signer vote is based on the weight of stacked
-;;  stx tokens & fetched from the .signers contract. The vote is ran until the consensus 
-;;  threshold of 70% for a specific aggregate public key is reached.
+;;  Each signer votes for the aggregate public key for the next reward cycle.
+;;  This vote must happen after the list of signers has been set by the node,
+;;  which occurs in the first block of the prepare phase. The vote is concluded
+;;  when the threshold of `threshold-consensus / 1000` is reached for a
+;;  specific aggregate public key. The vote is weighted by the amount of
+;;  reward slots that the signer controls in the next reward cycle. The vote
+;;  may require multiple rounds to reach consensus, but once consensus is
+;;  reached, later rounds will be ignored.
+;;
+;;  Arguments:
+;;   * signer-index: the index of the calling signer in the signer set (from
+;;     `get-signers` in the .signers contract)
+;;   * key: the aggregate public key that this vote is in support of
+;;   * round: the voting round for which this vote is intended
+;;   * reward-cycle: the reward cycle for which this vote is intended
+;;  Returns:
+;;   * `(ok true)` if the vote was successful
+;;   * `(err <code>)` if the vote was not successful (see errors above)
 (define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint) (reward-cycle uint))
     (let ((tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; vote by signer weight
             (signer-weight (try! (get-current-signer-weight signer-index)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
             (total-weight (try! (get-total-weight reward-cycle))))
-        ;; Check that key isn't already set
+        ;; Check that the key has not yet been set for this reward cycle
         (asserts! (is-none (map-get? aggregate-public-keys reward-cycle)) (err ERR_OUT_OF_VOTING_WINDOW))
-        ;; Check that the aggregate public key is correct length
+        ;; Check that the aggregate public key is the correct length
         (asserts! (is-eq (len key) u33) (err ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY))
-        ;; Check that aggregate public key has not been used before
+        ;; Check that aggregate public key has not been used in a previous reward cycle
         (asserts! (is-valid-aggregate-public-key key reward-cycle) (err ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY))
-        ;; Check that signer hasn't voted in reward-cycle & round
+        ;; Check that signer hasn't voted in this reward-cycle & round
         (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, signer-weight: signer-weight}) (err ERR_DUPLICATE_VOTE))
-        ;; Update tally aggregate public key candidate
+        ;; Check that the round is incremented by at most 1
+        (try! (update-last-round reward-cycle round))
+        ;; Update the tally for this aggregate public key candidate
         (map-set tally tally-key new-total)
         ;; Update used aggregate public keys
         (map-set used-aggregate-public-keys key reward-cycle)
-        (update-last-round reward-cycle round)
         (print {
             event: "voted",
             signer: tx-sender,
@@ -147,10 +171,4 @@
                 true
             )
         )
-
         (ok true)))
-
-(define-private (update-last-round (reward-cycle uint) (round uint))
-    (match (map-get? rounds reward-cycle)
-        last-round (and (> round last-round) (map-set rounds reward-cycle round))
-        (map-set rounds reward-cycle round)))
