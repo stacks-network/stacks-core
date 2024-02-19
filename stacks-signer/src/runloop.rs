@@ -202,12 +202,13 @@ impl RunLoop {
             }
             for stacks_signer in self.stacks_signers.values_mut() {
                 if let Signer::Registered(signer) = stacks_signer {
-                    let updated_coordinator = signer
+                    let old_coordinator_id = signer.coordinator_selector.get_coordinator().0;
+                    let updated_coordinator_id = signer
                         .coordinator_selector
                         .refresh_coordinator(&self.stacks_client);
-                    if updated_coordinator {
+                    if old_coordinator_id != updated_coordinator_id {
                         debug!(
-                            "Signer #{}: Coordinator has been updated. Resetting state to Idle.",
+                            "Signer #{}: Coordinator has switched from {old_coordinator_id} to {updated_coordinator_id}. Resetting state to Idle.",
                             signer.signer_id
                         );
                         signer.coordinator.state = CoordinatorState::Idle;

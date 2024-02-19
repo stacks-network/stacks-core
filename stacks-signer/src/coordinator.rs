@@ -29,7 +29,7 @@ pub const COORDINATOR_TENURE_TIMEOUT_SECS: u64 = 600;
 
 /// The coordinator selector
 #[derive(Clone, Debug)]
-pub struct Selector {
+pub struct CoordinatorSelector {
     /// The ordered list of potential coordinators for a specific consensus hash
     coordinator_ids: Vec<u32>,
     /// The current coordinator id
@@ -44,7 +44,7 @@ pub struct Selector {
     public_keys: PublicKeys,
 }
 
-impl Selector {
+impl CoordinatorSelector {
     /// Create a new Coordinator selector from the given list of public keys and initial coordinator ids
     pub fn new(coordinator_ids: Vec<u32>, public_keys: PublicKeys) -> Self {
         let coordinator_id = *coordinator_ids
@@ -98,9 +98,8 @@ impl Selector {
     }
 
     /// Check the coordinator timeouts and update the selected coordinator accordingly
-    /// Returns true if the coordinator was updated, else false
-    pub fn refresh_coordinator(&mut self, stacks_client: &StacksClient) -> bool {
-        let old_coordinator_id = self.coordinator_id;
+    /// Returns the resulting coordinator ID. (Note: it may be unchanged)
+    pub fn refresh_coordinator(&mut self, stacks_client: &StacksClient) -> u32 {
         let new_coordinator_ids = stacks_client.calculate_coordinator_ids(&self.public_keys);
         if let Some(time) = self.last_message_time {
             if time.elapsed().as_secs() > COORDINATOR_OPERATION_TIMEOUT_SECS {
@@ -114,7 +113,7 @@ impl Selector {
             // Our tenure has been exceeded or we have advanced our block height and should select from the new list
             self.update_coordinator(new_coordinator_ids);
         }
-        old_coordinator_id != self.coordinator_id
+        self.coordinator_id
     }
 
     /// Get the current coordinator id and public key

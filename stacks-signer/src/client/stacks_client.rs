@@ -477,7 +477,7 @@ impl StacksClient {
             );
         }
 
-        for address in signer_ids.keys().into_iter() {
+        for address in signer_ids.keys() {
             if !signer_slot_ids.contains_key(address) {
                 debug!("Signer {address} does not have a slot id in the stackerdb");
                 return Ok(None);

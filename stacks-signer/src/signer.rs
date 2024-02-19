@@ -47,7 +47,7 @@ use crate::client::{
     retry_with_exponential_backoff, ClientError, StackerDB, StacksClient, VOTE_FUNCTION_NAME,
 };
 use crate::config::SignerConfig;
-use crate::coordinator::Selector;
+use crate::coordinator::CoordinatorSelector;
 
 /// Additional Info about a proposed block
 pub struct BlockInfo {
@@ -195,7 +195,7 @@ pub struct RegisteredSigner {
     /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
     pub tx_fee_ms: u64,
     /// The coordinator info for the signer
-    pub coordinator_selector: Selector,
+    pub coordinator_selector: CoordinatorSelector,
 }
 
 impl From<SignerConfig> for RegisteredSigner {
@@ -234,7 +234,7 @@ impl From<SignerConfig> for RegisteredSigner {
             signer_config.ecdsa_private_key,
             signer_config.registered_signers.public_keys.clone(),
         );
-        let coordinator_selector = Selector::new(
+        let coordinator_selector = CoordinatorSelector::new(
             signer_config.coordinator_ids,
             signer_config.registered_signers.public_keys,
         );
@@ -1497,9 +1497,9 @@ mod tests {
     use wsts::curve::scalar::Scalar;
 
     use crate::client::tests::{
-        build_get_approved_aggregate_key_response, build_get_last_round_response,
-        build_get_peer_info_response, build_get_pox_data_response, generate_signer_config,
-        mock_server_from_config, write_response,
+        build_account_nonce_response, build_get_approved_aggregate_key_response,
+        build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
+        generate_signer_config, mock_server_from_config_and_write_response,
     };
     use crate::client::{StacksClient, VOTE_FUNCTION_NAME};
     use crate::config::GlobalConfig;
@@ -1641,13 +1641,11 @@ mod tests {
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, response_bytes.as_slice());
+        mock_server_from_config_and_write_response(&config, response_bytes.as_slice());
 
         for _ in 0..num_transactions {
-            let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
-            let mock_server = mock_server_from_config(&config);
-            write_response(mock_server, nonce_response);
+            let response_bytes = build_account_nonce_response(1);
+            mock_server_from_config_and_write_response(&config, response_bytes.as_bytes());
         }
 
         let filtered_txs = h.join().unwrap();
@@ -1730,41 +1728,34 @@ mod tests {
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, response_bytes.as_slice());
+        mock_server_from_config_and_write_response(&config, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, response_bytes.as_slice());
+        mock_server_from_config_and_write_response(&config, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, response_bytes.as_slice());
+        mock_server_from_config_and_write_response(&config, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, response_bytes.as_slice());
+        mock_server_from_config_and_write_response(&config, response_bytes.as_slice());
 
         let signer_message = SignerMessage::Transactions(vec![]);
         let message = signer_message.serialize_to_vec();
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, response_bytes.as_slice());
+        mock_server_from_config_and_write_response(&config, response_bytes.as_slice());
 
-        let nonce_response = b"HTTP/1.1 200 OK\n\n{\"nonce\":1,\"balance\":\"0x00000000000000000000000000000000\",\"locked\":\"0x00000000000000000000000000000000\",\"unlock_height\":0}";
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, nonce_response);
-
+        let response_bytes = build_account_nonce_response(1);
+        mock_server_from_config_and_write_response(&config, response_bytes.as_bytes());
         let valid = h.join().unwrap();
         assert!(valid);
     }
@@ -1785,13 +1776,18 @@ mod tests {
         let vote_contract_id = boot_code_id(SIGNERS_VOTING_NAME, signer.mainnet);
         let contract_addr = vote_contract_id.issuer.into();
         let contract_name = vote_contract_id.name.clone();
+        let signer_index = Value::UInt(signer.signer_id as u128);
         let point = Point::from(Scalar::random(&mut thread_rng()));
+        let point_arg =
+            Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff");
         let round = thread_rng().next_u64();
+        let round_arg = Value::UInt(round as u128);
+        let reward_cycle_arg = Value::UInt(signer.reward_cycle as u128);
         let valid_function_args = vec![
-            Value::UInt(signer.signer_id as u128),
-            Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
-            Value::UInt(round as u128),
-            Value::UInt(signer.reward_cycle as u128),
+            signer_index.clone(),
+            point_arg.clone(),
+            round_arg.clone(),
+            reward_cycle_arg.clone(),
         ];
         let valid_transaction = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
@@ -1827,14 +1823,10 @@ mod tests {
                 )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, pox_info_response.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, peer_info.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, vote_response.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, last_round_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, pox_info_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, peer_info.as_bytes());
+        mock_server_from_config_and_write_response(&config, vote_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, last_round_response.as_bytes());
         h.join().unwrap();
 
         let signer = RegisteredSigner::from(signer_config.clone());
@@ -1897,9 +1889,9 @@ mod tests {
             VOTE_FUNCTION_NAME.into(),
             &[
                 Value::UInt(signer.signer_id.wrapping_add(1) as u128), // Not the signers id
-                Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
-                Value::UInt(round as u128),
-                Value::UInt(signer.reward_cycle as u128),
+                point_arg.clone(),
+                round_arg.clone(),
+                reward_cycle_arg.clone(),
             ],
             &signer_private_key,
             TransactionVersion::Testnet,
@@ -1909,15 +1901,34 @@ mod tests {
         )
         .unwrap();
 
-        let invalid_function_arg_1 = StacksClient::build_signed_contract_call_transaction(
+        let invalid_function_arg_signer_index =
+            StacksClient::build_signed_contract_call_transaction(
+                &contract_addr,
+                contract_name.clone(),
+                VOTE_FUNCTION_NAME.into(),
+                &[
+                    point_arg.clone(),
+                    point_arg.clone(),
+                    round_arg.clone(),
+                    reward_cycle_arg.clone(),
+                ],
+                &signer_private_key,
+                TransactionVersion::Testnet,
+                config.network.to_chain_id(),
+                1,
+                10,
+            )
+            .unwrap();
+
+        let invalid_function_arg_key = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             VOTE_FUNCTION_NAME.into(),
             &[
-                Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
-                Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
-                Value::UInt(round as u128),
-                Value::UInt(signer.reward_cycle as u128),
+                signer_index.clone(),
+                signer_index.clone(),
+                round_arg.clone(),
+                reward_cycle_arg.clone(),
             ],
             &signer_private_key,
             TransactionVersion::Testnet,
@@ -1927,15 +1938,15 @@ mod tests {
         )
         .unwrap();
 
-        let invalid_function_arg_2 = StacksClient::build_signed_contract_call_transaction(
+        let invalid_function_arg_round = StacksClient::build_signed_contract_call_transaction(
             &contract_addr,
             contract_name.clone(),
             VOTE_FUNCTION_NAME.into(),
             &[
-                Value::UInt(signer.signer_id as u128),
-                Value::UInt(signer.signer_id as u128),
-                Value::UInt(round as u128),
-                Value::UInt(signer.reward_cycle as u128),
+                signer_index.clone(),
+                point_arg.clone(),
+                point_arg.clone(),
+                reward_cycle_arg.clone(),
             ],
             &signer_private_key,
             TransactionVersion::Testnet,
@@ -1945,41 +1956,24 @@ mod tests {
         )
         .unwrap();
 
-        let invalid_function_arg_3 = StacksClient::build_signed_contract_call_transaction(
-            &contract_addr,
-            contract_name.clone(),
-            VOTE_FUNCTION_NAME.into(),
-            &[
-                Value::UInt(signer.signer_id as u128),
-                Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
-                Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
-                Value::UInt(signer.reward_cycle as u128),
-            ],
-            &signer_private_key,
-            TransactionVersion::Testnet,
-            config.network.to_chain_id(),
-            1,
-            10,
-        )
-        .unwrap();
-
-        let invalid_function_arg_4 = StacksClient::build_signed_contract_call_transaction(
-            &contract_addr,
-            contract_name.clone(),
-            VOTE_FUNCTION_NAME.into(),
-            &[
-                Value::UInt(signer.signer_id as u128),
-                Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
-                Value::UInt(round as u128),
-                Value::buff_from(point.compress().data.to_vec()).expect("Failed to create buff"),
-            ],
-            &signer_private_key,
-            TransactionVersion::Testnet,
-            config.network.to_chain_id(),
-            1,
-            10,
-        )
-        .unwrap();
+        let invalid_function_arg_reward_cycle =
+            StacksClient::build_signed_contract_call_transaction(
+                &contract_addr,
+                contract_name.clone(),
+                VOTE_FUNCTION_NAME.into(),
+                &[
+                    signer_index.clone(),
+                    point_arg.clone(),
+                    round_arg.clone(),
+                    point_arg.clone(),
+                ],
+                &signer_private_key,
+                TransactionVersion::Testnet,
+                config.network.to_chain_id(),
+                1,
+                10,
+            )
+            .unwrap();
 
         let stacks_client = StacksClient::from(&config);
         for tx in vec![
@@ -1988,10 +1982,10 @@ mod tests {
             invalid_signers_contract_name,
             invalid_signers_vote_function,
             invalid_signer_id_argument,
-            invalid_function_arg_1,
-            invalid_function_arg_2,
-            invalid_function_arg_3,
-            invalid_function_arg_4,
+            invalid_function_arg_signer_index,
+            invalid_function_arg_key,
+            invalid_function_arg_round,
+            invalid_function_arg_reward_cycle,
         ] {
             let result = signer
                 .verify_payload(
@@ -2066,10 +2060,8 @@ mod tests {
                 )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, pox_info_response.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, peer_info.as_bytes());
+        mock_server_from_config_and_write_response(&config, pox_info_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, peer_info.as_bytes());
         h.join().unwrap();
 
         // Already voted
@@ -2108,12 +2100,9 @@ mod tests {
                 )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, pox_info_response.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, peer_info.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, vote_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, pox_info_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, peer_info.as_bytes());
+        mock_server_from_config_and_write_response(&config, vote_response.as_bytes());
         h.join().unwrap();
 
         // Already voted
@@ -2160,14 +2149,10 @@ mod tests {
                 )
                 .unwrap())
         });
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, pox_info_response.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, peer_info.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, vote_response.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        write_response(mock_server, last_round_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, pox_info_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, peer_info.as_bytes());
+        mock_server_from_config_and_write_response(&config, vote_response.as_bytes());
+        mock_server_from_config_and_write_response(&config, last_round_response.as_bytes());
         h.join().unwrap();
     }
 }

@@ -471,7 +471,7 @@ impl SignerTest {
                 0,
             )
             .expect("FATAL: failed to build vote for aggregate public key");
-        // TODO: add invalid contract calls (one with non cast-vote-aggregate-key function call and one with invalid function args)
+        // TODO: add invalid contract calls (one with non 'vote-for-aggregate-public-key' function call and one with invalid function args)
         vec![invalid_nonce_tx, invalid_signer_tx]
     }
 
