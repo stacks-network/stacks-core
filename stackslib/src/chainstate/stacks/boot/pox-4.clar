@@ -44,6 +44,11 @@
 (define-constant ADDRESS_VERSION_NATIVE_P2WPKH 0x04)
 (define-constant ADDRESS_VERSION_NATIVE_P2WSH 0x05)
 (define-constant ADDRESS_VERSION_NATIVE_P2TR 0x06)
+
+;; Values for stacks address versions
+(define-constant STACKS_ADDR_VERSION_MAINNET 0x16)
+(define-constant STACKS_ADDR_VERSION_TESTNET 0x1a)
+
 ;; Keep these constants in lock-step with the address version buffs above
 ;; Maximum value of an address version as a uint
 (define-constant MAX_ADDRESS_VERSION u6)
@@ -211,17 +216,29 @@
 ;;   for the given reward cycle
 (define-map aggregate-public-keys uint (buff 33))
 
-;; State for setting allowances for signer keys to be used in
-;; certain stacking transactions
+;; State for setting authorizations for signer keys to be used in
+;; certain stacking transactions. These fields match the fields used
+;; in the message hash for signature-based signer key authorizations.
+;; Values in this map are set in `set-signer-key-authorization`.
 (define-map signer-key-authorizations 
     {
+        ;; The signer key being authorized
         signer-key: (buff 33),
+        ;; The reward cycle for which the authorization is valid.
+        ;; For `stack-stx` and `stack-extend`, this refers to the reward
+        ;; cycle where the transaction is confirmed. For `stack-aggregation-commit`,
+        ;; this refers to the reward cycle argument in that function.
         reward-cycle: uint,
+        ;; For `stack-stx`, this refers to `lock-period`. For `stack-extend`,
+        ;; this refers to `extend-count`. For `stack-aggregation-commit`, this is `u1`.
         period: uint,
+        ;; A string representing the function where this authorization is valid. Either
+        ;; `stack-stx`, `stack-extend`, or `agg-commit`.
         topic: (string-ascii 12),
+        ;; The PoX address that can be used with this signer key
         pox-addr: { version: (buff 1), hashbytes: (buff 32) },
     } 
-    bool
+    bool ;; Whether the authorization can be used or not
 )
 
 ;; What's the reward cycle number of the burnchain block height?
@@ -1339,7 +1356,7 @@
   (begin
     ;; Validate that `tx-sender` has the same pubkey hash as `signer-key`
     (asserts! (is-eq 
-      (unwrap! (principal-construct? (if is-in-mainnet 0x16 0x1a) (hash160 signer-key)) (err ERR_INVALID_SIGNER_KEY))
+      (unwrap! (principal-construct? (if is-in-mainnet STACKS_ADDR_VERSION_MAINNET STACKS_ADDR_VERSION_TESTNET) (hash160 signer-key)) (err ERR_INVALID_SIGNER_KEY))
       tx-sender) (err ERR_NOT_ALLOWED))
     (map-set signer-key-authorizations { pox-addr: pox-addr, period: period, reward-cycle: reward-cycle, topic: topic, signer-key: signer-key } allowed)
     (ok allowed)))
