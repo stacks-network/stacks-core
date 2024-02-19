@@ -1158,7 +1158,7 @@ fn stackerdb_reward_cycle_transitions() {
         .saturating_sub(1);
     let next_reward_cycle_reward_set_calculation = next_reward_cycle_boundary
         .saturating_sub(prepare_phase_len)
-        .saturating_add(1);
+        .saturating_add(1); // +1 since second block of the prepare phase is where the reward set is calculated
 
     info!("------------------------- Test Nakamoto Block Mining in Reward Cycle {curr_reward_cycle} -------------------------");
 

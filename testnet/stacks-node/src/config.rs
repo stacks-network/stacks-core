@@ -2059,7 +2059,7 @@ impl Default for MinerConfig {
             filter_origins: HashSet::new(),
             max_reorg_depth: 3,
             // TODO: update to a sane value based on stackerdb benchmarking
-            wait_on_signers: Duration::from_millis(10_000),
+            wait_on_signers: Duration::from_secs(20),
         }
     }
 }

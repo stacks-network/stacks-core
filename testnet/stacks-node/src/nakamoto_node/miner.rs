@@ -471,6 +471,7 @@ impl BlockMinerThread {
             thread::sleep(Duration::from_millis(WAIT_FOR_SIGNERS_MS));
         }
         // We have waited for the signers for too long: stop waiting so we can propose a new block
+        debug!("Miner: exceeded signer signature timeout. Will propose a new block");
         Err(NakamotoNodeError::SignerSignatureError(
             "Timed out waiting for signers",
         ))
