@@ -361,9 +361,39 @@ impl SqliteConnection {
         Ok(())
     }
 
+    pub fn commit_contracts_to(
+        conn: &Connection,
+        from: &StacksBlockId,
+        to: &StacksBlockId,
+    ) -> Result<()> {
+        if from == to {
+            return Ok(());
+        }
+
+        eprintln!("commit_contract_to: {} -> {}", from, to);
+        let params = [to, from];
+        if let Err(e) = conn.execute(
+            "UPDATE contract SET block_hash = ? WHERE block_hash = ?",
+            &params,
+        ) {
+            error!("Failed to update {} to {}: {:?}", &from, &to, &e);
+            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+        }
+        Ok(())
+    }
+
     pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) -> Result<()> {
         if let Err(e) = conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[from]) {
             error!("Failed to drop metadata from {}: {:?}", &from, &e);
+            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+        }
+        Ok(())
+    }
+
+    pub fn delete_contracts_for_block(conn: &Connection, bhh: &StacksBlockId) -> Result<()> {
+        let params: [&dyn ToSql; 1] = [&bhh];
+        if let Err(e) = conn.execute("DELETE FROM contract WHERE block_hash = ?", &params) {
+            error!("Failed to delete contracts for {}: {:?}", &bhh, &e);
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())

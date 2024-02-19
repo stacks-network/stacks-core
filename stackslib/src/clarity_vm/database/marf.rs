@@ -474,13 +474,20 @@ impl<'a> WritableMarfStore<'a> {
     pub fn rollback_unconfirmed(self) -> InterpreterResult<()> {
         debug!("Drop unconfirmed MARF trie {}", &self.chain_tip);
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
+        SqliteConnection::delete_contracts_for_block(self.marf.sqlite_tx(), &self.chain_tip)?;
         self.marf.drop_unconfirmed();
         Ok(())
     }
 
     pub fn commit_to(self, final_bhh: &StacksBlockId) -> InterpreterResult<()> {
-        debug!("commit_to({})", final_bhh);
+        if &self.chain_tip == final_bhh {
+            debug!("commit_to({}): no changes", final_bhh);
+            return Ok(());
+        }
+
+        eprintln!("commit_to({})", final_bhh);
         SqliteConnection::commit_metadata_to(self.marf.sqlite_tx(), &self.chain_tip, final_bhh)?;
+        SqliteConnection::commit_contracts_to(self.marf.sqlite_tx(), &self.chain_tip, final_bhh)?;
 
         let _ = self.marf.commit_to(final_bhh).map_err(|e| {
             error!("Failed to commit to MARF block {}: {:?}", &final_bhh, &e);
@@ -508,7 +515,7 @@ impl<'a> WritableMarfStore<'a> {
     //   so that the block validation and processing logic doesn't
     //   reprocess the same data as if it were already loaded
     pub fn commit_mined_block(self, will_move_to: &StacksBlockId) -> InterpreterResult<()> {
-        debug!(
+        eprintln!(
             "commit_mined_block: ({}->{})",
             &self.chain_tip, will_move_to
         );
@@ -518,6 +525,7 @@ impl<'a> WritableMarfStore<'a> {
         //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
         //    we should probably commit the data to a different table which does not have uniqueness constraints.
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
+        SqliteConnection::delete_contracts_for_block(self.marf.sqlite_tx(), &self.chain_tip)?;
         let _ = self.marf.commit_mined(will_move_to).map_err(|e| {
             error!(
                 "Failed to commit to mined MARF block {}: {:?}",
@@ -565,12 +573,12 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
     }
 
     fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
-        trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
+        eprintln!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
             .or_else(|e| match e {
                 Error::NotFoundError => {
-                    trace!(
+                    eprintln!(
                         "MarfedKV get {:?} off of {:?}: not found",
                         key,
                         &self.chain_tip
@@ -582,7 +590,7 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
-                trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
+                eprintln!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
                 SqliteConnection::get_data(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
                     InterpreterError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",

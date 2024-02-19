@@ -1639,7 +1639,9 @@ fn mine_contract_twice() {
                             &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
                             |conn| {
                                 conn.with_clarity_db_readonly(|db| {
-                                    db.get_contract_src(&contract_identifier).unwrap()
+                                    db.get_contract_src2(&contract_identifier)
+                                        .expect("failed to get contract src")
+                                        .expect("contract src not found")
                                 })
                             }
                         )

@@ -1307,7 +1307,7 @@ fn marf_sqlite_open<P: AsRef<Path>>(
 impl<T: MarfTrieId> TrieStorageTransientData<T> {
     /// Target the transient data to a particular block, and optionally its block ID
     fn set_block(&mut self, bhh: T, id: Option<u32>) {
-        trace!("set_block({},{:?})", &bhh, &id);
+        eprintln!("set_block({},{:?})", &bhh, &id);
         self.cur_block_id = id;
         self.cur_block = bhh;
     }
@@ -2159,7 +2159,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
     /// Open a trie's block, identified by `bhh`.  Updates the internal state to point to it, so
     /// that all node reads will occur relative to it.
     pub fn open_block(&mut self, bhh: &T) -> Result<(), Error> {
-        trace!(
+        eprintln!(
             "open_block({}) (unconfirmed={:?},{})",
             bhh,
             &self.unconfirmed_block_id,
@@ -2173,7 +2173,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                 if self.data.cur_block_id
                     == trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)?
                 {
-                    test_debug!(
+                    eprintln!(
                         "{} unconfirmed trie block ID is {:?}",
                         bhh,
                         &self.data.cur_block_id
@@ -2204,7 +2204,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     if self.data.cur_block_id
                         == trie_sql::get_unconfirmed_block_identifier(&self.db, bhh)?
                     {
-                        test_debug!(
+                        eprintln!(
                             "{} unconfirmed trie block ID is {:?}",
                             bhh,
                             &self.data.cur_block_id
@@ -2225,7 +2225,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                 self.bench.open_block_finish(false);
 
                 // reads to this block will hit sqlite
-                test_debug!("{} unconfirmed trie block ID is {}", bhh, block_id);
+                eprintln!("{} unconfirmed trie block ID is {}", bhh, block_id);
                 self.unconfirmed_block_id = Some(block_id);
                 return Ok(());
             }
@@ -2233,7 +2233,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
 
         // opening a different Trie than the one we're extending
         let block_id = self.get_block_id_caching(bhh).map_err(|e| {
-            test_debug!("Failed to open {:?}: {:?}", bhh, e);
+            eprintln!("Failed to open {:?}: {:?}", bhh, e);
             e
         })?;
 

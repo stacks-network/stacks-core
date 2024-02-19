@@ -113,7 +113,7 @@ pub trait ClarityBackingStore {
     ) -> Result<Option<(StacksBlockId, Sha512Trunc256Sum)>> {
         let key = make_contract_hash_key(contract);
 
-        trace!("STORE get_contract_hash for {contract} and key {key}");
+        eprintln!("STORE get_contract_hash for {contract} and key {key}");
 
         let contract_commitment_serialized = self.get_data(&key)?;
         
@@ -207,12 +207,12 @@ pub trait ClarityBackingStore {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<bool> {
-        trace!("STORE contract_exists for {contract_identifier}");
-
         let (bhh, _) = match self.get_contract_hash(contract_identifier)? {
             Some(x) => x,
             None => return Ok(false),
         };
+
+        eprintln!("STORE contract_exists for {contract_identifier} / {bhh}");
 
         let result = SqliteConnection::contract_exists(
             self.get_side_store(),
@@ -220,7 +220,7 @@ pub trait ClarityBackingStore {
             &contract_identifier.name.to_string(),
             &bhh,
         )?;
-        trace!("STORE contract_exists for {contract_identifier} = {result}");
+        eprintln!("STORE contract_exists for {contract_identifier} = {result}");
 
         Ok(result)
     }
@@ -230,10 +230,10 @@ pub trait ClarityBackingStore {
         let contract_identifier = &data.contract.contract_identifier;
         trace!("STORE insert_contract for {contract_identifier}");
         //let chain_tip_height = self.get_open_chain_tip_height();
-        //let chain_tip = self.get_open_chain_tip();
+        let chain_tip = self.get_open_chain_tip();
 
-        let (bhh, _) = self.get_contract_hash(contract_identifier)?
-            .ok_or(InterpreterError::Expect("Contract not found.".into()))?;
+        //let (bhh, _) = self.get_contract_hash(contract_identifier)?
+        //    .ok_or(InterpreterError::Expect("Contract not found.".into()))?;
 
         // 'content-hash': src_hash
         // 'contract-src': data.source
@@ -277,7 +277,7 @@ pub trait ClarityBackingStore {
 
         SqliteConnection::insert_contract(
             self.get_side_store(),
-            &bhh,
+            &chain_tip,
             &mut data,
         )?;
 
@@ -308,6 +308,7 @@ pub trait ClarityBackingStore {
         )
     }
 
+    #[deprecated]
     fn insert_metadata(&mut self, contract: &QualifiedContractIdentifier, key: &str, value: &str) -> Result<()> {
         let bhh = self.get_open_chain_tip();
         SqliteConnection::insert_metadata(
@@ -319,6 +320,7 @@ pub trait ClarityBackingStore {
         )
     }
 
+    #[deprecated]
     fn get_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
@@ -331,6 +333,7 @@ pub trait ClarityBackingStore {
         }
     }
 
+    #[deprecated]
     fn get_metadata_manual(
         &mut self,
         at_height: u32,
@@ -346,6 +349,7 @@ pub trait ClarityBackingStore {
         Ok(result)
     }
 
+    #[deprecated]
     fn put_all_metadata(
         &mut self,
         items: Vec<((QualifiedContractIdentifier, String), String)>,

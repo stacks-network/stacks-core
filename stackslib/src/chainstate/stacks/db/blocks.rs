@@ -1630,14 +1630,14 @@ impl StacksChainState {
             &block.header.parent_microblock_sequence,
             &block.header.microblock_pubkey_hash,
             &u64_to_sql(block.header.total_work.work)?,
-            &attachable,
-            &0,
-            &0,
+            &attachable as &dyn ToSql,
+            &0 as &dyn ToSql,
+            &0 as &dyn ToSql,
             &u64_to_sql(commit_burn)?,
             &u64_to_sql(sortition_burn)?,
             &index_block_hash,
             &u64_to_sql(get_epoch_time_secs())?,
-            &0,
+            &0 as &dyn ToSql,
             &u64_to_sql(download_time)?,
         ];
 
@@ -1702,8 +1702,8 @@ impl StacksChainState {
             &microblock.header.prev_block,
             &index_microblock_hash,
             &microblock.header.sequence,
-            &0,
-            &0,
+            &0 as &dyn ToSql,
+            &0 as &dyn ToSql,
         ];
 
         tx.execute(&sql, args)

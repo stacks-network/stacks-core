@@ -584,38 +584,39 @@ impl<'a> ClarityDatabase<'a> {
         )
     }
 
+    // #[deprecated]
+    // pub fn insert_contract_hash(
+    //     &mut self,
+    //     contract_identifier: &QualifiedContractIdentifier,
+    //     contract_content: &str,
+    // ) -> Result<()> {
+    //     let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
+    //     self.store
+    //         .prepare_for_contract_metadata(contract_identifier, hash)?;
+    //     // insert contract-size
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+    //     self.insert_metadata(contract_identifier, &key, &(contract_content.len() as u64))?;
+
+    //     // insert contract-src
+    //     if STORE_CONTRACT_SRC_INTERFACE {
+    //         let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+    //         self.insert_metadata(contract_identifier, &key, &contract_content.to_string())?;
+    //     }
+    //     Ok(())
+    // }
+
+    // #[deprecated]
+    // pub fn get_contract_src(
+    //     &mut self,
+    //     contract_identifier: &QualifiedContractIdentifier,
+    // ) -> Option<String> {
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
+    //     self.fetch_metadata(contract_identifier, &key)
+    //         .ok()
+    //         .flatten()
+    // }
+
     #[deprecated]
-    pub fn insert_contract_hash(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        contract_content: &str,
-    ) -> Result<()> {
-        let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
-        self.store
-            .prepare_for_contract_metadata(contract_identifier, hash)?;
-        // insert contract-size
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
-        self.insert_metadata(contract_identifier, &key, &(contract_content.len() as u64))?;
-
-        // insert contract-src
-        if STORE_CONTRACT_SRC_INTERFACE {
-            let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
-            self.insert_metadata(contract_identifier, &key, &contract_content.to_string())?;
-        }
-        Ok(())
-    }
-
-    #[deprecated]
-    pub fn get_contract_src(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Option<String> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-src");
-        self.fetch_metadata(contract_identifier, &key)
-            .ok()
-            .flatten()
-    }
-
     pub fn set_metadata(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -630,6 +631,7 @@ impl<'a> ClarityDatabase<'a> {
     /// Set a metadata entry if it hasn't already been set, yielding
     ///  a runtime error if it was. This should only be called by post-nakamoto
     ///  contexts.
+    #[deprecated]
     pub fn try_set_metadata(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -643,6 +645,7 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    #[deprecated]
     fn insert_metadata<T: ClaritySerializable>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -662,6 +665,7 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    #[deprecated]
     fn fetch_metadata<T>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -677,6 +681,7 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
+    #[deprecated]
     pub fn fetch_metadata_manual<T>(
         &mut self,
         at_height: u32,
@@ -716,53 +721,53 @@ impl<'a> ClarityDatabase<'a> {
         }
     }
 
-    #[deprecated]
-    pub fn get_contract_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<u64> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
-        let contract_size: u64 =
-            self.fetch_metadata(contract_identifier, &key)?
-                .ok_or_else(|| {
-                    InterpreterError::Expect(
-            "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-        .into())
-                })?;
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
-        let data_size: u64 = self
-            .fetch_metadata(contract_identifier, &key)?
-            .ok_or_else(|| {
-                InterpreterError::Expect(
-            "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-        .into())
-            })?;
+    // #[deprecated]
+    // pub fn get_contract_size(
+    //     &mut self,
+    //     contract_identifier: &QualifiedContractIdentifier,
+    // ) -> Result<u64> {
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+    //     let contract_size: u64 =
+    //         self.fetch_metadata(contract_identifier, &key)?
+    //             .ok_or_else(|| {
+    //                 InterpreterError::Expect(
+    //         "Failed to read non-consensus contract metadata, even though contract exists in MARF."
+    //     .into())
+    //             })?;
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
+    //     let data_size: u64 = self
+    //         .fetch_metadata(contract_identifier, &key)?
+    //         .ok_or_else(|| {
+    //             InterpreterError::Expect(
+    //         "Failed to read non-consensus contract metadata, even though contract exists in MARF."
+    //     .into())
+    //         })?;
 
-        // u64 overflow is _checked_ on insert into contract-data-size
-        Ok(data_size + contract_size)
-    }
+    //     // u64 overflow is _checked_ on insert into contract-data-size
+    //     Ok(data_size + contract_size)
+    // }
 
     /// used for adding the memory usage of `define-constant` variables.
-    #[deprecated]
-    pub fn set_contract_data_size(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        data_size: u64,
-    ) -> Result<()> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
-        let contract_size: u64 =
-            self.fetch_metadata(contract_identifier, &key)?
-                .ok_or_else(|| {
-                    InterpreterError::Expect(
-            "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-        .into())
-                })?;
-        contract_size.cost_overflow_add(data_size)?;
+    // #[deprecated]
+    // pub fn set_contract_data_size(
+    //     &mut self,
+    //     contract_identifier: &QualifiedContractIdentifier,
+    //     data_size: u64,
+    // ) -> Result<()> {
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-size");
+    //     let contract_size: u64 =
+    //         self.fetch_metadata(contract_identifier, &key)?
+    //             .ok_or_else(|| {
+    //                 InterpreterError::Expect(
+    //         "Failed to read non-consensus contract metadata, even though contract exists in MARF."
+    //     .into())
+    //             })?;
+    //     contract_size.cost_overflow_add(data_size)?;
 
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
-        self.insert_metadata(contract_identifier, &key, &data_size)?;
-        Ok(())
-    }
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract-data-size");
+    //     self.insert_metadata(contract_identifier, &key, &data_size)?;
+    //     Ok(())
+    // }
 
     pub fn insert_contract2(&mut self, contract: Contract, src: &str) -> Result<()> {
         let ctx = contract.contract_context;
@@ -770,6 +775,29 @@ impl<'a> ClarityDatabase<'a> {
         self.store.put_contract(src.to_string(), ctx.clone())?;
 
         Ok(())
+    }
+
+    pub fn get_contract_src2(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<Option<String>> {
+        Ok(self
+            .contract_cache
+            .get(contract_identifier)
+            .map(|x| x.source.clone())
+            .or_else(|| {
+                let ctx = self.store.get_contract(contract_identifier).ok()?;
+                match ctx {
+                    GetContractResult::Pending(pending) => 
+                        Some(pending.source),
+                    GetContractResult::Stored(stored) => {
+                        let src = stored.source.clone();
+                        self.contract_cache.put(contract_identifier.clone(), stored);
+                        Some(src)
+                    },
+                    GetContractResult::NotFound => None
+                }
+            }))
     }
 
     pub fn get_contract2(
@@ -802,15 +830,16 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<bool> {
+        eprintln!("CLARDB has_contract2: {contract_identifier}");
         let exists = self.contract_cache.contains(contract_identifier);
-        eprintln!("exists (cache hit): {exists}");
 
         if !exists {
             let result = self.store.has_contract(contract_identifier)?;
-            eprintln!("result (store): {result}");
+            eprintln!("CLARDB has_contract2 result (KV): {result}");
             return Ok(result);
         }
 
+        eprintln!("CLARDB has_contract2 cache hit");
         Ok(exists)
     }
 
@@ -821,36 +850,36 @@ impl<'a> ClarityDatabase<'a> {
         self.store.get_contract_size(contract_identifier)
     }
 
-    #[deprecated]
-    pub fn insert_contract(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        contract: Contract,
-    ) -> Result<()> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        self.insert_metadata(contract_identifier, &key, &contract)?;
-        Ok(())
-    }
+    // #[deprecated]
+    // pub fn insert_contract(
+    //     &mut self,
+    //     contract_identifier: &QualifiedContractIdentifier,
+    //     contract: Contract,
+    // ) -> Result<()> {
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+    //     self.insert_metadata(contract_identifier, &key, &contract)?;
+    //     Ok(())
+    // }
 
-    #[deprecated]
-    pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        self.store.has_metadata_entry(contract_identifier, &key)
-    }
+    // #[deprecated]
+    // pub fn has_contract(&mut self, contract_identifier: &QualifiedContractIdentifier) -> bool {
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+    //     self.store.has_metadata_entry(contract_identifier, &key)
+    // }
 
-    #[deprecated]
-    pub fn get_contract(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Contract> {
-        let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
-        let mut data: Contract = self.fetch_metadata(contract_identifier, &key)?
-            .ok_or_else(|| InterpreterError::Expect(
-                "Failed to read non-consensus contract metadata, even though contract exists in MARF."
-                .into()))?;
-        data.canonicalize_types(&self.get_clarity_epoch_version()?);
-        Ok(data)
-    }
+    // #[deprecated]
+    // pub fn get_contract(
+    //     &mut self,
+    //     contract_identifier: &QualifiedContractIdentifier,
+    // ) -> Result<Contract> {
+    //     let key = ClarityDatabase::make_metadata_key(StoreType::Contract, "contract");
+    //     let mut data: Contract = self.fetch_metadata(contract_identifier, &key)?
+    //         .ok_or_else(|| InterpreterError::Expect(
+    //             "Failed to read non-consensus contract metadata, even though contract exists in MARF."
+    //             .into()))?;
+    //     data.canonicalize_types(&self.get_clarity_epoch_version()?);
+    //     Ok(data)
+    // }
 
     pub fn ustx_liquid_supply_key() -> &'static str {
         "_stx-data::ustx_liquid_supply"
