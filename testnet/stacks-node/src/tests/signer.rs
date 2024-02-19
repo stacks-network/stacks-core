@@ -1156,8 +1156,9 @@ fn stackerdb_reward_cycle_transitions() {
         .get_burnchain()
         .reward_cycle_to_block_height(next_reward_cycle)
         .saturating_sub(1);
-    let next_reward_cycle_reward_set_calculation =
-        next_reward_cycle_boundary.saturating_sub(prepare_phase_len);
+    let next_reward_cycle_reward_set_calculation = next_reward_cycle_boundary
+        .saturating_sub(prepare_phase_len)
+        .saturating_add(1);
 
     info!("------------------------- Test Nakamoto Block Mining in Reward Cycle {curr_reward_cycle} -------------------------");
 
@@ -1169,7 +1170,7 @@ fn stackerdb_reward_cycle_transitions() {
         "Mining {} Nakamoto blocks to reach next reward cycle reward set calculation at block height {next_reward_cycle_reward_set_calculation}",
         nmb_blocks_to_mine
     );
-    for _ in 0..=nmb_blocks_to_mine {
+    for _ in 0..nmb_blocks_to_mine {
         signer_test.mine_nakamoto_block(timeout);
         signer_test.wait_for_validate_ok_response(timeout);
         signer_test.wait_for_frost_signatures(timeout);
