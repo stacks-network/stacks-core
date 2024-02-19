@@ -38,6 +38,7 @@ pub mod getaccount;
 pub mod getattachment;
 pub mod getattachmentsinv;
 pub mod getblock;
+pub mod getblock_v3;
 pub mod getconstantval;
 pub mod getcontractabi;
 pub mod getcontractsrc;
@@ -55,6 +56,8 @@ pub mod getstackerdbchunk;
 pub mod getstackerdbmetadata;
 pub mod getstackers;
 pub mod getstxtransfercost;
+pub mod gettenure;
+pub mod gettenureinfo;
 pub mod gettransaction_unconfirmed;
 pub mod liststackerdbreplicas;
 pub mod postblock;
@@ -80,6 +83,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(getattachment::RPCGetAttachmentRequestHandler::new());
         self.register_rpc_endpoint(getattachmentsinv::RPCGetAttachmentsInvRequestHandler::new());
         self.register_rpc_endpoint(getblock::RPCBlocksRequestHandler::new());
+        self.register_rpc_endpoint(getblock_v3::RPCNakamotoBlockRequestHandler::new());
         self.register_rpc_endpoint(getconstantval::RPCGetConstantValRequestHandler::new());
         self.register_rpc_endpoint(getcontractabi::RPCGetContractAbiRequestHandler::new());
         self.register_rpc_endpoint(getcontractsrc::RPCGetContractSrcRequestHandler::new());
@@ -107,6 +111,8 @@ impl StacksHttp {
             getstackerdbmetadata::RPCGetStackerDBMetadataRequestHandler::new(),
         );
         self.register_rpc_endpoint(getstackers::GetStackersRequestHandler::default());
+        self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
+        self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
         );
