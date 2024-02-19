@@ -96,69 +96,24 @@ Callers who wish to download more headers will need to issue this query
 multiple times, with a `?tip=` query parameter set to the index block hash of
 the earliest header received.
 
-Returns a
-[SIP-003](https://github.com/stacksgov/sips/blob/main/sips/sip-003/sip-003-peer-network.md)-encoded
-vector with length up to [Count] that contains a list of the following SIP-003-encoded
-structures:
+Returns a JSON list containing the following:
 
-```rust
-struct ExtendedStacksHeader {
-    consensus_hash: ConsensusHash,
-    header: StacksBlockHeader,
-    parent_block_id: StacksBlockId,
-}
+```json
+[
+  {
+    "consensus_hash": "dff37af13badf99683228e61c71585bb7a82ac92",
+    "header":
+"0600000047ddfbee8c00000000000222c7ad9042e5a67a703ff3b06581e3fd8a2f1496a563dc41462ebf8e5b046b43e7085f20e828840f26fefbe93a048f6c390ce55b954b188a43781fa0db61c091dbb840717fda77f9fc16d8ac85f80bbf2d04a20d17328390e03b8f496986f6351def656fd12cc4b8fe5e2cfb8d3f2e67c3a700000000000000000000000000000000000000000000000000000000000000000000fb432fbe28fb60ab37c8f59eec2397a0d0bcaf679a34b39d02d338935c7e723e062d571e331fb5016d3000ab68da691baa02b4a5dde7befa2edceb219af959312544d306919a59ee4cfd616dc3cc44a6f01ac7c8",
+    "parent_block_id":
+"e0cb2be07552556f856503d2fbd855a27d49dc5a8c47fb2d9f0314eb6bad6861"
+  }
+]
 ```
 
-Where `ConsensusHash` is a 20-byte byte buffer.
-
-Where `StacksBlockId` is a 32-byte byte buffer.
-
-Where `StacksBlockHeader` is the following SIP-003-encoded structure:
-
-```rust
-struct StacksBlockHeader {
-    version: u8,
-    total_work: StacksWorkScore,
-    proof: VRFProof,
-    parent_block: BlockHeaderHash,
-    parent_microblock: BlockHeaderHash,
-    parent_microblock_sequence: u16,
-    tx_merkle_root: Sha512Trunc256Sum,
-    state_index_root: TrieHash,
-    microblock_pubkey_hash: Hash160,
-}
-```
-
-Where `BlockHeaderHash`, `Sha512Trunc256Sum`, and `TrieHash` are 32-byte byte
-buffers.
-
-Where `Hash160` is a 20-byte byte buffer.
-
-Where `StacksWorkScore` and `VRFProof` are the following SIP-003-encoded structures:
-
-```rust
-struct StacksWorkScore {
-    burn: u64,
-    work: u64,
-}
-```
-
-```rust
-struct VRFProof {
-    Gamma: [u8; 32]
-    c: [u8; 16]
-    s: [u8; 32]
-}
-```
-
-The interpretation of most these fields is beyond the scope of this document (please
-see
-[SIP-005](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md)
-for details).  However, it is worth pointing out that `parent_block_id` is a
-valid argument to the `?tip=` query parameter.  If the caller of this API
-endpoint wants to receive more than 2100 contiguous headers, it would use the
-oldest header's `parent_block_id` field from the previous call as the `?tip=`
-argument to the next call in order to fetch the next batch of ancestor headers.
+The `consensus_hash` field identifies the sortition in which the given block was
+chosen.  The `header` is the raw block header, a a hex string.  The
+`parent_block_id` is the block ID hash of this block's parent, and can be used
+as a `?tip=` query parameter to page through deeper and deeper block headers.
 
 This API endpoint may return a list of zero headers if `?tip=` refers to the
 hash of the Stacks genesis block.
@@ -540,3 +495,41 @@ Error examples:
   "reason_code": "ChainstateError"
 }
 ```
+
+### GET /v3/blocks/[Block ID]
+
+Fetch a Nakamoto block given its block ID hash.  This returns the raw block
+data.
+
+This will return 404 if the block does not exist.
+
+### GET /v3/tenures/[Block ID]
+
+Fetch a Nakamoto block and all of its ancestors in the same tenure, given its
+block ID hash.  At most `MAX_MESSAGE_LEN` (i.e. 2 MB) of data will be returned.
+If the tenure is larger than this, then the caller can page through the tenure
+by repeatedly invoking this endpoint with the deepest block's block ID until
+only a single block is returned (i.e. the tenure-start block).
+
+This method returns one or more raw blocks, concatenated together.
+
+This method returns 404 if there are no blocks with the given block ID.
+
+### GET /v3/tenures/info
+
+Return metadata about the highest-known tenure, as the following JSON structure:
+
+```json
+{
+  "consensus_hash": "dca60a97a135189d67a5ad6d2dac90f289b19c96",
+  "reward_cycle": 5,
+  "tip_block_id": "317c0ee162d1ee02c67d5bca79003dafc59aa84579360387f43650c37491ac3b",
+  "tip_height": 116
+}
+```
+
+Here, `consensus_hash` identifies the highest-known tenure (which may not be the
+highest sortition), `reward_cycle` identifies the reward cycle number of this
+tenure, `tip_block_id` idenitifies the highest-known block in this tenure, and
+`tip_height` identifies that block's height.
+
