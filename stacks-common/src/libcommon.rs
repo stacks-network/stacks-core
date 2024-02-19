@@ -31,6 +31,8 @@ pub mod address;
 
 pub mod deps_common;
 
+pub mod bitvec;
+
 use crate::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId};
 
 pub mod consts {
@@ -57,4 +59,8 @@ pub mod consts {
     pub const MINER_REWARD_MATURITY: u64 = 100;
 
     pub const STACKS_EPOCH_MAX: u64 = i64::MAX as u64;
+
+    /// The number of StackerDB slots each signing key needs
+    ///  to use to participate in DKG and block validation signing.
+    pub const SIGNER_SLOTS_PER_USER: u32 = 12;
 }

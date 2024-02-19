@@ -69,11 +69,13 @@ jobs:
           - tests::neon_integrations::test_problematic_txs_are_not_stored
           - tests::neon_integrations::use_latest_tip_integration_test
           - tests::neon_integrations::confirm_unparsed_ongoing_ops
+          - tests::neon_integrations::min_txs
           - tests::should_succeed_handling_malformed_and_valid_txs
           - tests::nakamoto_integrations::simple_neon_integration
           - tests::nakamoto_integrations::mine_multiple_per_tenure_integration
           - tests::nakamoto_integrations::block_proposal_api_endpoint
           - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
+          - tests::nakamoto_integrations::correct_burn_outs
           - tests::signer::stackerdb_dkg_sign
           - tests::signer::stackerdb_block_proposal
     steps:

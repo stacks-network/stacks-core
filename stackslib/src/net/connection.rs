@@ -77,7 +77,7 @@ impl<P: ProtocolFamily> ReceiverNotify<P> {
         match self.receiver_input.send(msg) {
             Ok(_) => {}
             Err(e) => {
-                warn!(
+                debug!(
                     "Failed to reply message {} ({} {}): {:?}",
                     self.expected_seq, msg_name, msg_id, &e
                 );
@@ -249,7 +249,11 @@ impl<P: ProtocolFamily> NetworkReplyHandle<P> {
             }
         };
         self.request_pipe_write = fd_opt;
-        Ok(ret)
+        if drop_on_success {
+            Ok(self.request_pipe_write.is_none())
+        } else {
+            Ok(ret)
+        }
     }
 
     /// Try to flush the inner pipe writer.  If we succeed, drop the inner pipe.
@@ -387,6 +391,8 @@ pub struct ConnectionOptions {
     pub socket_recv_buffer_size: u32,
     /// socket write buffer size
     pub socket_send_buffer_size: u32,
+    /// whether or not to announce or accept neighbors that are behind private networks
+    pub private_neighbors: bool,
 
     // fault injection
     pub disable_neighbor_walk: bool,
@@ -405,13 +411,17 @@ pub struct ConnectionOptions {
     pub disable_inbound_handshakes: bool,
     pub disable_stackerdb_get_chunks: bool,
     pub force_disconnect_interval: Option<u64>,
+    /// If set to true, this forces the p2p state machine to believe that it is running in
+    /// the reward cycle in which Nakamoto activates, and thus needs to run both the epoch
+    /// 2.x and Nakamoto state machines.
+    pub force_nakamoto_epoch_transition: bool,
 }
 
 impl std::default::Default for ConnectionOptions {
     fn default() -> ConnectionOptions {
         ConnectionOptions {
-            inbox_maxlen: 5,
-            outbox_maxlen: 5,
+            inbox_maxlen: 1024,
+            outbox_maxlen: 1024,
             connect_timeout: 10, // how long a socket can be in a connecting state
             handshake_timeout: 30, // how long before a peer must send a handshake, after connecting
             timeout: 30,         // how long to wait for a reply to a request
@@ -478,6 +488,7 @@ impl std::default::Default for ConnectionOptions {
             mempool_sync_timeout: 180, // how long a mempool sync can go for (3 minutes)
             socket_recv_buffer_size: 131072, // Linux default
             socket_send_buffer_size: 16384, // Linux default
+            private_neighbors: true,
 
             // no faults on by default
             disable_neighbor_walk: false,
@@ -496,6 +507,7 @@ impl std::default::Default for ConnectionOptions {
             disable_inbound_handshakes: false,
             disable_stackerdb_get_chunks: false,
             force_disconnect_interval: None,
+            force_nakamoto_epoch_transition: false,
         }
     }
 }
@@ -1055,9 +1067,8 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         let mut total_sent = 0;
         let mut blocked = false;
         let mut disconnected = false;
-        while !blocked && !disconnected {
-            let mut message_eof = false;
-
+        let mut message_eof = false;
+        while !blocked && !disconnected && !message_eof {
             if self.pending_message_fd.is_none() {
                 self.pending_message_fd = self.begin_next_message();
             }
@@ -1174,9 +1185,10 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         }
 
         test_debug!(
-            "Connection send_bytes finished: blocked = {}, disconnected = {}",
+            "Connection send_bytes finished: blocked = {}, disconnected = {}, eof = {}",
             blocked,
-            disconnected
+            disconnected,
+            message_eof,
         );
 
         if total_sent == 0 {

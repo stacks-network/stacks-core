@@ -147,7 +147,8 @@ impl RPCRequestHandler for RPCGetConstantValRequestHandler {
                         let cst = contract
                             .contract_context
                             .lookup_variable(constant_name.as_str())?
-                            .serialize_to_hex();
+                            .serialize_to_hex()
+                            .ok()?;
 
                         let data = format!("0x{cst}");
                         Some(ConstantValResponse { data })

@@ -5,37 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [2.4.0.0.4]
+## [Next-Branch]
 
-This is a high-priority hotfix that addresses a bug in transaction processing which
-could impact miner availability.
+### Added
 
-## [2.4.0.0.3]
+- New RPC endpoint `/v2/stacker_set/{cycle_number}` to fetch stacker sets in PoX-4
+- New `/new_pox_anchor` endpoint for broadcasting PoX anchor block processing.
+- Stacker bitvec in NakamotoBlock
+- New [`pox-4` contract](./stackslib/src/chainstate/stacks/boot/pox-4.clar) that reflects changes in how Stackers are signers in Nakamoto:
+  - `stack-stx`, `stack-extend`, and `stack-aggregation-commit` now include a `signer-key` parameter, which represents the public key used by the Signer. This key is used for determining the signer set in Nakamoto.
+  - Functions that include a `signer-key` parameter also include a `signer-sig` parameter to demonstrate that the owner of `signer-key` is approving that particular Stacking operation. For more details, refer to the `verify-signer-key-sig` method in the `pox-4` contract.
 
-This is a high-priority hotfix that addresses a bug in transaction processing which
-could impact miner availability.
+### Modified
 
-## [2.4.0.0.2]
+- `pox-4.aggregation-commit` contains a signing-key parameter (like
+  `stack-stx` and `stack-extend`), the signing-key parameter is removed from
+  `delegate-*` functions.
 
-This is a hotfix that changes the logging failure behavior from panicking to dropping
-the log message (PR #3784).
-
-## [2.4.0.0.4]
-
-This is a high-priority hotfix that addresses a bug in transaction processing which
-could impact miner availability.
-
-## [2.4.0.0.3]
-
-This is a high-priority hotfix that addresses a bug in transaction processing which
-could impact miner availability.
-
-## [2.4.0.0.2]
-
-This is a hotfix that changes the logging failure behavior from panicking to dropping
-the log message (PR #3784).
-
-## [Unreleased]
+## [2.4.0.1.0]
 
 ### Added
 
@@ -56,6 +43,25 @@ the log message (PR #3784).
 - New RPC endpoint at /v2/block_proposal for miner to validate proposed block.
   Only accessible on local loopback interface
 
+In addition, this introduces a set of improvements to the Stacks miner behavior.  In
+particular:
+* The VRF public key can be re-used across node restarts.
+* Settings that affect mining are hot-reloaded from the config file.  They take
+  effect once the file is updated; there is no longer a need to restart the
+node.
+* The act of changing the miner settings in the config file automatically
+  triggers a subsequent block-build attempt, allowing the operator to force the
+miner to re-try building blocks.
+* This adds a new tip-selection algorithm that minimizes block orphans within a
+  configurable window of time.
+* When configured, the node will automatically stop mining if it is not achieving a
+  targeted win rate over a configurable window of blocks.
+* When configured, the node will selectively mine transactions from only certain
+  addresses, or only of certain types (STX-transfers, contract-publishes,
+contract-calls).
+* When configured, the node will optionally only RBF block-commits if it can
+  produce a block with strictly more transactions.
+
 ### Changed
 
 - `developer-mode` is no longer enabled in the default feature set. This is the correct default behavior, since the stacks-node should NOT build with developer-mode enabled by default. Tools that need to use developer-mode should enable it explicitly.
@@ -71,6 +77,36 @@ the log message (PR #3784).
 - Use the current burnchain tip to lookup UTXOs (Issue #3733)
 - The node now gracefully shuts down even if it is in the middle of a handshake with
   bitcoind. Fixes issue #3734.
+
+## [2.4.0.0.4]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.3]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.2]
+
+This is a hotfix that changes the logging failure behavior from panicking to dropping
+the log message (PR #3784).
+
+## [2.4.0.0.4]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.3]
+
+This is a high-priority hotfix that addresses a bug in transaction processing which
+could impact miner availability.
+
+## [2.4.0.0.2]
+
+This is a hotfix that changes the logging failure behavior from panicking to dropping
+the log message (PR #3784).
 
 ## [2.4.0.0.1]
 

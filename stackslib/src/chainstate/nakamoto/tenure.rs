@@ -509,6 +509,22 @@ impl NakamotoChainState {
         }
     }
 
+    /// Get a nakamoto tenure-change by its tenure ID consensus hash.
+    /// Get the highest such record.  It will be the last-processed BlockFound tenure
+    /// for the given sortition consensus hash.
+    pub fn get_highest_nakamoto_tenure_change_by_tenure_id(
+        headers_conn: &Connection,
+        tenure_id_consensus_hash: &ConsensusHash,
+    ) -> Result<Option<NakamotoTenure>, ChainstateError> {
+        let sql = "SELECT * FROM nakamoto_tenures WHERE tenure_id_consensus_hash = ?1 AND cause = ?2 ORDER BY tenure_index DESC LIMIT 1";
+        let args: &[&dyn ToSql] = &[
+            tenure_id_consensus_hash,
+            &TenureChangeCause::BlockFound.as_u8(),
+        ];
+        let tenure_opt: Option<NakamotoTenure> = query_row(headers_conn, sql, args)?;
+        Ok(tenure_opt)
+    }
+
     /// Get the highest processed tenure on the canonical sortition history.
     pub fn get_highest_nakamoto_tenure(
         headers_conn: &Connection,

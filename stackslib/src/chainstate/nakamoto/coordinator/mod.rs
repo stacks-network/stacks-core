@@ -17,9 +17,12 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::types::PrincipalData;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId,
+    StacksPrivateKey, StacksPublicKey,
 };
 use stacks_common::types::{StacksEpoch, StacksEpochId};
 
@@ -38,7 +41,7 @@ use crate::chainstate::coordinator::{
     RewardSetProvider,
 };
 use crate::chainstate::nakamoto::NakamotoChainState;
-use crate::chainstate::stacks::boot::RewardSet;
+use crate::chainstate::stacks::boot::{RewardSet, SIGNERS_NAME};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use crate::chainstate::stacks::Error as ChainstateError;
@@ -50,54 +53,119 @@ use crate::util_lib::db::Error as DBError;
 #[cfg(test)]
 pub mod tests;
 
-impl OnChainRewardSetProvider {
-    pub fn get_reward_set_nakamoto(
+macro_rules! err_or_debug {
+    ($debug_bool:expr, $($arg:tt)*) => ({
+        if $debug_bool {
+            debug!($($arg)*)
+        } else {
+            error!($($arg)*)
+        }
+    })
+}
+
+macro_rules! inf_or_debug {
+    ($debug_bool:expr, $($arg:tt)*) => ({
+        if $debug_bool {
+            debug!($($arg)*)
+        } else {
+            info!($($arg)*)
+        }
+    })
+}
+
+impl<'a, T: BlockEventDispatcher> OnChainRewardSetProvider<'a, T> {
+    /// Read a reward_set written while updating .signers
+    /// `debug_log` should be set to true if the reward set loading should
+    ///  log messages as `debug!` instead of `error!` or `info!`. This allows
+    ///  RPC endpoints to expose this without flooding loggers.
+    pub fn read_reward_set_nakamoto(
         &self,
         cycle_start_burn_height: u64,
         chainstate: &mut StacksChainState,
         burnchain: &Burnchain,
         sortdb: &SortitionDB,
         block_id: &StacksBlockId,
+        debug_log: bool,
     ) -> Result<RewardSet, Error> {
         let cycle = burnchain
             .block_height_to_reward_cycle(cycle_start_burn_height)
             .expect("FATAL: no reward cycle for burn height");
+        // figure out the block ID
+        let Some(coinbase_height_of_calculation) = chainstate
+            .eval_boot_code_read_only(
+                sortdb,
+                block_id,
+                SIGNERS_NAME,
+                &format!("(map-get? cycle-set-height u{})", cycle),
+            )?
+            .expect_optional()
+            .map_err(|e| Error::ChainstateError(e.into()))?
+            .map(|x| {
+                let as_u128 = x.expect_u128()?;
+                Ok(u64::try_from(as_u128).expect("FATAL: block height exceeded u64"))
+            })
+            .transpose()
+            .map_err(|e| Error::ChainstateError(ChainstateError::ClarityError(e)))?
+        else {
+            err_or_debug!(
+                debug_log,
+                "The reward set was not written to .signers before it was needed by Nakamoto";
+                "cycle_number" => cycle,
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        };
 
-        let registered_addrs =
-            chainstate.get_reward_addresses_in_cycle(burnchain, sortdb, cycle, block_id)?;
+        let Some(reward_set_block) = NakamotoChainState::get_header_by_coinbase_height(
+            &mut chainstate.index_tx_begin()?,
+            block_id,
+            coinbase_height_of_calculation,
+        )?
+        else {
+            err_or_debug!(
+                debug_log,
+                "Failed to find the block in which .signers was written"
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        };
 
-        let liquid_ustx = chainstate.get_liquid_ustx(block_id);
+        let Some(reward_set) = NakamotoChainState::get_reward_set(
+            chainstate.db(),
+            &reward_set_block.index_block_hash(),
+        )?
+        else {
+            err_or_debug!(
+                debug_log,
+                "No reward set stored at the block in which .signers was written";
+                "checked_block" => %reward_set_block.index_block_hash(),
+                "coinbase_height_of_calculation" => coinbase_height_of_calculation,
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        };
 
-        let (threshold, participation) = StacksChainState::get_reward_threshold_and_participation(
-            &burnchain.pox_constants,
-            &registered_addrs[..],
-            liquid_ustx,
-        );
-
-        let cur_epoch = SortitionDB::get_stacks_epoch(sortdb.conn(), cycle_start_burn_height)?
-            .expect(&format!(
-                "FATAL: no epoch defined for burn height {}",
-                cycle_start_burn_height
-            ));
-
-        if cur_epoch.epoch_id >= StacksEpochId::Epoch30 && participation == 0 {
+        // This method should only ever called if the current reward cycle is a nakamoto reward cycle
+        //  (i.e., its reward set is fetched for determining signer sets (and therefore agg keys).
+        //  Non participation is fatal.
+        if reward_set.rewarded_addresses.is_empty() {
             // no one is stacking
-            error!("No PoX participation");
+            err_or_debug!(debug_log, "No PoX participation");
             return Err(Error::PoXAnchorBlockRequired);
         }
 
-        info!("PoX reward cycle threshold computed";
-              "burn_height" => cycle_start_burn_height,
-              "threshold" => threshold,
-              "participation" => participation,
-              "liquid_ustx" => liquid_ustx,
-              "registered_addrs" => registered_addrs.len());
+        inf_or_debug!(
+            debug_log,
+            "PoX reward set loaded from written block state";
+            "reward_set_block_id" => %reward_set_block.index_block_hash(),
+        );
 
-        Ok(StacksChainState::make_reward_set(
-            threshold,
-            registered_addrs,
-            cur_epoch.epoch_id,
-        ))
+        if reward_set.signers.is_none() {
+            err_or_debug!(
+                debug_log,
+                "FATAL: PoX reward set did not specify signer set in Nakamoto"
+            );
+            return Err(Error::PoXAnchorBlockRequired);
+        }
+
+        Ok(reward_set)
     }
 }
 
@@ -176,9 +244,8 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
 
     // calculating the reward set for the _next_ reward cycle
     let reward_cycle = burnchain
-        .block_height_to_reward_cycle(burn_height)
-        .expect("FATAL: no reward cycle for burn height")
-        + 1;
+        .next_reward_cycle(burn_height)
+        .expect("FATAL: no reward cycle for burn height");
     let reward_start_height = burnchain.reward_cycle_to_block_height(reward_cycle);
 
     debug!("Processing reward set for Nakamoto reward cycle";
@@ -187,9 +254,9 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
           "reward_cycle_length" => burnchain.pox_constants.reward_cycle_length,
           "prepare_phase_length" => burnchain.pox_constants.prepare_length);
 
-    // find the last tenure-start Stacks block processed in the preceeding prepare phase
-    // (i.e. the first block in the tenure of the parent of the first Stacks block processed in the prepare phase).
-    // Note that we may not have processed it yet.  But, if we do find it, then it's
+    // Find the first Stacks block in this reward cycle's preceding prepare phase.
+    // This block will have invoked `.signers.stackerdb-set-signer-slots()` with the reward set.
+    // Note that we may not have processed it yet. But, if we do find it, then it's
     // unique (and since Nakamoto Stacks blocks are processed in order, the anchor block
     // cannot change later).
     let prepare_phase_sortitions =
@@ -208,125 +275,99 @@ pub fn get_nakamoto_reward_cycle_info<U: RewardSetProvider>(
         return Ok(None);
     };
 
-    for sn in prepare_phase_sortitions.into_iter() {
-        if !sn.sortition {
-            continue;
-        }
+    // iterate over the prepare_phase_sortitions, finding the first such sortition
+    //  with a processed stacks block
+    let Some(anchor_block_header) = prepare_phase_sortitions
+        .into_iter()
+        .find_map(|sn| {
+            if !sn.sortition {
+                return None
+            }
 
-        // find the first Stacks block processed in the prepare phase
-        let parent_block_id = if let Some(nakamoto_start_block) =
-            NakamotoChainState::get_nakamoto_tenure_start_block_header(
+            match NakamotoChainState::get_nakamoto_tenure_start_block_header(
                 chain_state.db(),
                 &sn.consensus_hash,
-            )? {
-            nakamoto_start_block
-                .anchored_header
-                .as_stacks_nakamoto()
-                // TODO: maybe `get_nakamoto_tenure_start_block_header` should
-                //       return a type that doesn't require this unwrapping?
-                .expect("FATAL: queried non-Nakamoto tenure start header")
-                .parent_block_id
-        } else {
-            let Some(block_header) =
-                StacksChainState::get_stacks_block_header_info_by_consensus_hash(
-                    chain_state.db(),
-                    &sn.consensus_hash,
-                )?
-            else {
-                // no header for this snapshot (possibly invalid)
-                debug!("Failed to find block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
-                continue;
-            };
-            let Some(parent_block_id) = StacksChainState::get_parent_block_id(
+            ) {
+                Ok(Some(x)) => return Some(Ok(x)),
+                Err(e) => return Some(Err(e)),
+                Ok(None) => {}, // pass: if cannot find nakamoto block, maybe it was a 2.x block?
+            }
+
+            match StacksChainState::get_stacks_block_header_info_by_consensus_hash(
                 chain_state.db(),
-                &block_header.index_block_hash(),
-            )?
-            else {
-                debug!("Failed to get parent block"; "block_id" => %block_header.index_block_hash());
-                continue;
-            };
-            parent_block_id
-        };
-
-        // find the tenure-start block of the tenure of the parent of this Stacks block.
-        // in epoch 2, this is the preceding anchor block
-        // in nakamoto, this is the tenure-start block of the preceding tenure
-        let parent_block_header =
-            NakamotoChainState::get_block_header(chain_state.db(), &parent_block_id)?
-                .expect("FATAL: no parent for processed Stacks block in prepare phase");
-
-        let anchor_block_header = match &parent_block_header.anchored_header {
-            StacksBlockHeaderTypes::Epoch2(..) => parent_block_header.clone(),
-            StacksBlockHeaderTypes::Nakamoto(..) => {
-                NakamotoChainState::get_nakamoto_tenure_start_block_header(
-                    chain_state.db(),
-                    &parent_block_header.consensus_hash,
-                )?
-                .expect("FATAL: no parent for processed Stacks block in prepare phase")
+                &sn.consensus_hash,
+            ){
+                Ok(Some(x)) => return Some(Ok(x)),
+                Err(e) => return Some(Err(e)),
+                Ok(None) => {
+                    // no header for this snapshot (possibly invalid)
+                    debug!("Failed to find block by consensus hash"; "consensus_hash" => %sn.consensus_hash);
+                    return None
+                }
             }
+        })
+        // if there was a chainstate error during the lookup, yield the error
+        .transpose()? else {
+            // no stacks block known yet
+            info!("No PoX anchor block known yet for cycle {reward_cycle}");
+            return Ok(None)
         };
 
-        let anchor_block_sn = SortitionDB::get_block_snapshot_consensus(
-            sort_db.conn(),
-            &anchor_block_header.consensus_hash,
-        )?
-        .expect("FATAL: no snapshot for winning PoX anchor block");
+    let anchor_block_sn = SortitionDB::get_block_snapshot_consensus(
+        sort_db.conn(),
+        &anchor_block_header.consensus_hash,
+    )?
+    .expect("FATAL: no snapshot for winning PoX anchor block");
 
-        // make sure the `anchor_block` field is the same as whatever goes into the block-commit,
-        // or PoX ancestry queries won't work
-        let (block_id, stacks_block_hash) = match anchor_block_header.anchored_header {
-            StacksBlockHeaderTypes::Epoch2(header) => (
-                StacksBlockId::new(&anchor_block_header.consensus_hash, &header.block_hash()),
-                header.block_hash(),
-            ),
-            StacksBlockHeaderTypes::Nakamoto(header) => {
-                (header.block_id(), BlockHeaderHash(header.block_id().0))
-            }
-        };
+    // make sure the `anchor_block` field is the same as whatever goes into the block-commit,
+    // or PoX ancestry queries won't work
+    let (block_id, stacks_block_hash) = match anchor_block_header.anchored_header {
+        StacksBlockHeaderTypes::Epoch2(ref header) => (
+            StacksBlockId::new(&anchor_block_header.consensus_hash, &header.block_hash()),
+            header.block_hash(),
+        ),
+        StacksBlockHeaderTypes::Nakamoto(ref header) => {
+            (header.block_id(), BlockHeaderHash(header.block_id().0))
+        }
+    };
 
-        let txid = anchor_block_sn.winning_block_txid;
+    let txid = anchor_block_sn.winning_block_txid;
 
-        info!(
-            "Anchor block selected";
-            "cycle" => reward_cycle,
-            "block_id" => %block_id,
-            "consensus_hash" => %anchor_block_header.consensus_hash,
-            "burn_height" => anchor_block_header.burn_header_height,
-            "anchor_chain_tip" => %parent_block_header.index_block_hash(),
-            "anchor_chain_tip_height" => %parent_block_header.burn_header_height,
-            "first_prepare_sortition_id" => %first_sortition_id
-        );
+    info!(
+        "Anchor block selected";
+        "cycle" => reward_cycle,
+        "block_id" => %block_id,
+        "consensus_hash" => %anchor_block_header.consensus_hash,
+        "burn_height" => anchor_block_header.burn_header_height,
+        "anchor_chain_tip" => %anchor_block_header.index_block_hash(),
+        "anchor_chain_tip_height" => %anchor_block_header.burn_header_height,
+        "first_prepare_sortition_id" => %first_sortition_id
+    );
 
-        let reward_set = provider.get_reward_set(
-            reward_start_height,
-            chain_state,
-            burnchain,
-            sort_db,
-            &block_id,
-        )?;
-        debug!(
-            "Stacks anchor block (ch {}) {} cycle {} is processed",
-            &anchor_block_header.consensus_hash, &block_id, reward_cycle
-        );
-        let anchor_status =
-            PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set);
+    let reward_set = provider.get_reward_set_nakamoto(
+        reward_start_height,
+        chain_state,
+        burnchain,
+        sort_db,
+        &block_id,
+    )?;
+    debug!(
+        "Stacks anchor block (ch {}) {} cycle {} is processed",
+        &anchor_block_header.consensus_hash, &block_id, reward_cycle
+    );
+    let anchor_status = PoxAnchorBlockStatus::SelectedAndKnown(stacks_block_hash, txid, reward_set);
 
-        let rc_info = RewardCycleInfo {
-            reward_cycle,
-            anchor_status,
-        };
+    let rc_info = RewardCycleInfo {
+        reward_cycle,
+        anchor_status,
+    };
 
-        // persist this
-        let mut tx = sort_db.tx_begin()?;
-        SortitionDB::store_preprocessed_reward_set(&mut tx, &first_sortition_id, &rc_info)?;
-        tx.commit()?;
+    // persist this
+    let mut tx = sort_db.tx_begin()?;
+    SortitionDB::store_preprocessed_reward_set(&mut tx, &first_sortition_id, &rc_info)?;
+    tx.commit()?;
 
-        return Ok(Some(rc_info));
-    }
-
-    // no stacks block known yet
-    info!("No PoX anchor block known yet for cycle {}", reward_cycle);
-    return Ok(None);
+    return Ok(Some(rc_info));
 }
 
 /// Get the next PoX recipients in the Nakamoto epoch.
@@ -391,9 +432,6 @@ impl<
     /// to ensure that the PoX stackers have been selected for this cycle.  This means that we
     /// don't proceed to process Nakamoto blocks until the reward cycle has begun.  Also, the last
     /// reward cycle of epoch2 _must_ be PoX so we have stackers who can sign.
-    ///
-    /// TODO: how do signers register their initial keys?  Can we just deploy a pre-registration
-    /// contract?
     pub fn can_process_nakamoto(&mut self) -> Result<bool, Error> {
         let canonical_sortition_tip = self
             .canonical_sortition_tip
@@ -538,6 +576,12 @@ impl<
                 debug!("No more blocks to process (no receipts)");
                 break;
             };
+
+            if block_receipt.signers_updated {
+                // notify p2p thread via globals
+                self.refresh_stacker_db
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
 
             let block_hash = block_receipt.header.anchored_header.block_hash();
             let (
@@ -843,7 +887,7 @@ impl<
 
             // mark this burn block as processed in the nakamoto chainstate
             let tx = self.chain_state_db.staging_db_tx_begin()?;
-            NakamotoChainState::set_burn_block_processed(&tx, &next_snapshot.consensus_hash)?;
+            tx.set_burn_block_processed(&next_snapshot.consensus_hash)?;
             tx.commit().map_err(DBError::SqliteError)?;
 
             let sortition_id = next_snapshot.sortition_id;
