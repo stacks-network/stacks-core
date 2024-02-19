@@ -513,7 +513,7 @@ fn test_nakamoto_chainstate_getters() {
         assert_eq!(
             NakamotoChainState::check_sortition_exists(&mut sort_tx, &sort_tip.consensus_hash)
                 .unwrap(),
-            (sort_tip.burn_header_hash.clone(), sort_tip.block_height)
+            sort_tip
         );
     }
 
