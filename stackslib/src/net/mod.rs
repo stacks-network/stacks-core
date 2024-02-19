@@ -2679,6 +2679,18 @@ pub mod test {
             ret
         }
 
+        pub fn refresh_burnchain_view(&mut self) {
+            let sortdb = self.sortdb.take().unwrap();
+            let mut stacks_node = self.stacks_node.take().unwrap();
+            let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
+            self.network
+                .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
+                .unwrap();
+
+            self.sortdb = Some(sortdb);
+            self.stacks_node = Some(stacks_node);
+        }
+
         pub fn for_each_convo_p2p<F, R>(&mut self, mut f: F) -> Vec<Result<R, net_error>>
         where
             F: FnMut(usize, &mut ConversationP2P) -> Result<R, net_error>,
