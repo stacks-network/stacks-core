@@ -89,13 +89,7 @@ use stacks_common::util::vrf::{VRFProof, VRFPublicKey, VRF};
 use wsts::curve::point::Point;
 
 use crate::burnchains::{PoxConstants, Txid};
-use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, get_ancestor_sort_id_tx, get_block_commit_by_txid, SortitionDB,
-    SortitionHandle, SortitionHandleConn, SortitionHandleTx,
-};
-use crate::chainstate::burn::operations::{
-    DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, StackStxOp, TransferStxOp,
-};
+use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleTx};
 use crate::chainstate::burn::{BlockSnapshot, SortitionHash};
 use crate::chainstate::coordinator::{BlockEventDispatcher, Error};
 use crate::chainstate::nakamoto::{
@@ -1005,12 +999,13 @@ impl NakamotoChainState {
         ))
     }
 
-    /// Check that a given Nakamoto block's tenure's sortition exists and was processed.
-    /// Return the sortition's burnchain block's hash and its burnchain height
+    /// Check that a given Nakamoto block's tenure's sortition exists and was processed on this
+    /// particular burnchain fork.
+    /// Return the block snapshot if so.
     pub(crate) fn check_sortition_exists(
         burn_dbconn: &mut SortitionHandleTx,
         block_consensus_hash: &ConsensusHash,
-    ) -> Result<(BurnchainHeaderHash, u64), ChainstateError> {
+    ) -> Result<BlockSnapshot, ChainstateError> {
         // check that the burnchain block that this block is associated with has been processed.
         // N.B. we must first get its hash, and then verify that it's in the same Bitcoin fork as
         // our `burn_dbconn` indicates.
@@ -1025,7 +1020,7 @@ impl NakamotoChainState {
                 })?;
 
         let sortition_tip = burn_dbconn.context.chain_tip.clone();
-        let burn_header_height = burn_dbconn
+        let snapshot = burn_dbconn
             .get_block_snapshot(&burn_header_hash, &sortition_tip)?
             .ok_or_else(|| {
                 warn!(
@@ -1033,9 +1028,8 @@ impl NakamotoChainState {
                     "burn_header_hash" => %burn_header_hash,
                 );
                 ChainstateError::NoSuchBlockError
-            })?
-            .block_height;
+            })?;
 
-        Ok((burn_header_hash, burn_header_height))
+        Ok(snapshot)
     }
 }
