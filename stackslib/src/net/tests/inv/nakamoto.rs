@@ -325,7 +325,7 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
 /// NOTE: The second return value does _not_ need `<'a>`, since `observer` is never installed into
 /// the peers here.  However, it appears unavoidable to the borrow-checker.
-fn make_nakamoto_peers_from_invs<'a>(
+pub fn make_nakamoto_peers_from_invs<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
     rc_len: u32,
@@ -399,6 +399,8 @@ fn make_nakamoto_peers_from_invs<'a>(
                     NakamotoBootStep::TenureExtend(vec![next_stx_transfer()]),
                     NakamotoBootStep::Block(vec![next_stx_transfer()]),
                     NakamotoBootStep::TenureExtend(vec![next_stx_transfer()]),
+                    NakamotoBootStep::Block(vec![next_stx_transfer()]),
+                    NakamotoBootStep::TenureExtend(vec![next_stx_transfer()]),
                 ]));
             }
         }
@@ -414,7 +416,7 @@ fn make_nakamoto_peers_from_invs<'a>(
     (peer, other_peers)
 }
 
-fn make_nakamoto_peer_from_invs<'a>(
+pub fn make_nakamoto_peer_from_invs<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
     rc_len: u32,
