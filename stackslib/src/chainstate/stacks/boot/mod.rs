@@ -1997,17 +1997,6 @@ pub mod test {
         make_tx(key, nonce, 0, payload)
     }
 
-    pub fn make_pox_4_extend_delete_this(
-        key: &StacksPrivateKey,
-        nonce: u64,
-        addr: PoxAddress,
-        lock_period: u128,
-        signer_key: StacksPublicKey,
-        signature: Vec<u8>,
-    ) -> StacksTransaction {
-        make_pox_4_extend(key, nonce, addr, lock_period, signer_key, Some(signature))
-    }
-
     pub fn make_pox_4_extend(
         key: &StacksPrivateKey,
         nonce: u64,
