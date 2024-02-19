@@ -395,10 +395,19 @@ fn vote_for_aggregate_public_key_with_errors() {
             0,
             cycle_id + 1,
         ),
-        // Bob casts a vote correctly
+        // Bob casts a vote with the wrong round - should return an invalid round error
         make_signers_vote_for_aggregate_public_key_value(
             bob_key,
             bob_nonce,
+            bob_index,
+            aggregate_public_key.clone(),
+            2,
+            cycle_id + 1,
+        ),
+        // Bob casts a vote correctly
+        make_signers_vote_for_aggregate_public_key_value(
+            bob_key,
+            bob_nonce + 1,
             bob_index,
             aggregate_public_key.clone(),
             0,
@@ -414,7 +423,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     // check the last two txs in the last block
     let block = observer.get_blocks().last().unwrap().clone();
     let receipts = block.receipts.as_slice();
-    assert_eq!(receipts.len(), 9);
+    assert_eq!(receipts.len(), 10);
     // ignore tenure change tx
     // ignore tenure coinbase tx
 
@@ -485,11 +494,41 @@ fn vote_for_aggregate_public_key_with_errors() {
         Value::err_uint(6) // ERR_DUPLICATE_VOTE
     );
 
-    // Bob's first vote, correct vote should succeed in setting the aggregate public key
+    // Bob's first vote should fail (invalid round)
     let bob_first_vote_tx = &receipts[8];
-    assert_eq!(bob_first_vote_tx.result, Value::okay_true());
-    assert_eq!(bob_first_vote_tx.events.len(), 2);
-    let approve_event = &bob_first_vote_tx.events[1];
+    let bob_first_vote_tx_result = bob_first_vote_tx.result.clone();
+    assert_eq!(
+        bob_first_vote_tx_result,
+        Value::err_uint(8) // ERR_INVALID_ROUND
+    );
+
+    // Bob's second vote should succeed and reach the threshold, setting the aggregate public key
+    let bob_second_vote_tx = &receipts[9];
+    assert_eq!(bob_second_vote_tx.result, Value::okay_true());
+    assert_eq!(bob_second_vote_tx.events.len(), 2);
+    let bob_vote_event = &bob_second_vote_tx.events[0];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = bob_vote_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
+                        .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key.clone()),
+                ("new-total".into(), Value::UInt(4)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
+                ("signer".into(), Value::Principal(bob_principal.clone())),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", alice_vote_event);
+    }
+    let approve_event = &bob_second_vote_tx.events[1];
     if let StacksTransactionEvent::SmartContractEvent(contract_event) = approve_event {
         assert_eq!(
             contract_event.value,
