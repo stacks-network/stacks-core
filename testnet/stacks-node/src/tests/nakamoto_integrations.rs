@@ -413,7 +413,7 @@ pub fn boot_to_epoch_3(
             &[
                 clarity::vm::Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT),
                 pox_addr_tuple.clone(),
-                clarity::vm::Value::UInt(205),
+                clarity::vm::Value::UInt(block_height as u128),
                 clarity::vm::Value::UInt(12),
                 clarity::vm::Value::buff_from(signature).unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
