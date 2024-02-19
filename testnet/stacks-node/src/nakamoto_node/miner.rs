@@ -432,12 +432,10 @@ impl BlockMinerThread {
         )
         .expect("FATAL: could not open sortition DB");
 
-        // Check if we need to update the signer key. This key needs to change
-        // on each tenure change or it will not match the public key that is
-        // retrieved from the signers contract.
+        let burn_height = self.burn_block.block_height;
         let cycle = self
             .burnchain
-            .block_height_to_reward_cycle(block.header.chain_length)
+            .block_height_to_reward_cycle(burn_height)
             .expect("FATAL: no reward cycle for burn block");
         signer.sign_nakamoto_block(&mut block, cycle);
 
