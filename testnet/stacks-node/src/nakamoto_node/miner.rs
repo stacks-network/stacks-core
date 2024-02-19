@@ -379,7 +379,8 @@ impl BlockMinerThread {
             self.get_stackerdb_contract_and_slots(stackerdbs, BLOCK_MSG_ID)?;
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
-        let rejection_threshold = 4000 / 10 * 7;
+        let weights: u64 = signer_weights.values().sum();
+        let rejection_threshold = weights / 10 * 7;
         let mut rejections = HashSet::new();
         let mut rejections_weight: u64 = 0;
         let now = Instant::now();
