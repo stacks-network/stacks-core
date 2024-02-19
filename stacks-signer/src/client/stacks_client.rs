@@ -447,17 +447,17 @@ impl StacksClient {
             signer_ids.insert(stacks_address, signer_id);
             signer_public_keys.insert(signer_id, signer_public_key);
             let weight_start = weight_end;
-            weight_end = weight_start + entry.slots;
+            weight_end = weight_start + entry.weight;
             for key_id in weight_start..weight_end {
                 public_keys.key_ids.insert(key_id, ecdsa_public_key);
                 public_keys.signers.insert(signer_id, ecdsa_public_key);
                 coordinator_key_ids
                     .entry(signer_id)
-                    .or_insert(HashSet::with_capacity(entry.slots as usize))
+                    .or_insert(HashSet::with_capacity(entry.weight as usize))
                     .insert(key_id);
                 signer_key_ids
                     .entry(signer_id)
-                    .or_insert(Vec::with_capacity(entry.slots as usize))
+                    .or_insert(Vec::with_capacity(entry.weight as usize))
                     .push(key_id);
             }
         }
@@ -1317,7 +1317,7 @@ mod tests {
             signers: Some(vec![NakamotoSignerEntry {
                 signing_key: bytes,
                 stacked_amt: rand::thread_rng().next_u64() as u128,
-                slots: 1,
+                weight: 1,
             }]),
         };
         let stackers_response = GetStackersResponse {
