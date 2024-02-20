@@ -293,9 +293,8 @@ fn vote_for_aggregate_public_key_success() {
     }
 }
 
-/// In this test case, Alice & Bob both successfully vote for the same key
-/// Alice votes first, casting one correct vote & four incorrect votes
-/// that hit all tenure-agnostic errors. Bob votes once, successfully.
+/// In this test case, Alice & Bob both successfully vote for the same key,
+/// but also trigger all tenure-agnostic errors.
 #[test]
 fn vote_for_aggregate_public_key_with_errors() {
     // Test setup
@@ -420,7 +419,7 @@ fn vote_for_aggregate_public_key_with_errors() {
     //
     let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs]);
 
-    // check the last two txs in the last block
+    // check the last eight txs in the last block
     let block = observer.get_blocks().last().unwrap().clone();
     let receipts = block.receipts.as_slice();
     assert_eq!(receipts.len(), 10);
@@ -549,6 +548,243 @@ fn vote_for_aggregate_public_key_with_errors() {
     } else {
         panic!("Expected SmartContractEvent, got {:?}", approve_event);
     }
+}
+
+/// 4 stackers vote for the same aggregate public key. The threshold is reached
+/// after the 3rd vote, so the 4th gets an "out of voting window" error.
+#[test]
+fn vote_for_aggregate_public_key_out_of_window() {
+    // Test setup
+    let stacker1 = TestStacker::from_seed(&[3, 4]);
+    let stacker2 = TestStacker::from_seed(&[5, 6]);
+    let stacker3 = TestStacker::from_seed(&[7, 8]);
+    let stacker4 = TestStacker::from_seed(&[9, 10]);
+    let observer = TestEventObserver::new();
+
+    // Signer 1
+    let stacker1_key = &stacker1.signer_private_key;
+    let stacker1_address = key_to_stacks_addr(stacker1_key);
+    let stacker1_principal = PrincipalData::from(stacker1_address);
+
+    // Signer 2
+    let stacker2_key = &stacker2.signer_private_key;
+    let stacker2_address = key_to_stacks_addr(stacker2_key);
+    let stacker2_principal = PrincipalData::from(stacker2_address);
+
+    // Signer 3
+    let stacker3_key = &stacker3.signer_private_key;
+    let stacker3_address = key_to_stacks_addr(stacker3_key);
+    let stacker3_principal = PrincipalData::from(stacker3_address);
+
+    // Signer 4
+    let stacker4_key = &stacker4.signer_private_key;
+    let stacker4_address = key_to_stacks_addr(stacker4_key);
+    let stacker4_principal = PrincipalData::from(stacker4_address);
+
+    let (mut peer, mut test_signers, latest_block_id, current_reward_cycle) = prepare_signers_test(
+        function_name!(),
+        vec![
+            (stacker1_principal.clone(), 1000),
+            (stacker2_principal.clone(), 1000),
+            (stacker3_principal.clone(), 1000),
+            (stacker4_principal.clone(), 1000),
+        ],
+        &[
+            stacker1.clone(),
+            stacker2.clone(),
+            stacker3.clone(),
+            stacker4.clone(),
+        ],
+        Some(&observer),
+    );
+
+    // Stackers will each have voted once while booting to Nakamoto
+    let stacker1_nonce = 1;
+    let stacker2_nonce = 1;
+    let stacker3_nonce = 1;
+    let stacker4_nonce = 1;
+
+    let cycle_id = current_reward_cycle;
+
+    // create vote txs
+    let stacker1_index = get_signer_index(&mut peer, latest_block_id, stacker1_address, cycle_id);
+    let stacker2_index = get_signer_index(&mut peer, latest_block_id, stacker2_address, cycle_id);
+    let stacker3_index = get_signer_index(&mut peer, latest_block_id, stacker3_address, cycle_id);
+    let stacker4_index = get_signer_index(&mut peer, latest_block_id, stacker4_address, cycle_id);
+
+    let aggregate_public_key_point: Point = Point::new();
+    let aggregate_public_key =
+        Value::buff_from(aggregate_public_key_point.compress().data.to_vec())
+            .expect("Failed to serialize aggregate public key");
+
+    let txs = vec![
+        // stacker1 casts vote correctly
+        make_signers_vote_for_aggregate_public_key_value(
+            stacker1_key,
+            stacker1_nonce,
+            stacker1_index,
+            aggregate_public_key.clone(),
+            0,
+            cycle_id + 1,
+        ),
+        // stacker2 casts vote correctly
+        make_signers_vote_for_aggregate_public_key_value(
+            stacker2_key,
+            stacker2_nonce,
+            stacker2_index,
+            aggregate_public_key.clone(),
+            0,
+            cycle_id + 1,
+        ),
+        // stacker3 casts vote correctly
+        make_signers_vote_for_aggregate_public_key_value(
+            stacker3_key,
+            stacker3_nonce,
+            stacker3_index,
+            aggregate_public_key.clone(),
+            0,
+            cycle_id + 1,
+        ),
+        // stacker4 casts vote correctly, but it will return an out of voting window error
+        make_signers_vote_for_aggregate_public_key_value(
+            stacker4_key,
+            stacker4_nonce,
+            stacker4_index,
+            aggregate_public_key.clone(),
+            0,
+            cycle_id + 1,
+        ),
+    ];
+
+    //
+    // vote in the first burn block of prepare phase
+    //
+    let blocks_and_sizes = nakamoto_tenure(&mut peer, &mut test_signers, vec![txs]);
+
+    // check the last two txs in the last block
+    let block = observer.get_blocks().last().unwrap().clone();
+    let receipts = block.receipts.as_slice();
+    assert_eq!(receipts.len(), 6);
+    // ignore tenure change tx
+    // ignore tenure coinbase tx
+
+    // stacker1's vote should succeed
+    let stacker1_vote_tx = &receipts[2];
+    assert_eq!(stacker1_vote_tx.result, Value::okay_true());
+    assert_eq!(stacker1_vote_tx.events.len(), 1);
+    let stacker1_vote_event = &stacker1_vote_tx.events[0];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = stacker1_vote_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
+                        .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key.clone()),
+                ("new-total".into(), Value::UInt(1)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
+                (
+                    "signer".into(),
+                    Value::Principal(stacker1_principal.clone())
+                ),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", stacker1_vote_event);
+    }
+
+    // stacker2's vote should succeed
+    let stacker2_vote_tx = &receipts[3];
+    assert_eq!(stacker2_vote_tx.result, Value::okay_true());
+    assert_eq!(stacker2_vote_tx.events.len(), 1);
+    let stacker2_vote_event = &stacker2_vote_tx.events[0];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = stacker2_vote_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
+                        .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key.clone()),
+                ("new-total".into(), Value::UInt(2)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
+                (
+                    "signer".into(),
+                    Value::Principal(stacker2_principal.clone())
+                ),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", stacker2_vote_event);
+    }
+
+    // stacker3's vote should succeed
+    let stacker3_vote_tx = &receipts[4];
+    assert_eq!(stacker3_vote_tx.result, Value::okay_true());
+    assert_eq!(stacker3_vote_tx.events.len(), 2);
+    let stacker3_vote_event = &stacker3_vote_tx.events[0];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = stacker3_vote_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes("voted".as_bytes().to_vec())
+                        .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key.clone()),
+                ("new-total".into(), Value::UInt(3)),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
+                (
+                    "signer".into(),
+                    Value::Principal(stacker3_principal.clone())
+                ),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", stacker3_vote_event);
+    }
+    let approve_event = &stacker3_vote_tx.events[1];
+    if let StacksTransactionEvent::SmartContractEvent(contract_event) = approve_event {
+        assert_eq!(
+            contract_event.value,
+            TupleData::from_data(vec![
+                (
+                    "event".into(),
+                    Value::string_ascii_from_bytes(
+                        "approved-aggregate-public-key".as_bytes().to_vec()
+                    )
+                    .expect("Failed to create string")
+                ),
+                ("key".into(), aggregate_public_key.clone()),
+                ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+            ])
+            .expect("Failed to create tuple")
+            .into()
+        );
+    } else {
+        panic!("Expected SmartContractEvent, got {:?}", approve_event);
+    }
+
+    // stacker4's vote should get an out of voting window error
+    let stacker4_vote_tx = &receipts[5];
+    assert_eq!(
+        stacker4_vote_tx.result,
+        Value::err_uint(12) // ERR_OUT_OF_VOTING_WINDOW
+    );
 }
 
 /// In this test case, Alice votes in the first block of the first tenure of the prepare phase.
