@@ -2469,7 +2469,7 @@ fn stack_agg_commit_signer_auth() {
 
     let topic = Pox4SignatureTopic::AggregationCommit;
 
-    // Stack agg failes without auth
+    // Stack agg fails without auth
     delegate_nonce += 1;
     let invalid_agg_nonce = delegate_nonce;
     let invalid_agg_tx = make_pox_4_aggregation_commit_indexed(
