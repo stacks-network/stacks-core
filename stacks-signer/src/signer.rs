@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
@@ -153,6 +152,10 @@ pub struct Signer {
     pub stale_node_nack_policy: Option<StaleNodeNackPolicy>,
     /// Determines the NACK threshold from the signer's policy against total signers, triggering a back-off delay upon reaching
     pub nack_threshold: Option<u32>,
+    /// Timestamp marking the end of the back-off period, set when received NACKs reach the nack_threshold
+    pub back_off_until: Option<Instant>,
+    /// Signer flag for applying back-off delay when nack_threshold is reached
+    pub apply_back_off_delay: bool,
 }
 
 impl From<SignerConfig> for Signer {
@@ -218,6 +221,8 @@ impl From<SignerConfig> for Signer {
             nack_messages_sent: HashMap::new(),
             stale_node_nack_policy: signer_config.stale_node_nack_policy.clone(),
             nack_threshold,
+            back_off_until: None,
+            apply_back_off_delay: false,
         }
     }
 }
@@ -417,6 +422,7 @@ impl Signer {
             if block_info.valid.unwrap_or(false)
                 && !block_info.signed_over
                 && coordinator_id == self.signer_id
+                && !self.apply_back_off_delay
             {
                 // We are the coordinator. Trigger a signing round for this block
                 debug!(
@@ -439,6 +445,7 @@ impl Signer {
                 );
             }
         }
+        self.reset_nack_back_off();
     }
 
     /// Handle signer messages submitted to signers stackerdb
@@ -1229,6 +1236,7 @@ impl Signer {
         if new_aggregate_public_key.is_none()
             && self.signer_id == coordinator_id
             && self.state == State::Idle
+            && !self.apply_back_off_delay
         {
             debug!(
                 "Signer #{}: Checking if old transactions exist",
@@ -1285,6 +1293,7 @@ impl Signer {
                 self.commands.push_front(Command::Dkg);
             }
         }
+        self.reset_nack_back_off();
         Ok(())
     }
 
@@ -1492,15 +1501,28 @@ impl Signer {
                     .map_or(0, |signers| signers.len());
 
                 if nack_count >= threshold as usize {
-                    // TODO: need a non-blocking back-off delay so runloop can continue processing commands that don't require up-to-date signers
-                    thread::sleep(Duration::from_millis(
-                        stale_node_nack_policy.back_off_duration_ms,
-                    ));
-                    // Clear out received NACK since the back-off delay got applied for it
-                    self.nack_messages_received
-                        .remove(&remote_coordinator_metadata);
+                    // Update NACK states so if the current signer with outdated coordinator metadata assumes a coordinator role, the back-off gets applied
+                    // by ignoring its attempt
+                    self.apply_back_off_delay = true;
+                    self.back_off_until = Some(
+                        Instant::now()
+                            + Duration::from_millis(stale_node_nack_policy.back_off_duration_ms),
+                    );
                 }
             }
+        }
+    }
+
+    // Clears NACK-related state once the back-off duration elapses, enabling DKG and Sign operations that were previously ignored
+    fn reset_nack_back_off(&mut self) {
+        if self.apply_back_off_delay
+            && self
+                .back_off_until
+                .map_or(false, |until| until <= Instant::now())
+        {
+            self.back_off_until = None;
+            self.apply_back_off_delay = false;
+            self.nack_messages_received.clear();
         }
     }
 }
@@ -1514,7 +1536,7 @@ fn get_nack_threshold(total_signers: u32, nack_threshold_percent: u8) -> u32 {
 mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread::{sleep, spawn};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
@@ -2054,8 +2076,7 @@ mod tests {
             2
         );
 
-        // Start a timer as this NACK message should trigger the back-off delay of 5000ms
-        let start = Instant::now();
+        // This NACK message should reach the threshold and cause update of NACK states
         signer.process_nack_message(
             &NackMessage {
                 coordinator_metadata: remote_coordinator_metadata_higher,
@@ -2065,16 +2086,8 @@ mod tests {
             current_coordinator_metadata,
             stale_node_nack_policy.clone(),
         );
-
-        let duration = start.elapsed();
-        // Assert the back-off delay was applied by checking the elapsed time is greater than or equal to the delay
-        assert!(duration >= Duration::from_millis(5000));
-
-        // Assert the NACK messages are cleared after applying back-off delay
-        assert!(signer
-            .nack_messages_received
-            .get(&remote_coordinator_metadata_higher)
-            .is_none());
+        assert!(signer.apply_back_off_delay);
+        assert!(signer.back_off_until.is_some());
     }
 
     // This test ensures that when a local signer encounters coordinator metadata from remote signers,
