@@ -15,7 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
@@ -24,7 +25,10 @@ use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use blockstack_lib::util_lib::boot::boot_code_id;
 use clarity::vm::Value as ClarityValue;
 use hashbrown::{HashMap, HashSet};
-use libsigner::{BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage};
+use libsigner::{
+    BlockRejection, BlockResponse, CoordinatorMetadata, NackMessage, PacketMessage, RejectCode,
+    SignerEvent, SignerMessage,
+};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
@@ -46,7 +50,7 @@ use wsts::v2;
 use crate::client::{
     retry_with_exponential_backoff, ClientError, StackerDB, StacksClient, VOTE_FUNCTION_NAME,
 };
-use crate::config::SignerConfig;
+use crate::config::{SignerConfig, StaleNodeNackPolicy};
 use crate::coordinator::Selector;
 
 /// Additional Info about a proposed block
@@ -141,6 +145,14 @@ pub struct Signer {
     pub tx_fee_ms: u64,
     /// The coordinator info for the signer
     pub coordinator_selector: Selector,
+    /// NACK messages received from other signers
+    pub nack_messages_received: HashMap<CoordinatorMetadata, HashSet<u32>>,
+    /// NACK messages sent by current signer to others
+    pub nack_messages_sent: HashMap<CoordinatorMetadata, HashSet<u32>>,
+    /// The signer's local policy on how to treat received NACKs about its stale chain view
+    pub stale_node_nack_policy: Option<StaleNodeNackPolicy>,
+    /// Determines the NACK threshold from the signer's policy against total signers, triggering a back-off delay upon reaching
+    pub nack_threshold: Option<u32>,
 }
 
 impl From<SignerConfig> for Signer {
@@ -183,6 +195,12 @@ impl From<SignerConfig> for Signer {
             signer_config.coordinator_ids,
             signer_config.registered_signers.public_keys,
         );
+
+        let nack_threshold = signer_config
+            .stale_node_nack_policy
+            .as_ref()
+            .map(|policy| get_nack_threshold(num_signers, policy.nack_threshold_percent));
+
         Self {
             coordinator,
             signing_round,
@@ -196,6 +214,10 @@ impl From<SignerConfig> for Signer {
             reward_cycle: signer_config.reward_cycle,
             tx_fee_ms: signer_config.tx_fee_ms,
             coordinator_selector,
+            nack_messages_received: HashMap::new(),
+            nack_messages_sent: HashMap::new(),
+            stale_node_nack_policy: signer_config.stale_node_nack_policy.clone(),
+            nack_threshold,
         }
     }
 }
@@ -215,6 +237,7 @@ impl Signer {
 
     /// Execute the given command and update state accordingly
     fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
+        let coordinator_metadata = self.coordinator_selector.coordinator_metadata;
         match command {
             Command::Dkg => {
                 let vote_round = match retry_with_exponential_backoff(|| {
@@ -238,7 +261,9 @@ impl Signer {
                 );
                 match self.coordinator.start_dkg_round() {
                     Ok(msg) => {
-                        let ack = self.stackerdb.send_message_with_retry(msg.into());
+                        let ack = self.stackerdb.send_message_with_retry(
+                            PacketMessage::new(msg, self.signer_id, coordinator_metadata).into(),
+                        );
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
                     }
                     Err(e) => {
@@ -268,7 +293,9 @@ impl Signer {
                     *merkle_root,
                 ) {
                     Ok(msg) => {
-                        let ack = self.stackerdb.send_message_with_retry(msg.into());
+                        let ack = self.stackerdb.send_message_with_retry(
+                            PacketMessage::new(msg, self.signer_id, coordinator_metadata).into(),
+                        );
                         debug!("Signer #{}: ACK: {ack:?}", self.signer_id);
                         block_info.signed_over = true;
                     }
@@ -422,13 +449,31 @@ impl Signer {
         messages: &[SignerMessage],
     ) {
         let coordinator_pubkey = self.coordinator_selector.get_coordinator().1;
+        let coordinator_metadata = self.coordinator_selector.coordinator_metadata;
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
                 // TODO: should we store the received transactions on the side and use them rather than directly querying the stacker db slots?
                 SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
-                SignerMessage::Packet(packet) => {
-                    self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
+                SignerMessage::Packet(packet_message) => {
+                    self.process_signer_consensus_hash_view(
+                        &coordinator_metadata,
+                        &packet_message.coordinator_metadata,
+                        packet_message.packet_signer_id,
+                    );
+                    self.verify_packet(
+                        stacks_client,
+                        packet_message.packet.clone(),
+                        &coordinator_pubkey,
+                    )
+                }
+                SignerMessage::Nack(nack_message) => {
+                    // The signer processes NACKs only if it has agreed to do so
+                    let policy_option = self.stale_node_nack_policy.clone();
+                    if let Some(policy) = policy_option {
+                        self.process_nack_message(nack_message, coordinator_metadata, policy);
+                    }
+                    None
                 }
             })
             .collect();
@@ -1149,8 +1194,11 @@ impl Signer {
             self.signer_id,
             outbound_messages.len()
         );
+        let coordinator_metadata = self.coordinator_selector.coordinator_metadata;
         for msg in outbound_messages {
-            let ack = self.stackerdb.send_message_with_retry(msg.into());
+            let ack = self.stackerdb.send_message_with_retry(
+                PacketMessage::new(msg, self.signer_id, coordinator_metadata).into(),
+            );
             if let Ok(ack) = ack {
                 debug!("Signer #{}: send outbound ACK: {ack:?}", self.signer_id);
             } else {
@@ -1342,11 +1390,131 @@ impl Signer {
         let reward_cycle = 0;
         Some((signer_index, point, round, reward_cycle))
     }
+
+    /// The packet sender's coordinator metadata gets compared against the current signer's. If current signer's metadata is outdated,
+    /// nothing is done, but if the current signer has a more updated view, it broadcasts a NACK with its CoordinatorMetadata
+    fn process_signer_consensus_hash_view(
+        &mut self,
+        current_signer_coordinator_metadata: &CoordinatorMetadata,
+        packet_sender_coordinator_metadata: &CoordinatorMetadata,
+        packet_sender_signer_id: u32,
+    ) {
+        let current_signer_consensus_hash = current_signer_coordinator_metadata.pox_consensus_hash;
+        let current_signer_block_height = current_signer_coordinator_metadata.burn_block_height;
+        let packet_sender_consensus_hash = packet_sender_coordinator_metadata.pox_consensus_hash;
+        let packet_sender_block_height = packet_sender_coordinator_metadata.burn_block_height;
+
+        if current_signer_consensus_hash != packet_sender_consensus_hash {
+            if current_signer_block_height < packet_sender_block_height {
+                warn!(
+                    "Local signer {} has an outdated view of burnchain or there's a discrepency in chain views",
+                    self.signing_round.signer_id
+                );
+            } else {
+                // Check if the current metadata is different from the already braodcasted NACKs
+                if !self
+                    .nack_messages_sent
+                    .contains_key(current_signer_coordinator_metadata)
+                {
+                    // New coordinator metadata detected, clear previous entries
+                    self.nack_messages_sent.clear();
+                }
+
+                // Insert or update the entry for the new CoordinatorMetadata
+                let nack_sent_to = self
+                    .nack_messages_sent
+                    .entry(*current_signer_coordinator_metadata)
+                    .or_default();
+                // Broadcast the NACK message since it's the first time for this signer ID with the current coordinator metadata
+                if nack_sent_to.insert(packet_sender_signer_id) {
+                    info!(
+                    "Local signer {} broadcasting a NACK message with its more recent coordinator metadata to remote signer {}",
+                    self.signing_round.signer_id, packet_sender_signer_id
+                );
+                    self.broadcast_nack_message(
+                        *current_signer_coordinator_metadata,
+                        packet_sender_signer_id,
+                    );
+                }
+            }
+        }
+    }
+
+    /// The current signer broadcasts a NACK when it has a more updated
+    /// chain view than the CoordinatorMetadata found in processed Packets
+    fn broadcast_nack_message(
+        &mut self,
+        current_signer_coordinator_metadata: CoordinatorMetadata,
+        target_signer_id: u32,
+    ) {
+        let nack_message = NackMessage::new(
+            self.signing_round.signer_id,
+            target_signer_id,
+            current_signer_coordinator_metadata,
+        );
+        if let Err(e) = self.stackerdb.send_message_with_retry(nack_message.into()) {
+            warn!(
+                "Failed to send NACK for outdated coordinator view to stacker-db: {:?}",
+                e
+            );
+        } else {
+            self.nack_messages_sent
+                .entry(current_signer_coordinator_metadata)
+                .or_default()
+                .insert(target_signer_id);
+        }
+    }
+
+    /// Processes broadcasted NACK message by adding it to the nack_messages_received map if the message is
+    /// targeted to the current signer and represents a more updated view of the Stacks chain
+    fn process_nack_message(
+        &mut self,
+        nack_message: &NackMessage,
+        current_coordinator_metadata: CoordinatorMetadata,
+        stale_node_nack_policy: StaleNodeNackPolicy,
+    ) {
+        let remote_coordinator_metadata = nack_message.coordinator_metadata;
+        if nack_message.target_signer_id == self.signer_id
+            && remote_coordinator_metadata.burn_block_height
+                > current_coordinator_metadata.burn_block_height
+        {
+            self.nack_messages_received
+                .entry(remote_coordinator_metadata)
+                .or_default()
+                .insert(nack_message.sender_signer_id);
+
+            // Apply back-off delay if nack_threshold is reached
+            if let Some(threshold) = self.nack_threshold {
+                // Get the count of NACKs for the current coordinator metadata
+                let nack_count = self
+                    .nack_messages_received
+                    .get(&remote_coordinator_metadata)
+                    .map_or(0, |signers| signers.len());
+
+                if nack_count >= threshold as usize {
+                    // TODO: need a non-blocking back-off delay so runloop can continue processing commands that don't require up-to-date signers
+                    thread::sleep(Duration::from_millis(
+                        stale_node_nack_policy.back_off_duration_ms,
+                    ));
+                    // Clear out received NACK since the back-off delay got applied for it
+                    self.nack_messages_received
+                        .remove(&remote_coordinator_metadata);
+                }
+            }
+        }
+    }
+}
+
+/// Calculates the NACK threshold quantity based on a percentage of the total signers
+fn get_nack_threshold(total_signers: u32, nack_threshold_percent: u8) -> u32 {
+    total_signers * (u32::from(nack_threshold_percent)) / 100
 }
 
 #[cfg(test)]
 mod tests {
-    use std::thread::spawn;
+    use std::sync::{Arc, Mutex};
+    use std::thread::{sleep, spawn};
+    use std::time::{Duration, Instant};
 
     use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
     use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
@@ -1358,7 +1526,7 @@ mod tests {
     use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
     use blockstack_lib::util_lib::strings::StacksString;
     use clarity::vm::Value;
-    use libsigner::SignerMessage;
+    use libsigner::{CoordinatorMetadata, NackMessage, SignerMessage};
     use rand::thread_rng;
     use rand_core::RngCore;
     use serial_test::serial;
@@ -1375,7 +1543,8 @@ mod tests {
 
     use crate::client::tests::{
         build_get_aggregate_public_key_response, build_get_last_round_response,
-        generate_signer_config, mock_server_from_config, write_response,
+        build_stackerdb_send_message_with_retry_response, generate_signer_config,
+        mock_server_from_config, write_response,
     };
     use crate::client::{StacksClient, VOTE_FUNCTION_NAME};
     use crate::config::GlobalConfig;
@@ -1810,5 +1979,224 @@ mod tests {
         let mock_server = mock_server_from_config(&config);
         write_response(mock_server, aggregate_public_key_response.as_bytes());
         h.join().unwrap();
+    }
+
+    fn simulate_stackerdb_response(config: &GlobalConfig) {
+        let mock_server = mock_server_from_config(&config);
+        let stackerdb_response = build_stackerdb_send_message_with_retry_response();
+        let response_bytes = format!(
+            "HTTP/1.1 200 OK\n\n{}",
+            String::from_utf8(stackerdb_response).unwrap()
+        );
+        write_response(mock_server, response_bytes.as_bytes());
+    }
+
+    #[test]
+    fn test_process_nack_message() {
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let (mut signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
+        signer_config.reward_cycle = 1;
+
+        let mut signer = Signer::from(signer_config.clone());
+
+        let current_coordinator_metadata = CoordinatorMetadata {
+            pox_consensus_hash: ConsensusHash([0; 20]),
+            burn_block_height: 100,
+        };
+
+        let remote_coordinator_metadata_higher = CoordinatorMetadata {
+            pox_consensus_hash: ConsensusHash([1; 20]),
+            burn_block_height: 101,
+        };
+
+        let stale_node_nack_policy = signer.stale_node_nack_policy.clone().unwrap();
+
+        // NACK message received from remote signer 1 to local signer 0
+        signer.process_nack_message(
+            &NackMessage {
+                coordinator_metadata: remote_coordinator_metadata_higher,
+                target_signer_id: 0, // Local signer ID
+                sender_signer_id: 1, // Remote signer ID
+            },
+            current_coordinator_metadata,
+            stale_node_nack_policy.clone(),
+        );
+
+        // Assert the NACK message is recorded
+        assert_eq!(
+            signer
+                .nack_messages_received
+                .get(&remote_coordinator_metadata_higher)
+                .unwrap()
+                .len(),
+            1
+        );
+
+        // Send 2 more NACK messages from different remote signers to trigger the back-off delay threshold
+        // which for the current config of 60 for the NACK threshold percent and 5 total signers would be a NACK count of 3
+        signer.process_nack_message(
+            &NackMessage {
+                coordinator_metadata: remote_coordinator_metadata_higher,
+                target_signer_id: 0, // Local signer ID
+                sender_signer_id: 2, // Another remote signer ID
+            },
+            current_coordinator_metadata,
+            stale_node_nack_policy.clone(),
+        );
+
+        // Assert the NACK message is recorded
+        assert_eq!(
+            signer
+                .nack_messages_received
+                .get(&remote_coordinator_metadata_higher)
+                .unwrap()
+                .len(),
+            2
+        );
+
+        // Start a timer as this NACK message should trigger the back-off delay of 5000ms
+        let start = Instant::now();
+        signer.process_nack_message(
+            &NackMessage {
+                coordinator_metadata: remote_coordinator_metadata_higher,
+                target_signer_id: 0, // Local signer ID
+                sender_signer_id: 3, // Another remote signer ID
+            },
+            current_coordinator_metadata,
+            stale_node_nack_policy.clone(),
+        );
+
+        let duration = start.elapsed();
+        // Assert the back-off delay was applied by checking the elapsed time is greater than or equal to the delay
+        assert!(duration >= Duration::from_millis(5000));
+
+        // Assert the NACK messages are cleared after applying back-off delay
+        assert!(signer
+            .nack_messages_received
+            .get(&remote_coordinator_metadata_higher)
+            .is_none());
+    }
+
+    // This test ensures that when a local signer encounters coordinator metadata from remote signers,
+    // it appropriately broadcasts a NACK to those signers to whom it has not previously sent one, given that it holds more updated metadata.
+    // When its own view of the metadata is updated, it empties its history of sent NACKs, considering them obsolete.
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_process_signer_consensus_hash_view() {
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let (mut signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
+        signer_config.reward_cycle = 1;
+
+        let signer = Arc::new(Mutex::new(Signer::from(signer_config.clone())));
+
+        let current_signer_coordinator_metadata_1 = CoordinatorMetadata {
+            pox_consensus_hash: ConsensusHash([1u8; 20]),
+            burn_block_height: 101,
+        };
+        let current_signer_coordinator_metadata_2 = CoordinatorMetadata {
+            pox_consensus_hash: ConsensusHash([2u8; 20]),
+            burn_block_height: 102,
+        };
+        let remote_signer_coordinator_metadata_1 = CoordinatorMetadata {
+            pox_consensus_hash: ConsensusHash([0u8; 20]),
+            burn_block_height: 100,
+        };
+        let remote_signer_coordinator_metadata_2 = CoordinatorMetadata {
+            pox_consensus_hash: ConsensusHash([0u8; 20]),
+            burn_block_height: 100,
+        };
+
+        // Process first remote signer metadata
+        {
+            let signer_clone = Arc::clone(&signer);
+            let h = spawn(move || {
+                let mut signer = signer_clone.lock().unwrap();
+                signer.process_signer_consensus_hash_view(
+                    &current_signer_coordinator_metadata_1,
+                    &remote_signer_coordinator_metadata_1,
+                    1,
+                );
+            });
+
+            simulate_stackerdb_response(&config);
+            h.join().unwrap();
+            sleep(Duration::from_millis(100));
+        }
+
+        // Verify the result after processing the first remote signer metadata
+        {
+            let signer = signer.lock().unwrap();
+            assert!(
+                signer
+                    .nack_messages_sent
+                    .get(&current_signer_coordinator_metadata_1)
+                    .map_or(false, |signers| signers.contains(&1)),
+                "Expected current signer's coordinator metadata in broadcasted Nack set and to contain the packet sender's signer ID"
+            );
+        }
+
+        // Process second remote signer metadata
+        {
+            let signer_clone = Arc::clone(&signer);
+            let h = spawn(move || {
+                let mut signer = signer_clone.lock().unwrap();
+                signer.process_signer_consensus_hash_view(
+                    &current_signer_coordinator_metadata_1,
+                    &remote_signer_coordinator_metadata_2,
+                    2,
+                );
+            });
+
+            simulate_stackerdb_response(&config);
+            h.join().unwrap();
+            sleep(Duration::from_millis(100));
+        }
+
+        // Verify the result after processing the second remote signer metadata
+        {
+            let signer = signer.lock().unwrap();
+            assert!(
+                signer
+                    .nack_messages_sent
+                    .get(&current_signer_coordinator_metadata_1)
+                    .map_or(false, |signers| signers.contains(&2)),
+                "Expected current signer's coordinator metadata in broadcasted Nack set and to contain the packet sender's signer ID"
+            );
+        }
+        // Process second remote signer metadata again but with local signer's metadata being updated
+        {
+            let signer_clone = Arc::clone(&signer);
+            let h = spawn(move || {
+                let mut signer = signer_clone.lock().unwrap();
+                signer.process_signer_consensus_hash_view(
+                    &current_signer_coordinator_metadata_2,
+                    &remote_signer_coordinator_metadata_2,
+                    2,
+                );
+            });
+
+            simulate_stackerdb_response(&config);
+            h.join().unwrap();
+        }
+
+        // Verify the sent nack record is drained, not including the outdated metadata
+        {
+            let signer = signer.lock().unwrap();
+            assert!(
+                signer
+                    .nack_messages_sent
+                    .get(&current_signer_coordinator_metadata_1)
+                    .is_none(),
+                "Expected outdated NACK metadata to be removed"
+            );
+            assert!(
+                signer
+                    .nack_messages_sent
+                    .get(&current_signer_coordinator_metadata_2)
+                    .map_or(false, |signers| signers.contains(&2)),
+                "Expected local signer's coordinator metadata in broadcasted Nack set and to contain the packet sender's signer ID"
+            );
+        }
     }
 }

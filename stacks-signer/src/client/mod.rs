@@ -142,6 +142,8 @@ pub(crate) mod tests {
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::Value as ClarityValue;
     use hashbrown::{HashMap, HashSet};
+    use libsigner::CoordinatorMetadata;
+    use libstackerdb::StackerDBChunkAckData;
     use rand::distributions::Standard;
     use rand::{thread_rng, Rng};
     use rand_core::{OsRng, RngCore};
@@ -347,7 +349,7 @@ pub(crate) mod tests {
     /// Build a response for the get_peer_info request with a specific stacks tip height and consensus hash
     pub fn build_get_peer_info_response(
         burn_block_height: Option<u64>,
-        stacks_tip_consensus_hash: Option<ConsensusHash>,
+        consensus_hash: Option<ConsensusHash>,
     ) -> (String, RPCPeerInfoData) {
         // Generate some random info
         let private_key = StacksPrivateKey::new();
@@ -358,7 +360,7 @@ pub(crate) mod tests {
             vec![boot_code_id("fake", false), boot_code_id("fake_2", false)];
         let peer_info = RPCPeerInfoData {
             peer_version: thread_rng().next_u32(),
-            pox_consensus: generate_random_consensus_hash(),
+            pox_consensus: consensus_hash.unwrap_or(generate_random_consensus_hash()),
             burn_block_height: burn_block_height.unwrap_or(thread_rng().next_u64()),
             stable_pox_consensus: generate_random_consensus_hash(),
             stable_burn_block_height: 2,
@@ -367,8 +369,7 @@ pub(crate) mod tests {
             parent_network_id: thread_rng().next_u32(),
             stacks_tip_height: thread_rng().next_u64(),
             stacks_tip: BlockHeaderHash([0x06; 32]),
-            stacks_tip_consensus_hash: stacks_tip_consensus_hash
-                .unwrap_or(generate_random_consensus_hash()),
+            stacks_tip_consensus_hash: consensus_hash.unwrap_or(generate_random_consensus_hash()),
             unanchored_tip: None,
             unanchored_seq: Some(0),
             exit_at_block_height: None,
@@ -395,6 +396,15 @@ pub(crate) mod tests {
             .serialize_to_hex()
             .expect("Failed to serialize hex value");
         format!("HTTP/1.1 200 OK\n\n{{\"okay\":true,\"result\":\"{hex}\"}}")
+    }
+
+    pub fn build_stackerdb_send_message_with_retry_response() -> Vec<u8> {
+        let ack_data = StackerDBChunkAckData {
+            accepted: true,
+            reason: None,
+            metadata: None,
+        };
+        serde_json::to_vec(&ack_data).expect("Failed to serialize mock ack data")
     }
 
     /// Generate a signer config with the given number of signers and keys where the first signer is
@@ -503,6 +513,7 @@ pub(crate) mod tests {
                     signer_public_keys,
                 },
                 coordinator_ids,
+                coordinator_metadata: CoordinatorMetadata::default(),
                 ecdsa_private_key: config.ecdsa_private_key,
                 stacks_private_key: config.stacks_private_key,
                 node_host: config.node_host,
@@ -513,6 +524,7 @@ pub(crate) mod tests {
                 nonce_timeout: config.nonce_timeout,
                 sign_timeout: config.sign_timeout,
                 tx_fee_ms: config.tx_fee_ms,
+                stale_node_nack_policy: config.stale_node_nack_policy.clone(),
             },
             addresses,
         )

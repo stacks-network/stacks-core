@@ -184,6 +184,7 @@ impl SignerTest {
             .unwrap();
         let coordinator_id = *stacks_client
             .calculate_coordinator_ids(&registered_signers_info.public_keys)
+            .0
             .first()
             .expect("No coordinator found");
         let coordinator_pk = registered_signers_info

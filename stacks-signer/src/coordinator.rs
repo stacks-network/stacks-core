@@ -16,6 +16,7 @@
 
 use std::time::Instant;
 
+use libsigner::CoordinatorMetadata;
 use wsts::curve::ecdsa;
 use wsts::state_machine::PublicKeys;
 
@@ -42,6 +43,8 @@ pub struct Selector {
     tenure_start: Instant,
     /// The public keys of the coordinators
     public_keys: PublicKeys,
+    /// The signer's view of coordinator metadata including PoX consensus hash and block height
+    pub coordinator_metadata: CoordinatorMetadata,
 }
 
 impl Selector {
@@ -53,6 +56,7 @@ impl Selector {
         let coordinator_index = 0;
         let last_message_time = None;
         let tenure_start = Instant::now();
+        let coordinator_metadata = CoordinatorMetadata::default();
         Self {
             coordinator_ids,
             coordinator_id,
@@ -60,11 +64,16 @@ impl Selector {
             last_message_time,
             tenure_start,
             public_keys,
+            coordinator_metadata,
         }
     }
 
     /// Update the coordinator id
-    fn update_coordinator(&mut self, new_coordinator_ids: Vec<u32>) {
+    fn update_coordinator(
+        &mut self,
+        new_coordinator_ids: Vec<u32>,
+        new_coordinator_metadata: CoordinatorMetadata,
+    ) {
         self.last_message_time = None;
         self.coordinator_index = if new_coordinator_ids != self.coordinator_ids {
             // We have advanced our block height and should select from the new list
@@ -95,24 +104,26 @@ impl Selector {
             .expect("FATAL: Invalid number of registered signers");
         self.tenure_start = Instant::now();
         self.last_message_time = None;
+        self.coordinator_metadata = new_coordinator_metadata;
     }
 
     /// Check the coordinator timeouts and update the selected coordinator accordingly
     /// Returns true if the coordinator was updated, else false
     pub fn refresh_coordinator(&mut self, stacks_client: &StacksClient) -> bool {
         let old_coordinator_id = self.coordinator_id;
-        let new_coordinator_ids = stacks_client.calculate_coordinator_ids(&self.public_keys);
+        let (new_coordinator_ids, new_coordinator_metadata) =
+            stacks_client.calculate_coordinator_ids(&self.public_keys);
         if let Some(time) = self.last_message_time {
             if time.elapsed().as_secs() > COORDINATOR_OPERATION_TIMEOUT_SECS {
                 // We have not received a message in a while from this coordinator.
                 // We should consider the operation finished and use a new coordinator id.
-                self.update_coordinator(new_coordinator_ids);
+                self.update_coordinator(new_coordinator_ids, new_coordinator_metadata);
             }
         } else if self.tenure_start.elapsed().as_secs() > COORDINATOR_TENURE_TIMEOUT_SECS
             || new_coordinator_ids != self.coordinator_ids
         {
             // Our tenure has been exceeded or we have advanced our block height and should select from the new list
-            self.update_coordinator(new_coordinator_ids);
+            self.update_coordinator(new_coordinator_ids, new_coordinator_metadata);
         }
         old_coordinator_id != self.coordinator_id
     }

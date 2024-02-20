@@ -33,6 +33,7 @@ use blockstack_lib::util_lib::boot::{boot_code_addr, boot_code_id};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use hashbrown::{HashMap, HashSet};
+use libsigner::CoordinatorMetadata;
 use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
@@ -117,23 +118,18 @@ impl StacksClient {
         &self.stacks_address
     }
 
-    /// Calculate the coordinator address by comparing the provided public keys against the stacks tip consensus hash
-    pub fn calculate_coordinator_ids(&self, public_keys: &PublicKeys) -> Vec<u32> {
+    /// Calculate the coordinator address by comparing the provided public keys against the PoX consensus hash
+    pub fn calculate_coordinator_ids(
+        &self,
+        public_keys: &PublicKeys,
+    ) -> (Vec<u32>, CoordinatorMetadata) {
         // TODO: return the entire list. Might be at the same block height for a long time and need to move to the second item in the list
         // Add logic throughout signer to track the current coordinator list and offset in the list
-        let pox_consensus_hash = match retry_with_exponential_backoff(|| {
-            self.get_pox_consenus_hash()
-                .map_err(backoff::Error::transient)
-        }) {
-            Ok(hash) => hash,
-            Err(e) => {
-                debug!("Failed to get stacks tip consensus hash: {e:?}");
-                let mut default_coordinator_list: Vec<_> =
-                    public_keys.signers.keys().cloned().collect();
-                default_coordinator_list.sort();
-                return default_coordinator_list;
-            }
-        };
+        let coordinator_metadata = self.get_coordinator_metadata().unwrap_or_else(|e| {
+            debug!("Error in fetching consensus hash, using default CoordinatorMetadata: {e:?}");
+            CoordinatorMetadata::default()
+        });
+        let pox_consensus_hash = coordinator_metadata.pox_consensus_hash;
         debug!("Using pox_consensus_hash {pox_consensus_hash:?} for selecting coordinator");
 
         // Create combined hash of each signer's public key with pox_consensus_hash
@@ -154,7 +150,10 @@ impl StacksClient {
         // Sort the selection IDs based on the hash
         selection_ids.sort_by_key(|(_, hash)| hash.clone());
         // Return only the ids
-        selection_ids.iter().map(|(id, _)| *id).collect()
+        (
+            selection_ids.iter().map(|(id, _)| *id).collect(),
+            coordinator_metadata,
+        )
     }
 
     /// Retrieve the signer slots stored within the stackerdb contract
@@ -223,10 +222,12 @@ impl StacksClient {
         self.parse_aggregate_public_key(value)
     }
 
-    /// Retrieve the pox consensus hash from the stacks node
-    pub fn get_pox_consenus_hash(&self) -> Result<ConsensusHash, ClientError> {
+    /// Retrieve the PoX consensus hash and burn block height from the stacks node
+    pub fn get_coordinator_metadata(&self) -> Result<CoordinatorMetadata, ClientError> {
         let peer_info = self.get_peer_info()?;
-        Ok(peer_info.pox_consensus)
+        let coordinator_metadata =
+            CoordinatorMetadata::new(peer_info.pox_consensus, peer_info.burn_block_height);
+        Ok(coordinator_metadata)
     }
 
     /// Retrieve the stacks node current epoch on a retry
@@ -1060,17 +1061,17 @@ mod tests {
     #[test]
     fn core_info_call_for_consensus_hash_should_succeed() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_pox_consenus_hash());
+        let h = spawn(move || mock.client.get_coordinator_metadata());
         let (response, peer_info) = build_get_peer_info_response(None, None);
         write_response(mock.server, response.as_bytes());
         let consensus_hash = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(consensus_hash, peer_info.pox_consensus);
+        assert_eq!(consensus_hash.pox_consensus_hash, peer_info.pox_consensus);
     }
 
     #[test]
     fn core_info_call_with_invalid_response_should_fail() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_pox_consenus_hash());
+        let h = spawn(move || mock.client.get_coordinator_metadata());
         write_response(
             mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
@@ -1446,7 +1447,7 @@ mod tests {
     fn generate_calculate_coordinator_test_results(
         random_consensus: bool,
         count: usize,
-    ) -> Vec<Vec<u32>> {
+    ) -> Vec<(Vec<u32>, CoordinatorMetadata)> {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let mut results = Vec::new();
         let same_hash = generate_random_consensus_hash();
@@ -1479,13 +1480,13 @@ mod tests {
         let results_with_random_hash = generate_calculate_coordinator_test_results(true, 5);
         let all_ids_same = results_with_random_hash
             .iter()
-            .all(|ids| ids == &results_with_random_hash[0]);
+            .all(|(ids, _)| ids == &results_with_random_hash[0].0);
         assert!(!all_ids_same, "Not all coordinator IDs should be the same");
 
         let results_with_static_hash = generate_calculate_coordinator_test_results(false, 5);
         let all_ids_same = results_with_static_hash
             .iter()
-            .all(|ids| ids == &results_with_static_hash[0]);
+            .all(|(ids, _)| ids == &results_with_static_hash[0].0);
         assert!(all_ids_same, "All coordinator IDs should be the same");
     }
 }

@@ -127,7 +127,7 @@ impl RunLoop {
             .get(signer_id)
             .cloned()
             .unwrap_or_default();
-        let coordinator_ids = self
+        let (coordinator_ids, coordinator_metadata) = self
             .stacks_client
             .calculate_coordinator_ids(&registered_signers.public_keys);
         Ok(Some(SignerConfig {
@@ -137,6 +137,7 @@ impl RunLoop {
             key_ids,
             registered_signers,
             coordinator_ids,
+            coordinator_metadata,
             ecdsa_private_key: self.config.ecdsa_private_key.clone(),
             stacks_private_key: self.config.stacks_private_key.clone(),
             node_host: self.config.node_host.clone(),
@@ -147,6 +148,7 @@ impl RunLoop {
             nonce_timeout: self.config.nonce_timeout,
             sign_timeout: self.config.sign_timeout,
             tx_fee_ms: self.config.tx_fee_ms,
+            stale_node_nack_policy: self.config.stale_node_nack_policy.clone(),
         }))
     }
 

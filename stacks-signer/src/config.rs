@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use blockstack_lib::chainstate::stacks::TransactionVersion;
 use hashbrown::{HashMap, HashSet};
+use libsigner::CoordinatorMetadata;
 use serde::Deserialize;
 use stacks_common::address::{
     AddressHashMode, C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -64,6 +65,28 @@ pub enum Network {
     Testnet,
     /// The mocknet network
     Mocknet,
+}
+
+/// The signer's local policy on how to treat received NACKs about its stale chain view
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct StaleNodeNackPolicy {
+    /// Indicates whether the signer should consider or ignore NACKs
+    pub respect_nacks: bool,
+    /// Percentage of NACKs received relative to total signers that triggers the signer to apply a back-off delay
+    pub nack_threshold_percent: u8,
+    /// The duration (millisecs) of the back-off delay to allow the local node time to catch up
+    pub back_off_duration_ms: u64,
+}
+
+impl Default for StaleNodeNackPolicy {
+    /// Default values for StaleNodeNackPolicy are used when `respect_nacks` is set to true but the other fields are not provided
+    fn default() -> Self {
+        Self {
+            respect_nacks: true,
+            nack_threshold_percent: 50,
+            back_off_duration_ms: 60000,
+        }
+    }
 }
 
 impl std::fmt::Display for Network {
@@ -140,6 +163,8 @@ pub struct SignerConfig {
     pub registered_signers: RegisteredSignersInfo,
     /// The initial coordinator ids for the coordinator selector
     pub coordinator_ids: Vec<u32>,
+    /// The initial coordinator metadata for the coordinator selector
+    pub coordinator_metadata: CoordinatorMetadata,
     /// The Scalar representation of the private key for signer communication
     pub ecdsa_private_key: Scalar,
     /// The private key for this signer
@@ -160,6 +185,8 @@ pub struct SignerConfig {
     pub sign_timeout: Option<Duration>,
     /// the STX tx fee to use in uSTX
     pub tx_fee_ms: u64,
+    /// The signer's local policy on how to treat received NACKs about its stale chain view. Default is None
+    pub stale_node_nack_policy: Option<StaleNodeNackPolicy>,
 }
 
 /// The parsed configuration for the signer
@@ -191,6 +218,8 @@ pub struct GlobalConfig {
     pub sign_timeout: Option<Duration>,
     /// the STX tx fee to use in uSTX
     pub tx_fee_ms: u64,
+    /// The signer's local policy on how to treat received NACKs about its stale chain view. Default is None
+    pub stale_node_nack_policy: Option<StaleNodeNackPolicy>,
 }
 
 /// Internal struct for loading up the config file
@@ -219,6 +248,12 @@ struct RawConfigFile {
     pub sign_timeout_ms: Option<u64>,
     /// the STX tx fee to use in uSTX
     pub tx_fee_ms: Option<u64>,
+    /// Indicates whether the signer should consider or ignore NACKs
+    pub respect_nacks: Option<bool>,
+    /// Percentage of NACKs received relative to total signers that triggers the signer to apply a back-off delay
+    pub nack_threshold_percent: Option<u8>,
+    /// The duration (millisecs) of the back-off delay to allow the local node time to catch up
+    pub back_off_duration_ms: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -305,6 +340,25 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         let dkg_private_timeout = raw_data.dkg_private_timeout_ms.map(Duration::from_millis);
         let nonce_timeout = raw_data.nonce_timeout_ms.map(Duration::from_millis);
         let sign_timeout = raw_data.sign_timeout_ms.map(Duration::from_millis);
+
+        let stale_node_nack_policy = match raw_data.respect_nacks {
+            Some(true) => {
+                let nack_threshold_percent = raw_data
+                    .nack_threshold_percent
+                    .unwrap_or_else(|| StaleNodeNackPolicy::default().nack_threshold_percent);
+                let back_off_duration_ms = raw_data
+                    .back_off_duration_ms
+                    .unwrap_or_else(|| StaleNodeNackPolicy::default().back_off_duration_ms);
+
+                Some(StaleNodeNackPolicy {
+                    respect_nacks: true,
+                    nack_threshold_percent,
+                    back_off_duration_ms,
+                })
+            }
+            _ => None,
+        };
+
         Ok(Self {
             node_host,
             endpoint,
@@ -319,6 +373,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             nonce_timeout,
             sign_timeout,
             tx_fee_ms: raw_data.tx_fee_ms.unwrap_or(TX_FEE_MS),
+            stale_node_nack_policy,
         })
     }
 }
