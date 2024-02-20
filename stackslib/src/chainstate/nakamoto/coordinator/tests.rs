@@ -1138,13 +1138,7 @@ pub fn simple_nakamoto_coordinator_10_tenures_10_sortitions<'a>() -> TestPeer<'a
 
         let num_blocks: usize = (thread_rng().gen::<usize>() % 10) + 1;
 
-        let block_height = peer
-            .config
-            .burnchain
-            .get_highest_burnchain_block()
-            .unwrap()
-            .unwrap()
-            .block_height;
+        let block_height = peer.get_burn_block_height();
         // If we are in the prepare phase, check if we need to generate
         // aggregate key votes
         let txs = if peer.config.burnchain.is_in_prepare_phase(block_height) {
@@ -1869,13 +1863,7 @@ pub fn simple_nakamoto_coordinator_10_extended_tenures_10_sortitions() -> TestPe
 
         debug!("Next burnchain block: {}", &consensus_hash);
 
-        let block_height = peer
-            .config
-            .burnchain
-            .get_highest_burnchain_block()
-            .unwrap()
-            .unwrap()
-            .block_height;
+        let block_height = peer.get_burn_block_height();
         // If we are in the prepare phase, check if we need to generate
         // aggregate key votes
         let txs = if peer.config.burnchain.is_in_prepare_phase(block_height) {

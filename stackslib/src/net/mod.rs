@@ -3623,6 +3623,25 @@ pub mod test {
                 vec![],
             )
         }
+
+        pub fn get_burn_block_height(&self) -> u64 {
+            SortitionDB::get_canonical_burn_chain_tip(
+                &self.sortdb.as_ref().expect("Failed to get sortdb").conn(),
+            )
+            .expect("Failed to get canonical burn chain tip")
+            .block_height
+        }
+
+        pub fn get_reward_cycle(&self) -> u64 {
+            let block_height = self.get_burn_block_height();
+            self.config
+                .burnchain
+                .block_height_to_reward_cycle(block_height)
+                .expect(&format!(
+                    "Failed to get reward cycle for block height {}",
+                    block_height
+                ))
+        }
     }
 
     pub fn to_addr(sk: &StacksPrivateKey) -> StacksAddress {

@@ -980,21 +980,9 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
+        let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
-
-        let burn_height = self
-            .coord
-            .burnchain
-            .get_highest_burnchain_block()
-            .unwrap()
-            .unwrap()
-            .block_height;
-        let cycle = self
-            .miner
-            .burnchain
-            .block_height_to_reward_cycle(burn_height)
-            .expect("FATAL: failed to get reward cycle");
 
         // Ensure the signers are setup for the current cycle
         signers.generate_aggregate_key(cycle);
@@ -1047,21 +1035,9 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
+        let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
-
-        let burn_height = self
-            .coord
-            .burnchain
-            .get_highest_burnchain_block()
-            .unwrap()
-            .unwrap()
-            .block_height;
-        let cycle = self
-            .miner
-            .burnchain
-            .block_height_to_reward_cycle(burn_height)
-            .expect("FATAL: failed to get reward cycle");
 
         // Ensure the signers are setup for the current cycle
         signers.generate_aggregate_key(cycle);
