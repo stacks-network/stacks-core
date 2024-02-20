@@ -207,10 +207,6 @@
     { stacked-amount: uint }
 )
 
-;; The stackers' aggregate public key
-;;   for the given reward cycle
-(define-map aggregate-public-keys uint (buff 33))
-
 ;; What's the reward cycle number of the burnchain block height?
 ;; Will runtime-abort if height is less than the first burnchain block (this is intentional)
 (define-read-only (burn-height-to-reward-cycle (height uint))
