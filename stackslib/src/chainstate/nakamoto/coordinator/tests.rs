@@ -178,7 +178,8 @@ pub fn make_all_signers_vote_for_aggregate_key(
             .unwrap()
             .expect_principal()
             .unwrap();
-        signers_to_index.insert(signer, index);
+        let insert_res = signers_to_index.insert(signer, index);
+        assert!(insert_res.is_none(), "Duplicate signer in signers list");
     }
 
     // Build a map of the signers, their private keys, and their index
