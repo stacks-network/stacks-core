@@ -71,12 +71,10 @@ impl PeerNetwork {
                         Some(peer) => {
                             let stats = convo.stats.clone();
                             let org = peer.org;
-                            if let std::collections::hash_map::Entry::Vacant(e) =
-                                org_neighbor.entry(org)
-                            {
-                                e.insert(vec![(nk, stats)]);
+                            if let Some(stats_list) = org_neighbor.get_mut(&org) {
+                                stats_list.push((nk, stats));
                             } else {
-                                org_neighbor.get_mut(&org).unwrap().push((nk, stats));
+                                org_neighbor.insert(org, vec![(nk, stats)]);
                             }
                         }
                     };
@@ -328,16 +326,10 @@ impl PeerNetwork {
                 Some(ref convo) => {
                     if !convo.stats.outbound {
                         let stats = convo.stats.clone();
-                        if let std::collections::hash_map::Entry::Vacant(e) =
-                            ip_neighbor.entry(nk.addrbytes)
-                        {
-                            e.insert(vec![(*event_id, nk.clone(), stats)]);
+                        if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
+                            entry.push((*event_id, nk.clone(), stats));
                         } else {
-                            ip_neighbor.get_mut(&nk.addrbytes).unwrap().push((
-                                *event_id,
-                                nk.clone(),
-                                stats,
-                            ));
+                            ip_neighbor.insert(nk.addrbytes, vec![(*event_id, nk.clone(), stats)]);
                         }
                     }
                 }
