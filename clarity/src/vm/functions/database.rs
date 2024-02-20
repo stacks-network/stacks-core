@@ -75,9 +75,11 @@ pub fn special_contract_call(
     runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
 
     let function_name = args[1].match_atom().ok_or(CheckErrors::ExpectedName)?;
-    let mut rest_args = vec![];
-    let mut rest_args_sizes = vec![];
-    for arg in args[2..].iter() {
+    let rest_args_slice = &args[2..];
+    let rest_args_len = rest_args_slice.len();
+    let mut rest_args = Vec::with_capacity(rest_args_len);
+    let mut rest_args_sizes = Vec::with_capacity(rest_args_len);
+    for arg in rest_args_slice.iter() {
         let evaluated_arg = eval(arg, env, context)?;
         rest_args_sizes.push(evaluated_arg.size()? as u64);
         rest_args.push(SymbolicExpression::atom_value(evaluated_arg));

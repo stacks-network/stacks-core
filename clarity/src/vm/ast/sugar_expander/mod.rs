@@ -65,7 +65,7 @@ impl SugarExpander {
         pre_exprs_iter: PreExpressionsDrain,
         contract_ast: &mut ContractAST,
     ) -> ParseResult<Vec<SymbolicExpression>> {
-        let mut expressions: Vec<SymbolicExpression> = Vec::new();
+        let mut expressions: Vec<SymbolicExpression> = Vec::with_capacity(pre_exprs_iter.len());
         #[cfg(feature = "developer-mode")]
         let mut comments = Vec::new();
 

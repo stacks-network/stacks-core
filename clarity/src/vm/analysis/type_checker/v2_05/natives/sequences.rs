@@ -74,7 +74,7 @@ pub fn check_special_map(
         args.len(),
     )?;
 
-    let mut func_args = vec![];
+    let mut func_args = Vec::with_capacity(args.len());
     let mut min_args = u32::MAX;
     for arg in args[1..].iter() {
         let argument_type = checker.type_check(arg, context)?;
