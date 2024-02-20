@@ -14,11 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::convert::TryInto;
 use std::fmt;
 use std::mem::replace;
 
+use hashbrown::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -277,7 +278,7 @@ impl AssetMap {
         amount: u128,
     ) -> Result<u128> {
         let current_amount = match self.token_map.get(principal) {
-            Some(principal_map) => *principal_map.get(&asset).unwrap_or(&0),
+            Some(principal_map) => *principal_map.get(asset).unwrap_or(&0),
             None => 0,
         };
 
@@ -1948,7 +1949,7 @@ impl CallStack {
                 )
                 .into());
             }
-            if tracked && !self.set.remove(&function) {
+            if tracked && !self.set.remove(function) {
                 return Err(InterpreterError::InterpreterError(
                     "Tried to remove tracked function from call stack, but could not find in current context.".into()
                 )

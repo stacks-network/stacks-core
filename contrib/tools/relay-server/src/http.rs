@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::io::{Error, Read};
+
+use hashbrown::HashMap;
 
 use crate::to_io_result::ToIoResult;
 
