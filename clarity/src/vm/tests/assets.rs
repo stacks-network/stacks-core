@@ -440,7 +440,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
 
     let table = asset_map.to_table();
 
-    let contract_principal = token_contract_id.clone().into();
+    let contract_principal = PrincipalData::from(token_contract_id.clone());
 
     assert_eq!(
         table[&contract_principal][&AssetIdentifier::STX()],

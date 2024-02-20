@@ -15,11 +15,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 use std::{cmp, error, fmt, str};
 
+use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use serde_json::Value as JSONValue;
 use stacks_common::codec::{Error as codec_error, StacksMessageCodec};
