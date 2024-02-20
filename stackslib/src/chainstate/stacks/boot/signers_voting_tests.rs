@@ -368,7 +368,7 @@ fn vote_for_aggregate_public_key_with_errors() {
             0,
             cycle_id + 1,
         ),
-        // Alice casts a vote with an incorrect reward cycle - should return failed to retrieve signers error
+        // Alice casts a vote with an incorrect reward cycle - should return cycle not set error
         make_signers_vote_for_aggregate_public_key_value(
             alice_key,
             alice_nonce + 3,
@@ -451,12 +451,12 @@ fn vote_for_aggregate_public_key_with_errors() {
         Value::err_uint(13) // ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY
     );
 
-    // Alice's fourth vote should fail (failed to retrieve signers)
+    // Alice's fourth vote should fail (cycle not set)
     let alice_fourth_vote_tx = &receipts[5];
     let alice_fourth_vote_tx_result = alice_fourth_vote_tx.result.clone();
     assert_eq!(
         alice_fourth_vote_tx_result,
-        Value::err_uint(16) // ERR_FAILED_TO_RETRIEVE_SIGNERS
+        Value::err_uint(2) // ERR_CYCLE_NOT_SET
     );
 
     // Alice's fifth  vote, correct vote should succeed
