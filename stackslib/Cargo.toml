@@ -56,8 +56,8 @@ stacks-common = { path = "../stacks-common" }
 pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
-wsts = {workspace = true}
-hashbrown = "0.14"
+wsts = { workspace = true }
+hashbrown = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
