@@ -1012,6 +1012,9 @@ impl StacksChainState {
                 // if on the other hand the contract being called has a runtime error, then the
                 // transaction is still valid, but no changes will materialize besides debiting the
                 // tx fee.
+
+                test_debug!("contract_call: {contract_call}");
+
                 let contract_id = contract_call.to_clarity_contract_id();
                 let cost_before = clarity_tx.cost_so_far();
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
@@ -1444,6 +1447,7 @@ impl StacksChainState {
         clarity_block: &mut ClarityTx,
         tx: &StacksTransaction,
     ) -> Result<ClarityVersion, Error> {
+        test_debug!("Deduce Clarity version for transaction {}", tx.txid());
         let clarity_version = match &tx.payload {
             TransactionPayload::SmartContract(_, ref version_opt) => {
                 // did the caller want to run a particular version of Clarity?

@@ -830,16 +830,13 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<bool> {
-        eprintln!("CLARDB has_contract2: {contract_identifier}");
         let exists = self.contract_cache.contains(contract_identifier);
 
         if !exists {
             let result = self.store.has_contract(contract_identifier)?;
-            eprintln!("CLARDB has_contract2 result (KV): {result}");
             return Ok(result);
         }
 
-        eprintln!("CLARDB has_contract2 cache hit");
         Ok(exists)
     }
 

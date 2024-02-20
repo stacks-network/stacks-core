@@ -4863,6 +4863,7 @@ impl StacksChainState {
         mainnet: bool,
         miner_id_opt: Option<usize>,
     ) -> Result<SetupBlockResult<'a, 'b>, Error> {
+        test_debug!("setup_block: {chain_tip:?}");
         let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
         let parent_sortition_id = burn_dbconn
             .get_sortition_id_from_consensus_hash(&parent_consensus_hash)

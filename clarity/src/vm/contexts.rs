@@ -1123,11 +1123,13 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         read_only: bool,
         allow_private: bool,
     ) -> Result<Value> {
+        test_debug!("inner_execute_contract: {contract_identifier}");
         let contract_size: u64 = self
             .global_context
             .database
             .get_contract_size2(contract_identifier)?
             .into();
+        test_debug!("contract_size: {contract_size}");
 
         runtime_cost(ClarityCostFunction::LoadContract, self, contract_size)?;
 

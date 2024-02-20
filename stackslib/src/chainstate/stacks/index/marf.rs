@@ -357,7 +357,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         // current chain tip must exist if it's not the "sentinel"
         let is_parent_sentinel = chain_tip == &T::sentinel();
         if !is_parent_sentinel {
-            eprintln!("Extending off of existing node {}", chain_tip);
+            debug!("Extending off of existing node {}", chain_tip);
         } else {
             debug!("First-ever block {}", next_chain_tip; "block" => %next_chain_tip);
         }
