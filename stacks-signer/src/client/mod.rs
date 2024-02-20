@@ -436,7 +436,6 @@ pub(crate) mod tests {
         let mut end_key_id = start_key_id;
         let mut signer_public_keys = HashMap::new();
         let mut signer_slot_ids = HashMap::new();
-        let mut coordinator_ids = vec![];
         let stacks_address = config.stacks_address;
         let ecdsa_private_key = config.ecdsa_private_key;
         let ecdsa_public_key =
@@ -495,7 +494,6 @@ pub(crate) mod tests {
             signer_ids.insert(address, signer_id);
             addresses.push(address);
             start_key_id = end_key_id;
-            coordinator_ids.push(signer_id);
         }
         (
             SignerConfig {
@@ -511,7 +509,6 @@ pub(crate) mod tests {
                     signer_ids,
                     signer_public_keys,
                 },
-                coordinator_ids,
                 ecdsa_private_key: config.ecdsa_private_key,
                 stacks_private_key: config.stacks_private_key,
                 node_host: config.node_host,

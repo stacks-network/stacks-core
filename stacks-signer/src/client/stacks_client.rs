@@ -37,11 +37,8 @@ use serde_json::json;
 use slog::{slog_debug, slog_warn};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
-};
+use stacks_common::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::StacksEpochId;
-use stacks_common::util::hash::Sha256Sum;
 use stacks_common::{debug, warn};
 use wsts::curve::ecdsa;
 use wsts::curve::point::{Compressed, Point};
@@ -117,41 +114,6 @@ impl StacksClient {
         &self.stacks_address
     }
 
-    /// Calculate the ordered list of coordinator ids by comparing the provided public keys against the pox consensus hash
-    pub fn calculate_coordinator_ids(&self, public_keys: &PublicKeys) -> Vec<u32> {
-        let pox_consensus_hash = match self.get_pox_consenus_hash() {
-            Ok(hash) => hash,
-            Err(e) => {
-                debug!("Failed to get stacks tip consensus hash: {e:?}");
-                let mut default_coordinator_list: Vec<_> =
-                    public_keys.signers.keys().cloned().collect();
-                default_coordinator_list.sort();
-                return default_coordinator_list;
-            }
-        };
-        debug!("Using pox_consensus_hash {pox_consensus_hash:?} for selecting coordinator");
-
-        // Create combined hash of each signer's public key with pox_consensus_hash
-        let mut selection_ids = public_keys
-            .signers
-            .iter()
-            .map(|(&id, pk)| {
-                let pk_bytes = pk.to_bytes();
-                let mut buffer =
-                    Vec::with_capacity(pk_bytes.len() + pox_consensus_hash.as_bytes().len());
-                buffer.extend_from_slice(&pk_bytes[..]);
-                buffer.extend_from_slice(pox_consensus_hash.as_bytes());
-                let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
-                (id, digest)
-            })
-            .collect::<Vec<_>>();
-
-        // Sort the selection IDs based on the hash
-        selection_ids.sort_by_key(|(_, hash)| hash.clone());
-        // Return only the ids
-        selection_ids.iter().map(|(id, _)| *id).collect()
-    }
-
     /// Retrieve the signer slots stored within the stackerdb contract
     pub fn get_stackerdb_signer_slots(
         &self,
@@ -216,29 +178,8 @@ impl StacksClient {
         self.parse_aggregate_public_key(value)
     }
 
-    /// Retrieve the pox consensus hash from the stacks node
-    pub fn get_pox_consenus_hash(&self) -> Result<ConsensusHash, ClientError> {
-        let peer_info = self.get_peer_info()?;
-        Ok(peer_info.pox_consensus)
-    }
-
-    /// Retrieve the stacks node current epoch on a retry
-    /// Will default to Epoch 2.4 if the node does not support the Epoch endpoint
-    pub fn get_node_epoch_with_retry(&self) -> Result<StacksEpochId, ClientError> {
-        retry_with_exponential_backoff(|| match self.get_node_epoch() {
-            Ok(epoch) => Ok(epoch),
-            Err(e) => match e {
-                ClientError::UnsupportedStacksFeature(_) => {
-                    warn!("Stacks Node does not support Epoch endpoint");
-                    Err(backoff::Error::permanent(e))
-                }
-                e => Err(backoff::Error::transient(e)),
-            },
-        })
-    }
-
     /// Determine the stacks node current epoch
-    fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
+    pub fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
         let pox_info = self.get_pox_data()?;
         let burn_block_height = self.get_burn_block_height()?;
 
@@ -312,8 +253,8 @@ impl StacksClient {
         Ok(account_entry.nonce)
     }
 
-    // Helper function to retrieve the peer info data from the stacks node
-    fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
+    /// Get the current peer info data from the stacks node
+    pub fn get_peer_info(&self) -> Result<RPCPeerInfoData, ClientError> {
         debug!("Getting stacks node info...");
         let send_request = || {
             self.stacks_node_client
@@ -356,27 +297,6 @@ impl StacksClient {
         Ok(round)
     }
 
-    /// Get whether the reward set has been determined for the provided reward cycle.
-    /// i.e the node has passed the first block of the new reward cycle's prepare phase
-    pub fn reward_set_calculated(&self, reward_cycle: u64) -> Result<bool, ClientError> {
-        let pox_info = self.get_pox_data()?;
-        let current_reward_cycle = pox_info.reward_cycle_id;
-        if current_reward_cycle >= reward_cycle {
-            // We have already entered into this reward cycle or beyond
-            // therefore the reward set has already been calculated
-            debug!("Reward set has already been calculated for reward cycle {reward_cycle}.");
-            return Ok(true);
-        }
-        if current_reward_cycle.wrapping_add(1) != reward_cycle {
-            // We are not in the prepare phase of the reward cycle as the upcoming cycle nor are we in the current reward cycle...
-            debug!("Reward set has not been calculated for reward cycle {reward_cycle}. We are not in the requested reward cycle yet.");
-            return Ok(false);
-        }
-        let burn_block_height = self.get_burn_block_height()?;
-        // Have we passed the first block of the new reward cycle's prepare phase?
-        Ok(pox_info.next_cycle.prepare_phase_start_block_height < burn_block_height)
-    }
-
     /// Get the reward set from the stacks node for the given reward cycle
     pub fn get_reward_set(&self, reward_cycle: u64) -> Result<RewardSet, ClientError> {
         debug!("Getting reward set for reward cycle {reward_cycle}...");
@@ -401,10 +321,7 @@ impl StacksClient {
         reward_cycle: u64,
     ) -> Result<Option<RegisteredSignersInfo>, ClientError> {
         debug!("Getting registered signers for reward cycle {reward_cycle}...");
-        let Ok(reward_set) = self.get_reward_set(reward_cycle) else {
-            warn!("No reward set found for reward cycle {reward_cycle}.");
-            return Ok(None);
-        };
+        let reward_set = self.get_reward_set(reward_cycle)?;
         let Some(reward_set_signers) = reward_set.signers else {
             warn!("No reward set signers found for reward cycle {reward_cycle}.");
             return Ok(None);
@@ -494,8 +411,8 @@ impl StacksClient {
         }))
     }
 
-    // Helper function to retrieve the pox data from the stacks node
-    fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
+    /// Retreive the current pox data from the stacks node
+    pub fn get_pox_data(&self) -> Result<RPCPoxInfoData, ClientError> {
         debug!("Getting pox data...");
         let send_request = || {
             self.stacks_node_client
@@ -772,8 +689,7 @@ mod tests {
     use serial_test::serial;
     use stacks_common::bitvec::BitVec;
     use stacks_common::consts::{CHAIN_ID_TESTNET, SIGNER_SLOTS_PER_USER};
-    use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
-    use stacks_common::types::StacksEpochId;
+    use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
     use stacks_common::util::hash::Sha512Trunc256Sum;
     use stacks_common::util::secp256k1::MessageSignature;
     use wsts::curve::scalar::Scalar;
@@ -782,8 +698,7 @@ mod tests {
     use crate::client::tests::{
         build_account_nonce_response, build_get_approved_aggregate_key_response,
         build_get_last_round_response, build_get_peer_info_response, build_get_pox_data_response,
-        build_read_only_response, generate_random_consensus_hash, generate_signer_config,
-        write_response, MockServerClient,
+        build_read_only_response, write_response, MockServerClient,
     };
 
     #[test]
@@ -1062,27 +977,6 @@ mod tests {
     }
 
     #[test]
-    fn core_info_call_for_consensus_hash_should_succeed() {
-        let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_pox_consenus_hash());
-        let (response, peer_info) = build_get_peer_info_response(None, None);
-        write_response(mock.server, response.as_bytes());
-        let consensus_hash = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(consensus_hash, peer_info.pox_consensus);
-    }
-
-    #[test]
-    fn core_info_call_with_invalid_response_should_fail() {
-        let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_pox_consenus_hash());
-        write_response(
-            mock.server,
-            b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
-        );
-        assert!(h.join().unwrap().is_err());
-    }
-
-    #[test]
     fn core_info_call_for_burn_block_height_should_succeed() {
         let mock = MockServerClient::new();
         let h = spawn(move || mock.client.get_burn_block_height());
@@ -1331,69 +1225,85 @@ mod tests {
         assert_eq!(h.join().unwrap().unwrap(), stacker_set);
     }
 
-    #[test]
-    #[serial]
-    fn get_reward_set_calculated() {
-        // Should return TRUE as the passed in reward cycle is older than the current reward cycle of the node
-        let mock = MockServerClient::new();
-        let reward_cycle = 10;
-        let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
-        let h = spawn(move || {
-            mock.client
-                .reward_set_calculated(reward_cycle.saturating_sub(1))
-        });
-        write_response(mock.server, pox_response.as_bytes());
-        assert!(h.join().unwrap().unwrap());
+    // #[test]
+    // #[serial]
+    // fn get_reward_set_calculated() {
+    //     // Should return TRUE as the passed in reward cycle is older than the current reward cycle of the node
+    //     let mock = MockServerClient::new();
+    //     let reward_cycle = 10;
+    //     let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
+    //     let h = spawn(move || {
+    //         mock.client
+    //             .reward_set_calculated(reward_cycle.saturating_sub(1))
+    //     });
+    //     write_response(mock.server, pox_response.as_bytes());
+    //     assert!(h.join().unwrap().unwrap());
 
-        // Should return TRUE as the passed in reward cycle is the same as the current reward cycle
-        let mock = MockServerClient::from_config(mock.config);
-        let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
-        let h = spawn(move || mock.client.reward_set_calculated(reward_cycle));
-        write_response(mock.server, pox_response.as_bytes());
-        assert!(h.join().unwrap().unwrap());
+    //     // Should return TRUE as the passed in reward cycle is the same as the current reward cycle
+    //     let mock = MockServerClient::from_config(mock.config);
+    //     let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
+    //     let h = spawn(move || mock.client.reward_set_calculated(reward_cycle));
+    //     write_response(mock.server, pox_response.as_bytes());
+    //     assert!(h.join().unwrap().unwrap());
 
-        // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
-        let mock = MockServerClient::from_config(mock.config);
-        let prepare_phase_start = 10;
-        let pox_response =
-            build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
-                .0;
-        let peer_response =
-            build_get_peer_info_response(Some(prepare_phase_start.saturating_add(1)), None).0;
-        let h = spawn(move || {
-            mock.client
-                .reward_set_calculated(reward_cycle.saturating_add(1))
-        });
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        assert!(h.join().unwrap().unwrap());
+    //     // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
+    //     let mock = MockServerClient::from_config(mock.config);
+    //     let prepare_phase_start = 10;
+    //     let pox_response =
+    //         build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
+    //             .0;
+    //     let peer_response =
+    //         build_get_peer_info_response(Some(prepare_phase_start.saturating_add(2)), None).0;
+    //     let h = spawn(move || {
+    //         mock.client
+    //             .reward_set_calculated(reward_cycle.saturating_add(1))
+    //     });
+    //     write_response(mock.server, pox_response.as_bytes());
+    //     let mock = MockServerClient::from_config(mock.config);
+    //     write_response(mock.server, peer_response.as_bytes());
+    //     assert!(h.join().unwrap().unwrap());
 
-        // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
-        let mock = MockServerClient::from_config(mock.config);
-        let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
-        let h = spawn(move || {
-            mock.client
-                .reward_set_calculated(reward_cycle.saturating_add(2))
-        });
-        write_response(mock.server, pox_response.as_bytes());
-        assert!(!h.join().unwrap().unwrap());
+    //     // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
+    //     let mock = MockServerClient::from_config(mock.config);
+    //     let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
+    //     let h = spawn(move || {
+    //         mock.client
+    //             .reward_set_calculated(reward_cycle.saturating_add(2))
+    //     });
+    //     write_response(mock.server, pox_response.as_bytes());
+    //     assert!(!h.join().unwrap().unwrap());
 
-        // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT the prepare phase is in its FIRST block
-        let mock = MockServerClient::from_config(mock.config);
-        let pox_response =
-            build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
-                .0;
-        let peer_response = build_get_peer_info_response(Some(prepare_phase_start), None).0;
-        let h = spawn(move || {
-            mock.client
-                .reward_set_calculated(reward_cycle.saturating_add(1))
-        });
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        assert!(!h.join().unwrap().unwrap());
-    }
+    //     // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT in the prepare phase start block
+    //     let mock = MockServerClient::from_config(mock.config);
+    //     let pox_response =
+    //         build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
+    //             .0;
+    //     let peer_response = build_get_peer_info_response(Some(prepare_phase_start), None).0;
+    //     let h = spawn(move || {
+    //         mock.client
+    //             .reward_set_calculated(reward_cycle.saturating_add(1))
+    //     });
+    //     write_response(mock.server, pox_response.as_bytes());
+    //     let mock = MockServerClient::from_config(mock.config);
+    //     write_response(mock.server, peer_response.as_bytes());
+    //     assert!(!h.join().unwrap().unwrap());
+
+    //     // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT in the FIRST block of the prepare phase
+    //     let mock = MockServerClient::from_config(mock.config);
+    //     let pox_response =
+    //         build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
+    //             .0;
+    //     let peer_response =
+    //         build_get_peer_info_response(Some(prepare_phase_start.saturating_add(1)), None).0;
+    //     let h = spawn(move || {
+    //         mock.client
+    //             .reward_set_calculated(reward_cycle.saturating_add(1))
+    //     });
+    //     write_response(mock.server, pox_response.as_bytes());
+    //     let mock = MockServerClient::from_config(mock.config);
+    //     write_response(mock.server, peer_response.as_bytes());
+    //     assert!(!h.join().unwrap().unwrap());
+    // }
 
     #[test]
     fn get_vote_for_aggregate_public_key_should_succeed() {
@@ -1417,79 +1327,5 @@ mod tests {
         });
         write_response(mock.server, key_response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), None);
-    }
-
-    #[test]
-    fn calculate_coordinator_different_consensus_hashes_produces_unique_results() {
-        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let number_of_tests = 5;
-        let generated_public_keys = generate_signer_config(&config, 10, 4000)
-            .0
-            .registered_signers
-            .public_keys;
-        let mut results = Vec::new();
-
-        for _ in 0..number_of_tests {
-            let mock = MockServerClient::new();
-            let response = build_get_peer_info_response(None, None).0;
-            let generated_public_keys = generated_public_keys.clone();
-            let h = spawn(move || {
-                mock.client
-                    .calculate_coordinator_ids(&generated_public_keys)
-            });
-            write_response(mock.server, response.as_bytes());
-            let result = h.join().unwrap();
-            results.push(result);
-        }
-
-        // Check that not all coordinator IDs are the same
-        let all_ids_same = results.iter().all(|ids| ids == &results[0]);
-        assert!(!all_ids_same, "Not all coordinator IDs should be the same");
-    }
-
-    fn generate_calculate_coordinator_test_results(
-        random_consensus: bool,
-        count: usize,
-    ) -> Vec<Vec<u32>> {
-        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let mut results = Vec::new();
-        let same_hash = generate_random_consensus_hash();
-        let hash = if random_consensus {
-            None
-        } else {
-            Some(same_hash)
-        };
-        let generated_public_keys = generate_signer_config(&config, 10, 4000)
-            .0
-            .registered_signers
-            .public_keys;
-        for _ in 0..count {
-            let mock = MockServerClient::new();
-            let generated_public_keys = generated_public_keys.clone();
-            let response = build_get_peer_info_response(None, hash).0;
-            let h = spawn(move || {
-                mock.client
-                    .calculate_coordinator_ids(&generated_public_keys)
-            });
-            write_response(mock.server, response.as_bytes());
-            let result = h.join().unwrap();
-            results.push(result);
-        }
-        results
-    }
-
-    #[test]
-    fn calculate_coordinator_results_should_vary_or_match_based_on_hash() {
-        let results_with_random_hash = generate_calculate_coordinator_test_results(true, 5);
-        let all_ids_same = results_with_random_hash
-            .iter()
-            .all(|ids| ids == &results_with_random_hash[0]);
-        assert!(!all_ids_same, "Not all coordinator IDs should be the same");
-
-        let results_with_static_hash = generate_calculate_coordinator_test_results(false, 5);
-        let all_ids_same = results_with_static_hash
-            .iter()
-            .all(|ids| ids == &results_with_static_hash[0]);
-        assert!(all_ids_same, "All coordinator IDs should be the same");
     }
 }

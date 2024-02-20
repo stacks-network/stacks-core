@@ -12,6 +12,7 @@ use libsigner::{
     BLOCK_MSG_ID,
 };
 use stacks::burnchains::Txid;
+use stacks::chainstate::burn::ConsensusHashExtensions;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
@@ -29,6 +30,7 @@ use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
+use stacks_signer::coordinator::CoordinatorSelector;
 use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::signer::Command as SignerCommand;
 use tracing_subscriber::prelude::*;
@@ -364,11 +366,14 @@ impl SignerTest {
             .get_registered_signers_info(reward_cycle)
             .unwrap()
             .unwrap();
-        let coordinator_id = *self
-            .stacks_client
-            .calculate_coordinator_ids(&registered_signers_info.public_keys)
-            .first()
-            .expect("No coordinator found");
+
+        // TODO: do not use the zeroed consensus hash here
+        let coordinator_id = *CoordinatorSelector::calculate_coordinator_ids(
+            &registered_signers_info.public_keys,
+            &ConsensusHash::empty(),
+        )
+        .first()
+        .expect("No coordinator found");
         let coordinator_pk = registered_signers_info
             .public_keys
             .signers
@@ -914,6 +919,7 @@ fn stackerdb_block_proposal() {
 
 #[test]
 #[ignore]
+// TODO: FIX THIS TEST. IT SHOULD BE TESTING THAT THE MINER FILTERS OUT THE NEXT SIGNERS TRANSACTIONS
 /// Test that signers will accept a miners block proposal and sign it if it contains all expected transactions,
 /// filtering invalid transactions from the block requirements
 ///
@@ -1158,15 +1164,15 @@ fn stackerdb_reward_cycle_transitions() {
         .saturating_sub(1);
     let next_reward_cycle_reward_set_calculation = next_reward_cycle_boundary
         .saturating_sub(prepare_phase_len)
-        .saturating_add(1); // +1 since second block of the prepare phase is where the reward set is calculated
+        .saturating_add(2); // +2 since second block of the prepare phase is where the reward set is calculated
 
     info!("------------------------- Test Nakamoto Block Mining in Reward Cycle {curr_reward_cycle} -------------------------");
 
-    debug!("At block height {current_block_height} in reward cycle {curr_reward_cycle}");
+    info!("At block height {current_block_height} in reward cycle {curr_reward_cycle}");
 
     let nmb_blocks_to_mine =
         next_reward_cycle_reward_set_calculation.saturating_sub(current_block_height);
-    debug!(
+    info!(
         "Mining {} Nakamoto blocks to reach next reward cycle reward set calculation at block height {next_reward_cycle_reward_set_calculation}",
         nmb_blocks_to_mine
     );
@@ -1182,13 +1188,13 @@ fn stackerdb_reward_cycle_transitions() {
         .btc_regtest_controller
         .get_headers_height();
 
-    debug!("At block height {current_block_height} in reward cycle {curr_reward_cycle}");
-    debug!("Wait for the next reward cycle {next_reward_cycle} dkg to be calculated by the new signers");
+    info!("At block height {current_block_height} in reward cycle {curr_reward_cycle}");
+    info!("Wait for the next reward cycle {next_reward_cycle} dkg to be calculated by the new signers");
 
     let set_dkg_2 = signer_test.wait_for_dkg(timeout);
     assert_ne!(set_dkg_1, set_dkg_2);
 
-    debug!("DKG has been calculated for the next reward cycle {next_reward_cycle}");
+    info!("DKG has been calculated for the next reward cycle {next_reward_cycle}");
 
     let current_block_height = signer_test
         .running_nodes
@@ -1197,7 +1203,7 @@ fn stackerdb_reward_cycle_transitions() {
 
     let nmb_blocks_to_mine = next_reward_cycle_boundary.saturating_sub(current_block_height);
 
-    debug!(
+    info!(
         "Mining {} Nakamoto blocks to reach next reward cycle {next_reward_cycle} boundary block height {next_reward_cycle_boundary}",
         nmb_blocks_to_mine
     );

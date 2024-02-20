@@ -16,10 +16,13 @@
 
 use std::time::Instant;
 
+use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
+use slog::slog_debug;
+use stacks_common::debug;
+use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::hash::Sha256Sum;
 use wsts::curve::ecdsa;
 use wsts::state_machine::PublicKeys;
-
-use crate::client::StacksClient;
 
 /// TODO: test this value and adjust as necessary. Maybe make configurable?
 pub const COORDINATOR_OPERATION_TIMEOUT_SECS: u64 = 300;
@@ -44,9 +47,11 @@ pub struct CoordinatorSelector {
     public_keys: PublicKeys,
 }
 
-impl CoordinatorSelector {
-    /// Create a new Coordinator selector from the given list of public keys and initial coordinator ids
-    pub fn new(coordinator_ids: Vec<u32>, public_keys: PublicKeys) -> Self {
+impl From<PublicKeys> for CoordinatorSelector {
+    /// Create a new Coordinator selector from the given list of public keys
+    fn from(public_keys: PublicKeys) -> Self {
+        let coordinator_ids =
+            CoordinatorSelector::calculate_coordinator_ids(&public_keys, &ConsensusHash::empty());
         let coordinator_id = *coordinator_ids
             .first()
             .expect("FATAL: No registered signers");
@@ -62,7 +67,9 @@ impl CoordinatorSelector {
             public_keys,
         }
     }
+}
 
+impl CoordinatorSelector {
     /// Update the coordinator id
     fn update_coordinator(&mut self, new_coordinator_ids: Vec<u32>) {
         self.last_message_time = None;
@@ -99,8 +106,9 @@ impl CoordinatorSelector {
 
     /// Check the coordinator timeouts and update the selected coordinator accordingly
     /// Returns the resulting coordinator ID. (Note: it may be unchanged)
-    pub fn refresh_coordinator(&mut self, stacks_client: &StacksClient) -> u32 {
-        let new_coordinator_ids = stacks_client.calculate_coordinator_ids(&self.public_keys);
+    pub fn refresh_coordinator(&mut self, pox_consensus_hash: &ConsensusHash) -> u32 {
+        let new_coordinator_ids =
+            Self::calculate_coordinator_ids(&self.public_keys, pox_consensus_hash);
         if let Some(time) = self.last_message_time {
             if time.elapsed().as_secs() > COORDINATOR_OPERATION_TIMEOUT_SECS {
                 // We have not received a message in a while from this coordinator.
@@ -126,5 +134,99 @@ impl CoordinatorSelector {
                 .get(&self.coordinator_id)
                 .expect("FATAL: missing public key for selected coordinator id"),
         )
+    }
+
+    /// Calculate the ordered list of coordinator ids by comparing the provided public keys against the pox consensus hash
+    pub fn calculate_coordinator_ids(
+        public_keys: &PublicKeys,
+        pox_consensus_hash: &ConsensusHash,
+    ) -> Vec<u32> {
+        debug!("Using pox_consensus_hash {pox_consensus_hash:?} for selecting coordinator");
+        // Create combined hash of each signer's public key with pox_consensus_hash
+        let mut selection_ids = public_keys
+            .signers
+            .iter()
+            .map(|(&id, pk)| {
+                let pk_bytes = pk.to_bytes();
+                let mut buffer =
+                    Vec::with_capacity(pk_bytes.len() + pox_consensus_hash.as_bytes().len());
+                buffer.extend_from_slice(&pk_bytes[..]);
+                buffer.extend_from_slice(pox_consensus_hash.as_bytes());
+                let digest = Sha256Sum::from_data(&buffer).as_bytes().to_vec();
+                (id, digest)
+            })
+            .collect::<Vec<_>>();
+
+        // Sort the selection IDs based on the hash
+        selection_ids.sort_by_key(|(_, hash)| hash.clone());
+        // Return only the ids
+        selection_ids.iter().map(|(id, _)| *id).collect()
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::tests::{generate_random_consensus_hash, generate_signer_config};
+    use crate::config::GlobalConfig;
+
+    #[test]
+    fn calculate_coordinator_different_consensus_hashes_produces_unique_results() {
+        let number_of_tests = 5;
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let public_keys = generate_signer_config(&config, 10, 4000)
+            .0
+            .registered_signers
+            .public_keys;
+        let mut results = Vec::new();
+
+        for _ in 0..number_of_tests {
+            let result = CoordinatorSelector::calculate_coordinator_ids(
+                &public_keys,
+                &generate_random_consensus_hash(),
+            );
+            results.push(result);
+        }
+
+        // Check that not all coordinator IDs are the same
+        let all_ids_same = results.iter().all(|ids| ids == &results[0]);
+        assert!(!all_ids_same, "Not all coordinator IDs should be the same");
+    }
+
+    fn generate_calculate_coordinator_test_results(
+        random_consensus: bool,
+        count: usize,
+    ) -> Vec<Vec<u32>> {
+        let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
+        let public_keys = generate_signer_config(&config, 10, 4000)
+            .0
+            .registered_signers
+            .public_keys;
+        let mut results = Vec::new();
+        let same_hash = generate_random_consensus_hash();
+        for _ in 0..count {
+            let hash = if random_consensus {
+                generate_random_consensus_hash()
+            } else {
+                same_hash
+            };
+            let result = CoordinatorSelector::calculate_coordinator_ids(&public_keys, &hash);
+            results.push(result);
+        }
+        results
+    }
+
+    #[test]
+    fn calculate_coordinator_results_should_vary_or_match_based_on_hash() {
+        let results_with_random_hash = generate_calculate_coordinator_test_results(true, 5);
+        let all_ids_same = results_with_random_hash
+            .iter()
+            .all(|ids| ids == &results_with_random_hash[0]);
+        assert!(!all_ids_same, "Not all coordinator IDs should be the same");
+
+        let results_with_static_hash = generate_calculate_coordinator_test_results(false, 5);
+        let all_ids_same = results_with_static_hash
+            .iter()
+            .all(|ids| ids == &results_with_static_hash[0]);
+        assert!(all_ids_same, "All coordinator IDs should be the same");
     }
 }

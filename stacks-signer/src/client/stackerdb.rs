@@ -47,6 +47,8 @@ pub struct StackerDB {
     signer_slot_id: u32,
     /// The reward cycle of the connecting signer
     reward_cycle: u64,
+    /// The stacker-db transaction msg session for the NEXT reward cycle
+    next_transaction_session: StackerDBSession,
 }
 
 impl From<&SignerConfig> for StackerDB {
@@ -85,12 +87,27 @@ impl StackerDB {
                 ),
             );
         }
+        let next_transaction_session = StackerDBSession::new(
+            host,
+            QualifiedContractIdentifier::new(
+                stackerdb_issuer.into(),
+                ContractName::from(
+                    NakamotoSigners::make_signers_db_name(
+                        reward_cycle.wrapping_add(1),
+                        TRANSACTIONS_MSG_ID,
+                    )
+                    .as_str(),
+                ),
+            ),
+        );
+
         Self {
             signers_message_stackerdb_sessions,
             stacks_private_key,
             slot_versions: HashMap::new(),
             signer_slot_id,
             reward_cycle,
+            next_transaction_session,
         }
     }
 
@@ -164,19 +181,11 @@ impl StackerDB {
         }
     }
 
-    /// Get the latest signer transactions from signer ids
-    pub fn get_signer_transactions_with_retry(
-        &mut self,
+    /// Get the transactions from stackerdb for the signers
+    fn get_transactions(
+        transactions_session: &mut StackerDBSession,
         signer_ids: &[u32],
     ) -> Result<Vec<StacksTransaction>, ClientError> {
-        debug!("Getting latest chunks from stackerdb for the following signers: {signer_ids:?}",);
-        let Some(transactions_session) = self
-            .signers_message_stackerdb_sessions
-            .get_mut(&TRANSACTIONS_MSG_ID)
-        else {
-            return Err(ClientError::NotConnected);
-        };
-
         let send_request = || {
             transactions_session
                 .get_latest_chunks(signer_ids)
@@ -214,6 +223,30 @@ impl StackerDB {
             transactions.extend(chunk_transactions);
         }
         Ok(transactions)
+    }
+
+    /// Get the latest signer transactions from signer ids for the current reward cycle
+    pub fn get_current_transactions_with_retry(
+        &mut self,
+        signer_id: u32,
+    ) -> Result<Vec<StacksTransaction>, ClientError> {
+        debug!("Signer #{signer_id}: Getting latest transactions from stacker db",);
+        let Some(transactions_session) = self
+            .signers_message_stackerdb_sessions
+            .get_mut(&TRANSACTIONS_MSG_ID)
+        else {
+            return Err(ClientError::NotConnected);
+        };
+        Self::get_transactions(transactions_session, &[signer_id])
+    }
+
+    /// Get the latest signer transactions from signer ids for the next reward cycle
+    pub fn get_next_transactions_with_retry(
+        &mut self,
+        signer_ids: &[u32],
+    ) -> Result<Vec<StacksTransaction>, ClientError> {
+        debug!("Getting latest chunks from stackerdb for the following signers: {signer_ids:?}",);
+        Self::get_transactions(&mut self.next_transaction_session, signer_ids)
     }
 
     /// Retrieve the signer set this stackerdb client is attached to
@@ -270,7 +303,7 @@ mod tests {
         let message = signer_message.serialize_to_vec();
 
         let signer_ids = vec![0, 1];
-        let h = spawn(move || stackerdb.get_signer_transactions_with_retry(&signer_ids));
+        let h = spawn(move || stackerdb.get_next_transactions_with_retry(&signer_ids));
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         response_bytes.extend(message);
         let mock_server = mock_server_from_config(&config);
@@ -320,9 +353,9 @@ mod tests {
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
         response_bytes.extend(payload.as_bytes());
+        let mock_server = mock_server_from_config(&config);
         let h = spawn(move || stackerdb.send_message_with_retry(signer_message));
         std::thread::sleep(Duration::from_millis(100));
-        let mock_server = mock_server_from_config(&config);
         write_response(mock_server, response_bytes.as_slice());
         assert_eq!(ack, h.join().unwrap().unwrap());
     }

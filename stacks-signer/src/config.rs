@@ -142,8 +142,6 @@ pub struct SignerConfig {
     pub key_ids: Vec<u32>,
     /// The registered signers for this reward cycle
     pub registered_signers: RegisteredSignersInfo,
-    /// The initial coordinator ids for the coordinator selector
-    pub coordinator_ids: Vec<u32>,
     /// The Scalar representation of the private key for signer communication
     pub ecdsa_private_key: Scalar,
     /// The private key for this signer
