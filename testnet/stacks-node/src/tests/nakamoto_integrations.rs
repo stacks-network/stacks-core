@@ -605,7 +605,7 @@ pub fn boot_to_epoch_3_reward_set(
         epoch_3_start_height.saturating_sub(epoch_3_start_height % reward_cycle_len);
     let epoch_3_reward_set_calculation_boundary =
         epoch_3_reward_cycle_boundary.saturating_sub(prepare_phase_len);
-    let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(1);
+    let epoch_3_reward_set_calculation = epoch_3_reward_set_calculation_boundary.wrapping_add(2); // +2 to ensure we are at the second block of the prepare phase
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
     next_block_and_wait(btc_regtest_controller, &blocks_processed);
