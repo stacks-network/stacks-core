@@ -1178,10 +1178,17 @@ impl<'a> ClarityDatabase<'a> {
         let value = Value::Tuple(
             TupleData::from_data(vec![
                 (
-                    ClarityName::from("reporter"),
+                    ClarityName::try_from("reporter").map_err(|_| {
+                        InterpreterError::Expect("BUG: valid string representation".into())
+                    })?,
                     Value::Principal(PrincipalData::Standard(reporter.clone())),
                 ),
-                (ClarityName::from("sequence"), Value::UInt(seq as u128)),
+                (
+                    ClarityName::try_from("sequence").map_err(|_| {
+                        InterpreterError::Expect("BUG: valid string representation".into())
+                    })?,
+                    Value::UInt(seq as u128),
+                ),
             ])
             .map_err(|_| InterpreterError::Expect("BUG: valid tuple representation".into()))?,
         );

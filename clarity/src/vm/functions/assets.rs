@@ -239,12 +239,21 @@ pub fn special_stx_account(
 
     TupleData::from_data(vec![
         (
-            "unlocked".into(),
+            "unlocked"
+                .try_into()
+                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
             Value::UInt(stx_balance.amount_unlocked()),
         ),
-        ("locked".into(), Value::UInt(stx_balance.amount_locked())),
         (
-            "unlock-height".into(),
+            "locked"
+                .try_into()
+                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
+            Value::UInt(stx_balance.amount_locked()),
+        ),
+        (
+            "unlock-height"
+                .try_into()
+                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
             Value::UInt(u128::from(stx_balance.effective_unlock_height(
                 v1_unlock_ht,
                 v2_unlock_ht,

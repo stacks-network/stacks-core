@@ -419,7 +419,7 @@ where
         loop {
             // next row
             let i = nodes.len() - 1;
-            let capacity = (nodes[i].len() + 1) / 2;
+            let capacity = nodes[i].len().saturating_add(1) / 2;
             let mut row_hashes = Vec::with_capacity(capacity);
 
             for j in 0..(nodes[i].len() / 2) {
