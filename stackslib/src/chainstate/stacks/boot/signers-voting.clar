@@ -61,10 +61,6 @@
 (define-read-only (get-tally (reward-cycle uint) (round uint) (aggregate-public-key (buff 33)))
     (map-get? tally {reward-cycle: reward-cycle, round: round, aggregate-public-key: aggregate-public-key}))
 
-(define-read-only (get-current-signer-weight (signer-index uint))
-    (let ((cycle (+ u1 (burn-height-to-reward-cycle burn-block-height))))
-      (get-signer-weight signer-index cycle)))
-
 (define-read-only (get-signer-weight (signer-index uint) (reward-cycle uint))
     (let ((details (unwrap! (try! (contract-call? .signers get-signer-by-index reward-cycle signer-index)) (err ERR_INVALID_SIGNER_INDEX))))
         (asserts! (is-eq (get signer details) tx-sender) (err ERR_SIGNER_INDEX_MISMATCH))
@@ -130,7 +126,7 @@
 (define-public (vote-for-aggregate-public-key (signer-index uint) (key (buff 33)) (round uint) (reward-cycle uint))
     (let ((tally-key {reward-cycle: reward-cycle, round: round, aggregate-public-key: key})
             ;; vote by signer weight
-            (signer-weight (try! (get-current-signer-weight signer-index)))
+            (signer-weight (try! (get-signer-weight signer-index reward-cycle)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
             (total-weight (try! (get-total-weight reward-cycle))))
         ;; Check that the key has not yet been set for this reward cycle
