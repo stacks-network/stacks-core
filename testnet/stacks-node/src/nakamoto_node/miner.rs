@@ -263,15 +263,11 @@ impl BlockMinerThread {
         &self,
         stackerdbs: &StackerDBs,
         msg_id: u32,
+        reward_cycle: u64,
     ) -> Result<(QualifiedContractIdentifier, HashMap<u32, StacksAddress>), NakamotoNodeError> {
         let stackerdb_contracts = stackerdbs
             .get_stackerdb_contract_ids()
             .expect("FATAL: could not get the stacker DB contract ids");
-
-        let reward_cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(self.burn_block.block_height)
-            .expect("FATAL: no reward cycle for burn block");
 
         let signers_contract_id = NakamotoSigners::make_signers_db_contract_id(
             reward_cycle,
@@ -308,8 +304,16 @@ impl BlockMinerThread {
         sortdb: &SortitionDB,
         stackerdbs: &StackerDBs,
     ) -> Result<Vec<StacksTransaction>, NakamotoNodeError> {
-        let (signers_contract_id, slot_ids_addresses) =
-            self.get_stackerdb_contract_and_slots(stackerdbs, TRANSACTIONS_MSG_ID)?;
+        let next_reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_block.block_height)
+            .expect("FATAL: no reward cycle for burn block")
+            .wrapping_add(1);
+        let (signers_contract_id, slot_ids_addresses) = self.get_stackerdb_contract_and_slots(
+            stackerdbs,
+            TRANSACTIONS_MSG_ID,
+            next_reward_cycle,
+        )?;
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
         let addresses = slot_ids_addresses.values().cloned().collect::<HashSet<_>>();
         // Get the transactions from the signers for the next block
@@ -375,8 +379,12 @@ impl BlockMinerThread {
         signer_signature_hash: &Sha512Trunc256Sum,
         signer_weights: HashMap<StacksAddress, u64>,
     ) -> Result<ThresholdSignature, NakamotoNodeError> {
+        let reward_cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(self.burn_block.block_height)
+            .expect("FATAL: no reward cycle for burn block");
         let (signers_contract_id, slot_ids_addresses) =
-            self.get_stackerdb_contract_and_slots(stackerdbs, BLOCK_MSG_ID)?;
+            self.get_stackerdb_contract_and_slots(stackerdbs, BLOCK_MSG_ID, reward_cycle)?;
         let slot_ids = slot_ids_addresses.keys().cloned().collect::<Vec<_>>();
         // If more than a threshold percentage of the signers reject the block, we should not wait any further
         let weights: u64 = signer_weights.values().sum();
