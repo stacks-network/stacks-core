@@ -2883,7 +2883,7 @@ impl NakamotoChainState {
         // block.
         // (note that we can't check this earlier, since we need the parent tenure to have been
         // processed)
-        if new_tenure && parent_chain_tip.is_nakamoto_block() {
+        if new_tenure && parent_chain_tip.is_nakamoto_block() && !block.is_first_mined() {
             let tenure_block_commit = burn_dbconn
                 .get_block_commit(
                     &tenure_block_snapshot.winning_block_txid,

@@ -117,7 +117,10 @@ impl BlockSnapshot {
     }
 
     pub fn get_canonical_stacks_block_id(&self) -> StacksBlockId {
-        StacksBlockId::new(&self.consensus_hash, &self.canonical_stacks_tip_hash)
+        StacksBlockId::new(
+            &self.canonical_stacks_tip_consensus_hash,
+            &self.canonical_stacks_tip_hash,
+        )
     }
 
     /// Given the weighted burns, VRF seed of the last winner, and sortition hash, pick the next
