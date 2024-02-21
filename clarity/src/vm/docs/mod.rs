@@ -2564,7 +2564,7 @@ fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> {
 
 fn make_for_special(api: &SpecialAPI, function: &NativeFunctions) -> FunctionAPI {
     FunctionAPI {
-        name: function.get_name().to_string(),
+        name: function.get_name(),
         snippet: api.snippet.to_string(),
         input_type: api.input_type.to_string(),
         output_type: api.output_type.to_string(),
@@ -3182,7 +3182,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::PrincipalType,
             ]),
-            ret.clone(),
+            ret,
         );
         result = get_input_type_string(&function_type);
         assert_eq!(result, "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal");
@@ -3210,7 +3210,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::PrincipalType,
             ],
-            ret.clone(),
+            ret,
         );
         result = get_input_type_string(&function_type);
         assert_eq!(result, "uint | int | principal");
@@ -3225,7 +3225,7 @@ mod test {
         result = get_input_type_string(&function_type);
         assert_eq!(result, "int, ...");
 
-        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret.clone());
+        function_type = FunctionType::Variadic(TypeSignature::PrincipalType, ret);
         result = get_input_type_string(&function_type);
         assert_eq!(result, "principal, ...");
     }

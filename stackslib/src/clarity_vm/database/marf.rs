@@ -195,14 +195,18 @@ impl MarfedKV {
         current: &StacksBlockId,
         next: &StacksBlockId,
     ) -> WritableMarfStore<'a> {
-        let mut tx = self.marf.begin_tx().expect(&format!(
-            "ERROR: Failed to begin new MARF block {} - {})",
-            current, next
-        ));
-        tx.begin(current, next).expect(&format!(
-            "ERROR: Failed to begin new MARF block {} - {})",
-            current, next
-        ));
+        let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new MARF block {} - {})",
+                current, next
+            )
+        });
+        tx.begin(current, next).unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new MARF block {} - {})",
+                current, next
+            )
+        });
 
         let chain_tip = tx
             .get_open_chain_tip()
@@ -216,14 +220,18 @@ impl MarfedKV {
     }
 
     pub fn begin_unconfirmed<'a>(&'a mut self, current: &StacksBlockId) -> WritableMarfStore<'a> {
-        let mut tx = self.marf.begin_tx().expect(&format!(
-            "ERROR: Failed to begin new unconfirmed MARF block for {})",
-            current
-        ));
-        tx.begin_unconfirmed(current).expect(&format!(
-            "ERROR: Failed to begin new unconfirmed MARF block for {})",
-            current
-        ));
+        let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new unconfirmed MARF block for {})",
+                current
+            )
+        });
+        tx.begin_unconfirmed(current).unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new unconfirmed MARF block for {})",
+                current
+            )
+        });
 
         let chain_tip = tx
             .get_open_chain_tip()
@@ -362,10 +370,12 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
     fn get_block_at_height(&mut self, block_height: u32) -> Option<StacksBlockId> {
         self.marf
             .get_bhh_at_height(&self.chain_tip, block_height)
-            .expect(&format!(
-                "Unexpected MARF failure: failed to get block at height {} off of {}.",
-                block_height, &self.chain_tip
-            ))
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Unexpected MARF failure: failed to get block at height {} off of {}.",
+                    block_height, &self.chain_tip
+                )
+            })
             .map(|x| StacksBlockId(x.to_bytes()))
     }
 
@@ -612,10 +622,12 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId> {
         self.marf
             .get_block_at_height(height, &self.chain_tip)
-            .expect(&format!(
-                "Unexpected MARF failure: failed to get block at height {} off of {}.",
-                height, &self.chain_tip
-            ))
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Unexpected MARF failure: failed to get block at height {} off of {}.",
+                    height, &self.chain_tip
+                )
+            })
     }
 
     fn get_open_chain_tip(&mut self) -> StacksBlockId {

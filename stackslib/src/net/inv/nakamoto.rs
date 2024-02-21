@@ -204,7 +204,7 @@ impl InvGenerator {
                     .insert(cur_consensus_hash.clone(), loaded_info);
                 self.sortitions
                     .get(&cur_consensus_hash)
-                    .expect("infallible: just inserted this data".into())
+                    .expect("infallible: just inserted this data")
             };
             let parent_sortition_consensus_hash = cur_sortition_info.parent_consensus_hash.clone();
 

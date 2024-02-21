@@ -233,9 +233,7 @@ impl From<u32> for MARFValue {
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a u32 into a MARF Value.");
         }
-        for i in 0..h.len() {
-            d[i] = h[i];
-        }
+        d[..h.len()].copy_from_slice(&h[..]);
         MARFValue(d)
     }
 }
@@ -247,9 +245,7 @@ impl<T: MarfTrieId> From<T> for MARFValue {
         if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
             panic!("Cannot convert a BHH into a MARF Value.");
         }
-        for i in 0..h.len() {
-            d[i] = h[i];
-        }
+        d[..h.len()].copy_from_slice(&h[..]);
         MARFValue(d)
     }
 }
@@ -258,9 +254,8 @@ impl From<MARFValue> for u32 {
     fn from(m: MARFValue) -> u32 {
         let h = m.0;
         let mut d = [0u8; 4];
-        for i in 0..4 {
-            d[i] = h[i];
-        }
+
+        d[..4].copy_from_slice(&h[..4]);
         for i in 4..h.len() {
             if h[i] != 0 {
                 panic!("Failed to convert MARF value into u32: data stored after 4th byte");
@@ -274,9 +269,7 @@ impl MARFValue {
     /// Construct from a TRIEHASH_ENCODED_SIZE-length slice
     pub fn from_value_hash_bytes(h: &[u8; TRIEHASH_ENCODED_SIZE]) -> MARFValue {
         let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
-        for i in 0..TRIEHASH_ENCODED_SIZE {
-            d[i] = h[i];
-        }
+        d[..TRIEHASH_ENCODED_SIZE].copy_from_slice(&h[..TRIEHASH_ENCODED_SIZE]);
         MARFValue(d)
     }
 

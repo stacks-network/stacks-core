@@ -302,7 +302,7 @@ impl UnconfirmedState {
                 let (stx_fees, stx_burns, receipts) =
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
-                        &vec![mblock.clone()],
+                        &[mblock.clone()],
                         ast_rules,
                     ) {
                         Ok(x) => x,

@@ -110,7 +110,7 @@ impl LeaderKeyRegisterOp {
 
         let consensus_hash = ConsensusHash::from_bytes(&data[0..20])
             .expect("FATAL: invalid byte slice for consensus hash");
-        let pubkey = match VRFPublicKey::from_bytes(&data[20..52].to_vec()) {
+        let pubkey = match VRFPublicKey::from_bytes(&data[20..52]) {
             Some(pubk) => pubk,
             None => {
                 warn!("Invalid VRF public key");

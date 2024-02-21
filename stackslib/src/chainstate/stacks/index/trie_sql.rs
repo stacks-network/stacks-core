@@ -388,7 +388,7 @@ pub fn write_trie_blob_to_unconfirmed<T: MarfTrieId>(
     };
 
     let block_id = get_unconfirmed_block_identifier(conn, block_hash)?
-        .expect(&format!("BUG: stored {} but got no block ID", block_hash));
+        .unwrap_or_else(|| panic!("BUG: stored {} but got no block ID", block_hash));
 
     debug!(
         "Wrote unconfirmed block trie {} to rowid {}",

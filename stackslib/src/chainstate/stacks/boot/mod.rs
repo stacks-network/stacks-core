@@ -619,7 +619,7 @@ impl StacksChainState {
                         env.execute_contract(
                             &contract_identifier,
                             function,
-                            &vec![SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
+                            &[SymbolicExpression::atom_value(Value::UInt(reward_cycle))],
                             true,
                         )
                     },
@@ -929,27 +929,26 @@ impl StacksChainState {
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    i, num_addrs, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        i, num_addrs, reward_cycle
+                    )
+                })
                 .expect_tuple()
                 .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple_data
                 .get("pox-addr")
-                .expect(&format!("FATAL: no 'pox-addr' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'pox-addr' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
 
             let total_ustx = tuple_data
                 .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
@@ -1011,37 +1010,34 @@ impl StacksChainState {
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    i, num_addrs, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        i, num_addrs, reward_cycle
+                    )
+                })
                 .expect_tuple()
                 .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
-                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
 
             let total_ustx = tuple
                 .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
-                .expect(&format!(
-                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i
-                ))
+                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i))
                 .to_owned()
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
@@ -1110,37 +1106,34 @@ impl StacksChainState {
                 )?
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    i, num_addrs, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        i, num_addrs, reward_cycle
+                    )
+                })
                 .expect_tuple()
                 .expect("FATAL: unexpected PoX structure");
 
             let pox_addr_tuple = tuple
                 .get("pox-addr")
-                .expect(&format!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no `pox-addr` in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned();
 
             let reward_address = PoxAddress::try_from_pox_tuple(self.mainnet, &pox_addr_tuple)
-                .expect(&format!(
-                    "FATAL: not a valid PoX address: {:?}",
-                    &pox_addr_tuple
-                ));
+                .unwrap_or_else(|| panic!("FATAL: not a valid PoX address: {:?}", &pox_addr_tuple));
 
             let total_ustx = tuple
                 .get("total-ustx")
-                .expect(&format!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
+                .unwrap_or_else(|_| panic!("FATAL: no 'total-ustx' in return value from (get-reward-set-pox-address u{} u{})", reward_cycle, i))
                 .to_owned()
                 .expect_u128()
                 .expect("FATAL: unexpected PoX structure");
 
             let stacker = tuple
                 .get("stacker")
-                .expect(&format!(
-                    "FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
-                    reward_cycle, i
-                ))
+                .unwrap_or_else(|_| panic!("FATAL: no 'stacker' in return value from (get-reward-set-pox-address u{} u{})",
+                    reward_cycle, i))
                 .to_owned()
                 .expect_optional()
                 .expect("FATAL: unexpected PoX structure")
@@ -1207,10 +1200,12 @@ impl StacksChainState {
                     &format!("(get-reward-set-pox-address u{} u{})", reward_cycle, i),
                 )?
                 .expect_optional()?
-                .expect(&format!(
-                    "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
-                    i, num_addrs, reward_cycle
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "FATAL: missing PoX address in slot {} out of {} in reward cycle {}",
+                        i, num_addrs, reward_cycle
+                    )
+                })
                 .expect_tuple()?;
 
             let entry = RawRewardSetEntry::from_pox_4_tuple(self.mainnet, tuple)?;

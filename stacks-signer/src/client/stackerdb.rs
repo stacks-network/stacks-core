@@ -362,7 +362,7 @@ mod tests {
             ),
         };
 
-        let signer_message = SignerMessage::Transactions(vec![tx.clone()]);
+        let signer_message = SignerMessage::Transactions(vec![tx]);
         let ack = StackerDBChunkAckData {
             accepted: true,
             reason: None,

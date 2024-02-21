@@ -580,7 +580,7 @@ impl MicroblockMinerThread {
 
         // NOTE: read-write access is needed in order to be able to query the recipient set.
         // This is an artifact of the way the MARF is built (see #1449)
-        let sortdb = SortitionDB::open(&burn_db_path, true, burnchain.pox_constants.clone())
+        let sortdb = SortitionDB::open(&burn_db_path, true, burnchain.pox_constants)
             .map_err(|e| {
                 error!(
                     "Relayer: Could not open sortdb '{}' ({:?}); skipping tenure",
@@ -820,13 +820,13 @@ impl MicroblockMinerThread {
                     // record this microblock somewhere
                     if !fs::metadata(&path).is_ok() {
                         fs::create_dir_all(&path)
-                            .expect(&format!("FATAL: could not create '{}'", &path));
+                            .unwrap_or_else(|_| panic!("FATAL: could not create '{}'", &path));
                     }
 
                     let path = Path::new(&path);
                     let path = path.join(Path::new(&format!("{}", &mined_microblock.block_hash())));
                     let mut file = fs::File::create(&path)
-                        .expect(&format!("FATAL: could not create '{:?}'", &path));
+                        .unwrap_or_else(|_| panic!("FATAL: could not create '{:?}'", &path));
 
                     let mblock_bits = mined_microblock.serialize_to_vec();
                     let mblock_bits_hex = to_hex(&mblock_bits);
@@ -835,10 +835,9 @@ impl MicroblockMinerThread {
                         r#"{{"microblock":"{}","parent_consensus":"{}","parent_block":"{}"}}"#,
                         &mblock_bits_hex, &self.parent_consensus_hash, &self.parent_block_hash
                     );
-                    file.write_all(&mblock_json.as_bytes()).expect(&format!(
-                        "FATAL: failed to write microblock bits to '{:?}'",
-                        &path
-                    ));
+                    file.write_all(&mblock_json.as_bytes()).unwrap_or_else(|_| {
+                        panic!("FATAL: failed to write microblock bits to '{:?}'", &path)
+                    });
                     info!(
                         "Fault injection: bad microblock {} saved to {}",
                         &mined_microblock.block_hash(),
@@ -1033,7 +1032,7 @@ impl BlockMinerThread {
             warn!("Coinbase pay-to-contract is not supported in the current epoch");
             None
         } else {
-            miner_config.block_reward_recipient.clone()
+            miner_config.block_reward_recipient
         }
     }
 
@@ -2790,13 +2789,13 @@ impl RelayerThread {
                     // record this block somewhere
                     if !fs::metadata(&path).is_ok() {
                         fs::create_dir_all(&path)
-                            .expect(&format!("FATAL: could not create '{}'", &path));
+                            .unwrap_or_else(|_| panic!("FATAL: could not create '{}'", &path));
                     }
 
                     let path = Path::new(&path);
                     let path = path.join(Path::new(&format!("{}", &anchored_block.block_hash())));
                     let mut file = fs::File::create(&path)
-                        .expect(&format!("FATAL: could not create '{:?}'", &path));
+                        .unwrap_or_else(|_| panic!("FATAL: could not create '{:?}'", &path));
 
                     let block_bits = anchored_block.serialize_to_vec();
                     let block_bits_hex = to_hex(&block_bits);
@@ -2804,10 +2803,9 @@ impl RelayerThread {
                         r#"{{"block":"{}","consensus":"{}"}}"#,
                         &block_bits_hex, &consensus_hash
                     );
-                    file.write_all(&block_json.as_bytes()).expect(&format!(
-                        "FATAL: failed to write block bits to '{:?}'",
-                        &path
-                    ));
+                    file.write_all(&block_json.as_bytes()).unwrap_or_else(|_| {
+                        panic!("FATAL: failed to write block bits to '{:?}'", &path)
+                    });
                     info!(
                         "Fault injection: bad block {} saved to {}",
                         &anchored_block.block_hash(),
@@ -3974,10 +3972,12 @@ impl ParentStacksBlockInfo {
                     &StacksBlockHeader::make_index_block_hash(mine_tip_ch, mine_tip_bh),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )
-                .expect(&format!(
-                    "BUG: stacks tip block {}/{} no longer exists after we queried it",
-                    mine_tip_ch, mine_tip_bh
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: stacks tip block {}/{} no longer exists after we queried it",
+                        mine_tip_ch, mine_tip_bh
+                    )
+                });
             account.nonce
         };
 
@@ -4078,14 +4078,16 @@ impl PeerThread {
         let chainstate =
             open_chainstate_with_faults(&config).expect("FATAL: could not open chainstate DB");
 
-        let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.p2p_bind
-        ));
-        let rpc_sock = config.node.rpc_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.rpc_bind
-        ));
+        let p2p_sock: SocketAddr = config
+            .node
+            .p2p_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.p2p_bind));
+        let rpc_sock = config
+            .node
+            .rpc_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.rpc_bind));
 
         net.bind(&p2p_sock, &rpc_sock)
             .expect("BUG: PeerNetwork could not bind or is already bound");
@@ -4383,14 +4385,16 @@ impl StacksNode {
             warn!("Without a peer to bootstrap from, the node will start mining a new chain");
         }
 
-        let p2p_sock: SocketAddr = config.node.p2p_bind.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.p2p_bind
-        ));
-        let p2p_addr: SocketAddr = config.node.p2p_address.parse().expect(&format!(
-            "Failed to parse socket: {}",
-            &config.node.p2p_address
-        ));
+        let p2p_sock: SocketAddr = config
+            .node
+            .p2p_bind
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.p2p_bind));
+        let p2p_addr: SocketAddr = config
+            .node
+            .p2p_address
+            .parse()
+            .unwrap_or_else(|_| panic!("Failed to parse socket: {}", &config.node.p2p_address));
         let node_privkey = Secp256k1PrivateKey::from_seed(&config.node.local_peer_seed);
 
         let mut peerdb = PeerDB::connect(
@@ -4684,7 +4688,7 @@ impl StacksNode {
 
         let _ = Self::setup_mempool_db(&config);
 
-        let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain.clone());
+        let mut p2p_net = Self::setup_peer_network(&config, &atlas_config, burnchain);
 
         let stackerdbs = StackerDBs::connect(&config.get_stacker_db_file_path(), true)
             .expect("FATAL: failed to connect to stacker DB");

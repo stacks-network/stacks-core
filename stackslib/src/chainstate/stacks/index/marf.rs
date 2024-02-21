@@ -712,10 +712,12 @@ impl<T: MarfTrieId> MARF<T> {
     fn root_copy(storage: &mut TrieStorageConnection<T>, prev_block_hash: &T) -> Result<(), Error> {
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
         storage.open_block(prev_block_hash)?;
-        let prev_block_identifier = storage.get_cur_block_identifier().expect(&format!(
-            "called open_block on {}, but found no identifier",
-            prev_block_hash
-        ));
+        let prev_block_identifier = storage.get_cur_block_identifier().unwrap_or_else(|_| {
+            panic!(
+                "called open_block on {}, but found no identifier",
+                prev_block_hash
+            )
+        });
 
         let (mut prev_root, _) = Trie::read_root(storage)?;
         let new_root_hash = MARF::<T>::node_copy_update(&mut prev_root, prev_block_identifier)?;
@@ -743,7 +745,7 @@ impl<T: MarfTrieId> MARF<T> {
             // brand new storage
             trace!("Brand new storage -- start with {:?}", new_bhh);
             storage.extend_to_block(new_bhh)?;
-            let node = TrieNode256::new(&vec![]);
+            let node = TrieNode256::new(&[]);
             let hash = get_node_hash(&node, &vec![], storage.deref_mut());
             let root_ptr = storage.root_ptr();
             storage.write_nodetype(root_ptr, &TrieNodeType::Node256(Box::new(node)), hash)?;
@@ -982,7 +984,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         storage.format()?;
         storage.extend_to_block(first_block_hash)?;
-        let node = TrieNode256::new(&vec![]);
+        let node = TrieNode256::new(&[]);
         let hash = get_node_hash(&node, &vec![], storage.deref_mut());
         let root_ptr = storage.root_ptr();
         let node_type = TrieNodeType::Node256(Box::new(node));
@@ -1259,7 +1261,7 @@ impl<T: MarfTrieId> MARF<T> {
             .enumerate()
             .zip(values[0..last].iter())
             .try_for_each(|((index, key), value)| {
-                let marf_leaf = TrieLeaf::from_value(&vec![], value.clone());
+                let marf_leaf = TrieLeaf::from_value(&[], value.clone());
                 let path = TriePath::from_key(key);
 
                 if eta_enabled {
@@ -1277,7 +1279,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         if result.is_ok() {
             // last insert updates the root with the skiplist hash
-            let marf_leaf = TrieLeaf::from_value(&vec![], values[last].clone());
+            let marf_leaf = TrieLeaf::from_value(&[], values[last].clone());
             let path = TriePath::from_key(&keys[last]);
             result = MARF::insert_leaf(conn, block_hash, &path, &marf_leaf);
         }
@@ -1353,7 +1355,7 @@ impl<T: MarfTrieId> MARF<T> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
-        let marf_leaf = TrieLeaf::from_value(&vec![], value);
+        let marf_leaf = TrieLeaf::from_value(&[], value);
         let path = TriePath::from_key(key);
         self.insert_raw(path, marf_leaf)
     }

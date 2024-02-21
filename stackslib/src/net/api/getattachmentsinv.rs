@@ -93,7 +93,7 @@ impl HttpRequest for RPCGetAttachmentsInvRequestHandler {
                 index_block_hash = StacksBlockId::from_hex(&value).ok();
             } else if key == "pages_indexes" {
                 if let Ok(pages_indexes_value) = value.parse::<String>() {
-                    for entry in pages_indexes_value.split(",") {
+                    for entry in pages_indexes_value.split(',') {
                         if let Ok(page_index) = entry.parse::<u32>() {
                             page_indexes.insert(page_index);
                         }

@@ -252,10 +252,7 @@ pub struct MaturedMinerRewards {
 impl MaturedMinerRewards {
     /// Get the list of miner rewards this struct represents
     pub fn consolidate(&self) -> Vec<MinerReward> {
-        let mut ret = vec![];
-        ret.push(self.recipient.clone());
-        ret.push(self.parent_reward.clone());
-        ret
+        vec![self.recipient.clone(), self.parent_reward.clone()]
     }
 }
 
@@ -1250,11 +1247,13 @@ impl NakamotoChainState {
             sort_tx,
             &next_ready_block.header.consensus_hash,
         )?
-        .expect(&format!(
-            "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
-            &next_ready_block.header.consensus_hash,
-            &next_ready_block.header.block_hash()
-        ));
+        .unwrap_or_else(|| {
+            panic!(
+                "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
+                &next_ready_block.header.consensus_hash,
+                &next_ready_block.header.block_hash()
+            )
+        });
 
         debug!("Process staging Nakamoto block";
                "consensus_hash" => %next_ready_block.header.consensus_hash,
@@ -2700,7 +2699,7 @@ impl NakamotoChainState {
                     vm_env.execute_contract_allow_private(
                         &boot_code_id(POX_4_NAME, mainnet),
                         "get-aggregate-public-key",
-                        &vec![SymbolicExpression::atom_value(Value::UInt(u128::from(
+                        &[SymbolicExpression::atom_value(Value::UInt(u128::from(
                             parent_reward_cycle,
                         )))],
                         true,
