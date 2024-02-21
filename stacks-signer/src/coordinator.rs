@@ -174,7 +174,6 @@ mod tests {
         let number_of_tests = 5;
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let public_keys = generate_signer_config(&config, 10, 4000)
-            .0
             .registered_signers
             .public_keys;
         let mut results = Vec::new();
@@ -198,7 +197,6 @@ mod tests {
     ) -> Vec<Vec<u32>> {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let public_keys = generate_signer_config(&config, 10, 4000)
-            .0
             .registered_signers
             .public_keys;
         let mut results = Vec::new();

@@ -811,7 +811,14 @@ mod tests {
         let h = spawn(move || mock.client.get_current_reward_cycle());
         write_response(mock.server, pox_data_response.as_bytes());
         let current_cycle_id = h.join().unwrap().unwrap();
-        assert_eq!(current_cycle_id, pox_data.current_cycle.id);
+        let blocks_mined = pox_data
+            .current_burnchain_block_height
+            .saturating_sub(pox_data.first_burnchain_block_height);
+        let reward_cycle_length = pox_data
+            .reward_phase_block_length
+            .saturating_add(pox_data.prepare_phase_block_length);
+        let id = blocks_mined / reward_cycle_length;
+        assert_eq!(current_cycle_id, id);
     }
 
     #[test]
@@ -1230,86 +1237,6 @@ mod tests {
         write_response(mock.server, response.as_bytes());
         assert_eq!(h.join().unwrap().unwrap(), stacker_set);
     }
-
-    // #[test]
-    // #[serial]
-    // fn get_reward_set_calculated() {
-    //     // Should return TRUE as the passed in reward cycle is older than the current reward cycle of the node
-    //     let mock = MockServerClient::new();
-    //     let reward_cycle = 10;
-    //     let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
-    //     let h = spawn(move || {
-    //         mock.client
-    //             .reward_set_calculated(reward_cycle.saturating_sub(1))
-    //     });
-    //     write_response(mock.server, pox_response.as_bytes());
-    //     assert!(h.join().unwrap().unwrap());
-
-    //     // Should return TRUE as the passed in reward cycle is the same as the current reward cycle
-    //     let mock = MockServerClient::from_config(mock.config);
-    //     let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
-    //     let h = spawn(move || mock.client.reward_set_calculated(reward_cycle));
-    //     write_response(mock.server, pox_response.as_bytes());
-    //     assert!(h.join().unwrap().unwrap());
-
-    //     // Should return TRUE as the passed in reward cycle is the NEXT reward cycle AND the prepare phase is in its SECOND block
-    //     let mock = MockServerClient::from_config(mock.config);
-    //     let prepare_phase_start = 10;
-    //     let pox_response =
-    //         build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
-    //             .0;
-    //     let peer_response =
-    //         build_get_peer_info_response(Some(prepare_phase_start.saturating_add(2)), None).0;
-    //     let h = spawn(move || {
-    //         mock.client
-    //             .reward_set_calculated(reward_cycle.saturating_add(1))
-    //     });
-    //     write_response(mock.server, pox_response.as_bytes());
-    //     let mock = MockServerClient::from_config(mock.config);
-    //     write_response(mock.server, peer_response.as_bytes());
-    //     assert!(h.join().unwrap().unwrap());
-
-    //     // Should return FALSE as the passed in reward cycle is NEWER than the NEXT reward cycle of the node
-    //     let mock = MockServerClient::from_config(mock.config);
-    //     let pox_response = build_get_pox_data_response(Some(reward_cycle), None, None, None).0;
-    //     let h = spawn(move || {
-    //         mock.client
-    //             .reward_set_calculated(reward_cycle.saturating_add(2))
-    //     });
-    //     write_response(mock.server, pox_response.as_bytes());
-    //     assert!(!h.join().unwrap().unwrap());
-
-    //     // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT in the prepare phase start block
-    //     let mock = MockServerClient::from_config(mock.config);
-    //     let pox_response =
-    //         build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
-    //             .0;
-    //     let peer_response = build_get_peer_info_response(Some(prepare_phase_start), None).0;
-    //     let h = spawn(move || {
-    //         mock.client
-    //             .reward_set_calculated(reward_cycle.saturating_add(1))
-    //     });
-    //     write_response(mock.server, pox_response.as_bytes());
-    //     let mock = MockServerClient::from_config(mock.config);
-    //     write_response(mock.server, peer_response.as_bytes());
-    //     assert!(!h.join().unwrap().unwrap());
-
-    //     // Should return FALSE as the passed in reward cycle is the NEXT reward cycle BUT in the FIRST block of the prepare phase
-    //     let mock = MockServerClient::from_config(mock.config);
-    //     let pox_response =
-    //         build_get_pox_data_response(Some(reward_cycle), Some(prepare_phase_start), None, None)
-    //             .0;
-    //     let peer_response =
-    //         build_get_peer_info_response(Some(prepare_phase_start.saturating_add(1)), None).0;
-    //     let h = spawn(move || {
-    //         mock.client
-    //             .reward_set_calculated(reward_cycle.saturating_add(1))
-    //     });
-    //     write_response(mock.server, pox_response.as_bytes());
-    //     let mock = MockServerClient::from_config(mock.config);
-    //     write_response(mock.server, peer_response.as_bytes());
-    //     assert!(!h.join().unwrap().unwrap());
-    // }
 
     #[test]
     fn get_vote_for_aggregate_public_key_should_succeed() {

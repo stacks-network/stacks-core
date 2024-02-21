@@ -280,7 +280,7 @@ mod tests {
     #[serial]
     fn get_signer_transactions_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
+        let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
@@ -324,7 +324,7 @@ mod tests {
     #[serial]
     fn send_signer_message_with_retry_should_succeed() {
         let config = GlobalConfig::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
-        let (signer_config, _ordered_addresses) = generate_signer_config(&config, 5, 20);
+        let signer_config = generate_signer_config(&config, 5, 20);
         let mut stackerdb = StackerDB::from(&signer_config);
 
         let sk = StacksPrivateKey::new();
@@ -350,12 +350,12 @@ mod tests {
             reason: None,
             metadata: None,
         };
+        let mock_server = mock_server_from_config(&config);
+        let h = spawn(move || stackerdb.send_message_with_retry(signer_message));
         let mut response_bytes = b"HTTP/1.1 200 OK\n\n".to_vec();
         let payload = serde_json::to_string(&ack).expect("Failed to serialize ack");
         response_bytes.extend(payload.as_bytes());
-        let mock_server = mock_server_from_config(&config);
-        let h = spawn(move || stackerdb.send_message_with_retry(signer_message));
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(500));
         write_response(mock_server, response_bytes.as_slice());
         assert_eq!(ack, h.join().unwrap().unwrap());
     }

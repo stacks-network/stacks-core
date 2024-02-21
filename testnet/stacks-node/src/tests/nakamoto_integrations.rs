@@ -659,11 +659,11 @@ pub fn boot_to_epoch_3_reward_set(
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(block_height as u128),
                 clarity::vm::Value::UInt(lock_period),
-                clarity::vm::Value::buff_from(signature).unwrap(),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
             ],
         );
-
         submit_tx(&http_origin, &stacking_tx);
     }
 
