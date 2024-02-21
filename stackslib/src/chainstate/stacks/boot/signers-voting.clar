@@ -168,6 +168,7 @@
                     (print {
                         event: "approved-aggregate-public-key",
                         reward-cycle: reward-cycle,
+                        round: round,
                         key: key,
                     })
                     true)

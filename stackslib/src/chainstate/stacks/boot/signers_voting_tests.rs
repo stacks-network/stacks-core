@@ -284,6 +284,7 @@ fn vote_for_aggregate_public_key_success() {
                 ),
                 ("key".into(), aggregate_public_key.clone()),
                 ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
             ])
             .expect("Failed to create tuple")
             .into()
@@ -547,6 +548,7 @@ fn vote_for_aggregate_public_key_with_errors() {
                 ),
                 ("key".into(), aggregate_public_key.clone()),
                 ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
             ])
             .expect("Failed to create tuple")
             .into()
@@ -777,6 +779,7 @@ fn vote_for_aggregate_public_key_out_of_window() {
                 ),
                 ("key".into(), aggregate_public_key.clone()),
                 ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
             ])
             .expect("Failed to create tuple")
             .into()
@@ -1381,6 +1384,7 @@ fn vote_for_aggregate_public_key_two_rounds() {
                 ),
                 ("key".into(), aggregate_public_key_1.clone()),
                 ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(1)),
             ])
             .expect("Failed to create tuple")
             .into()
@@ -1588,6 +1592,7 @@ fn vote_for_aggregate_public_key_two_rounds() {
                 ),
                 ("key".into(), aggregate_public_key_1.clone()),
                 ("reward-cycle".into(), Value::UInt(cycle_id + 2)),
+                ("round".into(), Value::UInt(1)),
             ])
             .expect("Failed to create tuple")
             .into()
@@ -1816,6 +1821,7 @@ fn vote_for_aggregate_public_key_early() {
                 ),
                 ("key".into(), aggregate_public_key.clone()),
                 ("reward-cycle".into(), Value::UInt(cycle_id + 2)),
+                ("round".into(), Value::UInt(0)),
             ])
             .expect("Failed to create tuple")
             .into()
@@ -2027,6 +2033,7 @@ fn vote_for_aggregate_public_key_mixed_rounds() {
                 ),
                 ("key".into(), aggregate_public_key.clone()),
                 ("reward-cycle".into(), Value::UInt(cycle_id + 1)),
+                ("round".into(), Value::UInt(0)),
             ])
             .expect("Failed to create tuple")
             .into()
