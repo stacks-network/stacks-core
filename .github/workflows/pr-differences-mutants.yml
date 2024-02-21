@@ -41,7 +41,9 @@ jobs:
 
     needs: check-big-packages-and-shards
 
-    if: ${{ needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' && needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'false' }}
+    if: |
+      ${{ needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' &&
+      needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'false' }}
 
     runs-on: ubuntu-latest
 
@@ -57,7 +59,9 @@ jobs:
 
     needs: check-big-packages-and-shards
 
-    if: ${{ needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' && needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'true' }}
+    if: |
+      ${{ needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' && 
+      needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'true' }}
 
     runs-on: ubuntu-latest
 
@@ -79,7 +83,9 @@ jobs:
 
     needs: check-big-packages-and-shards
 
-    if: ${{ needs.check-big-packages-and-shards.outputs.run_stackslib == 'true' && needs.check-big-packages-and-shards.outputs.stackslib_with_shards == 'false' }}
+    if: |
+      ${{ needs.check-big-packages-and-shards.outputs.run_stackslib == 'true' && 
+      needs.check-big-packages-and-shards.outputs.stackslib_with_shards == 'false' }}
 
     runs-on: ubuntu-latest
 
@@ -98,7 +104,9 @@ jobs:
 
     needs: check-big-packages-and-shards
 
-    if: ${{ needs.check-big-packages-and-shards.outputs.run_stackslib == 'true' && needs.check-big-packages-and-shards.outputs.stackslib_with_shards == 'true' }}
+    if: |
+      ${{ needs.check-big-packages-and-shards.outputs.run_stackslib == 'true' && 
+      needs.check-big-packages-and-shards.outputs.stackslib_with_shards == 'true' }}
 
     runs-on: ubuntu-latest
 
@@ -123,7 +131,9 @@ jobs:
 
     needs: check-big-packages-and-shards
 
-    if: ${{ needs.check-big-packages-and-shards.outputs.run_stacks_node == 'true' && needs.check-big-packages-and-shards.outputs.stacks_node_with_shards == 'false' }}
+    if: |
+      ${{ needs.check-big-packages-and-shards.outputs.run_stacks_node == 'true' && 
+      needs.check-big-packages-and-shards.outputs.stacks_node_with_shards == 'false' }}
 
     runs-on: ubuntu-latest
 
@@ -142,7 +152,9 @@ jobs:
 
     needs: check-big-packages-and-shards
 
-    if: ${{ needs.check-big-packages-and-shards.outputs.run_stacks_node == 'true' && needs.check-big-packages-and-shards.outputs.stacks_node_with_shards == 'true' }}
+    if: |
+      ${{ needs.check-big-packages-and-shards.outputs.run_stacks_node == 'true' && 
+      needs.check-big-packages-and-shards.outputs.stacks_node_with_shards == 'true' }}
 
     runs-on: ubuntu-latest
 
@@ -167,7 +179,8 @@ jobs:
 
     needs: check-big-packages-and-shards
 
-    if: ${{ needs.check-big-packages-and-shards.outputs.run_stacks_signer == 'true' }}
+    if: |
+      ${{ needs.check-big-packages-and-shards.outputs.run_stacks_signer == 'true' }}
 
     runs-on: ubuntu-latest
 
