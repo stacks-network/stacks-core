@@ -23,8 +23,9 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use lazy_static::lazy_static;
 use libsigner::{SignerSession, StackerDBSession};
-use stacks::burnchains::MagicBytes;
+use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::{BlockstackOperationType, VoteForAggregateKeyOp};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
@@ -53,14 +54,16 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
-use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
+use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::neon::{Counters, RunLoopCounter};
+use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info_result, get_pox_info, next_block_and_wait,
@@ -1790,4 +1793,248 @@ fn miner_writes_proposed_block_to_stackerdb() {
         proposed_zero_block_hash,
         "Observed miner hash should match the proposed block read from StackerDB (after zeroing signatures)"
     );
+}
+
+#[test]
+#[ignore]
+/// This test spins up a nakamoto-neon node and validates the `vote-for-aggregate-key`
+/// burn operation.
+/// It starts in Epoch 2.0, mines with `neon_node` to Epoch 32.5, and then switches
+///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
+///  struct handles the epoch-2/3 tear-down and spin-up.
+fn vote_for_aggregate_key_burn_op() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1000);
+    let sender_sk = Secp256k1PrivateKey::new();
+    // setup sender + recipient for a test stx transfer
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 1000;
+    let send_fee = 100;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        send_amt + send_fee,
+    );
+    let sender_signer_sk = Secp256k1PrivateKey::new();
+    let sender_signer_pk = Secp256k1PublicKey::from_private(&sender_signer_sk);
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let _recipient = PrincipalData::from(StacksAddress::burn_address(false));
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[sender_signer_sk],
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    // let (mut chainstate, _) = StacksChainState::open(
+    let (chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    let _block_height_pre_3_0 =
+        NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap()
+            .stacks_block_height;
+
+    info!("Nakamoto miner started...");
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    let aggregate_key = StacksPublicKeyBuffer([0x01; 33]);
+
+    let vote_for_aggregate_key_op =
+        BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
+            signer_key: sender_signer_pk.to_bytes_compressed().as_slice().into(),
+            signer_index: 0,
+            sender: sender_addr.clone(),
+            round: 0,
+            aggregate_key,
+            // to be filled in
+            vtxindex: 0,
+            txid: Txid([0u8; 32]),
+            block_height: 0,
+            burn_header_hash: BurnchainHeaderHash::zero(),
+            reward_cycle: 1,
+        });
+
+    let mut burnchain_signer = BurnchainOpSigner::new(sender_signer_sk.clone(), false);
+
+    btc_regtest_controller.submit_operation(
+        StacksEpochId::Epoch25,
+        vote_for_aggregate_key_op,
+        &mut burnchain_signer,
+        0,
+    );
+
+    next_block_and_mine_commit(
+        &mut btc_regtest_controller,
+        60,
+        &coord_channel,
+        &commits_submitted,
+    )
+    .unwrap();
+
+    // assert that the transfer tx was observed
+    let vote_tx_included = test_observer::get_blocks()
+        .into_iter()
+        .find(|block_json| {
+            block_json["transactions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tx_json| match tx_json["raw_tx"].as_str() {
+                    Some(v) => String::from(v).contains("vote-for-aggregate-key"),
+                    _ => false,
+                })
+                .is_some()
+        })
+        .is_some();
+
+    assert!(vote_tx_included, "Expected vote-for-aggregate-key burn op");
+
+    // Mine 15 nakamoto tenures
+    // for _i in 0..15 {
+    //     next_block_and_mine_commit(
+    //         &mut btc_regtest_controller,
+    //         60,
+    //         &coord_channel,
+    //         &commits_submitted,
+    //     )
+    //     .unwrap();
+
+    //     signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
+    // }
+
+    // Submit a TX
+    // let transfer_tx = make_stacks_transfer(&sender_sk, 0, send_fee, &recipient, send_amt);
+    // let transfer_tx_hex = format!("0x{}", to_hex(&transfer_tx));
+
+    // let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+    //     .unwrap()
+    //     .unwrap();
+
+    // let mut mempool = naka_conf
+    //     .connect_mempool_db()
+    //     .expect("Database failure opening mempool");
+
+    // mempool
+    //     .submit_raw(
+    //         &mut chainstate,
+    //         &sortdb,
+    //         &tip.consensus_hash,
+    //         &tip.anchored_header.block_hash(),
+    //         transfer_tx.clone(),
+    //         &ExecutionCost::max_value(),
+    //         &StacksEpochId::Epoch30,
+    //     )
+    //     .unwrap();
+
+    // // Mine 15 more nakamoto tenures
+    // for _i in 0..15 {
+    //     next_block_and_mine_commit(
+    //         &mut btc_regtest_controller,
+    //         60,
+    //         &coord_channel,
+    //         &commits_submitted,
+    //     )
+    //     .unwrap();
+
+    //     signer_vote_if_needed(&btc_regtest_controller, &naka_conf, &[sender_signer_sk]);
+    // }
+
+    // // load the chain tip, and assert that it is a nakamoto block and at least 30 blocks have advanced in epoch 3
+    // let tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+    //     .unwrap()
+    //     .unwrap();
+    // info!(
+    //     "Latest tip";
+    //     "height" => tip.stacks_block_height,
+    //     "is_nakamoto" => tip.anchored_header.as_stacks_nakamoto().is_some(),
+    // );
+
+    // // assert that the transfer tx was observed
+    // let transfer_tx_included = test_observer::get_blocks()
+    //     .into_iter()
+    //     .find(|block_json| {
+    //         block_json["transactions"]
+    //             .as_array()
+    //             .unwrap()
+    //             .iter()
+    //             .find(|tx_json| tx_json["raw_tx"].as_str() == Some(&transfer_tx_hex))
+    //             .is_some()
+    //     })
+    //     .is_some();
+
+    // assert!(
+    //     transfer_tx_included,
+    //     "Nakamoto node failed to include the transfer tx"
+    // );
+
+    // assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
+    // assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
 }

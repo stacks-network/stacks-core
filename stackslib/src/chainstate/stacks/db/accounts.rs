@@ -1219,6 +1219,7 @@ mod test {
             vec![],
             vec![],
             vec![],
+            vec![],
             parent_header_info.anchored_header.height() + 1,
         )
         .unwrap();

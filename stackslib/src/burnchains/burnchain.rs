@@ -55,7 +55,7 @@ use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::MissedBlockCommit;
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, UserBurnSupportOp,
+    StackStxOp, TransferStxOp, UserBurnSupportOp, VoteForAggregateKeyOp,
 };
 use crate::chainstate::burn::{BlockSnapshot, Opcodes};
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -882,6 +882,35 @@ impl Burnchain {
                 } else {
                     warn!(
                         "Failed to find corresponding input to DelegateStxOp";
+                        "txid" => %burn_tx.txid().to_string(),
+                        "pre_stx_txid" => %pre_stx_txid.to_string()
+                    );
+                    None
+                }
+            }
+            x if x == Opcodes::VoteForAggregateKey as u8 => {
+                let pre_stx_txid = VoteForAggregateKeyOp::get_sender_txid(burn_tx).ok()?;
+                let pre_stx_tx = match pre_stx_op_map.get(&pre_stx_txid) {
+                    Some(tx_ref) => Some(BlockstackOperationType::PreStx(tx_ref.clone())),
+                    None => burnchain_db.find_burnchain_op(indexer, pre_stx_txid),
+                };
+                if let Some(BlockstackOperationType::PreStx(pre_stx)) = pre_stx_tx {
+                    let sender = &pre_stx.output;
+                    match VoteForAggregateKeyOp::from_tx(block_header, burn_tx, sender) {
+                        Ok(op) => Some(BlockstackOperationType::VoteForAggregateKey(op)),
+                        Err(e) => {
+                            warn!(
+                                "Failed to parse vote-for-aggregate-key tx";
+                                "txid" => %burn_tx.txid(),
+                                "data" => %to_hex(&burn_tx.data()),
+                                "error" => ?e,
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Failed to find corresponding input to VoteForAggregateKeyOp";
                         "txid" => %burn_tx.txid().to_string(),
                         "pre_stx_txid" => %pre_stx_txid.to_string()
                     );

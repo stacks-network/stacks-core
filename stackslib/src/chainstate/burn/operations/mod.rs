@@ -551,6 +551,23 @@ impl BlockstackOperationType {
         })
     }
 
+    pub fn vote_for_aggregate_key_to_json(op: &VoteForAggregateKeyOp) -> serde_json::Value {
+        json!({
+            "vote_for_aggregate_key": {
+                "burn_block_height": op.block_height,
+                "burn_header_hash": &op.burn_header_hash.to_hex(),
+                "aggregate_key": op.aggregate_key.to_hex(),
+                "reward_cycle": op.reward_cycle,
+                "round": op.round,
+                "sender": stacks_addr_serialize(&op.sender),
+                "signer_index": op.signer_index,
+                "signer_key": op.signer_key.to_hex(),
+                "burn_txid": op.txid,
+                "vtxindex": op.vtxindex,
+            }
+        })
+    }
+
     // An explicit JSON serialization function is used (instead of using the default serialization
     // function) for the Blockstack ops. This is because (a) we wanted the serialization to be
     // more readable, and (b) the serialization used to display PoxAddress as a string is lossy,
@@ -562,9 +579,12 @@ impl BlockstackOperationType {
             BlockstackOperationType::StackStx(op) => Self::stack_stx_to_json(op),
             BlockstackOperationType::TransferStx(op) => Self::transfer_stx_to_json(op),
             BlockstackOperationType::DelegateStx(op) => Self::delegate_stx_to_json(op),
+            BlockstackOperationType::VoteForAggregateKey(op) => {
+                Self::vote_for_aggregate_key_to_json(op)
+            }
             // json serialization for the remaining op types is not implemented for now. This function
             // is currently only used to json-ify burnchain ops executed as Stacks transactions (so,
-            // stack_stx, transfer_stx, and delegate_stx).
+            // stack_stx, transfer_stx, delegate_stx, and vote_for_aggregate_key).
             _ => json!(null),
         }
     }

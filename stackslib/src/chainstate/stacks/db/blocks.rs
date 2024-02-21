@@ -4482,6 +4482,104 @@ impl StacksChainState {
         all_receipts
     }
 
+    pub fn process_vote_for_aggregate_key_ops(
+        clarity_tx: &mut ClarityTx,
+        operations: Vec<VoteForAggregateKeyOp>,
+    ) -> Vec<StacksTransactionReceipt> {
+        let mut all_receipts = vec![];
+        let mainnet = clarity_tx.config.mainnet;
+        let cost_so_far = clarity_tx.cost_so_far();
+        for vote_for_aggregate_key_op in operations.into_iter() {
+            let VoteForAggregateKeyOp {
+                sender,
+                aggregate_key,
+                round,
+                reward_cycle,
+                signer_index,
+                signer_key,
+                block_height,
+                txid,
+                burn_header_hash,
+                ..
+            } = &vote_for_aggregate_key_op;
+            let result = clarity_tx.connection().as_transaction(|tx| {
+                tx.run_contract_call(
+                    &sender.clone().into(),
+                    None,
+                    &boot_code_id(SIGNERS_VOTING_NAME, mainnet),
+                    "vote-for-aggregate-public-key",
+                    &[
+                        Value::UInt(signer_index.clone().into()),
+                        Value::buff_from(aggregate_key.as_bytes().to_vec()).unwrap(),
+                        Value::UInt(round.clone().into()),
+                        Value::UInt(reward_cycle.clone().into()),
+                    ],
+                    |_, _| false,
+                )
+            });
+            match result {
+                Ok((value, _, events)) => {
+                    if let Value::Response(ref resp) = value {
+                        if !resp.committed {
+                            info!("VoteForAggregateKey burn op rejected by signers-voting contract.";
+                                   "txid" => %txid,
+                                   "burn_block" => %burn_header_hash,
+                                   "contract_call_ecode" => %resp.data);
+                        } else {
+                            let aggregate_key_fmt = format!("{:?}", aggregate_key.to_hex());
+                            let signer_key_fmt = format!("{:?}", signer_key.to_hex());
+                            info!("Processed VoteForAggregateKey burnchain op";
+                                "resp" => %resp.data,
+                                "round" => round,
+                                "reward_cycle" => reward_cycle,
+                                "signer_index" => signer_index,
+                                "signer_key" => signer_key_fmt,
+                                "burn_block_height" => block_height,
+                                "sender" => %sender,
+                                "aggregate_key" => aggregate_key_fmt,
+                                "txid" => %txid);
+                        }
+                        let mut execution_cost = clarity_tx.cost_so_far();
+                        execution_cost
+                            .sub(&cost_so_far)
+                            .expect("BUG: cost declined between executions");
+
+                        let receipt = StacksTransactionReceipt {
+                            transaction: TransactionOrigin::Burn(
+                                BlockstackOperationType::VoteForAggregateKey(
+                                    vote_for_aggregate_key_op,
+                                ),
+                                // BlockstackOperationType::DelegateStx(delegate_stx_op),
+                            ),
+                            events,
+                            result: value,
+                            post_condition_aborted: false,
+                            stx_burned: 0,
+                            contract_analysis: None,
+                            execution_cost,
+                            microblock_header: None,
+                            tx_index: 0,
+                            vm_error: None,
+                        };
+
+                        all_receipts.push(receipt);
+                    } else {
+                        unreachable!(
+                            "BUG: Non-response value returned by VoteForAggregateKey burnchain op"
+                        )
+                    }
+                }
+                Err(e) => {
+                    info!("VoteForAggregateKey burn op processing error.";
+                           "error" => %format!("{:?}", e),
+                           "txid" => %txid,
+                           "burn_block" => %burn_header_hash);
+                }
+            };
+        }
+        vec![]
+    }
+
     /// Process a single anchored block.
     /// Return the fees and burns.
     pub fn process_block_transactions(
@@ -5213,9 +5311,12 @@ impl StacksChainState {
                 &chain_tip.anchored_header.block_hash()
             );
         }
-        // Vote for aggregate pubkey ops are allowed from epoch 2.4 onward
+        // Vote for aggregate pubkey ops are allowed from epoch 2.5 onward
         if evaluated_epoch >= StacksEpochId::Epoch25 {
-            // TODO: implement
+            tx_receipts.extend(StacksChainState::process_vote_for_aggregate_key_ops(
+                &mut clarity_tx,
+                vote_for_agg_key_burn_ops.clone(),
+            ));
         }
 
         debug!(
@@ -5436,7 +5537,7 @@ impl StacksChainState {
             mut auto_unlock_events,
             burn_delegate_stx_ops,
             signer_set_calc,
-            burn_vote_for_aggregate_key_ops: _,
+            burn_vote_for_aggregate_key_ops,
         } = StacksChainState::setup_block(
             chainstate_tx,
             clarity_instance,
@@ -5750,7 +5851,7 @@ impl StacksChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
-            // TODO: vote for agg key ops
+            burn_vote_for_aggregate_key_ops,
             affirmation_weight,
         )
         .expect("FATAL: failed to advance chain tip");

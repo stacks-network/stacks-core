@@ -803,6 +803,7 @@ const SORTITION_DB_INDEXES: &'static [&'static str] = &[
     "CREATE INDEX IF NOT EXISTS index_pox_payouts ON snapshots(pox_payouts);",
     "CREATE INDEX IF NOT EXISTS index_burn_header_hash_pox_valid ON snapshots(burn_header_hash,pox_valid);",
     "CREATE INDEX IF NOT EXISTS index_delegate_stx_burn_header_hash ON delegate_stx(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS index_vote_for_aggregate_key_burn_header_hash ON vote_for_aggregate_key(burn_header_hash);",
 ];
 
 pub struct SortitionDB {
@@ -10423,6 +10424,19 @@ pub mod tests {
                 block_height,
                 burn_header_hash: first_burn_hash.clone(),
             }),
+            BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
+                sender: StacksAddress::new(6, Hash160([6u8; 20])),
+                aggregate_key: StacksPublicKeyBuffer([0x01; 33]),
+                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                round: 1,
+                reward_cycle: 2,
+                signer_index: 3,
+
+                txid: Txid([0x05; 32]),
+                vtxindex: 4,
+                block_height,
+                burn_header_hash: first_burn_hash.clone(),
+            }),
         ];
 
         let mut tx = db.tx_begin_at_tip();
@@ -10451,6 +10465,13 @@ pub mod tests {
         assert_eq!(
             BlockstackOperationType::DelegateStx(ops[0].clone()),
             good_ops[2]
+        );
+
+        let ops = SortitionDB::get_vote_for_aggregate_key_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::VoteForAggregateKey(ops[0].clone()),
+            good_ops[3]
         );
 
         // if the same ops get mined in a different burnchain block, they will still be available
@@ -10492,6 +10513,19 @@ pub mod tests {
                 block_height,
                 burn_header_hash: fork_burn_hash.clone(),
             }),
+            BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
+                sender: StacksAddress::new(6, Hash160([6u8; 20])),
+                aggregate_key: StacksPublicKeyBuffer([0x01; 33]),
+                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                round: 1,
+                reward_cycle: 2,
+                signer_index: 3,
+
+                txid: Txid([0x05; 32]),
+                vtxindex: 4,
+                block_height,
+                burn_header_hash: fork_burn_hash.clone(),
+            }),
         ];
 
         let mut tx = db.tx_begin_at_tip();
@@ -10523,6 +10557,13 @@ pub mod tests {
             good_ops[2]
         );
 
+        let ops = SortitionDB::get_vote_for_aggregate_key_ops(db.conn(), &first_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::VoteForAggregateKey(ops[0].clone()),
+            good_ops[3]
+        );
+
         // and so are the new ones
         let ops = SortitionDB::get_transfer_stx_ops(db.conn(), &fork_burn_hash).unwrap();
         assert_eq!(ops.len(), 1);
@@ -10543,6 +10584,13 @@ pub mod tests {
         assert_eq!(
             BlockstackOperationType::DelegateStx(ops[0].clone()),
             good_ops_2[2]
+        );
+
+        let ops = SortitionDB::get_vote_for_aggregate_key_ops(db.conn(), &fork_burn_hash).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(
+            BlockstackOperationType::VoteForAggregateKey(ops[0].clone()),
+            good_ops_2[3]
         );
     }
 }

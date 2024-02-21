@@ -47,7 +47,9 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use crate::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddress};
 use crate::burnchains::{Address, Burnchain, BurnchainParameters, PoxConstants};
 use crate::chainstate::burn::db::sortdb::{BlockHeaderCache, SortitionDB, SortitionDBConn, *};
-use crate::chainstate::burn::operations::{DelegateStxOp, StackStxOp, TransferStxOp};
+use crate::chainstate::burn::operations::{
+    DelegateStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
+};
 use crate::chainstate::burn::{ConsensusHash, ConsensusHashExtensions};
 use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlock, NakamotoBlockHeader, NakamotoChainState,
@@ -2487,6 +2489,7 @@ impl StacksChainState {
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
+        burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
     ) -> Result<(), Error> {
         let mut txids: Vec<_> = burn_stack_stx_ops
             .into_iter()
@@ -2512,6 +2515,16 @@ impl StacksChainState {
             });
 
         txids.append(&mut delegate_txids);
+
+        let mut vote_txids =
+            burn_vote_for_aggregate_key_ops
+                .into_iter()
+                .fold(vec![], |mut txids, op| {
+                    txids.push(op.txid);
+                    txids
+                });
+
+        txids.append(&mut vote_txids);
 
         let txids_json =
             serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
@@ -2542,6 +2555,7 @@ impl StacksChainState {
         burn_stack_stx_ops: Vec<StackStxOp>,
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
+        burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
         affirmation_weight: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
@@ -2610,6 +2624,7 @@ impl StacksChainState {
             burn_stack_stx_ops,
             burn_transfer_stx_ops,
             burn_delegate_stx_ops,
+            burn_vote_for_aggregate_key_ops,
         )?;
 
         if let Some((miner_payout, user_payouts, parent_payout, reward_info)) = mature_miner_payouts
