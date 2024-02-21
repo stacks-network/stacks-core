@@ -109,7 +109,6 @@ impl VoteForAggregateKeyOp {
         match tx {
             BurnchainTransaction::Bitcoin(ref btc) => match btc.inputs.get(0) {
                 Some(BitcoinTxInput::Raw(input)) => {
-                    info!("Vote for aggregate key raw input: {:?}", input.scriptSig);
                     let script_sig = Builder::from(input.scriptSig.clone()).into_script();
                     let structured_input = BitcoinTxInputStructured::from_bitcoin_p2pkh_script_sig(
                         &parse_script(&script_sig),
@@ -123,7 +122,6 @@ impl VoteForAggregateKeyOp {
                         .ok_or(op_error::InvalidInput)
                 }
                 Some(BitcoinTxInput::Structured(input)) => {
-                    info!("Getting signer key from structured input: {:?}", input);
                     input.keys.get(0).cloned().ok_or(op_error::InvalidInput)
                 }
                 _ => Err(op_error::InvalidInput),
@@ -343,7 +341,7 @@ mod tests {
         )
         .expect("Failed to parse vote tx");
 
-        info!("Vote op test data: {:?}", to_hex(data.as_slice()));
+        debug!("Vote op test data: {:?}", to_hex(data.as_slice()));
 
         assert_eq!(vote_op.signer_index, signer_index);
         assert_eq!(&vote_op.aggregate_key, &aggregate_key);

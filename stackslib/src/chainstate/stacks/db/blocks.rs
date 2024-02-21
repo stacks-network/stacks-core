@@ -4502,6 +4502,16 @@ impl StacksChainState {
                 burn_header_hash,
                 ..
             } = &vote_for_aggregate_key_op;
+            debug!("Processing VoteForAggregateKey burn op";
+                "round" => round,
+                "reward_cycle" => reward_cycle,
+                "signer_index" => signer_index,
+                "signer_key" => signer_key.to_hex(),
+                "burn_block_height" => block_height,
+                "sender" => %sender,
+                "aggregate_key" => aggregate_key.to_hex(),
+                "txid" => %txid
+            );
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
                     &sender.clone().into(),
@@ -4549,7 +4559,6 @@ impl StacksChainState {
                                 BlockstackOperationType::VoteForAggregateKey(
                                     vote_for_aggregate_key_op,
                                 ),
-                                // BlockstackOperationType::DelegateStx(delegate_stx_op),
                             ),
                             events,
                             result: value,
@@ -4577,7 +4586,7 @@ impl StacksChainState {
                 }
             };
         }
-        vec![]
+        all_receipts
     }
 
     /// Process a single anchored block.

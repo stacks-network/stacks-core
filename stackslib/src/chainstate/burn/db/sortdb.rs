@@ -743,7 +743,7 @@ const SORTITION_DB_SCHEMA_6: &'static [&'static str] = &[r#"
 const SORTITION_DB_SCHEMA_7: &'static [&'static str] = &[r#"
      DELETE FROM epochs;"#];
 
-const LAST_SORTITION_DB_INDEX: &'static str = "index_delegate_stx_burn_header_hash";
+const LAST_SORTITION_DB_INDEX: &'static str = "index_vote_for_aggregate_key_burn_header_hash";
 const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
     r#"ALTER TABLE snapshots ADD miner_pk_hash TEXT DEFAULT NULL"#,
     r#"
@@ -3228,6 +3228,7 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
+                    || version == "9"
             }
             StacksEpochId::Epoch2_05 => {
                 version == "2"
@@ -3237,6 +3238,7 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
+                    || version == "9"
             }
             StacksEpochId::Epoch21 => {
                 version == "3"
@@ -3245,6 +3247,7 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
+                    || version == "9"
             }
             StacksEpochId::Epoch22 => {
                 version == "3"
@@ -3253,6 +3256,7 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
+                    || version == "9"
             }
             StacksEpochId::Epoch23 => {
                 version == "3"
@@ -3261,6 +3265,7 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
+                    || version == "9"
             }
             StacksEpochId::Epoch24 => {
                 version == "3"
@@ -3269,6 +3274,7 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
+                    || version == "9"
             }
             StacksEpochId::Epoch25 => {
                 version == "3"
@@ -3278,6 +3284,7 @@ impl SortitionDB {
                     || version == "7"
                     // TODO: This should move to Epoch 30 once it is added
                     || version == "8"
+                    || version == "9"
             }
             StacksEpochId::Epoch30 => {
                 version == "3"
@@ -3286,6 +3293,7 @@ impl SortitionDB {
                     || version == "6"
                     || version == "7"
                     || version == "8"
+                    || version == "9"
             }
         }
     }

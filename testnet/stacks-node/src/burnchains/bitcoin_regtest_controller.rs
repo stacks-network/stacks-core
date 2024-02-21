@@ -1930,7 +1930,6 @@ impl BitcoinRegtestController {
             BlockstackOperationType::DelegateStx(payload) => {
                 self.build_delegate_stacks_tx(epoch_id, payload, op_signer, None)
             }
-            // TODO
             BlockstackOperationType::VoteForAggregateKey(payload) => {
                 self.build_vote_for_aggregate_key_tx(epoch_id, payload, op_signer, None)
             }

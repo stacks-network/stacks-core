@@ -49,6 +49,7 @@ use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
 use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getpoxinfo::RPCPoxInfoData;
+use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::gettransaction_unconfirmed::UnconfirmedTransactionResponse;
 use stacks::net::api::postblock::StacksBlockAcceptedData;
 use stacks::net::api::postfeerate::RPCFeeEstimateResponse;
@@ -1297,6 +1298,16 @@ pub fn get_contract_src(
     }
 }
 
+pub fn get_stacker_set(http_origin: &str, reward_cycle: u64) -> GetStackersResponse {
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{}/v2/stacker_set/{}", http_origin, reward_cycle);
+    let res = client.get(&path).send().unwrap();
+
+    info!("Got stacker_set response {:?}", &res);
+    let res = res.json::<GetStackersResponse>().unwrap();
+    res
+}
+
 #[test]
 #[ignore]
 fn deep_contract() {
@@ -2250,7 +2261,6 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let _third_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let stacked_bal = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     conf.initial_balances.push(InitialBalance {
@@ -2370,18 +2380,11 @@ fn vote_for_aggregate_key_burn_op_test() {
     // give the run loop some time to start up!
     wait_for_runloop(&blocks_processed);
 
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
     test_observer::clear();
 
-    // Mine a few more blocks so that Epoch 2.5 can take effect.
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     info!("Bootstrapped to 2.5, submitting stack-stx and pre-stx op...");
 
@@ -2408,6 +2411,8 @@ fn vote_for_aggregate_key_burn_op_test() {
     )
     .unwrap();
 
+    let signer_pk_bytes = signer_pk.to_bytes_compressed();
+
     let stacking_tx = make_contract_call(
         &spender_sk,
         0,
@@ -2420,8 +2425,8 @@ fn vote_for_aggregate_key_burn_op_test() {
             Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
             Value::UInt(block_height.into()),
             Value::UInt(12),
-            Value::buff_from(signature.to_rsv()).unwrap(),
-            Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
+            Value::some(Value::buff_from(signature.to_rsv()).unwrap()).unwrap(),
+            Value::buff_from(signer_pk_bytes.clone()).unwrap(),
         ],
     );
 
@@ -2453,7 +2458,7 @@ fn vote_for_aggregate_key_burn_op_test() {
     info!("Submitted stack-stx and pre-stx op at block {block_height}, mining a few blocks...");
 
     // Wait a few blocks to be registered
-    for _i in 0..2 {
+    for _i in 0..5 {
         next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
         block_height = channel.get_sortitions_processed();
     }
@@ -2462,18 +2467,23 @@ fn vote_for_aggregate_key_burn_op_test() {
         .block_height_to_reward_cycle(block_height)
         .unwrap();
 
-    let signer_key: StacksPublicKeyBuffer = signer_pk.to_bytes_compressed().as_slice().into();
+    let signer_key: StacksPublicKeyBuffer = signer_pk_bytes.clone().as_slice().into();
 
     let aggregate_key = StacksPublicKeyBuffer([0x99; 33]);
 
+    let signer_index = 0;
+
     info!(
-        "Submitting vote for aggregate key op at block {block_height} in cycle {reward_cycle}..."
+        "Submitting vote for aggregate key op";
+        "block_height" => block_height,
+        "reward_cycle" => reward_cycle,
+        "signer_index" => %signer_index,
     );
 
     let vote_for_aggregate_key_op =
         BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
             signer_key,
-            signer_index: 0,
+            signer_index,
             sender: spender_stx_addr.clone(),
             round: 0,
             reward_cycle,
@@ -2502,33 +2512,7 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     // the second block should process the vote, after which the balaces should be unchanged
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // let sortdb = btc_regtest_controller.sortdb_ref();
-    // // let burn_hash = sortdb.
-    // let burnchain_db = BurnchainDB::open(
-    //     &btc_regtest_controller
-    //         .get_burnchain()
-    //         .get_burnchaindb_path(),
-    //     false,
-    // )
-    // .unwrap();
-
-    // let burn_tip = burnchain_db.get_canonical_chain_tip().unwrap();
-    // let _last_burn_block =
-    //     BurnchainDB::get_burnchain_block(burnchain_db.conn(), &burn_tip.block_hash).unwrap();
-
-    // let vote_ops =
-    //     SortitionDB::get_vote_for_aggregate_key_ops(&sortdb.conn(), &burn_tip.block_hash);
-
-    // info!("Vote for aggregate key ops found: {:?}", vote_ops);
     next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // // let's mine until the next reward cycle starts ...
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-    // next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
 
     let mut vote_for_aggregate_key_found = false;
     let blocks = test_observer::get_blocks();
@@ -2537,12 +2521,20 @@ fn vote_for_aggregate_key_burn_op_test() {
         for tx in transactions.iter() {
             let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
             if raw_tx == "0x00" {
-                println!("Found a burn op: {:?}", tx);
+                debug!("Found a burn op: {:?}", tx);
                 let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
                 if !burnchain_op.contains_key("vote_for_aggregate_key") {
                     warn!("Got unexpected burnchain op: {:?}", burnchain_op);
                     panic!("unexpected btc transaction type");
                 }
+                let vote_obj = burnchain_op.get("vote_for_aggregate_key").unwrap();
+                let agg_key = vote_obj
+                    .get("aggregate_key")
+                    .expect("Expected aggregate_key key in burn op")
+                    .as_str()
+                    .unwrap();
+                assert_eq!(agg_key, aggregate_key.to_hex());
+
                 vote_for_aggregate_key_found = true;
             }
         }
