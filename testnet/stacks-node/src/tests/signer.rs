@@ -197,8 +197,8 @@ impl SignerTest {
             );
             thread::sleep(Duration::from_secs(1));
         }
-        let validate_responses = test_observer::get_proposal_responses();
-        match validate_responses.first().expect("No block proposal") {
+        let validate_response = test_observer::get_proposal_responses().pop().expect("No block proposal");
+        match validate_response {
             BlockValidateResponse::Ok(block_validated) => block_validated.signer_signature_hash,
             _ => panic!("Unexpected response"),
         }
@@ -1215,12 +1215,6 @@ fn stackerdb_reward_cycle_transitions() {
         .expect("No approved aggregate key found");
     assert_eq!(set_dkg, set_dkg_2);
 
-    let current_block_height = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_headers_height();
-
-    debug!("At block height {current_block_height}");
     info!(
         "Mining first Nakamoto block of reward cycle {}...",
         next_reward_cycle

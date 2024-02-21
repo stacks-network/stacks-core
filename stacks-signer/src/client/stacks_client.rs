@@ -437,7 +437,13 @@ impl StacksClient {
     /// Get the current reward cycle from the stacks node
     pub fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
         let pox_data = self.get_pox_data()?;
-        Ok(pox_data.current_cycle.id)
+        let blocks_mined = pox_data
+            .current_burnchain_block_height
+            .saturating_sub(pox_data.first_burnchain_block_height);
+        let reward_cycle_length = pox_data
+            .reward_phase_block_length
+            .saturating_add(pox_data.prepare_phase_block_length);
+        Ok(blocks_mined / reward_cycle_length)
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
