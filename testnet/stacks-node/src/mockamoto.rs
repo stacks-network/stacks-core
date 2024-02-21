@@ -888,7 +888,7 @@ impl MockamotoNode {
                     pox_address.as_clarity_tuple().unwrap().into(),
                     ClarityValue::UInt(u128::from(parent_burn_height)),
                     ClarityValue::UInt(12),
-                    ClarityValue::buff_from(signature).unwrap(),
+                    ClarityValue::some(ClarityValue::buff_from(signature).unwrap()).unwrap(),
                     ClarityValue::buff_from(signer_key).unwrap(),
                 ],
             })
@@ -912,7 +912,7 @@ impl MockamotoNode {
                 function_args: vec![
                     ClarityValue::UInt(5),
                     pox_address.as_clarity_tuple().unwrap().into(),
-                    ClarityValue::buff_from(signature).unwrap(),
+                    ClarityValue::some(ClarityValue::buff_from(signature).unwrap()).unwrap(),
                     ClarityValue::buff_from(signer_key).unwrap(),
                 ],
             })
