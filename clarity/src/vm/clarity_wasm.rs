@@ -23,8 +23,8 @@ use super::types::{
     ASCIIData, AssetIdentifier, BlockInfoProperty, BuffData, BurnBlockInfoProperty, CharType,
     FixedFunction, FunctionType, ListData, ListTypeData, OptionalData, PrincipalData,
     QualifiedContractIdentifier, ResponseData, SequenceData, StacksAddressExtensions,
-    StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, BUFF_1, BUFF_32,
-    BUFF_33,
+    StandardPrincipalData, TraitIdentifier, TupleData, TupleTypeSignature, UTF8Data, BUFF_1,
+    BUFF_32, BUFF_33,
 };
 use super::{CallStack, ClarityVersion, ContractName, Environment, SymbolicExpression};
 use crate::vm::analysis::ContractAnalysis;
@@ -32,7 +32,9 @@ use crate::vm::ast::ContractAST;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::errors::{Error, WasmError};
 use crate::vm::functions::principals;
-use crate::vm::types::{BufferLength, SequenceSubtype, StringSubtype, TypeSignature};
+use crate::vm::types::{
+    BufferLength, SequenceSubtype, SequencedValue, StringSubtype, TypeSignature,
+};
 use crate::vm::{ClarityName, ContractContext, Value};
 
 enum MintAssetErrorCodes {
@@ -1172,8 +1174,21 @@ fn write_to_wasm(
 
             Ok((written, in_mem_written))
         }
-        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_length))) => {
-            let string = value_as_string_ascii(value.clone())?;
+        TypeSignature::SequenceType(SequenceSubtype::StringType(string_subtype)) => {
+            let string = match string_subtype {
+                StringSubtype::ASCII(_length) => value_as_string_ascii(value.clone())?.data,
+                StringSubtype::UTF8(_length) => {
+                    let Value::Sequence(SequenceData::String(CharType::UTF8(utf8_data))) = value
+                    else {
+                        unreachable!("A string-utf8 type should contain a string-utf8 value")
+                    };
+                    String::from_utf8(utf8_data.items().iter().flatten().copied().collect())
+                        .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?
+                        .chars()
+                        .flat_map(|c| (c as u32).to_be_bytes())
+                        .collect()
+                }
+            };
             let mut written = 0;
             let mut in_mem_written = 0;
 
@@ -1182,10 +1197,10 @@ fn write_to_wasm(
                 .write(
                     &mut store,
                     (in_mem_offset + in_mem_written) as usize,
-                    &string.data,
+                    &string,
                 )
                 .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
-            in_mem_written += string.data.len() as i32;
+            in_mem_written += string.len() as i32;
 
             if include_repr {
                 // Write the representation (offset and length) of the value to
@@ -1249,7 +1264,6 @@ fn write_to_wasm(
 
             Ok((written, val_written + val_in_mem_written))
         }
-        TypeSignature::SequenceType(_) => todo!("type not yet implemented: {:?}", ty),
         TypeSignature::ResponseType(inner_types) => {
             let mut written = 0;
             let mut in_mem_written = 0;
