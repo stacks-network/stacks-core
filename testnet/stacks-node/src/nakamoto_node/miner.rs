@@ -361,7 +361,11 @@ impl BlockMinerThread {
                             test_debug!("Miner: ignoring transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
                             continue;
                         }
-                        test_debug!("Miner: including transaction ({:?}) with nonce {nonce} from address {address}", transaction.txid());
+                        debug!("Miner: including signer transaction.";
+                            "nonce" => {nonce},
+                            "origin_address" => %address,
+                            "txid" => %transaction.txid()
+                        );
                         // TODO : filter out transactions that are not valid votes. Do not include transactions with invalid/duplicate nonces for the same address.
                         transactions_to_include.push(transaction);
                     }
@@ -392,6 +396,7 @@ impl BlockMinerThread {
         let mut rejections = HashSet::new();
         let mut rejections_weight: u64 = 0;
         let now = Instant::now();
+        debug!("Miner: waiting for block response from reward cycle {reward_cycle } signers...");
         while now.elapsed() < self.config.miner.wait_on_signers {
             // Get the block responses from the signers for the block we just proposed
             let signer_chunks = stackerdbs

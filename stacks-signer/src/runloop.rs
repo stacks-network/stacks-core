@@ -151,7 +151,7 @@ impl RunLoop {
                 if let Some(signer) = self.stacks_signers.get_mut(&prior_reward_set) {
                     if signer.reward_cycle == prior_reward_cycle {
                         // The signers have been calculated for the next reward cycle. Update the current one
-                        debug!("Signer #{}: Reward cycle ({reward_cycle}) signer set calculated. Updating prior reward cycle ({prior_reward_cycle}) signer.", signer.signer_id);
+                        debug!("Signer #{}: Next reward cycle ({reward_cycle}) signer set calculated. Updating current reward cycle ({prior_reward_cycle}) signer.", signer.signer_id);
                         signer.next_signer_ids = new_signer_config
                             .registered_signers
                             .signer_ids

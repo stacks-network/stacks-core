@@ -437,7 +437,7 @@ impl StacksClient {
     /// Get the current reward cycle from the stacks node
     pub fn get_current_reward_cycle(&self) -> Result<u64, ClientError> {
         let pox_data = self.get_pox_data()?;
-        Ok(pox_data.reward_cycle_id)
+        Ok(pox_data.current_cycle.id)
     }
 
     /// Helper function to retrieve the account info from the stacks node for a specific address
@@ -805,7 +805,7 @@ mod tests {
         let h = spawn(move || mock.client.get_current_reward_cycle());
         write_response(mock.server, pox_data_response.as_bytes());
         let current_cycle_id = h.join().unwrap().unwrap();
-        assert_eq!(current_cycle_id, pox_data.reward_cycle_id);
+        assert_eq!(current_cycle_id, pox_data.current_cycle.id);
     }
 
     #[test]

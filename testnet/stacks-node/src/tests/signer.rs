@@ -1156,15 +1156,14 @@ fn stackerdb_reward_cycle_transitions() {
         .btc_regtest_controller
         .get_headers_height();
     let next_reward_cycle = curr_reward_cycle.saturating_add(1);
-    let next_reward_cycle_boundary = signer_test
+    let next_reward_cycle_height = signer_test
         .running_nodes
         .btc_regtest_controller
         .get_burnchain()
-        .reward_cycle_to_block_height(next_reward_cycle)
-        .saturating_sub(1);
-    let next_reward_cycle_reward_set_calculation = next_reward_cycle_boundary
+        .reward_cycle_to_block_height(next_reward_cycle);
+    let next_reward_cycle_reward_set_calculation = next_reward_cycle_height
         .saturating_sub(prepare_phase_len)
-        .saturating_add(2); // +2 since second block of the prepare phase is where the reward set is calculated
+        .saturating_add(1); // +1 since second block of the prepare phase is where the reward set is calculated
 
     info!("------------------------- Test Nakamoto Block Mining in Reward Cycle {curr_reward_cycle} -------------------------");
 
@@ -1176,7 +1175,8 @@ fn stackerdb_reward_cycle_transitions() {
         "Mining {} Nakamoto blocks to reach next reward cycle reward set calculation at block height {next_reward_cycle_reward_set_calculation}",
         nmb_blocks_to_mine
     );
-    for _ in 0..nmb_blocks_to_mine {
+    for i in 1..=nmb_blocks_to_mine {
+        info!("Mining Nakamoto block #{i} of {nmb_blocks_to_mine}");
         signer_test.mine_nakamoto_block(timeout);
         signer_test.wait_for_validate_ok_response(timeout);
         signer_test.wait_for_frost_signatures(timeout);
@@ -1196,30 +1196,31 @@ fn stackerdb_reward_cycle_transitions() {
 
     info!("DKG has been calculated for the next reward cycle {next_reward_cycle}");
 
-    let current_block_height = signer_test
-        .running_nodes
-        .btc_regtest_controller
-        .get_headers_height();
-
-    let nmb_blocks_to_mine = next_reward_cycle_boundary.saturating_sub(current_block_height);
-
-    info!(
-        "Mining {} Nakamoto blocks to reach next reward cycle {next_reward_cycle} boundary block height {next_reward_cycle_boundary}",
-        nmb_blocks_to_mine
-    );
-    for _ in 0..nmb_blocks_to_mine {
+    info!("Mining Nakamoto blocks to reach next reward cycle {next_reward_cycle}.",);
+    let mut i = 1u32;
+    while signer_test.get_current_reward_cycle() != next_reward_cycle {
+        info!("Mining Nakamoto block #{i} to reach next reward cycle {next_reward_cycle}...");
         signer_test.mine_nakamoto_block(timeout);
         signer_test.wait_for_validate_ok_response(timeout);
         signer_test.wait_for_frost_signatures(timeout);
+        i = i.wrapping_add(1);
     }
 
     info!("------------------------- Test Nakamoto Block Mining in Reward Cycle {next_reward_cycle} -------------------------");
+    // First make sure that the aggregate key was actually mined.
+    let set_dkg = signer_test
+        .stacks_client
+        .get_approved_aggregate_key(next_reward_cycle)
+        .expect("Failed to get approved aggregate key")
+        .expect("No approved aggregate key found");
+    assert_eq!(set_dkg, set_dkg_2);
+
     let current_block_height = signer_test
         .running_nodes
         .btc_regtest_controller
         .get_headers_height();
 
-    debug!("At block height {current_block_height} in reward cycle {next_reward_cycle}");
+    debug!("At block height {current_block_height}");
     info!(
         "Mining first Nakamoto block of reward cycle {}...",
         next_reward_cycle

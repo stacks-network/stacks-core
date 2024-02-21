@@ -1105,6 +1105,7 @@ impl Signer {
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
         // TODO: if we store transactions on the side, should we use them rather than directly querying the stacker db slot?
         // TODO: Should we even store transactions if not in prepare phase? Should the miner just ignore all signer transactions if not in prepare phase?
+        let txid = new_transaction.txid();
         let new_transactions = if aggregate_key.is_some() {
             // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
             info!(
@@ -1119,11 +1120,10 @@ impl Signer {
             new_transactions.push(new_transaction);
             new_transactions
         };
-        let nmb_transactions = new_transactions.len();
         let signer_message = SignerMessage::Transactions(new_transactions);
         self.stackerdb.send_message_with_retry(signer_message)?;
         info!(
-            "Signer #{}: Broadcasted {nmb_transactions} transaction(s) () to stackerDB",
+            "Signer #{}: Broadcasted DKG vote transaction ({txid}) to stacker DB",
             self.signer_id,
         );
         Ok(())
