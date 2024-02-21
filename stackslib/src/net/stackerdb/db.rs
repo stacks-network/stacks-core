@@ -446,7 +446,7 @@ impl StackerDBs {
                 let ppath = Path::new(path);
                 let pparent_path = ppath
                     .parent()
-                    .expect(&format!("BUG: no parent of '{}'", path));
+                    .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
                 fs::create_dir_all(&pparent_path).map_err(|e| db_error::IOError(e))?;
 
                 OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE

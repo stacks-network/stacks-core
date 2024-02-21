@@ -691,11 +691,8 @@ impl BlockMinerThread {
                 par_tenure_info.parent_tenure_blocks,
                 self.keychain.get_nakamoto_pkh(),
             )?;
-            let coinbase_tx = self.generate_coinbase_tx(
-                current_miner_nonce + 1,
-                target_epoch_id,
-                vrf_proof.clone(),
-            );
+            let coinbase_tx =
+                self.generate_coinbase_tx(current_miner_nonce + 1, target_epoch_id, vrf_proof);
             NakamotoTenureInfo {
                 coinbase_tx: Some(coinbase_tx),
                 tenure_change_tx: Some(tenure_change_tx),
@@ -900,10 +897,12 @@ impl ParentStacksBlockInfo {
                     &stacks_tip_header.index_block_hash(),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )
-                .expect(&format!(
-                    "BUG: stacks tip block {} no longer exists after we queried it",
-                    &stacks_tip_header.index_block_hash(),
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: stacks tip block {} no longer exists after we queried it",
+                        &stacks_tip_header.index_block_hash()
+                    )
+                });
             account.nonce
         };
 

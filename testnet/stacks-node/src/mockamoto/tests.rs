@@ -276,13 +276,12 @@ fn observe_set_aggregate_key() {
             mockamoto.sortdb.first_block_height,
             sortition_tip.block_height,
         )
-        .expect(
-            format!(
+        .unwrap_or_else(|| {
+            panic!(
                 "Failed to determine reward cycle of block height: {}",
                 sortition_tip.block_height
             )
-            .as_str(),
-        );
+        });
 
     // Get the aggregate public key of the original reward cycle to compare against
     let expected_cur_key = signer.generate_aggregate_key(reward_cycle);

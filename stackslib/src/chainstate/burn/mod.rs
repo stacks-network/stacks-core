@@ -353,10 +353,12 @@ impl ConsensusHashExtensions for ConsensusHash {
             let prev_block: u64 = block_height - (((1 as u64) << i) - 1);
             let prev_ch = sort_tx
                 .get_consensus_at(prev_block)
-                .expect(&format!(
-                    "FATAL: failed to get consensus hash at {} in fork {}",
-                    prev_block, &sort_tx.context.chain_tip
-                ))
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "FATAL: failed to get consensus hash at {} in fork {}",
+                        prev_block, &sort_tx.context.chain_tip
+                    )
+                })
                 .unwrap_or(ConsensusHash::empty());
 
             debug!("Consensus at {}: {}", prev_block, &prev_ch);

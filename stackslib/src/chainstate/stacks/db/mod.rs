@@ -1034,11 +1034,7 @@ impl StacksChainState {
     }
 
     pub fn load_db_config(conn: &DBConn) -> Result<DBConfig, db_error> {
-        let config = query_row::<DBConfig, _>(
-            conn,
-            &"SELECT * FROM db_config LIMIT 1".to_string(),
-            NO_PARAMS,
-        )?;
+        let config = query_row::<DBConfig, _>(conn, "SELECT * FROM db_config LIMIT 1", NO_PARAMS)?;
         Ok(config.expect("BUG: no db_config installed"))
     }
 
@@ -1415,7 +1411,7 @@ impl StacksChainState {
                                         Value::UInt(entry.no_vowel_discount.into());
                                     let buckets: Vec<_> = entry
                                         .buckets
-                                        .split(";")
+                                        .split(';')
                                         .map(|e| Value::UInt(e.parse::<u64>().unwrap().into()))
                                         .collect();
                                     assert_eq!(buckets.len(), 16);
@@ -1467,7 +1463,7 @@ impl StacksChainState {
                             let initial_names = get_names();
                             for entry in initial_names {
                                 let components: Vec<_> =
-                                    entry.fully_qualified_name.split(".").collect();
+                                    entry.fully_qualified_name.split('.').collect();
                                 assert_eq!(components.len(), 2);
 
                                 let namespace = {
@@ -1631,7 +1627,7 @@ impl StacksChainState {
                     MAINNET_2_0_GENESIS_ROOT_HASH,
                     "Incorrect root hash for genesis block computed. expected={} computed={}",
                     MAINNET_2_0_GENESIS_ROOT_HASH,
-                    genesis_root_hash.to_string()
+                    genesis_root_hash
                 )
             }
         }

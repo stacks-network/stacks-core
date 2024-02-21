@@ -399,7 +399,7 @@ impl RunLoop {
             config.clone(),
             Some(coordinator_senders),
             burnchain_opt,
-            Some(should_keep_running.clone()),
+            Some(should_keep_running),
         );
 
         let burnchain = burnchain_controller.get_burnchain();
@@ -1065,7 +1065,7 @@ impl RunLoop {
             sn
         };
 
-        globals.set_last_sortition(burnchain_tip_snapshot.clone());
+        globals.set_last_sortition(burnchain_tip_snapshot);
 
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)

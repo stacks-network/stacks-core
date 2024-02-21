@@ -1521,10 +1521,10 @@ impl TupleData {
         self.data_map.is_empty()
     }
 
-    pub fn from_data(mut data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
+    pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
-        for (name, value) in data.drain(..) {
+        for (name, value) in data.into_iter() {
             let type_info = TypeSignature::type_of(&value)?;
             if type_map.contains_key(&name) {
                 return Err(CheckErrors::NameAlreadyUsed(name.into()).into());
@@ -1539,11 +1539,11 @@ impl TupleData {
 
     pub fn from_data_typed(
         epoch: &StacksEpochId,
-        mut data: Vec<(ClarityName, Value)>,
+        data: Vec<(ClarityName, Value)>,
         expected: &TupleTypeSignature,
     ) -> Result<TupleData> {
         let mut data_map = BTreeMap::new();
-        for (name, value) in data.drain(..) {
+        for (name, value) in data.into_iter() {
             let expected_type = expected
                 .field_type(&name)
                 .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
@@ -1676,7 +1676,7 @@ mod test {
             Err(CheckErrors::TypeSignatureTooDeep.into())
         );
         assert_eq!(
-            Value::some(inner_value.clone()),
+            Value::some(inner_value),
             Err(CheckErrors::TypeSignatureTooDeep.into())
         );
 
@@ -1764,7 +1764,7 @@ mod test {
         );
         assert_eq!(buff.clone().expect_buff(10).unwrap(), vec![1, 2, 3, 4, 5]);
         assert_eq!(
-            buff.clone().expect_buff_padded(10, 1).unwrap(),
+            buff.expect_buff_padded(10, 1).unwrap(),
             vec![1, 2, 3, 4, 5, 1, 1, 1, 1, 1]
         );
     }

@@ -714,7 +714,7 @@ impl StacksChainState {
                 .expect("FATAL: failed to create block directory");
 
         let sz = fs::metadata(&block_path)
-            .expect(&format!("FATAL: failed to stat '{}'", &block_path))
+            .unwrap_or_else(|_| panic!("FATAL: failed to stat '{}'", &block_path))
             .len();
 
         if sz > 0 {
@@ -730,18 +730,22 @@ impl StacksChainState {
                 .expect("FATAL: index block path did not have file name");
             invalid_path.set_extension(&format!("invalid-{}", &random_bytes_str));
 
-            fs::copy(&block_path, &invalid_path).expect(&format!(
-                "FATAL: failed to copy '{}' to '{}'",
-                &block_path,
-                &invalid_path.to_string_lossy(),
-            ));
+            fs::copy(&block_path, &invalid_path).unwrap_or_else(|_| {
+                panic!(
+                    "FATAL: failed to copy '{}' to '{}'",
+                    &block_path,
+                    &invalid_path.to_string_lossy()
+                )
+            });
 
             // already freed?
             let sz = fs::metadata(&invalid_path)
-                .expect(&format!(
-                    "FATAL: failed to stat '{}'",
-                    &invalid_path.to_string_lossy()
-                ))
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "FATAL: failed to stat '{}'",
+                        &invalid_path.to_string_lossy()
+                    )
+                })
                 .len();
 
             if sz > 0 {
@@ -751,10 +755,9 @@ impl StacksChainState {
                     .write(true)
                     .truncate(true)
                     .open(&block_path)
-                    .expect(&format!(
-                        "FATAL: Failed to mark block path '{}' as free",
-                        &block_path
-                    ));
+                    .unwrap_or_else(|_| {
+                        panic!("FATAL: Failed to mark block path '{}' as free", &block_path)
+                    });
             }
         }
     }
@@ -1228,13 +1231,15 @@ impl StacksChainState {
         loop {
             let microblock =
                 match StacksChainState::load_staging_microblock_bytes(blocks_conn, &mblock_hash)? {
-                    Some(mblock_data) => StacksMicroblock::consensus_deserialize(
-                        &mut &mblock_data[..],
-                    )
-                    .expect(&format!(
-                        "CORRUPTION: failed to parse microblock data for {}/{}-{}",
-                        parent_consensus_hash, parent_anchored_block_hash, &mblock_hash,
-                    )),
+                    Some(mblock_data) => {
+                        StacksMicroblock::consensus_deserialize(&mut &mblock_data[..])
+                            .unwrap_or_else(|_| {
+                                panic!(
+                                    "CORRUPTION: failed to parse microblock data for {}/{}-{}",
+                                    parent_consensus_hash, parent_anchored_block_hash, &mblock_hash
+                                )
+                            })
+                    }
                     None => {
                         test_debug!(
                             "No such microblock (processed={}): {}/{}-{} ({})",
@@ -1400,10 +1405,12 @@ impl StacksChainState {
                 blocks_conn,
                 &staging_microblocks[i].microblock_hash,
             )?
-            .expect(&format!(
-                "BUG: have record for {}-{} but no data",
-                &parent_index_block_hash, &staging_microblocks[i].microblock_hash
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: have record for {}-{} but no data",
+                    &parent_index_block_hash, &staging_microblocks[i].microblock_hash
+                )
+            });
 
             let mblock = match StacksMicroblock::consensus_deserialize(&mut &mblock_data[..]) {
                 Ok(mb) => mb,
@@ -2410,7 +2417,7 @@ impl StacksChainState {
                 StacksChainState::free_block(blocks_path, consensus_hash, anchored_block_hash);
             }
             Err(_) => {
-                StacksChainState::atomic_file_write(&block_path, &vec![])?;
+                StacksChainState::atomic_file_write(&block_path, &[])?;
             }
         }
 

@@ -265,14 +265,10 @@ impl ClarityInstance {
 
         let burn_height = header_db
             .get_burn_block_height_for_block(stacks_block)
-            .expect(&format!(
-                "Failed to get burn block height of {}",
-                stacks_block
-            ));
-        burn_state_db.get_stacks_epoch(burn_height).expect(&format!(
-            "Failed to get Stacks epoch for height = {}",
-            burn_height
-        ))
+            .unwrap_or_else(|| panic!("Failed to get burn block height of {}", stacks_block));
+        burn_state_db
+            .get_stacks_epoch(burn_height)
+            .unwrap_or_else(|| panic!("Failed to get Stacks epoch for height = {}", burn_height))
     }
 
     pub fn begin_block<'a, 'b>(
@@ -573,7 +569,7 @@ impl ClarityInstance {
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityReadOnlyConnection<'a> {
         self.read_only_connection_checked(at_block, header_db, burn_state_db)
-            .expect(&format!("BUG: failed to open block {}", at_block))
+            .unwrap_or_else(|_| panic!("BUG: failed to open block {}", at_block))
     }
 
     /// Open a read-only connection at `at_block`. This will be evaluated in the Stacks epoch that
