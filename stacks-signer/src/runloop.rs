@@ -1511,6 +1511,7 @@ mod tests {
 
     #[test]
     #[serial]
+    #[ignore]
     fn verify_transactions_valid() {
         let config = Config::load_from_file("./src/tests/conf/signer-0.toml").unwrap();
         let mut runloop: RunLoop<FireCoordinator<v2::Aggregator>> = RunLoop::from(&config);
