@@ -1948,7 +1948,7 @@ fn vote_for_aggregate_key_burn_op() {
 
     let stacker_pk = StacksPublicKey::from_private(&stacker_sk);
     let signer_key: StacksPublicKeyBuffer = stacker_pk.to_bytes_compressed().as_slice().into();
-    let aggregate_key = StacksPublicKeyBuffer([0x01; 33]);
+    let aggregate_key = signer_key.clone();
 
     let vote_for_aggregate_key_op =
         BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {

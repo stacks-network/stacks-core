@@ -146,16 +146,6 @@ impl VoteForAggregateKeyOp {
             return Err(op_error::InvalidInput);
         }
 
-        // It's ok not to have outputs
-        // if outputs.len() == 0 {
-        //     warn!(
-        //         "Invalid tx: inputs: {}, outputs: {}",
-        //         tx.num_signers(),
-        //         outputs.len()
-        //     );
-        //     return Err(op_error::InvalidInput);
-        // }
-
         if tx.opcode() != Opcodes::VoteForAggregateKey as u8 {
             warn!("Invalid tx: invalid opcode {}", tx.opcode());
             return Err(op_error::InvalidInput);
@@ -166,14 +156,7 @@ impl VoteForAggregateKeyOp {
             op_error::ParseError
         })?;
 
-        // let signer_key = VoteForAggregateKeyOp::get_sender_pubkey(tx)?;
-        // TODO: throw the error. temporarily use a default for testing:
-        let signer_key = VoteForAggregateKeyOp::get_sender_pubkey(tx).unwrap_or(
-            Secp256k1PublicKey::from_hex(
-                "02fa66b66f8971a8cd4d20ffded09674e030f0f33883f337f34b95ad4935bac0e3",
-            )
-            .unwrap(),
-        );
+        let signer_key = VoteForAggregateKeyOp::get_sender_pubkey(tx)?;
 
         Ok(VoteForAggregateKeyOp {
             sender: sender.clone(),
@@ -190,7 +173,13 @@ impl VoteForAggregateKeyOp {
     }
 
     pub fn check(&self) -> Result<(), op_error> {
-        // TODO
+        // Check to see if the aggregate key is valid
+        Secp256k1PublicKey::from_slice(self.aggregate_key.as_bytes())
+            .map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
+
+        // Check to see if the signer key is valid
+        Secp256k1PublicKey::from_slice(self.signer_key.as_bytes())
+            .map_err(|_| op_error::VoteForAggregateKeyInvalidKey)?;
 
         Ok(())
     }
@@ -352,9 +341,7 @@ mod tests {
     #[test]
     fn test_raw_input_signer_key() {
         let aggregate_key = StacksPublicKeyBuffer([0x01; 33]);
-        // let signer_key = StacksPublicKeyBuffer([0x02; 33]);
         let signer_key = Secp256k1PublicKey::from_hex("040fadbbcea0ff3b05f03195b41cd991d7a0af8bd38559943aec99cbdaf0b22cc806b9a4f07579934774cc0c155e781d45c989f94336765e88a66d91cfb9f060b0").unwrap();
-        // let signer_pubkey = Secp256k1PublicKey::from_slice(signer_key.as_bytes()).unwrap();
         let tx = BitcoinTransaction {
             txid: Txid([0; 32]),
             vtxindex: 0,

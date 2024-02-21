@@ -95,6 +95,9 @@ pub enum Error {
 
     // sBTC errors
     AmountMustBePositive,
+
+    // vote-for-aggregate-public-key errors
+    VoteForAggregateKeyInvalidKey,
 }
 
 impl fmt::Display for Error {
@@ -157,6 +160,9 @@ impl fmt::Display for Error {
                 "Stack STX must set num cycles between 1 and max num cycles"
             ),
             Error::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
+            Error::VoteForAggregateKeyInvalidKey => {
+                write!(f, "Aggregate key is invalid")
+            }
             Self::AmountMustBePositive => write!(f, "Peg in amount must be positive"),
         }
     }

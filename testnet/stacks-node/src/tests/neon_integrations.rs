@@ -2469,7 +2469,8 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     let signer_key: StacksPublicKeyBuffer = signer_pk_bytes.clone().as_slice().into();
 
-    let aggregate_key = StacksPublicKeyBuffer([0x99; 33]);
+    let aggregate_pk = Secp256k1PublicKey::new();
+    let aggregate_key: StacksPublicKeyBuffer = aggregate_pk.to_bytes_compressed().as_slice().into();
 
     let signer_index = 0;
 
@@ -2534,6 +2535,8 @@ fn vote_for_aggregate_key_burn_op_test() {
                     .as_str()
                     .unwrap();
                 assert_eq!(agg_key, aggregate_key.to_hex());
+                let signer_key = vote_obj.get("signer_key").unwrap().as_str().unwrap();
+                assert_eq!(to_hex(&signer_pk_bytes), signer_key);
 
                 vote_for_aggregate_key_found = true;
             }

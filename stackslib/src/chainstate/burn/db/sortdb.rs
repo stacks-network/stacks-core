@@ -10390,6 +10390,11 @@ pub mod tests {
         )
         .unwrap();
         let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
+        let vote_pubkey = StacksPublicKey::from_hex(
+            "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+        )
+        .unwrap();
+        let vote_key: StacksPublicKeyBuffer = vote_pubkey.to_bytes_compressed().as_slice().into();
 
         let good_ops = vec![
             BlockstackOperationType::TransferStx(TransferStxOp {
@@ -10434,8 +10439,8 @@ pub mod tests {
             }),
             BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
                 sender: StacksAddress::new(6, Hash160([6u8; 20])),
-                aggregate_key: StacksPublicKeyBuffer([0x01; 33]),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                aggregate_key: vote_key,
+                signer_key: vote_key,
                 round: 1,
                 reward_cycle: 2,
                 signer_index: 3,
