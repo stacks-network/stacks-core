@@ -23,7 +23,7 @@ path = "src/main.rs"
 backoff = "0.4"
 clarity = { path = "../clarity" }
 clap = { version = "4.1.1", features = ["derive", "env"] }
-hashbrown = "0.14"
+hashbrown = { workspace = true }
 libsigner = { path = "../libsigner" }
 libstackerdb = { path = "../libstackerdb" }
 rand_core = "0.6"

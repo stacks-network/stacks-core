@@ -30,7 +30,10 @@ libsigner = { path = "../../libsigner" }
 wsts = { workspace = true }
 rand = { workspace = true }
 rand_core = { workspace = true }
-hashbrown = "0.14"
+hashbrown = { workspace = true }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = {workspace = true}
 
 [dev-dependencies]
 ring = "0.16.19"

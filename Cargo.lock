@@ -717,6 +717,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff",
+ "hashbrown 0.14.3",
  "integer-sqrt",
  "lazy_static",
  "rand 0.8.5",
@@ -2756,6 +2757,9 @@ checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
 [[package]]
 name = "relay-server"
 version = "0.0.1"
+dependencies = [
+ "hashbrown 0.14.3",
+]
 
 [[package]]
 name = "reqwest"
@@ -3452,6 +3456,7 @@ dependencies = [
  "chrono",
  "curve25519-dalek 2.0.0",
  "ed25519-dalek",
+ "hashbrown 0.14.3",
  "lazy_static",
  "libc",
  "nix",
@@ -3507,6 +3512,7 @@ dependencies = [
  "stacks-signer",
  "stackslib",
  "stx-genesis",
+ "tikv-jemallocator",
  "tokio",
  "toml 0.5.11",
  "tracing",
@@ -3588,6 +3594,7 @@ dependencies = [
  "stacks-common",
  "stdext",
  "stx-genesis",
+ "tikv-jemallocator",
  "time 0.2.27",
  "url",
  "winapi 0.3.9",
@@ -3799,6 +3806,26 @@ checksum = "3fdd6f064ccff2d6567adcb3873ca630700f00b5ad3f060c25b5dcfd9a4ce152"
 dependencies = [
  "cfg-if 1.0.0",
  "once_cell",
+]
+
+[[package]]
+name = "tikv-jemalloc-sys"
+version = "0.5.4+5.3.0-patched"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9402443cb8fd499b6f327e40565234ff34dbda27460c5b47db0db77443dd85d1"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
+name = "tikv-jemallocator"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "965fe0c26be5c56c94e38ba547249074803efd52adfb66de62107d95aab3eaca"
+dependencies = [
+ "libc",
+ "tikv-jemalloc-sys",
 ]
 
 [[package]]
