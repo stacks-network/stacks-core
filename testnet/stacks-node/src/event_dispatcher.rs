@@ -940,7 +940,7 @@ impl EventDispatcher {
         cycle_number: u64,
     ) {
         let interested_observers =
-            self.filter_observers(&self.pox_stacker_set_observers_lookup, false);
+            self.filter_observers(&self.pox_stacker_set_observers_lookup, true);
 
         if interested_observers.is_empty() {
             return;
