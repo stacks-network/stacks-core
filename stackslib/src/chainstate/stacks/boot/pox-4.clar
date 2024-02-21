@@ -620,6 +620,8 @@
              delegated-to: none })
 
           ;; return the lock-up information, so the node can actually carry out the lock.
+          ;; NOTE(property-testing): this next line lets us mock the fact that the tokens are unspendable
+          (mock-stx-lockup-for-property-testing "stack-stx" amount-ustx (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)))
           (ok { stacker: tx-sender, lock-amount: amount-ustx, signer-key: signer-key, unlock-burn-height: (reward-cycle-to-burn-height (+ first-reward-cycle lock-period)) }))))
 
 ;; Revokes the delegation to the current stacking pool.
@@ -933,6 +935,8 @@
           delegated-to: (some tx-sender) })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
+      ;; NOTE(property-testing): this next line lets us mock the fact that the tokens are unspendable
+      (mock-stx-lockup-for-property-testing "delegate-stack-stx" amount-ustx unlock-burn-height)
       (ok { stacker: stacker,
             lock-amount: amount-ustx,
             unlock-burn-height: unlock-burn-height })))
@@ -1027,6 +1031,8 @@
                     add-amount: increase-by })))
             (err ERR_STACKING_UNREACHABLE))
       ;; NOTE: stacking-state map is unchanged: it does not track amount-stacked in PoX-4
+      ;; NOTE(property-testing): this next line lets us mock the fact that the tokens are unspendable
+      (mock-stx-lockup-for-property-testing "stack-increase" (+ amount-stacked increase-by) unlock-height)
       (ok { stacker: tx-sender, total-locked: (+ amount-stacked increase-by)})))
 
 ;; Extend an active Stacking lock.
@@ -1114,6 +1120,8 @@
               delegated-to: none })
 
         ;; return lock-up information
+        ;; NOTE(property-testing): this next line lets us mock the fact that the tokens are unspendable
+        (mock-stx-lockup-for-property-testing "stack-extend" amount-ustx new-unlock-ht)
         (ok { stacker: tx-sender, unlock-burn-height: new-unlock-ht })))))
 
 ;; As a delegator, increase an active Stacking lock, issuing a "partial commitment" for the
@@ -1202,6 +1210,8 @@
       ;; stacking-state is unchanged, so no need to update
 
       ;; return the lock-up information, so the node can actually carry out the lock.
+      ;; NOTE(property-testing): this next line lets us mock the fact that the tokens are unspendable
+      (mock-stx-lockup-for-property-testing "delegate-stack-increase" new-total-locked unlock-height)
       (ok { stacker: stacker, total-locked: new-total-locked}))))
 
 ;; As a delegator, extend an active stacking lock, issuing a "partial commitment" for the
@@ -1297,6 +1307,7 @@
           delegated-to: (some tx-sender) })
 
       ;; return the lock-up information, so the node can actually carry out the lock.
+      (mock-stx-lockup-for-property-testing "delegate-stack-extend" amount-ustx new-unlock-ht)
       (ok { stacker: stacker,
             unlock-burn-height: new-unlock-ht }))))
 
@@ -1345,3 +1356,29 @@
         (ok (map-set aggregate-public-keys reward-cycle aggregate-public-key))
     )
 )
+
+;; Property testing: mock the lock-up.
+;; This burns the STX (so subsequent STX balance inquiries show a reduced amount of STX), and
+;; writes the locked STX and unlock height to a dedicated map which can be queried by the property test framework
+;; in order to verify that the lock is carried out.
+;;
+;; Feel free to tailor this to your needs.
+(define-private (mock-stx-lockup-for-property-testing (function-name (string-ascii 512)) (amount-ustx uint) (unlock-burn-height uint))
+    (let (
+        (last-logged-event (var-get mock-stx-lockup-property-testing-event-id))
+    )
+        (unwrap-panic (stx-burn? amount-ustx tx-sender))
+        (map-insert mock-property-testing-stacked-stx-log 
+            last-logged-event
+            { function: function-name, stacker: tx-sender, amount-ustx: amount-ustx, unlock-burn-height: unlock-burn-height })
+        (var-set mock-stx-lockup-property-testing-event-id (+ u1 last-logged-event))
+    ))
+
+(define-data-var mock-stx-lockup-property-testing-event-id uint u0)
+(define-map mock-property-testing-stacked-stx-log
+    uint
+    { function: (string-ascii 512), stacker: principal, amount-ustx: uint, unlock-burn-height: uint })
+
+;; The property testing framework can use this function to query the last stacking event
+(define-private (get-last-stacking-event)
+    (map-get? mock-property-testing-stacked-stx-log (var-get mock-stx-lockup-property-testing-event-id)))
