@@ -445,11 +445,13 @@ pub fn initialize_contract(
             .map_err(|e| Error::Wasm(WasmError::WasmCompileFailed(e)))?,
     );
 
-    let return_type = contract_analysis.expressions.last().and_then(|last_expr| {
+    // Get the type of the last top-level expression with a return value
+    // or default to `None`.
+    let return_type = contract_analysis.expressions.iter().rev().find_map(|expr| {
         contract_analysis
             .type_map
             .as_ref()
-            .and_then(|type_map| type_map.get_type(last_expr))
+            .and_then(|type_map| type_map.get_type(expr))
     });
 
     if let Some(return_type) = return_type {
