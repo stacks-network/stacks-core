@@ -1839,13 +1839,17 @@ pub mod test {
         key: &StacksPrivateKey,
         nonce: u64,
         amount: u128,
-        addr: PoxAddress,
+        addr: &PoxAddress,
         lock_period: u128,
-        signer_key: StacksPublicKey,
+        signer_key: &StacksPublicKey,
         burn_ht: u64,
-        signature: Vec<u8>,
+        signature_opt: Option<Vec<u8>>,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let signature = match signature_opt {
+            Some(sig) => Value::some(Value::buff_from(sig).unwrap()).unwrap(),
+            None => Value::none(),
+        };
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             "pox-4",
@@ -1855,7 +1859,7 @@ pub mod test {
                 addr_tuple,
                 Value::UInt(burn_ht as u128),
                 Value::UInt(lock_period),
-                Value::buff_from(signature).unwrap(),
+                signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -1994,9 +1998,13 @@ pub mod test {
         addr: PoxAddress,
         lock_period: u128,
         signer_key: StacksPublicKey,
-        signature: Vec<u8>,
+        signature_opt: Option<Vec<u8>>,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(addr.as_clarity_tuple().unwrap());
+        let signature = match signature_opt {
+            Some(sig) => Value::some(Value::buff_from(sig).unwrap()).unwrap(),
+            None => Value::none(),
+        };
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
@@ -2004,7 +2012,7 @@ pub mod test {
             vec![
                 Value::UInt(lock_period),
                 addr_tuple,
-                Value::buff_from(signature).unwrap(),
+                signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -2098,10 +2106,14 @@ pub mod test {
         nonce: u64,
         pox_addr: &PoxAddress,
         reward_cycle: u128,
-        signature: Vec<u8>,
+        signature_opt: Option<Vec<u8>>,
         signer_key: &Secp256k1PublicKey,
     ) -> StacksTransaction {
         let addr_tuple = Value::Tuple(pox_addr.as_clarity_tuple().unwrap());
+        let signature = match signature_opt {
+            Some(sig) => Value::some(Value::buff_from(sig).unwrap()).unwrap(),
+            None => Value::none(),
+        };
         let payload = TransactionPayload::new_contract_call(
             boot_code_test_addr(),
             POX_4_NAME,
@@ -2109,7 +2121,7 @@ pub mod test {
             vec![
                 addr_tuple,
                 Value::UInt(reward_cycle),
-                Value::buff_from(signature).unwrap(),
+                signature,
                 Value::buff_from(signer_key.to_bytes_compressed()).unwrap(),
             ],
         )
@@ -2186,6 +2198,37 @@ pub mod test {
         .unwrap();
 
         signature.to_rsv()
+    }
+
+    pub fn make_pox_4_set_signer_key_auth(
+        pox_addr: &PoxAddress,
+        signer_key: &StacksPrivateKey,
+        reward_cycle: u128,
+        topic: &Pox4SignatureTopic,
+        period: u128,
+        enabled: bool,
+        nonce: u64,
+        sender_key: Option<&StacksPrivateKey>,
+    ) -> StacksTransaction {
+        let signer_pubkey = StacksPublicKey::from_private(signer_key);
+        let payload = TransactionPayload::new_contract_call(
+            boot_code_test_addr(),
+            POX_4_NAME,
+            "set-signer-key-authorization",
+            vec![
+                Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
+                Value::UInt(period),
+                Value::UInt(reward_cycle),
+                Value::string_ascii_from_bytes(topic.get_name_str().into()).unwrap(),
+                Value::buff_from(signer_pubkey.to_bytes_compressed()).unwrap(),
+                Value::Bool(enabled),
+            ],
+        )
+        .unwrap();
+
+        let sender_key = sender_key.unwrap_or(signer_key);
+
+        make_tx(sender_key, nonce, 0, payload)
     }
 
     fn make_tx(
