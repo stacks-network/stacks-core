@@ -416,7 +416,8 @@ pub fn boot_to_epoch_3(
                 pox_addr_tuple.clone(),
                 clarity::vm::Value::UInt(block_height as u128),
                 clarity::vm::Value::UInt(12),
-                clarity::vm::Value::buff_from(signature).unwrap(),
+                clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                    .unwrap(),
                 clarity::vm::Value::buff_from(signer_pk.to_bytes_compressed()).unwrap(),
             ],
         );
@@ -1149,7 +1150,8 @@ fn correct_burn_outs() {
                     pox_addr_tuple,
                     clarity::vm::Value::UInt(pox_info.current_burnchain_block_height.into()),
                     clarity::vm::Value::UInt(1),
-                    clarity::vm::Value::buff_from(signature).unwrap(),
+                    clarity::vm::Value::some(clarity::vm::Value::buff_from(signature).unwrap())
+                        .unwrap(),
                     clarity::vm::Value::buff_from(pk_bytes).unwrap(),
                 ],
             );

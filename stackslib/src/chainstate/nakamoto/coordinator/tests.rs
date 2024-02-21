@@ -101,11 +101,11 @@ fn advance_to_nakamoto(
                         &test_stacker.stacker_private_key,
                         0,
                         test_stacker.amount,
-                        pox_addr.clone(),
+                        &pox_addr,
                         12,
-                        signing_key,
+                        &signing_key,
                         34,
-                        signature,
+                        Some(signature),
                     )
                 })
                 .collect()
