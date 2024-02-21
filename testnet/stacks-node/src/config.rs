@@ -13,6 +13,7 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -43,7 +44,6 @@ use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::chain_data::MinerStats;
-use crate::mockamoto::signer::SelfSigner;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
@@ -506,11 +506,17 @@ lazy_static! {
 }
 
 impl Config {
-    pub fn self_signing(&self) -> Option<SelfSigner> {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn self_signing(&self) -> Option<TestSigners> {
         if !(self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto") {
             return None;
         }
         self.miner.self_signing_key.clone()
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn self_signing(&self) -> Option<TestSigners> {
+        return None;
     }
 
     /// get the up-to-date burnchain options from the config.
@@ -1986,7 +1992,7 @@ pub struct MinerConfig {
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
-    pub self_signing_key: Option<SelfSigner>,
+    pub self_signing_key: Option<TestSigners>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
     pub wait_on_interim_blocks: Duration,
     /// minimum number of transactions that must be in a block if we're going to replace a pending
@@ -2363,7 +2369,6 @@ pub struct MinerConfigFile {
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
     pub mining_key: Option<String>,
-    pub self_signing_seed: Option<u64>,
     pub wait_on_interim_blocks_ms: Option<u64>,
     pub min_tx_count: Option<u64>,
     pub only_increase_tx_count: Option<bool>,
@@ -2419,11 +2424,7 @@ impl MinerConfigFile {
                 .as_ref()
                 .map(|x| Secp256k1PrivateKey::from_hex(x))
                 .transpose()?,
-            self_signing_key: self
-                .self_signing_seed
-                .as_ref()
-                .map(|x| SelfSigner::from_seed(*x))
-                .or(miner_default_config.self_signing_key),
+            self_signing_key: Some(TestSigners::default()),
             wait_on_interim_blocks: self
                 .wait_on_interim_blocks_ms
                 .map(Duration::from_millis)

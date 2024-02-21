@@ -6,6 +6,7 @@
 (define-constant CHUNK_SIZE (* u2 u1024 u1024))
 (define-constant ERR_NO_SUCH_PAGE u1)
 (define-constant ERR_CYCLE_NOT_SET u2)
+
 (define-map cycle-signer-set uint (list 4000 { signer: principal, weight: uint }))
 
 ;; Called internally by the Stacks node.
@@ -22,7 +23,7 @@
             (ok (var-set stackerdb-signer-slots-0 signer-slots))
             (ok (var-set stackerdb-signer-slots-1 signer-slots)))))
 
-;; Called internally by te Stacks node.
+;; Called internally by the Stacks node.
 ;; Sets the list of signers and weights for a given reward cycle.
 (define-private (set-signers
                  (reward-cycle uint)

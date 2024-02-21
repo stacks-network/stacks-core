@@ -276,11 +276,11 @@ impl NakamotoSigners {
                                 "signer".into(),
                                 Value::Principal(PrincipalData::from(signing_address)),
                             ),
-                            ("weight".into(), Value::UInt(signer.slots.into())),
+                            ("weight".into(), Value::UInt(signer.weight.into())),
                         ])
-                            .expect(
-                                "BUG: Failed to construct `{ signer: principal, num-slots: u64 }` tuple",
-                            ),
+                        .expect(
+                            "BUG: Failed to construct `{ signer: principal, weight: uint }` tuple",
+                        ),
                     )
                 })
                 .collect()
@@ -305,7 +305,7 @@ impl NakamotoSigners {
         let set_signers_args = [
             SymbolicExpression::atom_value(Value::UInt(reward_cycle.into())),
             SymbolicExpression::atom_value(Value::cons_list_unsanitized(signers_list).expect(
-                "BUG: Failed to construct `(list 4000 { signer: principal, weight: u64 })` list",
+                "BUG: Failed to construct `(list 4000 { signer: principal, weight: uint })` list",
             )),
         ];
 

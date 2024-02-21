@@ -212,10 +212,6 @@
     { stacked-amount: uint }
 )
 
-;; The stackers' aggregate public key
-;;   for the given reward cycle
-(define-map aggregate-public-keys uint (buff 33))
-
 ;; State for setting authorizations for signer keys to be used in
 ;; certain stacking transactions. These fields match the fields used
 ;; in the message hash for signature-based signer key authorizations.
@@ -1405,18 +1401,4 @@
 ;; *New in Stacks 2.1*
 (define-read-only (get-partial-stacked-by-cycle (pox-addr { version: (buff 1), hashbytes: (buff 32) }) (reward-cycle uint) (sender principal))
     (map-get? partial-stacked-by-cycle { pox-addr: pox-addr, reward-cycle: reward-cycle, sender: sender })
-)
-
-;; What is the given reward cycle's stackers' aggregate public key?
-;; *New in Stacks 3.0*
-(define-read-only (get-aggregate-public-key (reward-cycle uint))
-    (map-get? aggregate-public-keys reward-cycle)
-)
-
-;; Set the aggregate public key to the provided value
-;; *New in Stacks 3.0*
-(define-private (set-aggregate-public-key (reward-cycle uint) (aggregate-public-key (buff 33)))
-    (begin
-        (ok (map-set aggregate-public-keys reward-cycle aggregate-public-key))
-    )
 )

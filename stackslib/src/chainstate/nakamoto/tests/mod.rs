@@ -53,7 +53,8 @@ use crate::chainstate::coordinator::tests::{
 use crate::chainstate::nakamoto::coordinator::tests::boot_nakamoto;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::tenure::NakamotoTenure;
-use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+use crate::chainstate::nakamoto::test_signers::TestSigners;
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{
     NakamotoBlock, NakamotoBlockHeader, NakamotoChainState, SortitionHandle, FIRST_STACKS_BLOCK_ID,
 };
@@ -1639,12 +1640,12 @@ fn make_fork_run_with_arrivals(
 /// Tests that getting the highest nakamoto tenure works in the presence of forks
 #[test]
 pub fn test_get_highest_nakamoto_tenure() {
-    let test_signers = TestSigners::default();
+    let mut test_signers = TestSigners::default();
     let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );
@@ -1788,12 +1789,12 @@ pub fn test_get_highest_nakamoto_tenure() {
 /// to have slot i in subsequent sortitions.
 #[test]
 fn test_make_miners_stackerdb_config() {
-    let test_signers = TestSigners::default();
+    let mut test_signers = TestSigners::default();
     let test_stackers = TestStacker::common_signing_set(&test_signers);
     let mut peer = boot_nakamoto(
         function_name!(),
         vec![],
-        &test_signers,
+        &mut test_signers,
         &test_stackers,
         None,
     );

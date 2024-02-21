@@ -37,8 +37,9 @@ use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::nakamoto::coordinator::tests::{boot_nakamoto, make_token_transfer};
+use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
-use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::boot::pox_2_tests::with_clarity_db_ro;
 use crate::chainstate::stacks::boot::pox_4_tests::{
@@ -75,13 +76,13 @@ fn make_signer_units() {
             amount_stacked: amount,
         }
     }
-    fn stub_out(signer: u64, amount: u128, slots: u32) -> NakamotoSignerEntry {
+    fn stub_out(signer: u64, amount: u128, weight: u32) -> NakamotoSignerEntry {
         let mut signer_bytes = [0; SIGNERS_PK_LEN];
         signer_bytes[0..8].copy_from_slice(&signer.to_be_bytes());
         NakamotoSignerEntry {
             signing_key: signer_bytes,
             stacked_amt: amount,
-            slots,
+            weight,
         }
     }
 
@@ -92,7 +93,7 @@ fn make_signer_units() {
             .collect();
         let expected: Vec<_> = expected
             .iter()
-            .map(|(signer, amount, slots)| stub_out(*signer, *amount, *slots))
+            .map(|(signer, amount, weight)| stub_out(*signer, *amount, *weight))
             .collect();
         assert_eq!(
             StacksChainState::make_signer_set(threshold, &in_entries),
@@ -353,7 +354,7 @@ pub fn prepare_signers_test<'a>(
     let mut peer = boot_nakamoto(
         test_name,
         initial_balances,
-        &test_signers,
+        &mut test_signers,
         stackers,
         observer,
     );
@@ -461,7 +462,7 @@ fn advance_blocks(
     latest_block_id
 }
 
-fn readonly_call(
+pub fn readonly_call(
     peer: &mut TestPeer,
     tip: &StacksBlockId,
     boot_contract: ContractName,
@@ -469,7 +470,20 @@ fn readonly_call(
     args: Vec<Value>,
 ) -> Value {
     with_sortdb(peer, |chainstate, sortdb| {
-        chainstate.with_read_only_clarity_tx(&sortdb.index_conn(), tip, |connection| {
+        readonly_call_with_sortdb(chainstate, sortdb, tip, boot_contract, function_name, args)
+    })
+}
+
+pub fn readonly_call_with_sortdb(
+    chainstate: &mut StacksChainState,
+    sortdb: &SortitionDB,
+    tip: &StacksBlockId,
+    boot_contract: ContractName,
+    function_name: ClarityName,
+    args: Vec<Value>,
+) -> Value {
+    chainstate
+        .with_read_only_clarity_tx(&sortdb.index_conn(), tip, |connection| {
             connection
                 .with_readonly_clarity_env(
                     false,
@@ -489,8 +503,7 @@ fn readonly_call(
                 )
                 .unwrap()
         })
-    })
-    .unwrap()
+        .unwrap()
 }
 
 pub fn get_signer_index(

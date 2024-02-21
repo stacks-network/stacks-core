@@ -29,6 +29,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -48,7 +49,6 @@ use wsts::curve::point::Point;
 
 use super::relayer::RelayerThread;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
-use crate::mockamoto::signer::SelfSigner;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
@@ -419,10 +419,9 @@ impl BlockMinerThread {
 
     fn self_sign_and_broadcast(
         &self,
-        mut signer: SelfSigner,
+        mut signer: TestSigners,
         mut block: NakamotoBlock,
     ) -> Result<(), ChainstateError> {
-        signer.sign_nakamoto_block(&mut block);
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let chainstate_config = chain_state.config();
@@ -432,6 +431,14 @@ impl BlockMinerThread {
             self.burnchain.pox_constants.clone(),
         )
         .expect("FATAL: could not open sortition DB");
+
+        let burn_height = self.burn_block.block_height;
+        let cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(burn_height)
+            .expect("FATAL: no reward cycle for burn block");
+        signer.sign_nakamoto_block(&mut block, cycle);
+
         let mut sortition_handle = sort_db.index_handle_at_tip();
         let aggregate_public_key = if block.header.chain_length <= 1 {
             signer.aggregate_public_key.clone()
