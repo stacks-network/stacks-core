@@ -40,6 +40,7 @@ use stacks::core::{
     PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
     PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
 };
+use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::getstackers::GetStackersResponse;
 use stacks::net::api::postblock_proposal::{
     BlockValidateReject, BlockValidateResponse, NakamotoBlockProposal, ValidateRejectCode,
@@ -476,6 +477,42 @@ pub fn boot_to_epoch_3(
     info!("Bootstrapped to Epoch-3.0 boundary, Epoch2x miner should stop");
 }
 
+fn is_key_set_for_cycle(
+    reward_cycle: u64,
+    is_mainnet: bool,
+    http_origin: &str,
+) -> Result<bool, String> {
+    let client = reqwest::blocking::Client::new();
+    let boot_address = StacksAddress::burn_address(is_mainnet);
+    let path = format!("http://{http_origin}/v2/contracts/call-read/{boot_address}/signers-voting/get-approved-aggregate-key");
+    let body = CallReadOnlyRequestBody {
+        sender: boot_address.to_string(),
+        sponsor: None,
+        arguments: vec![clarity::vm::Value::UInt(reward_cycle as u128)
+            .serialize_to_hex()
+            .map_err(|_| "Failed to serialize reward cycle")?],
+    };
+    let res = client
+        .post(&path)
+        .json(&body)
+        .send()
+        .map_err(|_| "Failed to send request")?
+        .json::<serde_json::Value>()
+        .map_err(|_| "Failed to extract json Value")?;
+    let result_value = clarity::vm::Value::try_deserialize_hex_untyped(
+        &res.get("result")
+            .ok_or("No result in response")?
+            .as_str()
+            .ok_or("Result is not a string")?[2..],
+    )
+    .map_err(|_| "Failed to deserialize Clarity value")?;
+
+    result_value
+        .expect_optional()
+        .map(|v| v.is_some())
+        .map_err(|_| "Response is not optional".to_string())
+}
+
 fn signer_vote_if_needed(
     btc_regtest_controller: &BitcoinRegtestController,
     naka_conf: &Config,
@@ -496,8 +533,18 @@ fn signer_vote_if_needed(
                 reward_cycle,
             );
 
-        // TODO: Check if the vote has already happened
         if block_height >= prepare_phase_start {
+            // If the key is already set, do nothing.
+            if is_key_set_for_cycle(
+                reward_cycle + 1,
+                naka_conf.is_mainnet(),
+                &naka_conf.node.rpc_bind,
+            )
+            .unwrap_or(false)
+            {
+                return;
+            }
+
             // If we are self-signing, then we need to vote on the aggregate public key
             let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
