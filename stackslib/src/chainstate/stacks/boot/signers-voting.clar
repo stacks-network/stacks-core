@@ -66,8 +66,8 @@
         (asserts! (is-eq (get signer details) tx-sender) (err ERR_SIGNER_INDEX_MISMATCH))
         (ok (get weight details))))
 
-;; aggregate public key must be unique and can be used only in a single cycle-round pair
-(define-read-only (is-valid-aggregate-public-key (key (buff 33)) (reward-cycle uint))
+;; aggregate public key must be unique and can be used only in a single cycle
+(define-read-only (is-novel-aggregate-public-key (key (buff 33)) (reward-cycle uint))
     (is-eq (default-to reward-cycle (map-get? used-aggregate-public-keys key)) reward-cycle))
 
 (define-read-only (is-in-prepare-phase (height uint))
@@ -89,7 +89,7 @@
 (define-private (sum-weights (signer { signer: principal, weight: uint }) (acc uint))
     (+ acc (get weight signer)))
 
-(define-private (get-total-weight (reward-cycle uint))
+(define-private (get-and-cache-total-weight (reward-cycle uint))
     (match (map-get? cycle-total-weight reward-cycle)
         total (ok total)
         (let ((signers (unwrap! (contract-call? .signers get-signers reward-cycle) (err ERR_FAILED_TO_RETRIEVE_SIGNERS)))
@@ -97,11 +97,17 @@
             (map-set cycle-total-weight reward-cycle total)
             (ok total))))
 
+;; If the round is not set, or the new round is greater than the last round,
+;; update the last round.
+;; Returns:
+;;  * `(ok true)` if this is the first round for the reward cycle
+;;  * `(ok false)` if this is a new last round for the reward cycle
+;;  * `(err ERR_INVALID_ROUND)` if the round is incremented by more than 1
 (define-private (update-last-round (reward-cycle uint) (round uint))
     (ok (match (map-get? rounds reward-cycle)
         last-round (begin
             (asserts! (<= round (+ last-round u1)) (err ERR_INVALID_ROUND))
-            (and (> round last-round) (map-set rounds reward-cycle round)))
+            (if (> round last-round) (map-set rounds reward-cycle round) false))
         (map-set rounds reward-cycle round))))
 
 ;; Signer vote for the aggregate public key of the next reward cycle
@@ -128,13 +134,13 @@
             ;; vote by signer weight
             (signer-weight (try! (get-signer-weight signer-index reward-cycle)))
             (new-total (+ signer-weight (default-to u0 (map-get? tally tally-key))))
-            (total-weight (try! (get-total-weight reward-cycle))))
+            (total-weight (try! (get-and-cache-total-weight reward-cycle))))
         ;; Check that the key has not yet been set for this reward cycle
         (asserts! (is-none (map-get? aggregate-public-keys reward-cycle)) (err ERR_OUT_OF_VOTING_WINDOW))
         ;; Check that the aggregate public key is the correct length
         (asserts! (is-eq (len key) u33) (err ERR_ILL_FORMED_AGGREGATE_PUBLIC_KEY))
         ;; Check that aggregate public key has not been used in a previous reward cycle
-        (asserts! (is-valid-aggregate-public-key key reward-cycle) (err ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY))
+        (asserts! (is-novel-aggregate-public-key key reward-cycle) (err ERR_DUPLICATE_AGGREGATE_PUBLIC_KEY))
         ;; Check that signer hasn't voted in this reward-cycle & round
         (asserts! (map-insert votes {reward-cycle: reward-cycle, round: round, signer: tx-sender} {aggregate-public-key: key, signer-weight: signer-weight}) (err ERR_DUPLICATE_VOTE))
         ;; Check that the round is incremented by at most 1
@@ -151,22 +157,22 @@
             key: key,
             new-total: new-total,
         })
-        ;; Check if consensus has been reached
-        (and
-            ;; If the new total weight is greater than or equal to the threshold consensus
-            (>= (/ (* new-total u1000) total-weight) threshold-consensus)
+        ;; If the new total weight is greater than or equal to the threshold consensus
+        (if (>= (/ (* new-total u1000) total-weight) threshold-consensus)
             ;; Save this approved aggregate public key for this reward cycle.
-            ;; If there is already a key for this cycle, this will return false
-            ;; there will be no duplicate event.
-            (map-insert aggregate-public-keys reward-cycle key)
-            ;; Create an event for the approved aggregate public key
-            (begin
-                (print {
-                    event: "approved-aggregate-public-key",
-                    reward-cycle: reward-cycle,
-                    key: key,
-                })
-                true
+            ;; If there is not already a key for this cycle, the insert will
+            ;; return true and an event will be created.
+            (if (map-insert aggregate-public-keys reward-cycle key)
+                (begin
+                    ;; Create an event for the approved aggregate public key
+                    (print {
+                        event: "approved-aggregate-public-key",
+                        reward-cycle: reward-cycle,
+                        key: key,
+                    })
+                    true)
+                false
             )
+            false
         )
         (ok true)))
