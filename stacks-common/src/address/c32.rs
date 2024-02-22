@@ -180,7 +180,9 @@ const C32_CHARACTERS_MAP: [Option<u8>; 128] = [
 ];
 
 fn c32_encode(input_bytes: &[u8]) -> String {
-    let mut result = vec![];
+    // c32-encoded size is 160%  that of ASCII
+    let size = input_bytes.len().saturating_mul(8).div_ceil(5);
+    let mut result = Vec::with_capacity(size);
     let mut carry = 0;
     let mut carry_bits = 0;
 
@@ -234,10 +236,6 @@ fn c32_decode(input_str: &str) -> Result<Vec<u8>, Error> {
 }
 
 fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
-    let mut result = vec![];
-    let mut carry: u16 = 0;
-    let mut carry_bits = 0; // can be up to 5
-
     let mut iter_c32_digits = Vec::<u8>::with_capacity(input_str.len());
 
     for x in input_str.as_bytes().iter().rev() {
@@ -250,6 +248,12 @@ fn c32_decode_ascii(input_str: &str) -> Result<Vec<u8>, Error> {
         // at least one char was None
         return Err(Error::InvalidCrockford32);
     }
+
+    // ASCII size is 62.5%  that of c32-encoded
+    let size = iter_c32_digits.len().saturating_mul(5).div_ceil(8);
+    let mut result = Vec::with_capacity(size);
+    let mut carry: u16 = 0;
+    let mut carry_bits = 0; // can be up to 5
 
     for current_5bit in &iter_c32_digits {
         carry += (*current_5bit as u16) << carry_bits;

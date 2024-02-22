@@ -190,14 +190,12 @@ impl PoxId {
 impl FromStr for PoxId {
     type Err = &'static str;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = vec![];
-        for i in s.chars() {
-            if i == '1' {
-                result.push(true);
-            } else if i == '0' {
-                result.push(false);
-            } else {
-                return Err("Unexpected character in PoX ID serialization");
+        let mut result = Vec::with_capacity(s.len());
+        for c in s.chars() {
+            match c {
+                '0' => result.push(false),
+                '1' => result.push(true),
+                _ => return Err("Unexpected character in PoX ID serialization"),
             }
         }
         Ok(PoxId::new(result))

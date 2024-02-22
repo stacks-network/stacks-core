@@ -419,8 +419,9 @@ pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
         return data[0];
     }
     // Recursion
-    let mut next = vec![];
-    for idx in 0..((data.len() + 1) / 2) {
+    let iterations = (data.len() + 1) / 2;
+    let mut next = Vec::with_capacity(iterations);
+    for idx in 0..iterations {
         let idx1 = 2 * idx;
         let idx2 = min(idx1 + 1, data.len() - 1);
         let mut encoder = RawEncoder::new(Cursor::new(vec![]));
