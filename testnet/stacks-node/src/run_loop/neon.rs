@@ -17,8 +17,7 @@ use stacks::chainstate::coordinator::{
     static_get_heaviest_affirmation_map, static_get_stacks_tip_affirmation_map, ChainsCoordinator,
     ChainsCoordinatorConfig, CoordinatorCommunication, Error as coord_error,
 };
-use stacks::chainstate::nakamoto::NakamotoChainState;
-use stacks::chainstate::stacks::db::{ChainStateBootData, ClarityTx, StacksChainState};
+use stacks::chainstate::stacks::db::{ChainStateBootData, StacksChainState};
 use stacks::chainstate::stacks::miner::{signal_mining_blocked, signal_mining_ready, MinerStatus};
 use stacks::core::StacksEpochId;
 use stacks::net::atlas::{AtlasConfig, AtlasDB, Attachment};
@@ -26,7 +25,7 @@ use stacks::util_lib::db::Error as db_error;
 use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 use stacks_common::types::PublicKey;
-use stacks_common::util::hash::{to_hex, Hash160};
+use stacks_common::util::hash::Hash160;
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
@@ -47,10 +46,12 @@ use crate::{
 pub const STDERR: i32 = 2;
 
 #[cfg(test)]
-pub type RunLoopCounter = Arc<AtomicU64>;
+#[derive(Clone)]
+pub struct RunLoopCounter(pub Arc<AtomicU64>);
 
 #[cfg(not(test))]
-pub type RunLoopCounter = ();
+#[derive(Clone)]
+pub struct RunLoopCounter();
 
 #[cfg(test)]
 const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 30;
@@ -58,7 +59,27 @@ const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 30;
 #[cfg(not(test))]
 const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 300;
 
-#[derive(Clone)]
+impl Default for RunLoopCounter {
+    #[cfg(test)]
+    fn default() -> Self {
+        RunLoopCounter(Arc::new(AtomicU64::new(0)))
+    }
+    #[cfg(not(test))]
+    fn default() -> Self {
+        Self()
+    }
+}
+
+#[cfg(test)]
+impl std::ops::Deref for RunLoopCounter {
+    type Target = Arc<AtomicU64>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct Counters {
     pub blocks_processed: RunLoopCounter,
     pub microblocks_processed: RunLoopCounter,
@@ -69,43 +90,18 @@ pub struct Counters {
     pub naka_submitted_vrfs: RunLoopCounter,
     pub naka_submitted_commits: RunLoopCounter,
     pub naka_mined_blocks: RunLoopCounter,
+    pub naka_proposed_blocks: RunLoopCounter,
     pub naka_mined_tenures: RunLoopCounter,
 }
 
 impl Counters {
-    #[cfg(test)]
-    pub fn new() -> Counters {
-        Counters {
-            blocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
-            microblocks_processed: RunLoopCounter::new(AtomicU64::new(0)),
-            missed_tenures: RunLoopCounter::new(AtomicU64::new(0)),
-            missed_microblock_tenures: RunLoopCounter::new(AtomicU64::new(0)),
-            cancelled_commits: RunLoopCounter::new(AtomicU64::new(0)),
-            naka_submitted_vrfs: RunLoopCounter::new(AtomicU64::new(0)),
-            naka_submitted_commits: RunLoopCounter::new(AtomicU64::new(0)),
-            naka_mined_blocks: RunLoopCounter::new(AtomicU64::new(0)),
-            naka_mined_tenures: RunLoopCounter::new(AtomicU64::new(0)),
-        }
-    }
-
-    #[cfg(not(test))]
-    pub fn new() -> Counters {
-        Counters {
-            blocks_processed: (),
-            microblocks_processed: (),
-            missed_tenures: (),
-            missed_microblock_tenures: (),
-            cancelled_commits: (),
-            naka_submitted_vrfs: (),
-            naka_submitted_commits: (),
-            naka_mined_blocks: (),
-            naka_mined_tenures: (),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     #[cfg(test)]
     fn inc(ctr: &RunLoopCounter) {
-        ctr.fetch_add(1, Ordering::SeqCst);
+        ctr.0.fetch_add(1, Ordering::SeqCst);
     }
 
     #[cfg(not(test))]
@@ -113,7 +109,7 @@ impl Counters {
 
     #[cfg(test)]
     fn set(ctr: &RunLoopCounter, value: u64) {
-        ctr.store(value, Ordering::SeqCst);
+        ctr.0.store(value, Ordering::SeqCst);
     }
 
     #[cfg(not(test))]
@@ -149,6 +145,10 @@ impl Counters {
 
     pub fn bump_naka_mined_blocks(&self) {
         Counters::inc(&self.naka_mined_blocks);
+    }
+
+    pub fn bump_naka_proposed_blocks(&self) {
+        Counters::inc(&self.naka_proposed_blocks);
     }
 
     pub fn bump_naka_mined_tenures(&self) {
@@ -217,7 +217,7 @@ impl RunLoop {
             globals: None,
             coordinator_channels: Some(channels),
             callbacks: RunLoopCallbacks::new(),
-            counters: Counters::new(),
+            counters: Counters::default(),
             should_keep_running,
             event_dispatcher,
             pox_watchdog: None,
@@ -481,23 +481,10 @@ impl RunLoop {
             .map(|e| (e.address.clone(), e.amount))
             .collect();
 
-        // TODO: delete this once aggregate public key voting is working
-        let agg_pubkey_boot_callback = if let Some(self_signer) = self.config.self_signing() {
-            let agg_pub_key = self_signer.aggregate_public_key.clone();
-            info!("Neon node setting agg public key"; "agg_pub_key" => %to_hex(&agg_pub_key.compress().data));
-            let callback = Box::new(move |clarity_tx: &mut ClarityTx| {
-                NakamotoChainState::aggregate_public_key_bootcode(clarity_tx, &agg_pub_key)
-            }) as Box<dyn FnOnce(&mut ClarityTx)>;
-            Some(callback)
-        } else {
-            debug!("Neon node booting with no aggregate public key. Must have signers available to sign blocks.");
-            None
-        };
-
         // instantiate chainstate
         let mut boot_data = ChainStateBootData {
             initial_balances,
-            post_flight_callback: agg_pubkey_boot_callback,
+            post_flight_callback: None,
             first_burnchain_block_hash: burnchain_config.first_block_hash,
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,

@@ -31,7 +31,6 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -223,21 +222,14 @@ impl BlockMinerThread {
                         warn!("Failed to propose block to stackerdb: {e:?}");
                     }
                 }
+                self.globals.counters.bump_naka_proposed_blocks();
 
-                if let Some(self_signer) = self.config.self_signing() {
-                    if let Err(e) = self.self_sign_and_broadcast(self_signer, new_block.clone()) {
-                        warn!("Error self-signing block: {e:?}");
-                    } else {
-                        self.globals.coord().announce_new_stacks_block();
-                    }
+                if let Err(e) =
+                    self.wait_for_signer_signature_and_broadcast(&stackerdbs, new_block.clone())
+                {
+                    warn!("Error broadcasting block: {e:?}");
                 } else {
-                    if let Err(e) =
-                        self.wait_for_signer_signature_and_broadcast(&stackerdbs, new_block.clone())
-                    {
-                        warn!("Error broadcasting block: {e:?}");
-                    } else {
-                        self.globals.coord().announce_new_stacks_block();
-                    }
+                    self.globals.coord().announce_new_stacks_block();
                 }
 
                 self.globals.counters.bump_naka_mined_blocks();
@@ -535,54 +527,6 @@ impl BlockMinerThread {
                 ChainstateError::InvalidStacksBlock(format!("Invalid Nakamoto block: {e:?}"))
             })?;
         block.header.signer_signature = signature;
-        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
-        NakamotoChainState::accept_block(
-            &chainstate_config,
-            block,
-            &mut sortition_handle,
-            &staging_tx,
-            headers_conn,
-            &aggregate_public_key,
-        )?;
-        staging_tx.commit()?;
-        Ok(())
-    }
-
-    fn self_sign_and_broadcast(
-        &self,
-        mut signer: TestSigners,
-        mut block: NakamotoBlock,
-    ) -> Result<(), ChainstateError> {
-        let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
-            .expect("FATAL: could not open chainstate DB");
-        let chainstate_config = chain_state.config();
-        let sort_db = SortitionDB::open(
-            &self.config.get_burn_db_file_path(),
-            true,
-            self.burnchain.pox_constants.clone(),
-        )
-        .expect("FATAL: could not open sortition DB");
-
-        let burn_height = self.burn_block.block_height;
-        let cycle = self
-            .burnchain
-            .block_height_to_reward_cycle(burn_height)
-            .expect("FATAL: no reward cycle for burn block");
-        signer.sign_nakamoto_block(&mut block, cycle);
-
-        let mut sortition_handle = sort_db.index_handle_at_tip();
-        let aggregate_public_key = if block.header.chain_length <= 1 {
-            signer.aggregate_public_key.clone()
-        } else {
-            let aggregate_public_key = NakamotoChainState::get_aggregate_public_key(
-                &mut chain_state,
-                &sort_db,
-                &sortition_handle,
-                &block,
-            )?;
-            aggregate_public_key
-        };
-
         let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,

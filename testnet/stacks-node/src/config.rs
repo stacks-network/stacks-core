@@ -12,7 +12,6 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -505,19 +504,6 @@ lazy_static! {
 }
 
 impl Config {
-    #[cfg(any(test, feature = "testing"))]
-    pub fn self_signing(&self) -> Option<TestSigners> {
-        if !(self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto") {
-            return None;
-        }
-        self.miner.self_signing_key.clone()
-    }
-
-    #[cfg(not(any(test, feature = "testing")))]
-    pub fn self_signing(&self) -> Option<TestSigners> {
-        return None;
-    }
-
     /// get the up-to-date burnchain options from the config.
     /// If the config file can't be loaded, then return the existing config
     pub fn get_burnchain_config(&self) -> BurnchainConfig {
@@ -1998,7 +1984,6 @@ pub struct MinerConfig {
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
-    pub self_signing_key: Option<TestSigners>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
     pub wait_on_interim_blocks: Duration,
     /// minimum number of transactions that must be in a block if we're going to replace a pending
@@ -2046,7 +2031,6 @@ impl Default for MinerConfig {
             candidate_retry_cache_size: 1024 * 1024,
             unprocessed_block_deadline_secs: 30,
             mining_key: None,
-            self_signing_key: None,
             wait_on_interim_blocks: Duration::from_millis(2_500),
             min_tx_count: 0,
             only_increase_tx_count: false,
@@ -2430,7 +2414,6 @@ impl MinerConfigFile {
                 .as_ref()
                 .map(|x| Secp256k1PrivateKey::from_hex(x))
                 .transpose()?,
-            self_signing_key: Some(TestSigners::default()),
             wait_on_interim_blocks: self
                 .wait_on_interim_blocks_ms
                 .map(Duration::from_millis)
