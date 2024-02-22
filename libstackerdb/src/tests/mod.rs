@@ -101,7 +101,7 @@ fn test_stackerdb_paths() {
     );
 
     assert_eq!(
-        stackerdb_post_chunk_path(contract_id.clone()),
+        stackerdb_post_chunk_path(contract_id),
         "/v2/stackerdb/SP1Y0NECNCJ6YDVM7GQ594FF065NN3NT72FASBXB8/hello-world/chunks".to_string()
     );
 }

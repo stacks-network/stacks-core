@@ -344,7 +344,7 @@ impl PoxSyncWatchdog {
     ) -> f64 {
         let this_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_height)
-            .expect(&format!("BUG: no reward cycle for {}", tip_height));
+            .unwrap_or_else(|| panic!("BUG: no reward cycle for {}", tip_height));
         let prev_reward_cycle = this_reward_cycle.saturating_sub(1);
 
         let start_height = burnchain.reward_cycle_to_block_height(prev_reward_cycle);
@@ -372,7 +372,7 @@ impl PoxSyncWatchdog {
     ) -> f64 {
         let this_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip_height)
-            .expect(&format!("BUG: no reward cycle for {}", tip_height));
+            .unwrap_or_else(|| panic!("BUG: no reward cycle for {}", tip_height));
         let prev_reward_cycle = this_reward_cycle.saturating_sub(1);
 
         let start_height = burnchain.reward_cycle_to_block_height(prev_reward_cycle);

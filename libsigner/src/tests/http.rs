@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::{io, str};
 
+use hashbrown::HashMap;
 use stacks_common::util::chunked_encoding::*;
 
 use crate::error::{EventError, RPCError};

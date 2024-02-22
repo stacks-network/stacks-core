@@ -29,6 +29,7 @@ use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
@@ -48,7 +49,6 @@ use wsts::curve::point::Point;
 
 use super::relayer::RelayerThread;
 use super::{Config, Error as NakamotoNodeError, EventDispatcher, Keychain};
-use crate::mockamoto::signer::SelfSigner;
 use crate::nakamoto_node::VRF_MOCK_MINER_KEY;
 use crate::run_loop::nakamoto::Globals;
 use crate::run_loop::RegisteredKey;
@@ -404,12 +404,13 @@ impl BlockMinerThread {
                 ChainstateError::InvalidStacksBlock(format!("Invalid Nakamoto block: {e:?}"))
             })?;
         block.header.signer_signature = signature;
-        let staging_tx = chain_state.staging_db_tx_begin()?;
+        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
             block,
             &mut sortition_handle,
             &staging_tx,
+            headers_conn,
             &aggregate_public_key,
         )?;
         staging_tx.commit()?;
@@ -418,10 +419,9 @@ impl BlockMinerThread {
 
     fn self_sign_and_broadcast(
         &self,
-        mut signer: SelfSigner,
+        mut signer: TestSigners,
         mut block: NakamotoBlock,
     ) -> Result<(), ChainstateError> {
-        signer.sign_nakamoto_block(&mut block);
         let mut chain_state = neon_node::open_chainstate_with_faults(&self.config)
             .expect("FATAL: could not open chainstate DB");
         let chainstate_config = chain_state.config();
@@ -431,6 +431,14 @@ impl BlockMinerThread {
             self.burnchain.pox_constants.clone(),
         )
         .expect("FATAL: could not open sortition DB");
+
+        let burn_height = self.burn_block.block_height;
+        let cycle = self
+            .burnchain
+            .block_height_to_reward_cycle(burn_height)
+            .expect("FATAL: no reward cycle for burn block");
+        signer.sign_nakamoto_block(&mut block, cycle);
+
         let mut sortition_handle = sort_db.index_handle_at_tip();
         let aggregate_public_key = if block.header.chain_length <= 1 {
             signer.aggregate_public_key.clone()
@@ -444,12 +452,13 @@ impl BlockMinerThread {
             aggregate_public_key
         };
 
-        let staging_tx = chain_state.staging_db_tx_begin()?;
+        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         NakamotoChainState::accept_block(
             &chainstate_config,
             block,
             &mut sortition_handle,
             &staging_tx,
+            headers_conn,
             &aggregate_public_key,
         )?;
         staging_tx.commit()?;
@@ -682,11 +691,8 @@ impl BlockMinerThread {
                 par_tenure_info.parent_tenure_blocks,
                 self.keychain.get_nakamoto_pkh(),
             )?;
-            let coinbase_tx = self.generate_coinbase_tx(
-                current_miner_nonce + 1,
-                target_epoch_id,
-                vrf_proof.clone(),
-            );
+            let coinbase_tx =
+                self.generate_coinbase_tx(current_miner_nonce + 1, target_epoch_id, vrf_proof);
             NakamotoTenureInfo {
                 coinbase_tx: Some(coinbase_tx),
                 tenure_change_tx: Some(tenure_change_tx),
@@ -891,10 +897,12 @@ impl ParentStacksBlockInfo {
                     &stacks_tip_header.index_block_hash(),
                     |conn| StacksChainState::get_account(conn, &principal),
                 )
-                .expect(&format!(
-                    "BUG: stacks tip block {} no longer exists after we queried it",
-                    &stacks_tip_header.index_block_hash(),
-                ));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "BUG: stacks tip block {} no longer exists after we queried it",
+                        &stacks_tip_header.index_block_hash()
+                    )
+                });
             account.nonce
         };
 

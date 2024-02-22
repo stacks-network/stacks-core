@@ -819,7 +819,7 @@ impl PeerDB {
     ) -> Result<(), db_error> {
         tx.execute(
             "UPDATE local_peer SET addrbytes = ?1, port = ?2",
-            &[&to_bin(&addrbytes.as_bytes().to_vec()), &port as &dyn ToSql],
+            &[&to_bin(addrbytes.as_bytes().as_ref()), &port as &dyn ToSql],
         )
         .map_err(db_error::SqliteError)?;
 

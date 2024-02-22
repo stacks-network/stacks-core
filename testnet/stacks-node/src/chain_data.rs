@@ -1032,7 +1032,7 @@ EOF
         ] {
             let spend = *spend_dist
                 .get(miner)
-                .expect(&format!("no spend for {}", &miner));
+                .unwrap_or_else(|| panic!("no spend for {}", &miner));
             match miner.as_str() {
                 "miner-1" => {
                     assert_eq!(spend, 2);
@@ -1065,7 +1065,7 @@ EOF
         ] {
             let prob = *win_probs
                 .get(miner)
-                .expect(&format!("no probability for {}", &miner));
+                .unwrap_or_else(|| panic!("no probability for {}", &miner));
             match miner.as_str() {
                 "miner-1" => {
                     assert!((prob - (2.0 / 25.0)).abs() < 0.00001);

@@ -509,12 +509,12 @@ fn handle_expression(
     }
 }
 
-pub fn parse_lexed(mut input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
+pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbolicExpression>> {
     let mut parse_stack = Vec::new();
 
     let mut output_list = Vec::new();
 
-    for (item, line_pos, column_pos) in input.drain(..) {
+    for (item, line_pos, column_pos) in input.into_iter() {
         match item {
             LexItem::LeftParen => {
                 // start new list.

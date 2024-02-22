@@ -43,6 +43,7 @@ use rusqlite::ToSql;
 use serde::de::Error as de_Error;
 use serde::ser::Error as ser_Error;
 use serde::{Deserialize, Serialize};
+use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{
     read_next, write_next, Error as codec_error, StacksMessageCodec,
     BURNCHAIN_HEADER_HASH_ENCODED_SIZE,
@@ -881,11 +882,11 @@ pub struct GetNakamotoInvData {
 /// (2) the remote node not only has the tenure blocks, but has processed them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NakamotoInvData {
-    /// Number of bits this tenure bit vector has (not to exceed the reward cycle length).
-    pub bitlen: u16,
     /// The tenure bitvector.  tenures[i] & (1 << j) != 0 means that this peer has all the blocks
-    /// for the tenure which began in sortition 8*i + j.
-    pub tenures: Vec<u8>,
+    /// for the tenure which began in sortition 8*i + j.  There will never be more than 1 reward
+    /// cycle's worth of bits here, and since the largest supported reward cycle is 2100 blocks
+    /// long (i.e. mainnet),
+    pub tenures: BitVec<2100>,
 }
 
 /// Request for a PoX bitvector range.
@@ -1621,6 +1622,7 @@ pub mod test {
     use wsts::curve::point::Point;
     use {mio, rand};
 
+    use self::nakamoto::test_signers::TestSigners;
     use super::*;
     use crate::burnchains::bitcoin::address::*;
     use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
@@ -1637,7 +1639,7 @@ pub mod test {
     use crate::chainstate::burn::*;
     use crate::chainstate::coordinator::tests::*;
     use crate::chainstate::coordinator::*;
-    use crate::chainstate::nakamoto::tests::node::{TestSigners, TestStacker};
+    use crate::chainstate::nakamoto::tests::node::TestStacker;
     use crate::chainstate::stacks::address::PoxAddress;
     use crate::chainstate::stacks::boot::test::get_parent_tip;
     use crate::chainstate::stacks::boot::*;
@@ -1972,6 +1974,7 @@ pub mod test {
         /// aggregate public key to use
         pub aggregate_public_key: Option<Point>,
         pub test_stackers: Option<Vec<TestStacker>>,
+        pub test_signers: Option<TestSigners>,
     }
 
     impl TestPeerConfig {
@@ -2023,6 +2026,7 @@ pub mod test {
                     | (ServiceFlags::STACKERDB as u16),
                 aggregate_public_key: None,
                 test_stackers: None,
+                test_signers: None,
             }
         }
 
@@ -3618,6 +3622,25 @@ pub mod test {
                     .unwrap(),
                 vec![],
             )
+        }
+
+        pub fn get_burn_block_height(&self) -> u64 {
+            SortitionDB::get_canonical_burn_chain_tip(
+                &self.sortdb.as_ref().expect("Failed to get sortdb").conn(),
+            )
+            .expect("Failed to get canonical burn chain tip")
+            .block_height
+        }
+
+        pub fn get_reward_cycle(&self) -> u64 {
+            let block_height = self.get_burn_block_height();
+            self.config
+                .burnchain
+                .block_height_to_reward_cycle(block_height)
+                .expect(&format!(
+                    "Failed to get reward cycle for block height {}",
+                    block_height
+                ))
         }
     }
 

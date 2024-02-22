@@ -24,7 +24,8 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::*;
 use hashbrown::HashMap;
 use rand::seq::SliceRandom;
-use rand::{thread_rng, Rng};
+use rand::{CryptoRng, RngCore, SeedableRng};
+use rand_chacha::ChaCha20Rng;
 use stacks_common::address::*;
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksBlockId, VRFSeed};
@@ -47,6 +48,7 @@ use crate::chainstate::coordinator::{
 };
 use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::test_signers::TestSigners;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::address::PoxAddress;
@@ -104,85 +106,6 @@ impl TestStacker {
                 amount: Self::DEFAULT_STACKER_AMOUNT,
             })
             .collect()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TestSigners {
-    /// The parties that will sign the blocks
-    pub signer_parties: Vec<wsts::v2::Party>,
-    /// The commitments to the polynomials for the aggregate public key
-    pub poly_commitments: HashMap<u32, wsts::common::PolyCommitment>,
-    /// The aggregate public key
-    pub aggregate_public_key: Point,
-    /// The total number of key ids distributed among signer_parties
-    pub num_keys: u32,
-    /// The number of vote shares required to sign a block
-    pub threshold: u32,
-}
-
-impl Default for TestSigners {
-    fn default() -> Self {
-        let mut rng = rand_core::OsRng::default();
-        let num_keys = 10;
-        let threshold = 7;
-        let party_key_ids: Vec<Vec<u32>> =
-            vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8], vec![9, 10]];
-        let num_parties = party_key_ids.len().try_into().unwrap();
-
-        // Create the parties
-        let mut signer_parties: Vec<wsts::v2::Party> = party_key_ids
-            .iter()
-            .enumerate()
-            .map(|(pid, pkids)| {
-                wsts::v2::Party::new(
-                    pid.try_into().unwrap(),
-                    pkids,
-                    num_parties,
-                    num_keys,
-                    threshold,
-                    &mut rng,
-                )
-            })
-            .collect();
-
-        // Generate an aggregate public key
-        let poly_commitments = match wsts::v2::test_helpers::dkg(&mut signer_parties, &mut rng) {
-            Ok(poly_commitments) => poly_commitments,
-            Err(secret_errors) => {
-                panic!("Got secret errors from DKG: {:?}", secret_errors);
-            }
-        };
-        let mut sig_aggregator = wsts::v2::Aggregator::new(num_keys, threshold);
-        sig_aggregator
-            .init(&poly_commitments)
-            .expect("aggregator init failed");
-        let aggregate_public_key = sig_aggregator.poly[0];
-        Self {
-            signer_parties,
-            aggregate_public_key,
-            poly_commitments,
-            num_keys,
-            threshold,
-        }
-    }
-}
-
-impl TestSigners {
-    pub fn sign_nakamoto_block(&mut self, block: &mut NakamotoBlock) {
-        let mut rng = rand_core::OsRng;
-        let msg = block.header.signer_signature_hash().0;
-        let (nonces, sig_shares, key_ids) =
-            wsts::v2::test_helpers::sign(msg.as_slice(), &mut self.signer_parties, &mut rng);
-
-        let mut sig_aggregator = wsts::v2::Aggregator::new(self.num_keys, self.threshold);
-        sig_aggregator
-            .init(&self.poly_commitments)
-            .expect("aggregator init failed");
-        let signature = sig_aggregator
-            .sign(msg.as_slice(), &nonces, &sig_shares, &key_ids)
-            .expect("aggregator sig failed");
-        block.header.signer_signature = ThresholdSignature(signature);
     }
 }
 
@@ -640,7 +563,11 @@ impl TestStacksNode {
                 Self::make_nakamoto_block_from_txs(builder, chainstate, &sortdb.index_conn(), txs)
                     .unwrap();
             miner.sign_nakamoto_block(&mut nakamoto_block);
-            signers.sign_nakamoto_block(&mut nakamoto_block);
+            let cycle = miner
+                .burnchain
+                .block_height_to_reward_cycle(burn_tip.block_height)
+                .expect("FATAL: failed to get reward cycle");
+            signers.sign_nakamoto_block(&mut nakamoto_block, cycle);
 
             let block_id = nakamoto_block.block_id();
             debug!(
@@ -1053,8 +980,12 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
+        let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
+
+        // Ensure the signers are setup for the current cycle
+        signers.generate_aggregate_key(cycle);
 
         let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,
@@ -1104,8 +1035,12 @@ impl<'a> TestPeer<'a> {
             &[(NakamotoBlock, u64, ExecutionCost)],
         ) -> Vec<StacksTransaction>,
     {
+        let cycle = self.get_reward_cycle();
         let mut stacks_node = self.stacks_node.take().unwrap();
         let sortdb = self.sortdb.take().unwrap();
+
+        // Ensure the signers are setup for the current cycle
+        signers.generate_aggregate_key(cycle);
 
         let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
             &mut stacks_node.chainstate,

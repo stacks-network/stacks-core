@@ -13,6 +13,7 @@ use rand::RngCore;
 use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
+use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::index::marf::MARFOpenOpts;
 use stacks::chainstate::stacks::index::storage::TrieHashCalculationMode;
@@ -43,7 +44,6 @@ use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
 use crate::chain_data::MinerStats;
-use crate::mockamoto::signer::SelfSigner;
 
 pub const DEFAULT_SATS_PER_VB: u64 = 50;
 const DEFAULT_MAX_RBF_RATE: u64 = 150; // 1.5x
@@ -506,11 +506,17 @@ lazy_static! {
 }
 
 impl Config {
-    pub fn self_signing(&self) -> Option<SelfSigner> {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn self_signing(&self) -> Option<TestSigners> {
         if !(self.burnchain.mode == "nakamoto-neon" || self.burnchain.mode == "mockamoto") {
             return None;
         }
         self.miner.self_signing_key.clone()
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
+    pub fn self_signing(&self) -> Option<TestSigners> {
+        return None;
     }
 
     /// get the up-to-date burnchain options from the config.
@@ -896,7 +902,7 @@ impl Config {
             None => default_burnchain_config,
         };
 
-        let supported_modes = vec![
+        let supported_modes = [
             "mocknet",
             "helium",
             "neon",
@@ -1098,10 +1104,12 @@ impl Config {
     pub fn get_estimates_path(&self) -> PathBuf {
         let mut path = self.get_chainstate_path();
         path.push("estimates");
-        fs::create_dir_all(&path).expect(&format!(
-            "Failed to create `estimates` directory at {}",
-            path.to_string_lossy()
-        ));
+        fs::create_dir_all(&path).unwrap_or_else(|_| {
+            panic!(
+                "Failed to create `estimates` directory at {}",
+                path.to_string_lossy()
+            )
+        });
         path
     }
 
@@ -1902,7 +1910,7 @@ impl NodeConfig {
     }
 
     pub fn add_bootstrap_node(&mut self, bootstrap_node: &str, chain_id: u32, peer_version: u32) {
-        let parts: Vec<&str> = bootstrap_node.split("@").collect();
+        let parts: Vec<&str> = bootstrap_node.split('@').collect();
         if parts.len() != 2 {
             panic!(
                 "Invalid bootstrap node '{}': expected PUBKEY@IP:PORT",
@@ -1911,7 +1919,7 @@ impl NodeConfig {
         }
         let (pubkey_str, hostport) = (parts[0], parts[1]);
         let pubkey = Secp256k1PublicKey::from_hex(pubkey_str)
-            .expect(&format!("Invalid public key '{}'", pubkey_str));
+            .unwrap_or_else(|_| panic!("Invalid public key '{pubkey_str}'"));
         debug!("Resolve '{}'", &hostport);
         let sockaddr = hostport.to_socket_addrs().unwrap().next().unwrap();
         let neighbor = NodeConfig::default_neighbor(sockaddr, pubkey, chain_id, peer_version);
@@ -1924,8 +1932,7 @@ impl NodeConfig {
         chain_id: u32,
         peer_version: u32,
     ) {
-        let parts: Vec<&str> = bootstrap_nodes.split(",").collect();
-        for part in parts.into_iter() {
+        for part in bootstrap_nodes.split(',') {
             if part.len() > 0 {
                 self.add_bootstrap_node(&part, chain_id, peer_version);
             }
@@ -1944,8 +1951,7 @@ impl NodeConfig {
     }
 
     pub fn set_deny_nodes(&mut self, deny_nodes: String, chain_id: u32, peer_version: u32) {
-        let parts: Vec<&str> = deny_nodes.split(",").collect();
-        for part in parts.into_iter() {
+        for part in deny_nodes.split(',') {
             if part.len() > 0 {
                 self.add_deny_node(&part, chain_id, peer_version);
             }
@@ -1986,7 +1992,7 @@ pub struct MinerConfig {
     pub candidate_retry_cache_size: u64,
     pub unprocessed_block_deadline_secs: u64,
     pub mining_key: Option<Secp256k1PrivateKey>,
-    pub self_signing_key: Option<SelfSigner>,
+    pub self_signing_key: Option<TestSigners>,
     /// Amount of time while mining in nakamoto to wait in between mining interim blocks
     pub wait_on_interim_blocks: Duration,
     /// minimum number of transactions that must be in a block if we're going to replace a pending
@@ -2363,7 +2369,6 @@ pub struct MinerConfigFile {
     pub candidate_retry_cache_size: Option<u64>,
     pub unprocessed_block_deadline_secs: Option<u64>,
     pub mining_key: Option<String>,
-    pub self_signing_seed: Option<u64>,
     pub wait_on_interim_blocks_ms: Option<u64>,
     pub min_tx_count: Option<u64>,
     pub only_increase_tx_count: Option<bool>,
@@ -2419,11 +2424,7 @@ impl MinerConfigFile {
                 .as_ref()
                 .map(|x| Secp256k1PrivateKey::from_hex(x))
                 .transpose()?,
-            self_signing_key: self
-                .self_signing_seed
-                .as_ref()
-                .map(|x| SelfSigner::from_seed(*x))
-                .or(miner_default_config.self_signing_key),
+            self_signing_key: Some(TestSigners::default()),
             wait_on_interim_blocks: self
                 .wait_on_interim_blocks_ms
                 .map(Duration::from_millis)
@@ -2444,7 +2445,7 @@ impl MinerConfigFile {
             txs_to_consider: {
                 if let Some(txs_to_consider) = &self.txs_to_consider {
                     txs_to_consider
-                        .split(",")
+                        .split(',')
                         .map(
                             |txs_to_consider_str| match str::parse(txs_to_consider_str) {
                                 Ok(txtype) => txtype,
@@ -2461,7 +2462,7 @@ impl MinerConfigFile {
             filter_origins: {
                 if let Some(filter_origins) = &self.filter_origins {
                     filter_origins
-                        .split(",")
+                        .split(',')
                         .map(|origin_str| match StacksAddress::from_string(origin_str) {
                             Some(addr) => addr,
                             None => {
@@ -2575,7 +2576,7 @@ impl EventKeyType {
 
         let comps: Vec<_> = raw_key.split("::").collect();
         if comps.len() == 1 {
-            let split: Vec<_> = comps[0].split(".").collect();
+            let split: Vec<_> = comps[0].split('.').collect();
             if split.len() != 3 {
                 return None;
             }

@@ -89,7 +89,7 @@ pub fn check_node_id(nid: u8) -> bool {
 /// Helper to return the number of children in a Trie, given its ID.
 pub fn node_id_to_ptr_count(node_id: u8) -> usize {
     match TrieNodeID::from_u8(clear_backptr(node_id))
-        .expect(&format!("Unknown node ID {}", node_id))
+        .unwrap_or_else(|| panic!("Unknown node ID {}", node_id))
     {
         TrieNodeID::Leaf => 1,
         TrieNodeID::Node4 => 4,

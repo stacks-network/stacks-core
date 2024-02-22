@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
+
+use hashbrown::{HashMap, HashSet};
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
@@ -384,8 +385,8 @@ impl DefinitionSorter {
             DefineFunctions::lookup_by_name(function_name)?;
             Some(args)
         }?;
-        let defined_name = match args.get(0)?.match_list() {
-            Some(list) => list.get(0)?,
+        let defined_name = match args.first()?.match_list() {
+            Some(list) => list.first()?,
             _ => &args[0],
         };
         let tle_name = defined_name.match_atom()?;
