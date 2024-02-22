@@ -232,8 +232,6 @@ fn test_classify_stack_stx() {
 
     let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
 
-    let signer_key = StacksPublicKeyBuffer([0x02; 33]);
-    let signer_pubkey = Secp256k1PublicKey::from_slice(signer_key.as_bytes()).unwrap();
     let pre_stack_stx_0_txid = Txid([5; 32]);
     let pre_stack_stx_0 = BitcoinTransaction {
         txid: pre_stack_stx_0_txid.clone(),
@@ -242,7 +240,7 @@ fn test_classify_stack_stx() {
         data: vec![0; 80],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
-            keys: vec![signer_pubkey],
+            keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (Txid([0; 32]), 1),
@@ -266,7 +264,7 @@ fn test_classify_stack_stx() {
         data: vec![1; 80],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
-            keys: vec![signer_pubkey],
+            keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (Txid([0; 32]), 1),
@@ -290,7 +288,7 @@ fn test_classify_stack_stx() {
         data: vec![1; 80],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
-            keys: vec![signer_pubkey],
+            keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (pre_stack_stx_0_txid.clone(), 1),
@@ -314,7 +312,7 @@ fn test_classify_stack_stx() {
         data: vec![1; 80],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
-            keys: vec![signer_pubkey],
+            keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (Txid([0; 32]), 1),
@@ -338,7 +336,7 @@ fn test_classify_stack_stx() {
         data: vec![1; 80],
         data_amt: 0,
         inputs: vec![BitcoinTxInputStructured {
-            keys: vec![signer_pubkey],
+            keys: vec![],
             num_required: 0,
             in_type: BitcoinInputType::Standard,
             tx_ref: (pre_stack_stx_0_txid.clone(), 2),

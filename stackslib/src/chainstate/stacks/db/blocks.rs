@@ -4158,25 +4158,38 @@ impl StacksChainState {
                 block_height,
                 txid,
                 burn_header_hash,
+                signer_key,
                 ..
             } = &stack_stx_op;
+
+            let mut args = vec![
+                Value::UInt(*stacked_ustx),
+                // this .expect() should be unreachable since we coerce the hash mode when
+                // we parse the StackStxOp from a burnchain transaction
+                reward_addr
+                    .as_clarity_tuple()
+                    .expect("FATAL: stack-stx operation has no hash mode")
+                    .into(),
+                Value::UInt(u128::from(*block_height)),
+                Value::UInt(u128::from(*num_cycles)),
+            ];
+            // Appending additional signer related arguments for pox-4
+            if POX_4_NAME == active_pox_contract {
+                // Passing None for signer-sig
+                args.push(Value::none());
+
+                let signer_key_value = signer_key
+                    .as_ref()
+                    .expect("signer_key is required for pox-4");
+                args.push(Value::buff_from(signer_key_value.as_bytes().to_vec()).unwrap());
+            }
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
                     &sender.clone().into(),
                     None,
                     &boot_code_id(active_pox_contract, mainnet),
                     "stack-stx",
-                    &[
-                        Value::UInt(*stacked_ustx),
-                        // this .expect() should be unreachable since we coerce the hash mode when
-                        // we parse the StackStxOp from a burnchain transaction
-                        reward_addr
-                            .as_clarity_tuple()
-                            .expect("FATAL: stack-stx operation has no hash mode")
-                            .into(),
-                        Value::UInt(u128::from(*block_height)),
-                        Value::UInt(u128::from(*num_cycles)),
-                    ],
+                    &args,
                     |_, _| false,
                 )
             });

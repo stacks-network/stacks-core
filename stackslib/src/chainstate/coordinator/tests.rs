@@ -2880,7 +2880,6 @@ fn test_pox_btc_ops() {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -2892,7 +2891,7 @@ fn test_pox_btc_ops() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt,
                 num_cycles: 4,
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3165,7 +3164,6 @@ fn test_stx_transfer_btc_ops() {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3173,7 +3171,6 @@ fn test_stx_transfer_btc_ops() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: recipient.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -3587,7 +3584,6 @@ fn test_delegate_stx_btc_ops() {
             // add a pre-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: first_del.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 4,
                 block_height: 0,
@@ -3595,7 +3591,6 @@ fn test_delegate_stx_btc_ops() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: first_del.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3603,7 +3598,6 @@ fn test_delegate_stx_btc_ops() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: second_del.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -5065,7 +5059,6 @@ fn test_epoch_verify_active_pox_contract() {
             // add a pre-stack-stx op
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -5073,7 +5066,6 @@ fn test_epoch_verify_active_pox_contract() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker_2.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -5081,7 +5073,6 @@ fn test_epoch_verify_active_pox_contract() {
             }));
             ops.push(BlockstackOperationType::PreStx(PreStxOp {
                 output: stacker_2.clone(),
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
                 txid: next_txid(),
                 vtxindex: 7,
                 block_height: 0,
@@ -5094,7 +5085,7 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt,
                 num_cycles: 1,
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                signer_key: None,
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -5110,7 +5101,7 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt * 2,
                 num_cycles: 5,
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                signer_key: None,
                 txid: next_txid(),
                 vtxindex: 6,
                 block_height: 0,
@@ -5124,7 +5115,7 @@ fn test_epoch_verify_active_pox_contract() {
                 reward_addr: rewards.clone(),
                 stacked_ustx: stacked_amt * 4,
                 num_cycles: 1,
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                signer_key: None,
                 txid: next_txid(),
                 vtxindex: 7,
                 block_height: 0,
