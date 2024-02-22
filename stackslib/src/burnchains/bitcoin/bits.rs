@@ -47,7 +47,7 @@ pub fn parse_script<'a>(script: &'a Script) -> Vec<Instruction<'a>> {
 
 impl BitcoinTxInputStructured {
     /// Parse a script instruction stream encoding a p2pkh scritpsig into a BitcoinTxInput
-    pub(crate) fn from_bitcoin_p2pkh_script_sig(
+    fn from_bitcoin_p2pkh_script_sig(
         instructions: &Vec<Instruction>,
         input_txid: (Txid, u32),
     ) -> Option<BitcoinTxInputStructured> {

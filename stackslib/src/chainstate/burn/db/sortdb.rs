@@ -10064,7 +10064,7 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
-                signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
+                signer_key: None,
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
