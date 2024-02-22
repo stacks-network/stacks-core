@@ -15,6 +15,12 @@ on:
         type: string
         default: >-
           ["linux-glibc-x64", "linux-musl-x64", "linux-glibc-arm64", "linux-glibc-armv7", "linux-musl-arm64", "linux-musl-armv7", "macos-x64", "macos-arm64", "windows-x64"]
+      cpu:
+        description: "Stringified JSON object listing of target CPU matrix (for x86_64 builds)"
+        required: false
+        type: string
+        default: >-
+          ["x86-64", "x86-64-v3"]
 
 ## change the display name to the tag being built
 run-name: ${{ inputs.tag }}
@@ -39,13 +45,20 @@ jobs:
       max-parallel: 10
       matrix:
         platform: ${{ fromJson(inputs.arch) }}
+        cpu: ${{ fromJson(inputs.cpu) }}
     env:
       TEST_TIMEOUT: 30
     steps:
       ## Call composite action
       - name: Build Binary
+        if: |
+          !(
+            contains(matrix.platform, 'arm') && 
+            contains(matrix.cpu, 'v3')
+          )
         id: build_binary
         timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
-        uses: stacks-network/actions/stacks-core/create-source-binary@main
+        uses: BowTiedDevOps/actions/stacks-core/create-source-binary@feat/update-release-dockerfiles
         with:
           arch: ${{ matrix.platform }}
+          cpu: ${{ matrix.cpu }}
