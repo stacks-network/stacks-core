@@ -5,7 +5,7 @@
 (define-public (test-mock-set-stx-account)
 	(begin 
 		(unwrap! (contract-call? .pox-4 mock-set-stx-account 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5 {locked: u1, unlock-height: u2100, unlocked: u0}) (err u111))
-		(asserts! (is-eq u1 (get locked (contract-call? .pox-4 get-stx-account 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5))) (err u111))
+		(asserts! (is-eq u1 (get locked (contract-call? .pox-4 get-stx-account 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5))) (err u112))
 		(ok true)))
 
 (define-public (test-get-mocked-stx-account)
