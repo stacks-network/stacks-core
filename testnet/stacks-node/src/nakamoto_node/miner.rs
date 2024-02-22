@@ -516,8 +516,12 @@ impl BlockMinerThread {
             .burnchain
             .block_height_to_reward_cycle(self.burn_block.block_height)
             .expect("FATAL: no reward cycle for burn block");
-        let signer_weights =
-            chain_state.get_signers_weights(&sort_db, &self.parent_tenure_id, reward_cycle)?;
+        let signer_weights = NakamotoSigners::get_signers_weights(
+            &mut chain_state,
+            &sort_db,
+            &self.parent_tenure_id,
+            reward_cycle,
+        )?;
         let signature = self
             .wait_for_signer_signature(
                 &stackerdbs,
