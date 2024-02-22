@@ -8,7 +8,7 @@ on:
       - synchronize
       - ready_for_review
     paths:
-      - "**.rs"
+      - '**.rs'
 
 concurrency:
   group: pr-differences-${{ github.head_ref || github.ref || github.run_id }}
@@ -42,8 +42,8 @@ jobs:
     needs: check-big-packages-and-shards
 
     if: |
-      ${{ needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' &&
-      needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'false' }}
+      needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' &&
+      needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'false'
 
     runs-on: ubuntu-latest
 
@@ -51,7 +51,7 @@ jobs:
       - name: Run mutants on diffs
         uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
-          package: "small"
+          package: 'small'
 
   # Mutation testing - Execute on PR on small packages that have functions modified (run with strategy matrix shards)
   pr-differences-mutants-small-shards:
@@ -60,8 +60,8 @@ jobs:
     needs: check-big-packages-and-shards
 
     if: |
-      ${{ needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' && 
-      needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'true' }}
+      needs.check-big-packages-and-shards.outputs.run_small_packages == 'true' && 
+      needs.check-big-packages-and-shards.outputs.small_packages_with_shards == 'true'
 
     runs-on: ubuntu-latest
 
@@ -75,7 +75,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
           shard: ${{ matrix.shard }}
-          package: "small"
+          package: 'small'
 
   # Mutation testing - Execute on PR on stackslib package (normal run, no shards)
   pr-differences-mutants-stackslib-normal:
@@ -84,8 +84,8 @@ jobs:
     needs: check-big-packages-and-shards
 
     if: |
-      ${{ needs.check-big-packages-and-shards.outputs.run_stackslib == 'true' && 
-      needs.check-big-packages-and-shards.outputs.stackslib_with_shards == 'false' }}
+      needs.check-big-packages-and-shards.outputs.run_stackslib == 'true' && 
+      needs.check-big-packages-and-shards.outputs.stackslib_with_shards == 'false'
 
     runs-on: ubuntu-latest
 
@@ -96,7 +96,7 @@ jobs:
           RUST_BACKTRACE: full
         uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
-          package: "stackslib"
+          package: 'stackslib'
 
   # Mutation testing - Execute on PR on stackslib package (run with strategy matrix shards)
   pr-differences-mutants-stackslib-shards:
@@ -105,8 +105,8 @@ jobs:
     needs: check-big-packages-and-shards
 
     if: |
-      ${{ needs.check-big-packages-and-shards.outputs.run_stackslib == 'true' && 
-      needs.check-big-packages-and-shards.outputs.stackslib_with_shards == 'true' }}
+      needs.check-big-packages-and-shards.outputs.run_stackslib == 'true' && 
+      needs.check-big-packages-and-shards.outputs.stackslib_with_shards == 'true'
 
     runs-on: ubuntu-latest
 
@@ -123,7 +123,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
           shard: ${{ matrix.shard }}
-          package: "stackslib"
+          package: 'stackslib'
 
   # Mutation testing - Execute on PR on stacks-node package (normal run, no shards)
   pr-differences-mutants-stacks-node-normal:
@@ -132,8 +132,8 @@ jobs:
     needs: check-big-packages-and-shards
 
     if: |
-      ${{ needs.check-big-packages-and-shards.outputs.run_stacks_node == 'true' && 
-      needs.check-big-packages-and-shards.outputs.stacks_node_with_shards == 'false' }}
+      needs.check-big-packages-and-shards.outputs.run_stacks_node == 'true' && 
+      needs.check-big-packages-and-shards.outputs.stacks_node_with_shards == 'false'
 
     runs-on: ubuntu-latest
 
@@ -144,7 +144,7 @@ jobs:
           RUST_BACKTRACE: full
         uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
-          package: "stacks-node"
+          package: 'stacks-node'
 
   # Mutation testing - Execute on PR on stacks-node package (run with strategy matrix shards)
   pr-differences-mutants-stacks-node-shards:
@@ -153,8 +153,8 @@ jobs:
     needs: check-big-packages-and-shards
 
     if: |
-      ${{ needs.check-big-packages-and-shards.outputs.run_stacks_node == 'true' && 
-      needs.check-big-packages-and-shards.outputs.stacks_node_with_shards == 'true' }}
+      needs.check-big-packages-and-shards.outputs.run_stacks_node == 'true' && 
+      needs.check-big-packages-and-shards.outputs.stacks_node_with_shards == 'true'
 
     runs-on: ubuntu-latest
 
@@ -171,7 +171,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
           shard: ${{ matrix.shard }}
-          package: "stacks-node"
+          package: 'stacks-node'
 
   # Mutation testing - Execute on PR on stacks-signer package (normal run, no shards)
   pr-differences-mutants-stacks-signer-normal:
@@ -180,7 +180,7 @@ jobs:
     needs: check-big-packages-and-shards
 
     if: |
-      ${{ needs.check-big-packages-and-shards.outputs.run_stacks_signer == 'true' }}
+      needs.check-big-packages-and-shards.outputs.run_stacks_signer == 'true'
 
     runs-on: ubuntu-latest
 
@@ -188,7 +188,7 @@ jobs:
       - name: Run Run mutants on diffs
         uses: stacks-network/actions/stacks-core/mutation-testing/pr-differences@main
         with:
-          package: "stacks-signer"
+          package: 'stacks-signer'
 
   # Output the mutants and fail the workflow if there are missed/timeout/unviable mutants
   output-mutants:
