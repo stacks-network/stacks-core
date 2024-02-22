@@ -320,7 +320,7 @@ impl FromRow<StackStxOp> for StackStxOp {
             .expect("CORRUPTION: bad u128 written to sortdb");
         let num_cycles = row.get_unwrap("num_cycles");
         let signer_key_str: String = row.get_unwrap("signer_key");
-        let signer_key: StacksPublicKeyBuffer = serde_json::from_str(&signer_key_str)
+        let signer_key = serde_json::from_str(&signer_key_str)
             .expect("CORRUPTION: DB stored bad transition ops");
 
         Ok(StackStxOp {
@@ -9991,7 +9991,7 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
@@ -10064,7 +10064,7 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
-                signer_key: StacksPublicKeyBuffer([0x02; 33]),
+                signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,

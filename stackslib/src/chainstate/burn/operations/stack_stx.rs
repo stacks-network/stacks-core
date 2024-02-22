@@ -48,17 +48,16 @@ use crate::net::Error as net_error;
 struct ParsedData {
     stacked_ustx: u128,
     num_cycles: u8,
-    signer_key: StacksPublicKeyBuffer,
+    signer_key: Option<StacksPublicKeyBuffer>,
 }
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
 
 impl PreStxOp {
     #[cfg(test)]
-    pub fn new(sender: &StacksAddress, signer_key: StacksPublicKeyBuffer) -> PreStxOp {
+    pub fn new(sender: &StacksAddress) -> PreStxOp {
         PreStxOp {
             output: sender.clone(),
-            signer_key,
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
@@ -142,11 +141,8 @@ impl PreStxOp {
             return Err(op_error::InvalidInput);
         }
 
-        let signer_key = get_sender_pubkey(tx)?;
-
         Ok(PreStxOp {
             output: output,
-            signer_key: signer_key.to_bytes_compressed().as_slice().into(),
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -162,7 +158,7 @@ impl StackStxOp {
         reward_addr: &PoxAddress,
         stacked_ustx: u128,
         num_cycles: u8,
-        signer_key: StacksPublicKeyBuffer,
+        signer_key: Option<StacksPublicKeyBuffer>,
     ) -> StackStxOp {
         StackStxOp {
             sender: sender.clone(),
@@ -181,7 +177,7 @@ impl StackStxOp {
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
-            0      2  3                             19           20                   53
+            0      2  3                             19           20                   54
             |------|--|-----------------------------|------------|---------------------|
             magic  op         uSTX to lock (u128)     cycles (u8)    signing key
 
@@ -190,21 +186,44 @@ impl StackStxOp {
              The values ustx to lock and cycles are in big-endian order.
 
              parent-delta and parent-txoff will both be 0 if this block builds off of the genesis block.
+
+             "signing key" is encoded as follows: the first byte is an option marker
+               - if it is set to 1, the parse function attempts to parse the next 33 bytes as a StacksPublicKeyBuffer
+               - if it is set to 0, the value is interpreted as None
         */
 
-        if data.len() < 50 {
+        if data.len() < 18 {
             // too short
             warn!(
-                "StacksStxOp payload is malformed ({} bytes, expected {})",
+                "StacksStxOp payload is malformed ({} bytes, expected {} or more)",
                 data.len(),
-                50
+                18
             );
             return None;
         }
 
         let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
         let num_cycles = data[16];
-        let signer_key = StacksPublicKeyBuffer::from(&data[17..50]);
+        let signer_key = {
+            if data[17] == 1 {
+                if data.len() < 51 {
+                    // too short to have required data
+                    warn!(
+                        "StacksStxOp payload is malformed ({} bytes, expected {})",
+                        data.len(),
+                        51
+                    );
+                    return None;
+                }
+                let key = StacksPublicKeyBuffer::from(&data[18..51]);
+                Some(key)
+            } else if data[17] == 0 {
+                None
+            } else {
+                warn!("StacksStxOp payload is malformed (invalid byte value for signer_key option flag)");
+                return None;
+            }
+        };
 
         Some(ParsedData {
             stacked_ustx,
@@ -309,43 +328,17 @@ impl StackStxOp {
             return Err(op_error::InvalidInput);
         }
 
-        let signer_key = get_sender_pubkey(tx)?;
-
         Ok(StackStxOp {
             sender: sender.clone(),
             reward_addr: reward_addr,
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
-            signer_key: signer_key.to_bytes_compressed().as_slice().into(),
+            signer_key: data.signer_key, // QUESTION: is retrieving the signer_key correct in this way or should it get retrieved from tx?
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
             burn_header_hash: block_hash.clone(),
         })
-    }
-}
-
-pub fn get_sender_pubkey(tx: &BurnchainTransaction) -> Result<Secp256k1PublicKey, op_error> {
-    match tx {
-        BurnchainTransaction::Bitcoin(ref btc) => match btc.inputs.get(0) {
-            Some(BitcoinTxInput::Raw(input)) => {
-                let script_sig = Builder::from(input.scriptSig.clone()).into_script();
-                let structured_input = BitcoinTxInputStructured::from_bitcoin_p2pkh_script_sig(
-                    &parse_script(&script_sig),
-                    input.tx_ref,
-                )
-                .ok_or(op_error::InvalidInput)?;
-                structured_input
-                    .keys
-                    .get(0)
-                    .cloned()
-                    .ok_or(op_error::InvalidInput)
-            }
-            Some(BitcoinTxInput::Structured(input)) => {
-                input.keys.get(0).cloned().ok_or(op_error::InvalidInput)
-            }
-            _ => Err(op_error::InvalidInput),
-        },
     }
 }
 
@@ -363,7 +356,7 @@ impl StacksMessageCodec for PreStxOp {
 
 impl StacksMessageCodec for StackStxOp {
     /*
-            0      2  3                             19           20                   53
+            0      2  3                             19           20                   54
             |------|--|-----------------------------|------------|---------------------|
             magic  op         uSTX to lock (u128)     cycles (u8)    signing key
     */
@@ -372,8 +365,16 @@ impl StacksMessageCodec for StackStxOp {
         fd.write_all(&self.stacked_ustx.to_be_bytes())
             .map_err(|e| codec_error::WriteError(e))?;
         write_next(fd, &self.num_cycles)?;
-        fd.write_all(&self.signer_key.as_bytes()[..])
-            .map_err(codec_error::WriteError)?;
+
+        if let Some(signer_key) = self.signer_key {
+            fd.write_all(&(1 as u8).to_be_bytes())
+                .map_err(|e| codec_error::WriteError(e))?;
+            fd.write_all(&signer_key.as_bytes()[..])
+                .map_err(codec_error::WriteError)?;
+        } else {
+            fd.write_all(&(0 as u8).to_be_bytes())
+                .map_err(|e| codec_error::WriteError(e))?;
+        }
         Ok(())
     }
 
@@ -397,9 +398,11 @@ impl StackStxOp {
             );
         }
 
-        // Check to see if the signer key is valid
-        Secp256k1PublicKey::from_slice(self.signer_key.as_bytes())
-            .map_err(|_| op_error::StackStxInvalidKey)?;
+        // Check to see if the signer key is valid if available
+        if let Some(signer_key) = self.signer_key {
+            Secp256k1PublicKey::from_slice(signer_key.as_bytes())
+                .map_err(|_| op_error::StackStxInvalidKey)?;
+        }
 
         Ok(())
     }
@@ -660,6 +663,82 @@ mod tests {
         );
         assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
         assert_eq!(op.num_cycles, 1);
+        assert_eq!(op.signer_key, Some(StacksPublicKeyBuffer([0x01; 33])));
+    }
+
+    #[test]
+    fn test_parse_stack_stx_signer_key_is_none() {
+        // Set the option flag for `signer_key` to None
+        let mut data = vec![1; 80];
+        data[17] = 0;
+        let tx = BitcoinTransaction {
+            txid: Txid([0; 32]),
+            vtxindex: 0,
+            opcode: Opcodes::StackStx as u8,
+            data: data,
+            data_amt: 0,
+            inputs: vec![BitcoinTxInputStructured {
+                keys: vec![],
+                num_required: 0,
+                in_type: BitcoinInputType::Standard,
+                tx_ref: (Txid([0; 32]), 0),
+            }
+            .into()],
+            outputs: vec![
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([1; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 10,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([2; 20]),
+                    }),
+                },
+                BitcoinTxOutput {
+                    units: 30,
+                    address: BitcoinAddress::Legacy(LegacyBitcoinAddress {
+                        addrtype: LegacyBitcoinAddressType::PublicKeyHash,
+                        network_id: BitcoinNetworkType::Mainnet,
+                        bytes: Hash160([0; 20]),
+                    }),
+                },
+            ],
+        };
+
+        let sender = StacksAddress {
+            version: 0,
+            bytes: Hash160([0; 20]),
+        };
+        let op = StackStxOp::parse_from_tx(
+            16843022,
+            &BurnchainHeaderHash([0; 32]),
+            StacksEpochId::Epoch2_05,
+            &BurnchainTransaction::Bitcoin(tx.clone()),
+            &sender,
+            16843023,
+        )
+        .unwrap();
+
+        assert_eq!(&op.sender, &sender);
+        assert_eq!(
+            &op.reward_addr,
+            &PoxAddress::Standard(
+                StacksAddress::from_legacy_bitcoin_address(
+                    &tx.outputs[0].address.clone().expect_legacy()
+                ),
+                Some(AddressHashMode::SerializeP2PKH)
+            )
+        );
+        assert_eq!(op.stacked_ustx, u128::from_be_bytes([1; 16]));
+        assert_eq!(op.num_cycles, 1);
+        assert_eq!(op.signer_key, None);
     }
 
     #[test]
