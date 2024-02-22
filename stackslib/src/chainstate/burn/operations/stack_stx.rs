@@ -18,13 +18,18 @@ use std::io::{Read, Write};
 
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec};
+use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, TrieHash, VRFSeed,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::log;
+use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::vrf::{VRFPrivateKey, VRFPublicKey, VRF};
 
+use crate::burnchains::bitcoin::bits::parse_script;
+use crate::burnchains::bitcoin::{BitcoinTxInput, BitcoinTxInputStructured};
 use crate::burnchains::{
     Address, Burnchain, BurnchainBlockHeader, BurnchainTransaction, PoxConstants, PublicKey, Txid,
 };
@@ -43,15 +48,17 @@ use crate::net::Error as net_error;
 struct ParsedData {
     stacked_ustx: u128,
     num_cycles: u8,
+    signer_key: StacksPublicKeyBuffer,
 }
 
 pub static OUTPUTS_PER_COMMIT: usize = 2;
 
 impl PreStxOp {
     #[cfg(test)]
-    pub fn new(sender: &StacksAddress) -> PreStxOp {
+    pub fn new(sender: &StacksAddress, signer_key: StacksPublicKeyBuffer) -> PreStxOp {
         PreStxOp {
             output: sender.clone(),
+            signer_key,
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
@@ -135,8 +142,11 @@ impl PreStxOp {
             return Err(op_error::InvalidInput);
         }
 
+        let signer_key = get_sender_pubkey(tx)?;
+
         Ok(PreStxOp {
             output: output,
+            signer_key: signer_key.to_bytes_compressed().as_slice().into(),
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
@@ -152,12 +162,14 @@ impl StackStxOp {
         reward_addr: &PoxAddress,
         stacked_ustx: u128,
         num_cycles: u8,
+        signer_key: StacksPublicKeyBuffer,
     ) -> StackStxOp {
         StackStxOp {
             sender: sender.clone(),
             reward_addr: reward_addr.clone(),
             stacked_ustx,
             num_cycles,
+            signer_key,
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
@@ -169,9 +181,9 @@ impl StackStxOp {
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
-            0      2  3                             19        20
-            |------|--|-----------------------------|---------|
-             magic  op         uSTX to lock (u128)     cycles (u8)
+            0      2  3                             19           20                   53
+            |------|--|-----------------------------|------------|---------------------|
+            magic  op         uSTX to lock (u128)     cycles (u8)    signing key
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
 
@@ -180,22 +192,24 @@ impl StackStxOp {
              parent-delta and parent-txoff will both be 0 if this block builds off of the genesis block.
         */
 
-        if data.len() < 17 {
+        if data.len() < 50 {
             // too short
             warn!(
                 "StacksStxOp payload is malformed ({} bytes, expected {})",
                 data.len(),
-                17
+                50
             );
             return None;
         }
 
         let stacked_ustx = parse_u128_from_be(&data[0..16]).unwrap();
         let num_cycles = data[16];
+        let signer_key = StacksPublicKeyBuffer::from(&data[17..50]);
 
         Some(ParsedData {
             stacked_ustx,
             num_cycles,
+            signer_key,
         })
     }
 
@@ -295,16 +309,43 @@ impl StackStxOp {
             return Err(op_error::InvalidInput);
         }
 
+        let signer_key = get_sender_pubkey(tx)?;
+
         Ok(StackStxOp {
             sender: sender.clone(),
             reward_addr: reward_addr,
             stacked_ustx: data.stacked_ustx,
             num_cycles: data.num_cycles,
+            signer_key: signer_key.to_bytes_compressed().as_slice().into(),
             txid: tx.txid(),
             vtxindex: tx.vtxindex(),
             block_height,
             burn_header_hash: block_hash.clone(),
         })
+    }
+}
+
+pub fn get_sender_pubkey(tx: &BurnchainTransaction) -> Result<Secp256k1PublicKey, op_error> {
+    match tx {
+        BurnchainTransaction::Bitcoin(ref btc) => match btc.inputs.get(0) {
+            Some(BitcoinTxInput::Raw(input)) => {
+                let script_sig = Builder::from(input.scriptSig.clone()).into_script();
+                let structured_input = BitcoinTxInputStructured::from_bitcoin_p2pkh_script_sig(
+                    &parse_script(&script_sig),
+                    input.tx_ref,
+                )
+                .ok_or(op_error::InvalidInput)?;
+                structured_input
+                    .keys
+                    .get(0)
+                    .cloned()
+                    .ok_or(op_error::InvalidInput)
+            }
+            Some(BitcoinTxInput::Structured(input)) => {
+                input.keys.get(0).cloned().ok_or(op_error::InvalidInput)
+            }
+            _ => Err(op_error::InvalidInput),
+        },
     }
 }
 
@@ -322,16 +363,17 @@ impl StacksMessageCodec for PreStxOp {
 
 impl StacksMessageCodec for StackStxOp {
     /*
-            Wire format:
-            0      2  3                             19        20
-            |------|--|-----------------------------|---------|
-             magic  op         uSTX to lock (u128)     cycles (u8)
+            0      2  3                             19           20                   53
+            |------|--|-----------------------------|------------|---------------------|
+            magic  op         uSTX to lock (u128)     cycles (u8)    signing key
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::StackStx as u8))?;
         fd.write_all(&self.stacked_ustx.to_be_bytes())
             .map_err(|e| codec_error::WriteError(e))?;
         write_next(fd, &self.num_cycles)?;
+        fd.write_all(&self.signer_key.as_bytes()[..])
+            .map_err(codec_error::WriteError)?;
         Ok(())
     }
 
@@ -354,6 +396,11 @@ impl StackStxOp {
                 self.num_cycles, POX_MAX_NUM_CYCLES
             );
         }
+
+        // Check to see if the signer key is valid
+        Secp256k1PublicKey::from_slice(self.signer_key.as_bytes())
+            .map_err(|_| op_error::StackStxInvalidKey)?;
+
         Ok(())
     }
 }

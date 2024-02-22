@@ -38,6 +38,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use stacks_common::util::vrf::*;
@@ -318,6 +319,9 @@ impl FromRow<StackStxOp> for StackStxOp {
         let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let num_cycles = row.get_unwrap("num_cycles");
+        let signer_key_str: String = row.get_unwrap("signer_key");
+        let signer_key: StacksPublicKeyBuffer = serde_json::from_str(&signer_key_str)
+            .expect("CORRUPTION: DB stored bad transition ops");
 
         Ok(StackStxOp {
             txid,
@@ -328,6 +332,7 @@ impl FromRow<StackStxOp> for StackStxOp {
             reward_addr,
             stacked_ustx,
             num_cycles,
+            signer_key,
         })
     }
 }
@@ -561,6 +566,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         reward_addr TEXT NOT NULL,
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
+        signer_key TEXT NOT NULL,
 
         -- The primary key here is (txid, burn_header_hash) because 
         -- this transaction will be accepted regardless of which sortition
@@ -5299,9 +5305,10 @@ impl<'a> SortitionHandleTx<'a> {
             &op.reward_addr.to_db_string(),
             &op.stacked_ustx.to_string(),
             &op.num_cycles,
+            &serde_json::to_string(&op.signer_key).unwrap(),
         ];
 
-        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
+        self.execute("REPLACE INTO stack_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, reward_addr, stacked_ustx, num_cycles, signer_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", args)?;
 
         Ok(())
     }
@@ -9984,6 +9991,7 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
+                signer_key: StacksPublicKeyBuffer([0x02; 33]),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,
@@ -10056,6 +10064,7 @@ pub mod tests {
                 reward_addr: PoxAddress::Standard(StacksAddress::new(4, Hash160([4u8; 20])), None),
                 stacked_ustx: 456,
                 num_cycles: 6,
+                signer_key: StacksPublicKeyBuffer([0x02; 33]),
 
                 txid: Txid([0x02; 32]),
                 vtxindex: 2,

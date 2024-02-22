@@ -4,7 +4,7 @@ use stacks_common::address::C32_ADDRESS_VERSION_MAINNET_SINGLESIG;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
-use stacks_common::types::Address;
+use stacks_common::types::{Address, StacksPublicKeyBuffer};
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::secp256k1::MessageSignature;
 
@@ -76,6 +76,7 @@ fn test_serialization_stack_stx_op() {
         block_height: 10,
         burn_header_hash: BurnchainHeaderHash([0x10; 32]),
         num_cycles: 10,
+        signer_key: StacksPublicKeyBuffer([0x02; 33]),
     };
     let serialized_json = BlockstackOperationType::stack_stx_to_json(&op);
     let constructed_json = serde_json::json!({
@@ -105,6 +106,7 @@ fn test_serialization_pre_stx_op() {
 
     let op = PreStxOp {
         output,
+        signer_key: StacksPublicKeyBuffer([0x02; 33]),
         txid: Txid([10u8; 32]),
         vtxindex: 10,
         block_height: 10,
