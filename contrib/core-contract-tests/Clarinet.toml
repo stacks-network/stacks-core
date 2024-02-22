@@ -10,12 +10,6 @@ path = "../../stackslib/src/chainstate/stacks/boot/bns.clar"
 depends_on = []
 epoch = 2.4
 
-[contracts.pox-4]
-path = "../../stackslib/src/chainstate/stacks/boot/pox-4.clar"
-depends_on = []
-clarity = 2
-epoch = 2.4
-
 [contracts.signers]
 path = "../../stackslib/src/chainstate/stacks/boot/signers.clar"
 depends_on = []

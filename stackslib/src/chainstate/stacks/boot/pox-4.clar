@@ -86,19 +86,6 @@
 (define-data-var configured bool false)
 (define-data-var first-pox-4-reward-cycle uint u0)
 
-;; PoX mainnet constants
-;; Min/max number of reward cycles uSTX can be locked for
-(define-constant MIN_POX_REWARD_CYCLES u1)
-(define-constant MAX_POX_REWARD_CYCLES u12)
-
-;; Default length of the PoX registration window, in burnchain blocks.
-(define-constant PREPARE_CYCLE_LENGTH (if is-in-mainnet u100 u50))
-
-;; Default length of the PoX reward cycle, in burnchain blocks.
-(define-constant REWARD_CYCLE_LENGTH (if is-in-mainnet u2100 u1050))
-
-;; Stacking thresholds
-(define-constant STACKING_THRESHOLD_25 (if is-in-mainnet u20000 u8000))
 
 ;; MOCK
 ;; Allow to set stx-account details for any user
