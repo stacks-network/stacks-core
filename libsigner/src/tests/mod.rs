@@ -22,6 +22,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use std::{mem, thread};
 
+use blockstack_lib::chainstate::nakamoto::signer_set::NakamotoSigners;
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_NAME;
 use blockstack_lib::chainstate::stacks::events::StackerDBChunksEvent;
 use blockstack_lib::util_lib::boot::boot_code_id;
@@ -95,7 +96,7 @@ impl SignerRunLoop<Vec<SignerEvent>, Command> for SimpleRunLoop {
 /// and the signer runloop.
 #[test]
 fn test_simple_signer() {
-    let contract_id = boot_code_id(SIGNERS_NAME, false);
+    let contract_id = NakamotoSigners::make_signers_db_contract_id(0, 0, false);
     let ev = SignerEventReceiver::new(false);
     let (_cmd_send, cmd_recv) = channel();
     let (res_send, _res_recv) = channel();
