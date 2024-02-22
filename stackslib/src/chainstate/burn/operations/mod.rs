@@ -22,6 +22,7 @@ use serde_json::json;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, TrieHash, VRFSeed,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::vrf::VRFPublicKey;
@@ -80,6 +81,7 @@ pub enum Error {
     // stack stx related errors
     StackStxMustBePositive,
     StackStxInvalidCycles,
+    StackStxInvalidKey,
 
     // errors associated with delegate stx
     DelegateStxMustBePositive,
@@ -137,6 +139,7 @@ impl fmt::Display for Error {
                 f,
                 "Stack STX must set num cycles between 1 and max num cycles"
             ),
+            Error::StackStxInvalidKey => write!(f, "Signer key is invalid"),
             Error::DelegateStxMustBePositive => write!(f, "Delegate STX must be positive amount"),
             Self::AmountMustBePositive => write!(f, "Peg in amount must be positive"),
         }
@@ -182,6 +185,7 @@ pub struct StackStxOp {
     /// how many ustx this transaction locks
     pub stacked_ustx: u128,
     pub num_cycles: u8,
+    pub signer_key: StacksPublicKeyBuffer,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -195,6 +199,7 @@ pub struct PreStxOp {
     /// the output address
     /// (must be a legacy Bitcoin address)
     pub output: StacksAddress,
+    pub signer_key: StacksPublicKeyBuffer,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -427,6 +432,7 @@ impl BlockstackOperationType {
                 "output": stacks_addr_serialize(&op.output),
                 "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
+                "signer_key": op.signer_key.to_hex(),
             }
         })
     }
@@ -442,6 +448,7 @@ impl BlockstackOperationType {
                 "stacked_ustx": op.stacked_ustx,
                 "burn_txid": op.txid,
                 "vtxindex": op.vtxindex,
+                "signer_key": op.signer_key.to_hex(),
             }
         })
     }
