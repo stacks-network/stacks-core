@@ -22,7 +22,6 @@ use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
 use blockstack_lib::util_lib::boot::boot_code_id;
-use clarity::vm::Value as ClarityValue;
 use hashbrown::{HashMap, HashSet};
 use libsigner::{BlockRejection, BlockResponse, RejectCode, SignerEvent, SignerMessage};
 use slog::{slog_debug, slog_error, slog_info, slog_warn};
@@ -447,9 +446,8 @@ impl Signer {
         let packets: Vec<Packet> = messages
             .iter()
             .filter_map(|msg| match msg {
-                // TODO: should we store the received transactions on the side and use them rather than directly querying the stacker db slots?
                 SignerMessage::BlockResponse(_) | SignerMessage::Transactions(_) => None,
-                // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request. Nack it.
+                // TODO: if a signer tries to trigger DKG and we already have one set in the contract, ignore the request.
                 SignerMessage::Packet(packet) => {
                     self.verify_packet(stacks_client, packet.clone(), &coordinator_pubkey)
                 }
@@ -791,21 +789,10 @@ impl Signer {
         origin_signer_id: u32,
         current_reward_cycle: u64,
     ) -> Result<bool, ClientError> {
-        let TransactionPayload::ContractCall(payload) = &transaction.payload else {
-            // Not a contract call so not a special cased vote for aggregate public key transaction
-            return Ok(false);
-        };
-
-        if payload.contract_identifier() != boot_code_id(SIGNERS_VOTING_NAME, self.mainnet)
-            || payload.function_name != VOTE_FUNCTION_NAME.into()
-        {
-            // This is not a special cased transaction.
-            return Ok(false);
-        }
         let Some((index, _point, round, reward_cycle)) =
-            Self::parse_function_args(&payload.function_args)
+            Self::parse_vote_for_aggregate_public_key(transaction)
         else {
-            // The transactions arguments are invalid
+            // The transaction is not a valid vote-for-aggregate-public-key transaction
             return Ok(false);
         };
         if index != origin_signer_id as u64 {
@@ -1271,7 +1258,6 @@ impl Signer {
                 self.signer_id
             );
             // Have I already voted and have a pending transaction? Check stackerdb for the same round number and reward cycle vote transaction
-            // TODO: might be better to store these transactions on the side to prevent having to query the stacker db for every signer (only do on initilaization of a new signer for example and then listen for stacker db updates after that)
             let old_transactions = self.get_signer_transactions(stacks_client, current_reward_cycle).map_err(|e| {
                 warn!("Signer #{}: Failed to get old transactions: {e:?}. Potentially overwriting our existing transactions", self.signer_id);
             }).unwrap_or_default();
@@ -1281,26 +1267,18 @@ impl Signer {
                 if &origin_address != stacks_client.get_signer_address() {
                     continue;
                 }
-                let TransactionPayload::ContractCall(payload) = &transaction.payload else {
+                let Some((_index, point, round, _reward_cycle)) =
+                    Self::parse_vote_for_aggregate_public_key(transaction)
+                else {
+                    // The transaction is not a valid vote-for-aggregate-public-key transaction
                     error!("BUG: Signer #{}: Received an unrecognized transaction ({}) in an already filtered list: {transaction:?}", self.signer_id, transaction.txid());
                     continue;
                 };
-                if payload.function_name == VOTE_FUNCTION_NAME.into() {
-                    let Some((_signer_index, point, round, _reward_cycle)) =
-                        Self::parse_function_args(&payload.function_args)
-                    else {
-                        error!("BUG: Signer #{}: Received an unrecognized transaction ({}) in an already filtered list: {transaction:?}", self.signer_id, transaction.txid());
-                        continue;
-                    };
-                    if Some(point) == self.coordinator.aggregate_public_key
-                        && round == self.coordinator.current_dkg_id
-                    {
-                        debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction for aggregate public key {point:?} for round {round}...", self.signer_id);
-                        return Ok(());
-                    }
-                } else {
-                    error!("BUG: Signer #{}: Received an unrecognized transaction ({}) in an already filtered list: {transaction:?}", self.signer_id, transaction.txid());
-                    continue;
+                if Some(point) == self.coordinator.aggregate_public_key
+                    && round == self.coordinator.current_dkg_id
+                {
+                    debug!("Signer #{}: Not triggering a DKG round. Already have a pending vote transaction for aggregate public key {point:?} for round {round}...", self.signer_id);
+                    return Ok(());
                 }
             }
             if stacks_client
@@ -1382,19 +1360,33 @@ impl Signer {
         Ok(())
     }
 
-    fn parse_function_args(function_args: &[ClarityValue]) -> Option<(u64, Point, u64, u64)> {
-        if function_args.len() != 4 {
+    fn parse_vote_for_aggregate_public_key(
+        transaction: &StacksTransaction,
+    ) -> Option<(u64, Point, u64, u64)> {
+        let TransactionPayload::ContractCall(payload) = &transaction.payload else {
+            // Not a contract call so not a special cased vote for aggregate public key transaction
+            return None;
+        };
+        if payload.contract_identifier()
+            != boot_code_id(SIGNERS_VOTING_NAME, transaction.is_mainnet())
+            || payload.function_name != VOTE_FUNCTION_NAME.into()
+        {
+            // This is not a special cased transaction.
             return None;
         }
-        let signer_index_value = function_args.first()?;
+        if payload.function_args.len() != 4 {
+            return None;
+        }
+        let signer_index_value = payload.function_args.first()?;
         let signer_index = u64::try_from(signer_index_value.clone().expect_u128().ok()?).ok()?;
-        let point_value = function_args.get(1)?;
+        let point_value = payload.function_args.get(1)?;
         let point_bytes = point_value.clone().expect_buff(33).ok()?;
         let compressed_data = Compressed::try_from(point_bytes.as_slice()).ok()?;
         let point = Point::try_from(&compressed_data).ok()?;
-        let round_value = function_args.get(2)?;
+        let round_value = payload.function_args.get(2)?;
         let round = u64::try_from(round_value.clone().expect_u128().ok()?).ok()?;
-        let reward_cycle = u64::try_from(function_args.get(3)?.clone().expect_u128().ok()?).ok()?;
+        let reward_cycle =
+            u64::try_from(payload.function_args.get(3)?.clone().expect_u128().ok()?).ok()?;
         Some((signer_index, point, round, reward_cycle))
     }
 }

@@ -190,7 +190,7 @@ impl SignerTest {
             .btc_regtest_controller
             .get_headers_height();
         let curr_reward_cycle = self.get_current_reward_cycle();
-        let next_reward_cycle = curr_reward_cycle.wrapping_add(1);
+        let next_reward_cycle = curr_reward_cycle.saturating_add(1);
         let next_reward_cycle_height = self
             .running_nodes
             .btc_regtest_controller
@@ -198,7 +198,8 @@ impl SignerTest {
             .reward_cycle_to_block_height(next_reward_cycle);
         let next_reward_cycle_reward_set_calculation = next_reward_cycle_height
             .saturating_sub(prepare_phase_len)
-            .wrapping_add(1); // +1 as the reward calculation occurs in the SECOND block of the prepare phase
+            .saturating_add(1); // +1 as the reward calculation occurs in the SECOND block of the prepare phase/
+
         next_reward_cycle_reward_set_calculation.saturating_sub(current_block_height)
     }
 
@@ -230,7 +231,7 @@ impl SignerTest {
             .running_nodes
             .btc_regtest_controller
             .get_headers_height()
-            .wrapping_add(nmb_blocks_to_mine_to_dkg);
+            .saturating_add(nmb_blocks_to_mine_to_dkg);
         info!("Mining {nmb_blocks_to_mine_to_dkg} Nakamoto block(s) to reach DKG calculation at block height {end_block_height}");
         for i in 1..=nmb_blocks_to_mine_to_dkg {
             info!("Mining Nakamoto block #{i} of {nmb_blocks_to_mine_to_dkg}");
@@ -273,7 +274,7 @@ impl SignerTest {
                 }
                 blocks_to_dkg = 0;
                 nmb_blocks_to_reward_cycle = self.nmb_blocks_to_reward_cycle_boundary(
-                    self.get_current_reward_cycle().wrapping_add(1),
+                    self.get_current_reward_cycle().saturating_add(1),
                 )
             }
             if total_nmb_blocks_to_mine >= nmb_blocks_to_reward_cycle {
@@ -585,7 +586,7 @@ impl SignerTest {
             .get_last_round(reward_cycle)
             .expect("FATAL: failed to get round")
             .unwrap_or(0)
-            .wrapping_add(1);
+            .saturating_add(1);
         let point = Point::from(Scalar::random(&mut rand::thread_rng()));
         let invalid_nonce_tx = self
             .stacks_client
@@ -1068,7 +1069,7 @@ fn stackerdb_mine_2_nakamoto_reward_cycles() {
     info!("------------------------- Test Mine 2 Nakamoto Reward Cycles -------------------------");
     let dkgs = signer_test
         .run_until_burnchain_height_nakamoto(timeout, final_reward_cycle_height_boundary);
-    assert_eq!(dkgs.len() as u64, nmb_reward_cycles.wrapping_add(1)); // We will have mined the DKG vote for the following reward cycle
+    assert_eq!(dkgs.len() as u64, nmb_reward_cycles.saturating_add(1)); // We will have mined the DKG vote for the following reward cycle
     let last_dkg = dkgs
         .last()
         .expect(&format!(
@@ -1154,7 +1155,7 @@ fn stackerdb_filter_bad_transactions() {
         })
         .cloned()
         .expect("Cannot find signer private key for signer id 1");
-    let next_reward_cycle = signer_test.get_current_reward_cycle().wrapping_add(1);
+    let next_reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
     // Must submit to the NEXT reward cycle slots as they are the ones looked at by the CURRENT miners
     let signer_index = signer_test.get_signer_index(next_reward_cycle);
     let mut stackerdb = StackerDB::new(
