@@ -89,12 +89,7 @@ impl CoordinatorSelector {
             }
             new_index
         } else {
-            let mut new_index = self.coordinator_index.saturating_add(1);
-            if new_index == self.coordinator_ids.len() {
-                // We have exhausted all potential coordinators. Go back to the start
-                new_index = 0;
-            }
-            new_index
+            self.coordinator_index.saturating_add(1) % self.coordinator_ids.len()
         };
         self.coordinator_id = *self
             .coordinator_ids

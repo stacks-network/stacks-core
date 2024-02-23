@@ -41,7 +41,7 @@ pub struct StackerDB {
     signers_message_stackerdb_sessions: HashMap<u32, StackerDBSession>,
     /// The private key used in all stacks node communications
     stacks_private_key: StacksPrivateKey,
-    /// A map of a (signer-set, message ID) to last chunk version for each session
+    /// A map of a message ID to last chunk version for each session
     slot_versions: HashMap<u32, HashMap<u32, u32>>,
     /// The signer slot ID -- the index into the signer list for this signer daemon's signing key.
     signer_slot_id: u32,

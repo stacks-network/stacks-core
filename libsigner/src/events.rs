@@ -355,7 +355,6 @@ fn process_stackerdb_event(
             .iter()
             .filter_map(|chunk| read_next::<SignerMessage, _>(&mut &chunk.data[..]).ok())
             .collect();
-        //
         SignerEvent::SignerMessages(signer_set, signer_messages)
     } else {
         info!(

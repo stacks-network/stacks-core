@@ -479,6 +479,13 @@ impl NakamotoSigners {
                 signers.insert(signer_address, weight);
             }
         }
+        if signers.is_empty() {
+            error!(
+                "No signers found for reward cycle";
+                "reward_cycle" => reward_cycle,
+            );
+            return Err(ChainstateError::NoRegisteredSigners(reward_cycle));
+        }
         Ok(signers)
     }
 }
