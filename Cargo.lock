@@ -805,11 +805,11 @@ checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 [[package]]
 name = "clar2wasm"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/clarity-wasm.git#587f20e835603192319611a691a2417172a23450"
+source = "git+https://github.com/stacks-network/clarity-wasm.git#67e7ff9c25a865a83baa3ae312fbf4eb3ea4af6f"
 dependencies = [
  "chrono",
  "clap 4.4.18",
- "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?rev=75ee7718db5b251adf7bc3fcd769b78859310d54)",
  "lazy_static",
  "regex",
  "rusqlite",
@@ -845,7 +845,31 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "2.2.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#fcee50de8c9832a2c84abc684e1fd6c3c42ffeee"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#5d7821cd140d133420a5e7067159307c9fa9bd97"
+dependencies = [
+ "integer-sqrt",
+ "lazy_static",
+ "rand 0.7.3",
+ "rand_chacha 0.2.2",
+ "regex",
+ "rstest 0.17.0",
+ "rstest_reuse 0.5.0",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_stacker",
+ "sha2-asm 0.5.5",
+ "slog",
+ "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
+ "time 0.3.34",
+ "wasmtime",
+]
+
+[[package]]
+name = "clarity"
+version = "2.2.0"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=75ee7718db5b251adf7bc3fcd769b78859310d54#75ee7718db5b251adf7bc3fcd769b78859310d54"
 dependencies = [
  "integer-sqrt",
  "lazy_static",
@@ -2379,7 +2403,7 @@ dependencies = [
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#fcee50de8c9832a2c84abc684e1fd6c3c42ffeee"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#5d7821cd140d133420a5e7067159307c9fa9bd97"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "libc",
@@ -2426,7 +2450,7 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#fcee50de8c9832a2c84abc684e1fd6c3c42ffeee"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#5d7821cd140d133420a5e7067159307c9fa9bd97"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "secp256k1",
@@ -3052,7 +3076,7 @@ dependencies = [
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#fcee50de8c9832a2c84abc684e1fd6c3c42ffeee"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#5d7821cd140d133420a5e7067159307c9fa9bd97"
 dependencies = [
  "clarity 2.2.0 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
  "slog",
@@ -4087,7 +4111,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.2"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#fcee50de8c9832a2c84abc684e1fd6c3c42ffeee"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#5d7821cd140d133420a5e7067159307c9fa9bd97"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -4109,7 +4133,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "time 0.2.27",
+ "time 0.3.34",
  "winapi 0.3.9",
  "wsts",
 ]
@@ -4185,7 +4209,7 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#fcee50de8c9832a2c84abc684e1fd6c3c42ffeee"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#5d7821cd140d133420a5e7067159307c9fa9bd97"
 dependencies = [
  "backoff",
  "bincode",
@@ -4263,7 +4287,7 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#fcee50de8c9832a2c84abc684e1fd6c3c42ffeee"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#5d7821cd140d133420a5e7067159307c9fa9bd97"
 dependencies = [
  "chrono",
  "clar2wasm",
@@ -4390,7 +4414,7 @@ dependencies = [
 [[package]]
 name = "stx-genesis"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#fcee50de8c9832a2c84abc684e1fd6c3c42ffeee"
+source = "git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next#5d7821cd140d133420a5e7067159307c9fa9bd97"
 dependencies = [
  "libflate",
  "sha2 0.10.8",
