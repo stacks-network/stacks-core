@@ -56,6 +56,7 @@ pub enum SignerEvent {
     /// The miner proposed blocks for signers to observe and sign
     ProposedBlocks(Vec<NakamotoBlock>),
     /// The signer messages for other signers and miners to observe
+    /// The u32 is the signer set to which the message belongs (either 0 or 1)
     SignerMessages(u32, Vec<SignerMessage>),
     /// A new block proposal validation response from the node
     BlockValidationResponse(BlockValidateResponse),

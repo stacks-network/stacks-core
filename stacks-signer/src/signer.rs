@@ -142,7 +142,7 @@ pub struct Signer {
     /// The reward cycle this signer belongs to
     pub reward_cycle: u64,
     /// The tx fee in uSTX to use if the epoch is pre Nakamoto (Epoch 3.0)
-    pub tx_fee_ms: u64,
+    pub tx_fee_ustx: u64,
     /// The coordinator info for the signer
     pub coordinator_selector: CoordinatorSelector,
 }
@@ -211,7 +211,7 @@ impl From<SignerConfig> for Signer {
             next_signer_ids: vec![],
             next_signer_slot_ids: HashMap::new(),
             reward_cycle: signer_config.reward_cycle,
-            tx_fee_ms: signer_config.tx_fee_ms,
+            tx_fee_ustx: signer_config.tx_fee_ustx,
             coordinator_selector,
         }
     }
@@ -1006,7 +1006,7 @@ impl Signer {
                 "Signer #{}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.",
                 self.signer_id
             );
-            Some(self.tx_fee_ms)
+            Some(self.tx_fee_ustx)
         } else {
             None
         };

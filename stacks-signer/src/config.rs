@@ -36,7 +36,7 @@ use wsts::state_machine::PublicKeys;
 const EVENT_TIMEOUT_MS: u64 = 5000;
 // Default transaction fee in microstacks (if unspecificed in the config file)
 // TODO: Use the fee estimation endpoint to get the default fee.
-const TX_FEE_MS: u64 = 10_000;
+const TX_FEE_USTX: u64 = 10_000;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -161,7 +161,7 @@ pub struct SignerConfig {
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
     /// the STX tx fee to use in uSTX
-    pub tx_fee_ms: u64,
+    pub tx_fee_ustx: u64,
 }
 
 /// The parsed configuration for the signer
@@ -192,7 +192,7 @@ pub struct GlobalConfig {
     /// timeout to gather signature shares
     pub sign_timeout: Option<Duration>,
     /// the STX tx fee to use in uSTX
-    pub tx_fee_ms: u64,
+    pub tx_fee_ustx: u64,
 }
 
 /// Internal struct for loading up the config file
@@ -220,7 +220,7 @@ struct RawConfigFile {
     /// timeout in (millisecs) to gather signature shares
     pub sign_timeout_ms: Option<u64>,
     /// the STX tx fee to use in uSTX
-    pub tx_fee_ms: Option<u64>,
+    pub tx_fee_ustx: Option<u64>,
 }
 
 impl RawConfigFile {
@@ -318,7 +318,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             dkg_private_timeout,
             nonce_timeout,
             sign_timeout,
-            tx_fee_ms: raw_data.tx_fee_ms.unwrap_or(TX_FEE_MS),
+            tx_fee_ustx: raw_data.tx_fee_ustx.unwrap_or(TX_FEE_USTX),
         })
     }
 }

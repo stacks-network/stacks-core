@@ -123,7 +123,7 @@ impl RunLoop {
             dkg_public_timeout: self.config.dkg_public_timeout,
             nonce_timeout: self.config.nonce_timeout,
             sign_timeout: self.config.sign_timeout,
-            tx_fee_ms: self.config.tx_fee_ms,
+            tx_fee_ustx: self.config.tx_fee_ustx,
         })
     }
 

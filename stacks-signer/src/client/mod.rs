@@ -521,7 +521,7 @@ pub(crate) mod tests {
             dkg_public_timeout: config.dkg_public_timeout,
             nonce_timeout: config.nonce_timeout,
             sign_timeout: config.sign_timeout,
-            tx_fee_ms: config.tx_fee_ms,
+            tx_fee_ustx: config.tx_fee_ustx,
         }
     }
 }
