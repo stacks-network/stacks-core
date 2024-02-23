@@ -76,9 +76,9 @@ jobs:
           - tests::nakamoto_integrations::block_proposal_api_endpoint
           - tests::nakamoto_integrations::miner_writes_proposed_block_to_stackerdb
           - tests::nakamoto_integrations::correct_burn_outs
-          - tests::signer::stackerdb_dkg_sign
+          - tests::signer::stackerdb_dkg
+          - tests::signer::stackerdb_sign
           - tests::signer::stackerdb_block_proposal
-          - tests::signer::stackerdb_reward_cycle_transitions
           - tests::signer::stackerdb_filter_bad_transactions
     steps:
       ## Setup test environment

@@ -194,11 +194,13 @@ impl RunLoop {
                 signer.coordinator.state = CoordinatorState::Idle;
                 signer.state = SignerState::Idle;
             }
-            retry_with_exponential_backoff(|| {
-                signer
-                    .update_dkg(&self.stacks_client, current_reward_cycle)
-                    .map_err(backoff::Error::transient)
-            })?;
+            if signer.approved_aggregate_public_key.is_none() {
+                retry_with_exponential_backoff(|| {
+                    signer
+                        .update_dkg(&self.stacks_client, current_reward_cycle)
+                        .map_err(backoff::Error::transient)
+                })?;
+            }
         }
         if self.stacks_signers.is_empty() {
             info!("Signer is not registered for the current {current_reward_cycle} or next {next_reward_cycle} reward cycles. Waiting for confirmed registration...");

@@ -761,8 +761,59 @@ fn setup_stx_btc_node(
 #[test]
 #[ignore]
 /// Test the signer can respond to external commands to perform DKG
-/// and sign a block with both taproot and non-taproot signatures
-fn stackerdb_dkg_sign() {
+fn stackerdb_dkg() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    info!("------------------------- Test Setup -------------------------");
+    let timeout = Duration::from_secs(200);
+    let mut signer_test = SignerTest::new(10);
+    info!("Boot to epoch 3.0 reward calculation...");
+    boot_to_epoch_3_reward_set(
+        &signer_test.running_nodes.conf,
+        &signer_test.running_nodes.blocks_processed,
+        &signer_test.signer_stacks_private_keys,
+        &signer_test.signer_stacks_private_keys,
+        &mut signer_test.running_nodes.btc_regtest_controller,
+    );
+
+    info!("Pox 4 activated and at epoch 3.0 reward set calculation (2nd block of its prepare phase)! Ready for signers to perform DKG and Sign!");
+    // First wait for the automatically triggered DKG to complete
+    let key = signer_test.wait_for_dkg(timeout);
+
+    info!("------------------------- Test DKG -------------------------");
+    let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
+    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
+
+    // Determine the coordinator of the current node height
+    info!("signer_runloop: spawn send commands to do dkg");
+    let dkg_now = Instant::now();
+    coordinator_sender
+        .send(RunLoopCommand {
+            reward_cycle,
+            command: SignerCommand::Dkg,
+        })
+        .expect("failed to send DKG command");
+    let new_key = signer_test.wait_for_dkg(timeout);
+    let dkg_elapsed = dkg_now.elapsed();
+    assert_ne!(new_key, key);
+
+    info!("DKG Time Elapsed: {:.2?}", dkg_elapsed);
+    // TODO: look into this. Cannot get this to NOT hang unless I wait a bit...
+    std::thread::sleep(Duration::from_secs(1));
+    signer_test.shutdown();
+}
+
+#[test]
+#[ignore]
+/// Test the signer can respond to external commands to perform DKG
+fn stackerdb_sign() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -811,41 +862,12 @@ fn stackerdb_dkg_sign() {
 
     let timeout = Duration::from_secs(200);
     let mut signer_test = SignerTest::new(10);
-    info!("Boot to epoch 3.0 reward calculation...");
-    boot_to_epoch_3_reward_set(
-        &signer_test.running_nodes.conf,
-        &signer_test.running_nodes.blocks_processed,
-        &signer_test.signer_stacks_private_keys,
-        &signer_test.signer_stacks_private_keys,
-        &mut signer_test.running_nodes.btc_regtest_controller,
-    );
-
-    info!("Pox 4 activated and at epoch 3.0 reward set calculation (2nd block of its prepare phase)! Ready for signers to perform DKG and Sign!");
-
-    // First wait for the automatically triggered DKG to complete
-    let key = signer_test.wait_for_dkg(timeout);
-
-    info!("------------------------- Test DKG -------------------------");
-
-    // We are voting for the NEXT reward cycle hence the + 1;
-    let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
-    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
-
-    let dkg_now = Instant::now();
-    coordinator_sender
-        .send(RunLoopCommand {
-            reward_cycle,
-            command: SignerCommand::Dkg,
-        })
-        .expect("failed to send DKG command");
-    let new_key = signer_test.wait_for_dkg(timeout);
-    let dkg_elapsed = dkg_now.elapsed();
-    assert_ne!(new_key, key);
+    let key = signer_test.boot_to_epoch_3(timeout);
 
     info!("------------------------- Test Sign -------------------------");
-
+    let reward_cycle = signer_test.get_current_reward_cycle();
     // Determine the coordinator of the current node height
-    info!("signer_runloop: spawn send commands to do dkg and then sign");
+    info!("signer_runloop: spawn send commands to do sign");
     let sign_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
@@ -874,10 +896,10 @@ fn stackerdb_dkg_sign() {
     let schnorr_proofs = signer_test.wait_for_taproot_signatures(timeout);
 
     for frost_signature in frost_signatures {
-        assert!(frost_signature.verify(&new_key, &msg));
+        assert!(frost_signature.verify(&key, &msg));
     }
     for schnorr_proof in schnorr_proofs {
-        let tweaked_key = tweaked_public_key(&new_key, None);
+        let tweaked_key = tweaked_public_key(&key, None);
         assert!(
             schnorr_proof.verify(&tweaked_key.x(), &msg),
             "Schnorr proof verification failed"
@@ -923,8 +945,6 @@ fn stackerdb_dkg_sign() {
     } else {
         panic!("Received unexpected message: {:?}", &signer_message);
     }
-
-    info!("DKG Time Elapsed: {:.2?}", dkg_elapsed);
     info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
     signer_test.shutdown();
 }

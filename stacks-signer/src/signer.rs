@@ -144,6 +144,8 @@ pub struct Signer {
     pub tx_fee_ustx: u64,
     /// The coordinator info for the signer
     pub coordinator_selector: CoordinatorSelector,
+    /// The approved key registered to the contract
+    pub approved_aggregate_public_key: Option<Point>,
 }
 
 impl From<SignerConfig> for Signer {
@@ -212,6 +214,7 @@ impl From<SignerConfig> for Signer {
             reward_cycle: signer_config.reward_cycle,
             tx_fee_ustx: signer_config.tx_fee_ustx,
             coordinator_selector,
+            approved_aggregate_public_key: None,
         }
     }
 }
@@ -233,7 +236,11 @@ impl Signer {
     fn execute_command(&mut self, stacks_client: &StacksClient, command: &Command) {
         match command {
             Command::Dkg => {
-                //TODO: check if we already have an aggregate key stored in the contract.
+                if self.approved_aggregate_public_key.is_some() {
+                    // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
+                    debug!("Signer #{}: Already have an aggregate key for reward cycle {}. Ignoring DKG command.", self.signer_id, self.reward_cycle);
+                    return;
+                }
                 // If we do, we should not start a new DKG
                 let vote_round = match retry_with_exponential_backoff(|| {
                     stacks_client
@@ -270,6 +277,11 @@ impl Signer {
                 is_taproot,
                 merkle_root,
             } => {
+                if self.approved_aggregate_public_key.is_none() {
+                    // We cannot sign a block if we do not have an approved aggregate public key
+                    debug!("Signer #{}: Cannot sign a block without an approved aggregate public key. Ignore it.", self.signer_id);
+                    return;
+                }
                 let signer_signature_hash = block.header.signer_signature_hash();
                 let block_info = self
                     .blocks
@@ -624,14 +636,9 @@ impl Signer {
         block: &NakamotoBlock,
         current_reward_cycle: u64,
     ) -> bool {
-        let aggregate_key = retry_with_exponential_backoff(|| {
-            stacks_client
-                .get_approved_aggregate_key(self.reward_cycle)
-                .map_err(backoff::Error::transient)
-        })
-        .unwrap_or(None);
-        if aggregate_key.is_some() {
+        if self.approved_aggregate_public_key.is_some() {
             // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
+            // TODO: should be only allow special cased transactions during prepare phase before a key is set?
             debug!("Signer #{}: Already have an aggregate key for reward cycle {}. Skipping transaction verification...", self.signer_id, self.reward_cycle);
             return true;
         }
@@ -1064,12 +1071,6 @@ impl Signer {
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
         let txid = new_transaction.txid();
-        let aggregate_key = retry_with_exponential_backoff(|| {
-            stacks_client
-                .get_approved_aggregate_key(self.reward_cycle)
-                .map_err(backoff::Error::transient)
-        })
-        .unwrap_or(None);
         if epoch > StacksEpochId::Epoch30 {
             debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.", self.signer_id);
         } else if epoch == StacksEpochId::Epoch25 {
@@ -1086,7 +1087,7 @@ impl Signer {
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
         // TODO: Should we even store transactions if not in prepare phase? Should the miner just ignore all signer transactions if not in prepare phase?
         let txid = new_transaction.txid();
-        let new_transactions = if aggregate_key.is_some() {
+        let new_transactions = if self.approved_aggregate_public_key.is_some() {
             // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
             info!(
                 "Signer #{}: Already has an aggregate key for reward cycle {}. Do not broadcast the transaction ({txid:?}).",
@@ -1233,26 +1234,23 @@ impl Signer {
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
         let reward_cycle = self.reward_cycle;
-        let new_aggregate_public_key = stacks_client.get_approved_aggregate_key(reward_cycle)?;
-        let old_aggregate_public_key = self.coordinator.get_aggregate_public_key();
-        if new_aggregate_public_key.is_some()
-            && old_aggregate_public_key != new_aggregate_public_key
-        {
+        self.approved_aggregate_public_key =
+            stacks_client.get_approved_aggregate_key(reward_cycle)?;
+        if self.approved_aggregate_public_key.is_some() {
             // TODO: this will never work as is. We need to have stored our party shares on the side etc for this particular aggregate key.
             // Need to update state to store the necessary info, check against it to see if we have participated in the winning round and
             // then overwrite our value accordingly. Otherwise, we will be locked out of the round and should not participate.
-            debug!(
-                "Signer #{}: Received a new aggregate public key ({new_aggregate_public_key:?}) for reward cycle {reward_cycle}. Overwriting its internal aggregate key ({old_aggregate_public_key:?})",
-                self.signer_id
-            );
             self.coordinator
-                .set_aggregate_public_key(new_aggregate_public_key);
-        }
+                .set_aggregate_public_key(self.approved_aggregate_public_key);
+            // We have an approved aggregate public key. Do nothing further
+            debug!(
+                "Signer #{}: Have updated DKG value to {:?}.",
+                self.signer_id, self.approved_aggregate_public_key
+            );
+            return Ok(());
+        };
         let coordinator_id = self.coordinator_selector.get_coordinator().0;
-        if new_aggregate_public_key.is_none()
-            && self.signer_id == coordinator_id
-            && self.state == State::Idle
-        {
+        if self.signer_id == coordinator_id && self.state == State::Idle {
             debug!(
                 "Signer #{}: Checking if old transactions exist",
                 self.signer_id
