@@ -43,10 +43,6 @@ version = "=0.28.0"
 features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 optional = true
 
-[dependencies.time]
-version = "0.3.34"
-features = ["std"]
-
 [dev-dependencies]
 assert-json-diff = "1.0.0"
 rstest = { version = "0.17.0" }

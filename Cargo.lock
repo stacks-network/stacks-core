@@ -838,7 +838,6 @@ dependencies = [
  "sha2-asm 0.5.5",
  "slog",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "time 0.3.34",
  "wasmtime",
 ]
 
