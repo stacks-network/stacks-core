@@ -979,10 +979,12 @@ impl Signer {
                     self.process_dkg(stacks_client, point, current_reward_cycle);
                 }
                 OperationResult::SignError(e) => {
+                    warn!("Signer #{}: Received a Sign error: {e:?}", self.signer_id);
                     self.process_sign_error(e);
                 }
                 OperationResult::DkgError(e) => {
                     warn!("Signer #{}: Received a DKG error: {e:?}", self.signer_id);
+                    // TODO: process these errors and track malicious signers to report
                 }
             }
         }
@@ -1001,7 +1003,7 @@ impl Signer {
                 .map_err(backoff::Error::transient)
         })
         .unwrap_or(StacksEpochId::Epoch24);
-        let tx_fee = if epoch != StacksEpochId::Epoch30 {
+        let tx_fee = if epoch < StacksEpochId::Epoch30 {
             debug!(
                 "Signer #{}: in pre Epoch 3.0 cycles, must set a transaction fee for the DKG vote.",
                 self.signer_id
@@ -1081,29 +1083,20 @@ impl Signer {
                 .map_err(backoff::Error::transient)
         })
         .unwrap_or(None);
-        match epoch {
-            StacksEpochId::Epoch25 => {
-                debug!("Signer #{}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
-                if aggregate_key.is_none() {
-                    stacks_client.submit_transaction(&new_transaction)?;
-                    info!(
-                        "Signer #{}: Submitted DKG vote transaction ({txid:?}) to the mempool",
-                        self.signer_id
-                    )
-                } else {
-                    debug!("Signer #{}: Already have an aggregate key for reward cycle {}. Do not broadcast the transaction ({txid:?}).", self.signer_id, self.reward_cycle);
-                }
-            }
-            StacksEpochId::Epoch30 => {
-                debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.", self.signer_id);
-            }
-            _ => {
-                debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", self.signer_id, new_transaction.txid());
-                return Ok(());
-            }
+        if epoch > StacksEpochId::Epoch30 {
+            debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.", self.signer_id);
+        } else if epoch == StacksEpochId::Epoch25 {
+            debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction to the mempool.", self.signer_id);
+            stacks_client.submit_transaction(&new_transaction)?;
+            info!(
+                "Signer #{}: Submitted DKG vote transaction ({txid:?}) to the mempool",
+                self.signer_id
+            );
+        } else {
+            debug!("Signer #{}: Received a DKG result, but are in an unsupported epoch. Do not broadcast the transaction ({}).", self.signer_id, new_transaction.txid());
+            return Ok(());
         }
         // For all Pox-4 epochs onwards, broadcast the results also to stackerDB for other signers/miners to observe
-        // TODO: if we store transactions on the side, should we use them rather than directly querying the stacker db slot?
         // TODO: Should we even store transactions if not in prepare phase? Should the miner just ignore all signer transactions if not in prepare phase?
         let txid = new_transaction.txid();
         let new_transactions = if aggregate_key.is_some() {
@@ -1187,70 +1180,73 @@ impl Signer {
 
     /// Process a sign error from a signing round, broadcasting a rejection message to stackerdb accordingly
     fn process_sign_error(&mut self, e: &SignError) {
-        warn!(
-            "Signer #{}: Received a signature error: {e:?}",
-            self.signer_id
-        );
-        match e {
-            SignError::NonceTimeout(_valid_signers, _malicious_signers) => {
+        let message = self.coordinator.get_message();
+        let block = read_next::<NakamotoBlock, _>(&mut &message[..]).ok().unwrap_or({
+                // This is not a block so maybe its across its hash
+                // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
+                let signer_signature_hash_bytes = if message.len() > 32 {
+                    &message[..32]
+                } else {
+                    &message
+                };
+                let Some(signer_signature_hash) = Sha512Trunc256Sum::from_bytes(signer_signature_hash_bytes) else {
+                    debug!("Signer #{}: Received a signature result for a signature over a non-block. Nothing to broadcast.", self.signer_id);
+                    return;
+                };
+                let Some(block_info) = self.blocks.remove(&signer_signature_hash) else {
+                    debug!("Signer #{}: Received a signature result for a block we have not seen before. Ignoring...", self.signer_id);
+                    return;
+                };
+                block_info.block
+            });
+        // We don't have enough signers to sign the block. Broadcast a rejection
+        let block_rejection = match e {
+            SignError::NonceTimeout(_valid_signers, malicious_signers) => {
                 //TODO: report these malicious signers
                 debug!(
                     "Signer #{}: Received a nonce timeout error.",
                     self.signer_id
                 );
+                BlockRejection::new(
+                    block.header.signer_signature_hash(),
+                    RejectCode::NonceTimeout(malicious_signers.clone()),
+                )
             }
             SignError::InsufficientSigners(malicious_signers) => {
                 debug!(
                     "Signer #{}: Received a insufficient signers error.",
                     self.signer_id
                 );
-                let message = self.coordinator.get_message();
-                let block = read_next::<NakamotoBlock, _>(&mut &message[..]).ok().unwrap_or({
-                        // This is not a block so maybe its across its hash
-                        // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
-                        let signer_signature_hash_bytes = if message.len() > 32 {
-                            &message[..32]
-                        } else {
-                            &message
-                        };
-                        let Some(signer_signature_hash) = Sha512Trunc256Sum::from_bytes(signer_signature_hash_bytes) else {
-                            debug!("Signer #{}: Received a signature result for a signature over a non-block. Nothing to broadcast.", self.signer_id);
-                            return;
-                        };
-                        let Some(block_info) = self.blocks.remove(&signer_signature_hash) else {
-                            debug!("Signer #{}: Received a signature result for a block we have not seen before. Ignoring...", self.signer_id);
-                            return;
-                        };
-                        block_info.block
-                    });
-                // We don't have enough signers to sign the block. Broadcast a rejection
-                let block_rejection = BlockRejection::new(
+                BlockRejection::new(
                     block.header.signer_signature_hash(),
                     RejectCode::InsufficientSigners(malicious_signers.clone()),
-                );
-                debug!(
-                    "Signer #{}: Insufficient signers for block; send rejection {block_rejection:?}",
-                    self.signer_id
-                );
-                // Submit signature result to miners to observe
-                if let Err(e) = self
-                    .stackerdb
-                    .send_message_with_retry(block_rejection.into())
-                {
-                    warn!(
-                        "Signer #{}: Failed to send block submission to stacker-db: {e:?}",
-                        self.signer_id
-                    );
-                }
+                )
             }
             SignError::Aggregator(e) => {
                 warn!(
                     "Signer #{}: Received an aggregator error: {e:?}",
                     self.signer_id
                 );
+                BlockRejection::new(
+                    block.header.signer_signature_hash(),
+                    RejectCode::AggregatorError(e.to_string()),
+                )
             }
+        };
+        debug!(
+            "Signer #{}: Broadcasting block rejection: {block_rejection:?}",
+            self.signer_id
+        );
+        // Submit signature result to miners to observe
+        if let Err(e) = self
+            .stackerdb
+            .send_message_with_retry(block_rejection.into())
+        {
+            warn!(
+                "Signer #{}: Failed to send block rejection submission to stacker-db: {e:?}",
+                self.signer_id
+            );
         }
-        // TODO: should reattempt to sign the block here or should we just broadcast a rejection or do nothing and wait for the signers to propose a new block?
     }
 
     /// Send any operation results across the provided channel

@@ -139,7 +139,9 @@ define_u8_enum!(RejectCodeTypePrefix{
     SignedRejection = 1,
     InsufficientSigners = 2,
     MissingTransactions = 3,
-    ConnectivityIssues = 4
+    ConnectivityIssues = 4,
+    NonceTimeout = 5,
+    AggregatorError = 6
 });
 
 impl TryFrom<u8> for RejectCodeTypePrefix {
@@ -159,6 +161,8 @@ impl From<&RejectCode> for RejectCodeTypePrefix {
             RejectCode::InsufficientSigners(_) => RejectCodeTypePrefix::InsufficientSigners,
             RejectCode::MissingTransactions(_) => RejectCodeTypePrefix::MissingTransactions,
             RejectCode::ConnectivityIssues => RejectCodeTypePrefix::ConnectivityIssues,
+            RejectCode::NonceTimeout(_) => RejectCodeTypePrefix::NonceTimeout,
+            RejectCode::AggregatorError(_) => RejectCodeTypePrefix::AggregatorError,
         }
     }
 }
@@ -938,8 +942,12 @@ pub enum RejectCode {
     ValidationFailed(ValidateRejectCode),
     /// Signers signed a block rejection
     SignedRejection(ThresholdSignature),
+    /// Nonce timeout was reached
+    NonceTimeout(Vec<u32>),
     /// Insufficient signers agreed to sign the block
     InsufficientSigners(Vec<u32>),
+    /// An internal error occurred in the signer when aggregating the signaure
+    AggregatorError(String),
     /// Missing the following expected transactions
     MissingTransactions(Vec<StacksTransaction>),
     /// The block was rejected due to connectivity issues with the signer
@@ -952,12 +960,12 @@ impl StacksMessageCodec for RejectCode {
         match self {
             RejectCode::ValidationFailed(code) => write_next(fd, &(code.clone() as u8))?,
             RejectCode::SignedRejection(sig) => write_next(fd, sig)?,
-            RejectCode::InsufficientSigners(malicious_signers) => {
-                write_next(fd, malicious_signers)?
-            }
+            RejectCode::InsufficientSigners(malicious_signers)
+            | RejectCode::NonceTimeout(malicious_signers) => write_next(fd, malicious_signers)?,
             RejectCode::MissingTransactions(missing_transactions) => {
                 write_next(fd, missing_transactions)?
             }
+            RejectCode::AggregatorError(reason) => write_next(fd, &reason.as_bytes().to_vec())?,
             RejectCode::ConnectivityIssues => write_next(fd, &4u8)?,
         };
         Ok(())
@@ -984,7 +992,20 @@ impl StacksMessageCodec for RejectCode {
             RejectCodeTypePrefix::MissingTransactions => {
                 RejectCode::MissingTransactions(read_next::<Vec<StacksTransaction>, _>(fd)?)
             }
+            RejectCodeTypePrefix::NonceTimeout => {
+                RejectCode::NonceTimeout(read_next::<Vec<u32>, _>(fd)?)
+            }
             RejectCodeTypePrefix::ConnectivityIssues => RejectCode::ConnectivityIssues,
+            RejectCodeTypePrefix::AggregatorError => {
+                let reason_bytes = read_next::<Vec<u8>, _>(fd)?;
+                let reason = String::from_utf8(reason_bytes).map_err(|e| {
+                    CodecError::DeserializeError(format!(
+                        "Failed to decode reason string: {:?}",
+                        &e
+                    ))
+                })?;
+                RejectCode::AggregatorError(reason)
+            }
         };
         Ok(code)
     }
@@ -1002,6 +1023,11 @@ impl std::fmt::Display for RejectCode {
                 "Insufficient signers agreed to sign the block. The following signers are malicious: {:?}",
                 malicious_signers
             ),
+            RejectCode::NonceTimeout(malicious_signers) => write!(
+                f,
+                "Nonce timeout occurred signers. The following signers are malicious: {:?}",
+                malicious_signers
+            ),
             RejectCode::MissingTransactions(missing_transactions) => write!(
                 f,
                 "Missing the following expected transactions: {:?}",
@@ -1010,6 +1036,11 @@ impl std::fmt::Display for RejectCode {
             RejectCode::ConnectivityIssues => write!(
                 f,
                 "The block was rejected due to connectivity issues with the signer."
+            ),
+            RejectCode::AggregatorError(reason) => write!(
+                f,
+                "An internal error occurred in the signer when aggregating the signaure: {:?}",
+                reason
             ),
         }
     }
@@ -1074,6 +1105,18 @@ mod test {
             .expect("Failed to deserialize RejectCode");
         assert_eq!(code, deserialized_code);
 
+        let code = RejectCode::NonceTimeout(vec![0, 1, 2]);
+        let serialized_code = code.serialize_to_vec();
+        let deserialized_code = read_next::<RejectCode, _>(&mut &serialized_code[..])
+            .expect("Failed to deserialize RejectCode");
+        assert_eq!(code, deserialized_code);
+
+        let code = RejectCode::AggregatorError("Test Error".into());
+        let serialized_code = code.serialize_to_vec();
+        let deserialized_code = read_next::<RejectCode, _>(&mut &serialized_code[..])
+            .expect("Failed to deserialize RejectCode");
+        assert_eq!(code, deserialized_code);
+
         let sk = StacksPrivateKey::new();
         let tx = StacksTransaction {
             version: TransactionVersion::Testnet,
@@ -1126,6 +1169,24 @@ mod test {
         let rejection = BlockRejection::new(
             Sha512Trunc256Sum([2u8; 32]),
             RejectCode::InsufficientSigners(vec![0, 1, 2]),
+        );
+        let serialized_rejection = rejection.serialize_to_vec();
+        let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
+            .expect("Failed to deserialize BlockRejection");
+        assert_eq!(rejection, deserialized_rejection);
+
+        let rejection = BlockRejection::new(
+            Sha512Trunc256Sum([2u8; 32]),
+            RejectCode::NonceTimeout(vec![0, 1, 2]),
+        );
+        let serialized_rejection = rejection.serialize_to_vec();
+        let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
+            .expect("Failed to deserialize BlockRejection");
+        assert_eq!(rejection, deserialized_rejection);
+
+        let rejection = BlockRejection::new(
+            Sha512Trunc256Sum([2u8; 32]),
+            RejectCode::AggregatorError("Test Error".into()),
         );
         let serialized_rejection = rejection.serialize_to_vec();
         let deserialized_rejection = read_next::<BlockRejection, _>(&mut &serialized_rejection[..])
