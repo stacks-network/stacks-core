@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 
-use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
+use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote};
 use blockstack_lib::chainstate::stacks::boot::SIGNERS_VOTING_NAME;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
 use blockstack_lib::net::api::postblock_proposal::BlockValidateResponse;
@@ -54,7 +54,7 @@ pub struct BlockInfo {
     /// The block we are considering
     block: NakamotoBlock,
     /// Our vote on the block if we have one yet
-    vote: Option<Vec<u8>>,
+    vote: Option<NakamotoBlockVote>,
     /// Whether the block contents are valid
     valid: Option<bool>,
     /// The associated packet nonce request if we have one
@@ -528,33 +528,27 @@ impl Signer {
     /// If the request is for a block it has already agreed to sign, it will overwrite the message with the agreed upon value
     /// Returns whether the request is valid or not.
     fn validate_signature_share_request(&self, request: &mut SignatureShareRequest) -> bool {
-        let message_len = request.message.len();
-        // Note that the message must always be either 32 bytes (the block hash) or 33 bytes (block hash + b'n')
-        let hash_bytes = if message_len == 33 && request.message[32] == b'n' {
-            // Pop off the 'n' byte from the block hash
-            &request.message[..32]
-        } else if message_len == 32 {
-            // This is the block hash
-            &request.message
-        } else {
-            // We will only sign across block hashes or block hashes + b'n' byte
-            debug!("Signer #{}: Received a signature share request for an unknown message stream. Reject it.", self.signer_id);
+        let Some(block_vote): Option<NakamotoBlockVote> = read_next(&mut &request.message[..]).ok()
+        else {
+            // We currently reject anything that is not a block vote
+            debug!(
+                "Signer #{}: Received a signature share request for an unknown message stream. Reject it.",
+                self.signer_id
+            );
             return false;
         };
-
-        let Some(hash) = Sha512Trunc256Sum::from_bytes(hash_bytes) else {
-            // We will only sign across valid block hashes
-            debug!("Signer #{}: Received a signature share request for an invalid block hash. Reject it.", self.signer_id);
-            return false;
-        };
-        match self.blocks.get(&hash).map(|block_info| &block_info.vote) {
+        match self
+            .blocks
+            .get(&block_vote.signer_signature_hash)
+            .map(|block_info| &block_info.vote)
+        {
             Some(Some(vote)) => {
                 // Overwrite with our agreed upon value in case another message won majority or the coordinator is trying to cheat...
                 debug!(
-                    "Signer #{}: set vote for {hash} to {vote:?}",
-                    self.signer_id
+                    "Signer #{}: set vote for {} to {vote:?}",
+                    self.signer_id, block_vote.rejected
                 );
-                request.message = vote.clone();
+                request.message = vote.serialize_to_vec();
                 true
             }
             Some(None) => {
@@ -583,7 +577,7 @@ impl Signer {
         stacks_client: &StacksClient,
         nonce_request: &mut NonceRequest,
     ) -> bool {
-        let Some(block) = read_next::<NakamotoBlock, _>(&mut &nonce_request.message[..]).ok()
+        let Some(block): Option<NakamotoBlock> = read_next(&mut &nonce_request.message[..]).ok()
         else {
             // We currently reject anything that is not a block
             debug!(
@@ -901,22 +895,28 @@ impl Signer {
         block_info: &mut BlockInfo,
         nonce_request: &mut NonceRequest,
     ) {
-        let mut vote_bytes = block_info.block.header.signer_signature_hash().0.to_vec();
-        // Validate the block contents
-        if !block_info.valid.unwrap_or(false) {
-            // We don't like this block. Update the request to be across its hash with a byte indicating a vote no.
+        let rejected = !block_info.valid.unwrap_or(false);
+        if rejected {
             debug!(
-                "Signer #{}: Updating the request with a block hash with a vote no.",
-                signer_id
+                "Signer #{}: Rejecting block {}",
+                signer_id,
+                block_info.block.block_id()
             );
-            vote_bytes.push(b'n');
         } else {
-            debug!("Signer #{}: The block passed validation. Update the request with the signature hash.", signer_id);
+            debug!(
+                "Signer #{}: Accepting block {}",
+                signer_id,
+                block_info.block.block_id()
+            );
         }
-
+        let block_vote = NakamotoBlockVote {
+            signer_signature_hash: block_info.block.header.signer_signature_hash(),
+            rejected: !block_info.valid.unwrap_or(false),
+        };
+        let block_vote_bytes = block_vote.serialize_to_vec();
         // Cache our vote
-        block_info.vote = Some(vote_bytes.clone());
-        nonce_request.message = vote_bytes;
+        block_info.vote = Some(block_vote);
+        nonce_request.message = block_vote_bytes;
     }
 
     /// Verify a chunk is a valid wsts packet. Returns the packet if it is valid, else None.
@@ -1126,43 +1126,24 @@ impl Signer {
     /// broadcasting an appropriate Reject or Approval message to stackerdb
     fn process_signature(&mut self, signature: &Signature) {
         // Deserialize the signature result and broadcast an appropriate Reject or Approval message to stackerdb
-        let Some(aggregate_public_key) = &self.coordinator.get_aggregate_public_key() else {
+        let message = self.coordinator.get_message();
+        let Some(block_vote): Option<NakamotoBlockVote> = read_next(&mut &message[..]).ok() else {
             debug!(
-                "Signer #{}: No aggregate public key set. Cannot validate signature...",
+                "Signer #{}: Received a signature result for a non-block. Nothing to broadcast.",
                 self.signer_id
             );
             return;
         };
-        let message = self.coordinator.get_message();
-        // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
-        let signer_signature_hash_bytes = if message.len() > 32 {
-            &message[..32]
-        } else {
-            &message
-        };
-        let Some(signer_signature_hash) =
-            Sha512Trunc256Sum::from_bytes(signer_signature_hash_bytes)
-        else {
-            debug!("Signer #{}: Received a signature result for a signature over a non-block. Nothing to broadcast.", self.signer_id);
-            return;
-        };
 
         // TODO: proper garbage collection...This is currently our only cleanup of blocks
-        self.blocks.remove(&signer_signature_hash);
+        self.blocks.remove(&block_vote.signer_signature_hash);
 
-        // This signature is no longer valid. Do not broadcast it.
-        if !signature.verify(aggregate_public_key, &message) {
-            warn!("Signer #{}: Received an invalid signature result across the block. Do not broadcast it.", self.signer_id);
-            // TODO: should we reinsert it and trigger a sign round across the block again?
-            return;
-        }
-
-        let block_submission = if message == signer_signature_hash.0.to_vec() {
-            // we agreed to sign the block hash. Return an approval message
-            BlockResponse::accepted(signer_signature_hash, signature.clone()).into()
-        } else {
+        let block_submission = if block_vote.rejected {
             // We signed a rejection message. Return a rejection message
-            BlockResponse::rejected(signer_signature_hash, signature.clone()).into()
+            BlockResponse::rejected(block_vote.signer_signature_hash, signature.clone()).into()
+        } else {
+            // we agreed to sign the block hash. Return an approval message
+            BlockResponse::accepted(block_vote.signer_signature_hash, signature.clone()).into()
         };
 
         // Submit signature result to miners to observe
@@ -1181,58 +1162,24 @@ impl Signer {
     /// Process a sign error from a signing round, broadcasting a rejection message to stackerdb accordingly
     fn process_sign_error(&mut self, e: &SignError) {
         let message = self.coordinator.get_message();
-        let block = read_next::<NakamotoBlock, _>(&mut &message[..]).ok().unwrap_or({
-                // This is not a block so maybe its across its hash
-                // This jankiness is because a coordinator could have signed a rejection we need to find the underlying block hash
-                let signer_signature_hash_bytes = if message.len() > 32 {
-                    &message[..32]
-                } else {
-                    &message
-                };
-                let Some(signer_signature_hash) = Sha512Trunc256Sum::from_bytes(signer_signature_hash_bytes) else {
-                    debug!("Signer #{}: Received a signature result for a signature over a non-block. Nothing to broadcast.", self.signer_id);
-                    return;
-                };
-                let Some(block_info) = self.blocks.remove(&signer_signature_hash) else {
-                    debug!("Signer #{}: Received a signature result for a block we have not seen before. Ignoring...", self.signer_id);
-                    return;
-                };
-                block_info.block
-            });
-        // We don't have enough signers to sign the block. Broadcast a rejection
-        let block_rejection = match e {
-            SignError::NonceTimeout(_valid_signers, malicious_signers) => {
-                //TODO: report these malicious signers
-                debug!(
-                    "Signer #{}: Received a nonce timeout error.",
-                    self.signer_id
-                );
-                BlockRejection::new(
-                    block.header.signer_signature_hash(),
-                    RejectCode::NonceTimeout(malicious_signers.clone()),
-                )
-            }
-            SignError::InsufficientSigners(malicious_signers) => {
-                debug!(
-                    "Signer #{}: Received a insufficient signers error.",
-                    self.signer_id
-                );
-                BlockRejection::new(
-                    block.header.signer_signature_hash(),
-                    RejectCode::InsufficientSigners(malicious_signers.clone()),
-                )
-            }
-            SignError::Aggregator(e) => {
-                warn!(
-                    "Signer #{}: Received an aggregator error: {e:?}",
-                    self.signer_id
-                );
-                BlockRejection::new(
-                    block.header.signer_signature_hash(),
-                    RejectCode::AggregatorError(e.to_string()),
-                )
-            }
-        };
+        // We do not sign across blocks, but across their hashes. however, the first sign request is always across the block
+        // so we must handle this case first
+
+        let block: NakamotoBlock = read_next(&mut &message[..]).ok().unwrap_or({
+            // This is not a block so maybe its across its hash
+            let Some(block_vote): Option<NakamotoBlockVote> = read_next(&mut &message[..]).ok() else {
+                // This is not a block vote either. We cannot process this error
+                debug!("Signer #{}: Received a signature error for a non-block. Nothing to broadcast.", self.signer_id);
+                return;
+            };
+            let Some(block_info) = self.blocks.remove(&block_vote.signer_signature_hash) else {
+                debug!("Signer #{}: Received a signature result for a block we have not seen before. Ignoring...", self.signer_id);
+                return;
+            };
+            block_info.block
+        });
+        let block_rejection =
+            BlockRejection::new(block.header.signer_signature_hash(), RejectCode::from(e));
         debug!(
             "Signer #{}: Broadcasting block rejection: {block_rejection:?}",
             self.signer_id

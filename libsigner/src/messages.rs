@@ -49,7 +49,7 @@ use wsts::net::{
     SignatureShareRequest, SignatureShareResponse,
 };
 use wsts::schnorr::ID;
-use wsts::state_machine::signer;
+use wsts::state_machine::{signer, SignError};
 
 use crate::http::{decode_http_body, decode_http_request};
 use crate::EventError;
@@ -181,7 +181,7 @@ pub enum SignerMessage {
 impl SignerMessage {
     /// Helper function to determine the slot ID for the provided stacker-db writer id
     pub fn msg_id(&self) -> u32 {
-        let msg_id = match self {
+        match self {
             Self::Packet(packet) => match packet.msg {
                 Message::DkgBegin(_) => DKG_BEGIN_MSG_ID,
                 Message::DkgPrivateBegin(_) => DKG_PRIVATE_BEGIN_MSG_ID,
@@ -196,8 +196,7 @@ impl SignerMessage {
             },
             Self::BlockResponse(_) => BLOCK_MSG_ID,
             Self::Transactions(_) => TRANSACTIONS_MSG_ID,
-        };
-        msg_id
+        }
     }
 }
 
@@ -263,10 +262,7 @@ impl StacksMessageCodecExtensions for Point {
         let compressed_bytes: Vec<u8> = read_next(fd)?;
         let compressed = Compressed::try_from(compressed_bytes.as_slice())
             .map_err(|e| CodecError::DeserializeError(e.to_string()))?;
-        Ok(
-            Point::try_from(&compressed)
-                .map_err(|e| CodecError::DeserializeError(e.to_string()))?,
-        )
+        Point::try_from(&compressed).map_err(|e| CodecError::DeserializeError(e.to_string()))
     }
 }
 
@@ -954,11 +950,25 @@ pub enum RejectCode {
     ConnectivityIssues,
 }
 
+impl From<&SignError> for RejectCode {
+    fn from(err: &SignError) -> Self {
+        match err {
+            SignError::NonceTimeout(_valid_signers, malicious_signers) => {
+                Self::NonceTimeout(malicious_signers.clone())
+            }
+            SignError::InsufficientSigners(malicious_signers) => {
+                Self::InsufficientSigners(malicious_signers.clone())
+            }
+            SignError::Aggregator(e) => Self::AggregatorError(e.to_string()),
+        }
+    }
+}
+
 impl StacksMessageCodec for RejectCode {
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
         write_next(fd, &(RejectCodeTypePrefix::from(self) as u8))?;
         match self {
-            RejectCode::ValidationFailed(code) => write_next(fd, &(code.clone() as u8))?,
+            RejectCode::ValidationFailed(code) => write_next(fd, &(*code as u8))?,
             RejectCode::SignedRejection(sig) => write_next(fd, sig)?,
             RejectCode::InsufficientSigners(malicious_signers)
             | RejectCode::NonceTimeout(malicious_signers) => write_next(fd, malicious_signers)?,

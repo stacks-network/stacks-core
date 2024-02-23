@@ -33,7 +33,7 @@ use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::miner::{NakamotoBlockBuilder, NakamotoTenureInfo};
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockVote, NakamotoChainState};
 use stacks::chainstate::stacks::boot::MINERS_NAME;
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
@@ -43,7 +43,7 @@ use stacks::chainstate::stacks::{
 };
 use stacks::core::FIRST_BURNCHAIN_CONSENSUS_HASH;
 use stacks::net::stackerdb::StackerDBs;
-use stacks_common::codec::read_next;
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
@@ -439,8 +439,11 @@ impl BlockMinerThread {
                         }
                         if let RejectCode::SignedRejection(signature) = block_rejection.reason_code
                         {
-                            let mut message = signer_signature_hash.0.to_vec();
-                            message.push(b'n');
+                            let block_vote = NakamotoBlockVote {
+                                signer_signature_hash: *signer_signature_hash,
+                                rejected: true,
+                            };
+                            let message = block_vote.serialize_to_vec();
                             if signature.0.verify(aggregate_public_key, &message) {
                                 // A threshold number of signers signed a denial of the proposed block
                                 // Miner will NEVER get a signed block from the signers for this particular block

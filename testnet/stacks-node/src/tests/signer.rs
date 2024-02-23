@@ -15,14 +15,14 @@ use stacks::burnchains::Txid;
 use stacks::chainstate::burn::ConsensusHashExtensions;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
-use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader};
+use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote};
 use stacks::chainstate::stacks::boot::SIGNERS_NAME;
 use stacks::chainstate::stacks::miner::TransactionEvent;
 use stacks::chainstate::stacks::{StacksPrivateKey, StacksTransaction, ThresholdSignature};
 use stacks::core::StacksEpoch;
 use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks_common::bitvec::BitVec;
-use stacks_common::codec::read_next;
+use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey, TrieHash};
 use stacks_common::types::StacksEpochId;
@@ -801,9 +801,12 @@ fn stackerdb_dkg_sign() {
     };
     block.header.tx_merkle_root = tx_merkle_root;
 
-    // The block is invalid so the signers should return a signature across its hash + b'n'
-    let mut msg = block.header.signer_signature_hash().0.to_vec();
-    msg.push(b'n');
+    // The block is invalid so the signers should return a signature across a rejection
+    let block_vote = NakamotoBlockVote {
+        signer_signature_hash: block.header.signer_signature_hash(),
+        rejected: true,
+    };
+    let msg = block_vote.serialize_to_vec();
 
     let timeout = Duration::from_secs(200);
     let mut signer_test = SignerTest::new(10);
