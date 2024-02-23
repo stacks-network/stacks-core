@@ -44,7 +44,7 @@ features = ["blob", "serde_json", "i128_blob", "bundled", "trace"]
 optional = true
 
 [dependencies.time]
-version = "0.2.23"
+version = "0.3.34"
 features = ["std"]
 
 [dev-dependencies]

@@ -838,7 +838,7 @@ dependencies = [
  "sha2-asm 0.5.5",
  "slog",
  "stacks-common 0.0.2 (git+https://github.com/stacks-network/stacks-core.git?branch=feat/clarity-wasm-next)",
- "time 0.2.27",
+ "time 0.3.34",
  "wasmtime",
 ]
 
@@ -1986,7 +1986,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.4.10",
+ "socket2 0.5.5",
  "tokio",
  "tower-service",
  "tracing",
@@ -2661,6 +2661,12 @@ dependencies = [
  "overload",
  "winapi 0.3.9",
 ]
+
+[[package]]
+name = "num-conv"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
 
 [[package]]
 name = "num-traits"
@@ -3966,7 +3972,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "time 0.3.31",
+ "time 0.3.34",
 ]
 
 [[package]]
@@ -3979,7 +3985,7 @@ dependencies = [
  "slog",
  "term",
  "thread_local",
- "time 0.3.31",
+ "time 0.3.34",
 ]
 
 [[package]]
@@ -4073,7 +4079,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
- "time 0.2.27",
+ "time 0.3.34",
  "winapi 0.3.9",
  "wsts",
 ]
@@ -4531,18 +4537,19 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.31"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f657ba42c3f86e7680e53c8cd3af8abbe56b5491790b46e22e19c0d57463583e"
+checksum = "c8248b6521bb14bc45b4067159b9b6ad792e2d6d754d6c41fb50e29fefe38749"
 dependencies = [
  "deranged",
  "itoa",
  "libc",
+ "num-conv",
  "num_threads",
  "powerfmt",
  "serde",
  "time-core",
- "time-macros 0.2.16",
+ "time-macros 0.2.17",
 ]
 
 [[package]]
@@ -4563,10 +4570,11 @@ dependencies = [
 
 [[package]]
 name = "time-macros"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26197e33420244aeb70c3e8c78376ca46571bc4e701e4791c2cd9f57dcb3a43f"
+checksum = "7ba3a3ef41e6672a2f0f001392bb5dcd3ff0a9992d618ca761a11c3121547774"
 dependencies = [
+ "num-conv",
  "time-core",
 ]
 

@@ -75,7 +75,7 @@ features = ["serde"]
 optional = true
 
 [dependencies.time]
-version = "0.2.23"
+version = "0.3.34"
 features = ["std"]
 
 [dev-dependencies]
