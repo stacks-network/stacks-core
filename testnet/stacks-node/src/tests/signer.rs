@@ -12,7 +12,6 @@ use libsigner::{
     BLOCK_MSG_ID,
 };
 use stacks::burnchains::Txid;
-use stacks::chainstate::burn::ConsensusHashExtensions;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoBlockVote};
@@ -24,13 +23,12 @@ use stacks::net::api::postblock_proposal::BlockValidateResponse;
 use stacks_common::bitvec::BitVec;
 use stacks_common::codec::{read_next, StacksMessageCodec};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, StacksPublicKey, TrieHash};
+use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_signer::client::{StackerDB, StacksClient};
 use stacks_signer::config::{build_signer_config_tomls, GlobalConfig as SignerConfig, Network};
-use stacks_signer::coordinator::CoordinatorSelector;
 use stacks_signer::runloop::RunLoopCommand;
 use stacks_signer::signer::Command as SignerCommand;
 use tracing_subscriber::prelude::*;
@@ -366,6 +364,7 @@ impl SignerTest {
     }
 
     fn wait_for_dkg(&mut self, timeout: Duration) -> Point {
+        debug!("Waiting for DKG...");
         let mut key = Point::default();
         let dkg_now = Instant::now();
         for recv in self.result_receivers.iter() {
@@ -402,10 +401,12 @@ impl SignerTest {
                 "Failed to get aggregate public key within {timeout:?}"
             ));
         }
+        debug!("Finished waiting for DKG!");
         key
     }
 
     fn wait_for_frost_signatures(&mut self, timeout: Duration) -> Vec<Signature> {
+        debug!("Waiting for frost signatures...");
         let mut results = Vec::new();
         let sign_now = Instant::now();
         for recv in self.result_receivers.iter() {
@@ -443,10 +444,12 @@ impl SignerTest {
                 .expect(&format!("Failed to get frost signature within {timeout:?}"));
             results.push(frost_signature);
         }
+        debug!("Finished waiting for frost signatures!");
         results
     }
 
     fn wait_for_taproot_signatures(&mut self, timeout: Duration) -> Vec<SchnorrProof> {
+        debug!("Waiting for taproot signatures...");
         let mut results = vec![];
         let sign_now = Instant::now();
         for recv in self.result_receivers.iter() {
@@ -484,6 +487,7 @@ impl SignerTest {
             ));
             results.push(schnorr_proof);
         }
+        debug!("Finished waiting for taproot signatures!");
         results
     }
 
@@ -513,45 +517,6 @@ impl SignerTest {
             .get_burnchain()
             .block_height_to_reward_cycle(block_height)
             .unwrap()
-    }
-
-    // Will panic if called on a reward cycle that has not had its signers calculated yet
-    fn get_coordinator_sender(&self, reward_cycle: u64) -> &Sender<RunLoopCommand> {
-        debug!(
-            "Getting current coordinator for reward cycle {:?}",
-            reward_cycle
-        );
-        // Calculate which signer is the coordinator
-        let registered_signers_info = &self
-            .stacks_client
-            .get_registered_signers_info(reward_cycle)
-            .unwrap()
-            .unwrap();
-
-        // TODO: do not use the zeroed consensus hash here
-        let coordinator_id = *CoordinatorSelector::calculate_coordinator_ids(
-            &registered_signers_info.public_keys,
-            &ConsensusHash::empty(),
-        )
-        .first()
-        .expect("No coordinator found");
-        let coordinator_pk = registered_signers_info
-            .public_keys
-            .signers
-            .get(&coordinator_id)
-            .expect("No coordinator found");
-        let coordinator_index = self
-            .signer_stacks_private_keys
-            .iter()
-            .position(|sk| {
-                let pubkey = StacksPublicKey::from_private(sk);
-                let coordinator_pk_bytes = coordinator_pk.to_bytes();
-                let pubkey_bytes = pubkey.to_bytes_compressed();
-                coordinator_pk_bytes.as_slice() == pubkey_bytes.as_slice()
-            })
-            .unwrap();
-        debug!("Coordinator is {coordinator_id:?} ({coordinator_pk:?}). Command sender found at index: {coordinator_index:?}");
-        self.signer_cmd_senders.get(coordinator_index).unwrap()
     }
 
     fn get_signer_index(&self, reward_cycle: u64) -> u32 {
@@ -789,25 +754,23 @@ fn stackerdb_dkg() {
 
     info!("------------------------- Test DKG -------------------------");
     let reward_cycle = signer_test.get_current_reward_cycle().saturating_add(1);
-    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
 
     // Determine the coordinator of the current node height
     info!("signer_runloop: spawn send commands to do dkg");
     let dkg_now = Instant::now();
-    coordinator_sender
-        .send(RunLoopCommand {
-            reward_cycle,
-            command: SignerCommand::Dkg,
-        })
-        .expect("failed to send DKG command");
+    for sender in signer_test.signer_cmd_senders.iter() {
+        sender
+            .send(RunLoopCommand {
+                reward_cycle,
+                command: SignerCommand::Dkg,
+            })
+            .expect("failed to send DKG command");
+    }
     let new_key = signer_test.wait_for_dkg(timeout);
     let dkg_elapsed = dkg_now.elapsed();
     assert_ne!(new_key, key);
 
     info!("DKG Time Elapsed: {:.2?}", dkg_elapsed);
-    // TODO: look into this. Cannot get this to NOT hang unless I wait a bit...
-    std::thread::sleep(Duration::from_secs(1));
-    signer_test.shutdown();
 }
 
 #[test]
@@ -868,6 +831,7 @@ fn stackerdb_sign() {
     let reward_cycle = signer_test.get_current_reward_cycle();
     // Determine the coordinator of the current node height
     info!("signer_runloop: spawn send commands to do sign");
+    let sign_now = Instant::now();
     let sign_command = RunLoopCommand {
         reward_cycle,
         command: SignerCommand::Sign {
@@ -884,14 +848,14 @@ fn stackerdb_sign() {
             merkle_root: None,
         },
     };
-    let coordinator_sender = signer_test.get_coordinator_sender(reward_cycle);
-    let sign_now = Instant::now();
-    coordinator_sender
-        .send(sign_command)
-        .expect("failed to send Sign command");
-    coordinator_sender
-        .send(sign_taproot_command)
-        .expect("failed to send Sign taproot command");
+    for sender in signer_test.signer_cmd_senders.iter() {
+        sender
+            .send(sign_command.clone())
+            .expect("failed to send sign command");
+        sender
+            .send(sign_taproot_command.clone())
+            .expect("failed to send sign taproot command");
+    }
     let frost_signatures = signer_test.wait_for_frost_signatures(timeout);
     let schnorr_proofs = signer_test.wait_for_taproot_signatures(timeout);
 
@@ -909,7 +873,7 @@ fn stackerdb_sign() {
 
     info!("------------------------- Test Block Accepted -------------------------");
 
-    // Verify the signers accepted the proposed block
+    // Verify the signers rejected the proposed block
     let t_start = Instant::now();
     let mut chunk = None;
     while chunk.is_none() {
@@ -946,7 +910,6 @@ fn stackerdb_sign() {
         panic!("Received unexpected message: {:?}", &signer_message);
     }
     info!("Sign Time Elapsed: {:.2?}", sign_elapsed);
-    signer_test.shutdown();
 }
 
 #[test]
