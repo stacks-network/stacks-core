@@ -566,7 +566,6 @@ const SORTITION_DB_INITIAL_SCHEMA: &'static [&'static str] = &[
         reward_addr TEXT NOT NULL,
         stacked_ustx TEXT NOT NULL,
         num_cycles INTEGER NOT NULL,
-        signer_key TEXT NOT NULL,
 
         -- The primary key here is (txid, burn_header_hash) because 
         -- this transaction will be accepted regardless of which sortition
@@ -674,6 +673,7 @@ const SORTITION_DB_SCHEMA_8: &'static [&'static str] = &[
         block_hash TEXT NOT NULL,
         block_height INTEGER NOT NULL
     );"#,
+    r#"ALTER TABLE stack_stx ADD signer_key TEXT DEFAULT NULL;"#,
 ];
 
 const SORTITION_DB_INDEXES: &'static [&'static str] = &[

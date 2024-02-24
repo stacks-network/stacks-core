@@ -23,8 +23,9 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use lazy_static::lazy_static;
 use libsigner::{SignerSession, StackerDBSession};
-use stacks::burnchains::MagicBytes;
+use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
+use stacks::chainstate::burn::operations::{BlockstackOperationType, PreStxOp, StackStxOp};
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
@@ -55,14 +56,16 @@ use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey,
 };
+use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use crate::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use crate::neon::{Counters, RunLoopCounter};
+use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info_result, get_pox_info, next_block_and_wait,
@@ -1890,4 +1893,233 @@ fn miner_writes_proposed_block_to_stackerdb() {
         proposed_zero_block_hash,
         "Observed miner hash should match the proposed block read from StackerDB (after zeroing signatures)"
     );
+}
+
+#[test]
+#[ignore]
+fn stack_stx_burn_op_integration_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let _http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
+    let signer_sk = Secp256k1PrivateKey::new();
+    let signer_addr = tests::to_addr(&signer_sk);
+
+    naka_conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    let observer_port = test_observer::EVENT_OBSERVER_PORT;
+    naka_conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{observer_port}"),
+        events_keys: vec![EventKeyType::AnyEvent],
+    });
+
+    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_vrfs: vrfs_submitted,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk],
+        &[signer_sk],
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let _sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (_chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    // first block wakes up the run loop, wait until a key registration has been submitted.
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let vrf_count = vrfs_submitted.load(Ordering::SeqCst);
+        Ok(vrf_count >= 1)
+    })
+    .unwrap();
+
+    // second block should confirm the VRF register, wait until a block commit is submitted
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        Ok(commits_count >= 1)
+    })
+    .unwrap();
+
+    // submit a pre-stx op
+    let mut miner_signer = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
+    info!("Submitting pre-stx op");
+    let pre_stx_op = PreStxOp {
+        output: signer_addr.clone(),
+        // to be filled in
+        txid: Txid([0u8; 32]),
+        vtxindex: 0,
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash([0u8; 32]),
+    };
+
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::PreStx(pre_stx_op),
+                &mut miner_signer,
+                1
+            )
+            .is_some(),
+        "Pre-stx operation should submit successfully"
+    );
+
+    // Mine until the next prepare phase
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+    let prepare_phase_start = btc_regtest_controller
+        .get_burnchain()
+        .pox_constants
+        .prepare_phase_start(
+            btc_regtest_controller.get_burnchain().first_block_height,
+            reward_cycle,
+        );
+
+    let blocks_until_prepare = prepare_phase_start + 1 - block_height;
+
+    info!(
+        "Mining until prepare phase start.";
+        "prepare_phase_start" => prepare_phase_start,
+        "block_height" => block_height,
+        "blocks_until_prepare" => blocks_until_prepare,
+    );
+
+    for _i in 0..(blocks_until_prepare) {
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+    }
+
+    let reward_cycle = reward_cycle + 1;
+
+    info!(
+        "Submitting stack stx op";
+        "block_height" => block_height,
+        "reward_cycle" => reward_cycle,
+    );
+
+    let stacker_pk = StacksPublicKey::from_private(&stacker_sk);
+    let signer_key_arg: StacksPublicKeyBuffer = stacker_pk.to_bytes_compressed().as_slice().into();
+
+    let stack_stx_op = StackStxOp {
+        sender: signer_addr.clone(),
+        reward_addr: PoxAddress::Standard(signer_addr, None),
+        stacked_ustx: 100000,
+        num_cycles: 4,
+        signer_key: Some(signer_key_arg),
+        // to be filled in
+        vtxindex: 0,
+        txid: Txid([0u8; 32]),
+        block_height: 0,
+        burn_header_hash: BurnchainHeaderHash::zero(),
+    };
+
+    let mut signer_burnop_signer = BurnchainOpSigner::new(signer_sk.clone(), false);
+    assert!(
+        btc_regtest_controller
+            .submit_operation(
+                StacksEpochId::Epoch30,
+                BlockstackOperationType::StackStx(stack_stx_op),
+                &mut signer_burnop_signer,
+                1
+            )
+            .is_some(),
+        "Stack STX operation should submit successfully"
+    );
+
+    info!("Submitted stack STX op at height {block_height}, mining a few blocks...");
+
+    // the second block should process the vote, after which the balances should be unchanged
+    for _i in 0..2 {
+        next_block_and_mine_commit(
+            &mut btc_regtest_controller,
+            60,
+            &coord_channel,
+            &commits_submitted,
+        )
+        .unwrap();
+    }
+
+    let mut stack_stx_found = false;
+    let blocks = test_observer::get_blocks();
+    info!("stack event observer num blocks: {:?}", blocks.len());
+    for block in blocks.iter() {
+        let transactions = block.get("transactions").unwrap().as_array().unwrap();
+        info!(
+            "stack event observer num transactions: {:?}",
+            transactions.len()
+        );
+        for tx in transactions.iter() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                info!("Found a burn op: {:?}", tx);
+                let burnchain_op = tx.get("burnchain_op").unwrap().as_object().unwrap();
+                if !burnchain_op.contains_key("stack_stx") {
+                    warn!("Got unexpected burnchain op: {:?}", burnchain_op);
+                    panic!("unexpected btc transaction type");
+                }
+                let stack_stx_obj = burnchain_op.get("stack_stx").unwrap();
+                let signer_key_found = stack_stx_obj
+                    .get("signer_key")
+                    .expect("Expected signer_key in burn op")
+                    .as_str()
+                    .unwrap();
+                assert_eq!(signer_key_found, signer_key_arg.to_hex());
+
+                stack_stx_found = true;
+            }
+        }
+    }
+    assert!(stack_stx_found, "Expected stack STX op");
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
 }

@@ -177,9 +177,10 @@ impl StackStxOp {
     fn parse_data(data: &Vec<u8>) -> Option<ParsedData> {
         /*
             Wire format:
-            0      2  3                             19           20                   54
-            |------|--|-----------------------------|------------|---------------------|
-            magic  op         uSTX to lock (u128)     cycles (u8)    signing key
+            0      2  3                             19           20    21                 54
+            |------|--|-----------------------------|------------|-----|-------------------|
+            magic  op         uSTX to lock (u128)     cycles (u8) option     signing key
+                                                                  marker
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
 
@@ -356,9 +357,10 @@ impl StacksMessageCodec for PreStxOp {
 
 impl StacksMessageCodec for StackStxOp {
     /*
-            0      2  3                             19           20                   54
-            |------|--|-----------------------------|------------|---------------------|
-            magic  op         uSTX to lock (u128)     cycles (u8)    signing key
+            0      2  3                             19           20    21                 54
+            |------|--|-----------------------------|------------|-----|-------------------|
+            magic  op         uSTX to lock (u128)     cycles (u8) option     signing key
+                                                                  marker
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
         write_next(fd, &(Opcodes::StackStx as u8))?;

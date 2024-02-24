@@ -4178,10 +4178,12 @@ impl StacksChainState {
                 // Passing None for signer-sig
                 args.push(Value::none());
 
-                let signer_key_value = signer_key
-                    .as_ref()
-                    .expect("signer_key is required for pox-4");
-                args.push(Value::buff_from(signer_key_value.as_bytes().to_vec()).unwrap());
+                if let Some(signer_key_value) = signer_key {
+                    args.push(Value::buff_from(signer_key_value.as_bytes().to_vec()).unwrap());
+                } else {
+                    warn!("Skipping StackStx operation for txid: {}, burn_block: {} because signer_key is required for pox-4 but not provided.", txid, burn_header_hash);
+                    continue;
+                }
             }
             let result = clarity_tx.connection().as_transaction(|tx| {
                 tx.run_contract_call(
