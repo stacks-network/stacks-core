@@ -237,11 +237,9 @@ impl Signer {
         match command {
             Command::Dkg => {
                 if self.approved_aggregate_public_key.is_some() {
-                    // We do not enforce a block contain any transactions except the aggregate votes when it is NOT already set
                     debug!("Signer #{}: Already have an aggregate key for reward cycle {}. Ignoring DKG command.", self.signer_id, self.reward_cycle);
                     return;
                 }
-                // If we do, we should not start a new DKG
                 let vote_round = match retry_with_exponential_backoff(|| {
                     stacks_client
                         .get_last_round(self.reward_cycle)
@@ -278,7 +276,6 @@ impl Signer {
                 merkle_root,
             } => {
                 if self.approved_aggregate_public_key.is_none() {
-                    // We cannot sign a block if we do not have an approved aggregate public key
                     debug!("Signer #{}: Cannot sign a block without an approved aggregate public key. Ignore it.", self.signer_id);
                     return;
                 }
@@ -1074,7 +1071,7 @@ impl Signer {
         if epoch >= StacksEpochId::Epoch30 {
             debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.", self.signer_id);
         } else if epoch == StacksEpochId::Epoch25 {
-            debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction to the mempool.", self.signer_id);
+            debug!("Signer #{}: Received a DKG result while in epoch 2.5. Broadcast the transaction to the mempool.", self.signer_id);
             stacks_client.submit_transaction(&new_transaction)?;
             info!(
                 "Signer #{}: Submitted DKG vote transaction ({txid:?}) to the mempool",
