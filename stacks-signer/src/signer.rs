@@ -1071,7 +1071,7 @@ impl Signer {
         current_reward_cycle: u64,
     ) -> Result<(), ClientError> {
         let txid = new_transaction.txid();
-        if epoch > StacksEpochId::Epoch30 {
+        if epoch >= StacksEpochId::Epoch30 {
             debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction only to stackerDB.", self.signer_id);
         } else if epoch == StacksEpochId::Epoch25 {
             debug!("Signer #{}: Received a DKG result while in epoch 3.0. Broadcast the transaction to the mempool.", self.signer_id);
