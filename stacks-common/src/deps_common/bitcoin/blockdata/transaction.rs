@@ -291,16 +291,12 @@ impl Transaction {
         } else {
             // sha256d of the concatenation of the previous outpoints, which are each the concatenation
             // of the previous txid and output index
-            let raw_vec = self
-                .input
-                .iter()
-                .flat_map(|inp| {
-                    serialize(&inp.previous_output)
-                        .expect("FATAL: failed to encode previous output")
-                        .into_iter()
-                })
-                .collect::<Vec<_>>();
-
+            let mut raw_vec = vec![];
+            for inp in self.input.iter() {
+                let mut prev_output_bytes = serialize(&inp.previous_output)
+                    .expect("FATAL: failed to encode previous output");
+                raw_vec.append(&mut prev_output_bytes);
+            }
             Sha256dHash::from_data(&raw_vec)
         }
     }
@@ -315,11 +311,10 @@ impl Transaction {
             Sha256dHash([0u8; 32])
         } else {
             // sha256d of the concatenation of the nSequences
-            let raw_vec = self
-                .input
-                .iter()
-                .flat_map(|inp| inp.sequence.to_le_bytes())
-                .collect::<Vec<_>>();
+            let mut raw_vec = vec![];
+            for inp in self.input.iter() {
+                raw_vec.extend_from_slice(&inp.sequence.to_le_bytes());
+            }
             Sha256dHash::from_data(&raw_vec)
         }
     }
