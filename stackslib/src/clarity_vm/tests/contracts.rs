@@ -596,6 +596,8 @@ fn trait_with_trait_invocation_cross_epoch() {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
+            test_debug!("using clarity version {:?}", clarity_version);
+            
             let (ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &math_contract_id,

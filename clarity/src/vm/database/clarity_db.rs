@@ -848,27 +848,6 @@ impl<'a> ClarityDatabase<'a> {
         ))
     }
 
-    pub fn get_contract_analysis(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        epoch: &StacksEpochId
-    ) -> Result<Option<ContractAnalysis>> {
-        Ok(with_clarity_cache(|cache| cache.try_get_contract_analysis(contract_identifier))
-            .map(|x| x.clone())
-            .or_else(|| {
-                self.store.get_contract_analysis(contract_identifier).ok()?
-                    .map(|x| {
-                        let mut analysis = x.clone();
-                        analysis.canonicalize_types(epoch);
-                        with_clarity_cache(|cache|
-                            cache.push_contract_analysis(contract_identifier.clone(), analysis.clone())
-                        );
-                        analysis
-                    })
-            })
-        )
-    }
-
     pub fn get_contract2(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -2307,6 +2286,27 @@ impl<'a> ClarityDatabase<'a> {
 
 // contract analysis
 impl<'a> ClarityDatabase<'a> {
+    pub fn get_contract_analysis(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        epoch: &StacksEpochId
+    ) -> Result<Option<ContractAnalysis>> {
+        Ok(with_clarity_cache(|cache| cache.try_get_contract_analysis(contract_identifier))
+            .map(|x| x.clone())
+            .or_else(|| {
+                self.store.get_contract_analysis(contract_identifier).ok()?
+                    .map(|x| {
+                        let mut analysis = x.clone();
+                        analysis.canonicalize_types(epoch);
+                        with_clarity_cache(|cache|
+                            cache.push_contract_analysis(contract_identifier.clone(), analysis.clone())
+                        );
+                        analysis
+                    })
+            })
+        )
+    }
+    
     pub fn get_public_function_type(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,

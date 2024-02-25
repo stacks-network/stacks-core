@@ -199,6 +199,7 @@ impl ContractAnalysis {
 
     /// Canonicalize all types in the contract analysis.
     pub fn canonicalize_types(&mut self, epoch: &StacksEpochId) {
+        test_debug!("canonicalize_types in {:?} for epoch {epoch}", self.contract_identifier);
         for (_, function_type) in self.private_function_types.iter_mut() {
             *function_type = function_type.canonicalize(epoch);
         }

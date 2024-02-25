@@ -70,7 +70,7 @@ impl MarfedKV {
             .storage_tx()
             .map_err(|err| InterpreterError::DBError(err.to_string()))?;
 
-        SqliteConnection::initialize_conn(&tx, &marf_path)?;
+        SqliteConnection::initialize_conn(&tx, path_str)?;
         tx.commit()
             .map_err(|err| InterpreterError::SqliteError(IncomparableError { err }))?;
 

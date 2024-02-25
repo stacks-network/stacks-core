@@ -1143,6 +1143,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             .global_context
             .database
             .get_contract2(contract_identifier)?;
+        test_debug!("got contract: {contract:?}");
         let func = contract
             .contract_context
             .lookup_function(tx_name)

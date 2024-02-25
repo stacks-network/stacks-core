@@ -29,14 +29,17 @@ use rusqlite::{
 };
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::db_common::tx_busy_handler;
-use stacks_common::util::hash::to_hex;
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use super::structures::{ContractAnalysisData, ContractData, ContractSizeData};
+use super::structures::{ContractAnalysisData, ContractData, ContractSizeData, ClarityDeserializable};
+use crate::vm::analysis::ContractAnalysis;
 use crate::vm::contracts::Contract;
 use crate::vm::database::structures::BlockData;
+use crate::vm::database::ClarityDatabase;
 use crate::vm::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
+use crate::vm::ContractContext;
 
 lazy_static! {
     static ref INIT_LOOKUP: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
@@ -711,6 +714,7 @@ impl SqliteConnection {
         .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
         Self::check_schema(conn)?;
+        Self::check_migrate_contracts(conn)?;
 
         conn.execute("PRAGMA user_version = 1;", NO_PARAMS)
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
@@ -719,9 +723,9 @@ impl SqliteConnection {
     }
 
     pub fn memory() -> Result<Connection> {
-        let contract_db = SqliteConnection::inner_open(":memory:")?;
+        let mut contract_db = SqliteConnection::inner_open(":memory:")?;
         SqliteConnection::initialize_conn(
-            &contract_db, 
+            &mut contract_db, 
             &format!(":memory:{}", thread_rng().gen_range(100000..999999))
         )?;
 
@@ -770,4 +774,88 @@ impl SqliteConnection {
 
         Ok(conn)
     }
+
+    pub fn check_migrate_contracts(conn: &Connection) -> Result<()> {
+        let contracts_in_metadata_table: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM metadata_table WHERE key LIKE '%::contract'", 
+            NO_PARAMS, 
+            |row| row.get(0)
+        ).map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+
+        if contracts_in_metadata_table == 0 {
+            return Ok(());
+        }
+
+        info!("Migrating {contracts_in_metadata_table} contracts from metadata_table to contract table");
+
+        let mut statement = conn.prepare_cached(
+            "SELECT blockhash, key, value FROM metadata_table WHERE key LIKE '%::contract' ORDER BY key ASC"
+        )?;
+
+        let mut results = statement.query(NO_PARAMS)?;
+        while let Some(row) = results.next()? {
+            let blockhash: String = row.get(0)?;
+            let key: String = row.get(1)?;
+            let value: String = row.get(2)?;
+
+            let split = key.split("::").collect::<Vec<&str>>();
+            let contract_data: Contract = Contract::deserialize(&value)
+                .expect("Failed to deserialize contract data");
+
+            let issuer = split[1].to_string();
+            let name = split[2].to_string();
+            let key_prefix = format!("clr-meta::{}::{}::vm-metadata::9", &issuer, &name);
+
+            let mut contract_migration_dto = ContractMigrationDto {
+                block_hash: hex_bytes(&blockhash).expect("Failed to decode blockhash"),
+                issuer: issuer.clone(),
+                name: name.clone(),
+                contract: contract_data,
+                source: None,
+                analysis: None,
+                data_size: None
+            };
+
+            let source_str: String = conn.query_row(
+                "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
+                &[&blockhash, &format!("{}::contract-src", &key_prefix)],
+                |row| row.get(0)
+            ).optional()?
+                .unwrap_or_else(|| panic!("Failed to get source for contract: {} {}", &issuer, &name));
+            contract_migration_dto.source = Some(source_str);
+
+            let data_size: u32 = conn.query_row(
+                "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
+                &[&blockhash, &format!("{}::contract-data-size", &key_prefix)],
+                |row| row.get(0)
+            ).optional()?
+                .unwrap_or_else(|| panic!("Failed to get data size for contract: {} {}", &issuer, &name));
+            contract_migration_dto.data_size = Some(data_size);
+
+            let analysis = conn.query_row(
+                "SELECT value FROM metadata_table WHERE blockhash = ? AND key = ?",
+                &[&blockhash, &format!("clr-meta::{}::{}::analysis", &issuer, &name)],
+                |row| {
+                    let analysis: String = row.get(0)?;
+                    let analysis = ContractAnalysis::deserialize(&analysis)
+                        .expect("msg: Failed to deserialize contract analysis");
+                    Ok(analysis)
+                }
+            ).optional()?
+                .unwrap_or_else(|| panic!("Failed to get analysis for contract: {} {}", &issuer, &name));
+            contract_migration_dto.analysis = Some(analysis);
+        }
+
+        Ok(())
+    }
+}
+
+struct ContractMigrationDto {
+    block_hash: Vec<u8>,
+    issuer: String,
+    name: String,
+    contract: Contract,
+    source: Option<String>,
+    analysis: Option<ContractAnalysis>,
+    data_size: Option<u32>
 }

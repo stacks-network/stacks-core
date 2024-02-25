@@ -12,11 +12,11 @@ use crate::vm::types::QualifiedContractIdentifier;
 
 #[test]
 fn can_create_and_initialize_database() {
-    let conn = SqliteConnection::memory().expect("failed to create in-memory SQLite database");
+    let mut conn = SqliteConnection::memory().expect("failed to create in-memory SQLite database");
 
     // The first call runs this, but let's make sure it's idempotent, and
     // just in-case someone changes that...
-    SqliteConnection::initialize_conn(&conn, "asdf").expect("failed to initialize connection");
+    SqliteConnection::initialize_conn(&mut conn, "asdf").expect("failed to initialize connection");
 
     // The first call runs this, but just in-case someone changes that...
     SqliteConnection::check_schema(&conn).expect("failed to check schema");
