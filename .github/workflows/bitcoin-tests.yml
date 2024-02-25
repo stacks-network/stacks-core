@@ -59,6 +59,7 @@ jobs:
           - tests::neon_integrations::size_overflow_unconfirmed_stream_microblocks_integration_test
           - tests::neon_integrations::stx_delegate_btc_integration_test
           - tests::neon_integrations::stx_transfer_btc_integration_test
+          - tests::neon_integrations::stack_stx_burn_op_test
           - tests::neon_integrations::test_chainwork_first_intervals
           - tests::neon_integrations::test_chainwork_partial_interval
           - tests::neon_integrations::test_flash_block_skip_tenure
@@ -81,6 +82,7 @@ jobs:
           - tests::signer::stackerdb_block_proposal
           - tests::signer::stackerdb_filter_bad_transactions
           - tests::signer::stackerdb_mine_2_nakamoto_reward_cycles
+          - tests::nakamoto_integrations::stack_stx_burn_op_integration_test
     steps:
       ## Setup test environment
       - name: Setup Test Environment
