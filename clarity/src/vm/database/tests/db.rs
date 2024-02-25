@@ -26,7 +26,7 @@ fn contract_exists_using_pending_data() {
     wrapper.nest();
 
     wrapper
-        .put_contract(src, context.clone())
+        .put_contract(&src, context.clone())
         .expect("failed to put contract");
 
     let exists = wrapper
@@ -34,7 +34,7 @@ fn contract_exists_using_pending_data() {
         .expect("failed to check if contract exists");
     assert!(exists);
 
-    let nonexistent_contract_id:QualifiedContractIdentifier = Faker.fake();
+    let nonexistent_contract_id: QualifiedContractIdentifier = Faker.fake();
     let exists = wrapper
         .has_contract(&nonexistent_contract_id)
         .expect("failed to check if contract exists");
@@ -63,11 +63,10 @@ fn contract_exists_using_committed_data() {
     wrapper.nest();
 
     wrapper
-        .put_contract(src, context.clone())
+        .put_contract(&src, context.clone())
         .expect("failed to put contract");
 
-    wrapper.commit()
-        .expect("failed to commit contract");
+    wrapper.commit().expect("failed to commit contract");
 
     // db.insert_contract2(
     //         Contract {
@@ -85,7 +84,7 @@ fn contract_exists_using_committed_data() {
         .expect("failed to check if contract exists");
     assert!(exists);
 
-    let nonexistent_contract_id:QualifiedContractIdentifier = Faker.fake();
+    let nonexistent_contract_id: QualifiedContractIdentifier = Faker.fake();
     let exists = wrapper
         .has_contract(&nonexistent_contract_id)
         .expect("failed to check if contract exists");

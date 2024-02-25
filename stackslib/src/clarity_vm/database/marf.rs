@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection,
@@ -71,7 +70,7 @@ impl MarfedKV {
             .storage_tx()
             .map_err(|err| InterpreterError::DBError(err.to_string()))?;
 
-        SqliteConnection::initialize_conn(&tx)?;
+        SqliteConnection::initialize_conn(&tx, &marf_path)?;
         tx.commit()
             .map_err(|err| InterpreterError::SqliteError(IncomparableError { err }))?;
 
@@ -284,10 +283,6 @@ impl<'a> ReadOnlyMarfStore<'a> {
         ClarityDatabase::new(self, headers_db, burn_state_db)
     }
 
-    pub fn as_analysis_db<'b>(&'b mut self) -> AnalysisDatabase<'b> {
-        AnalysisDatabase::new(self)
-    }
-
     pub fn trie_exists_for_block(&mut self, bhh: &StacksBlockId) -> Result<bool, DatabaseError> {
         self.marf.with_conn(|conn| match conn.has_block(bhh) {
             Ok(res) => Ok(res),
@@ -406,8 +401,8 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
             .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
-                let data =
-                    SqliteConnection::get_data(self.get_side_store(), &side_key)?.ok_or_else(|| {
+                let data = SqliteConnection::get_data(self.get_side_store(), &side_key)?
+                    .ok_or_else(|| {
                         InterpreterError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
@@ -461,10 +456,6 @@ impl<'a> WritableMarfStore<'a> {
         burn_state_db: &'b dyn BurnStateDB,
     ) -> ClarityDatabase<'b> {
         ClarityDatabase::new(self, headers_db, burn_state_db)
-    }
-
-    pub fn as_analysis_db<'b>(&'b mut self) -> AnalysisDatabase<'b> {
-        AnalysisDatabase::new(self)
     }
 
     pub fn rollback_block(self) {
@@ -607,8 +598,8 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
             .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
-                let data =
-                    SqliteConnection::get_data(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
+                let data = SqliteConnection::get_data(self.marf.sqlite_tx(), &side_key)?
+                    .ok_or_else(|| {
                         InterpreterError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key

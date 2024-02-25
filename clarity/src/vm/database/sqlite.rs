@@ -14,24 +14,33 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Mutex;
+
+use lazy_static::lazy_static;
 use exec_time::exec_time;
+use rand::{thread_rng, Rng};
 use rusqlite::types::{FromSql, ToSql};
 use rusqlite::{
-    params, Connection, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row,
-    Savepoint, NO_PARAMS,
+    params, Connection, DatabaseName, Error as SqliteError, ErrorCode as SqliteErrorCode, OptionalExtension, Row, Savepoint, NO_PARAMS
 };
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::db_common::tx_busy_handler;
+use stacks_common::util::hash::to_hex;
 
 use super::structures::{ContractAnalysisData, ContractData, ContractSizeData};
 use crate::vm::contracts::Contract;
 use crate::vm::database::structures::BlockData;
 use crate::vm::errors::{
-    Error, IncomparableError, InterpreterError, RuntimeErrorType,
-    InterpreterResult as Result
+    Error, IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 
-const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
+lazy_static! {
+    static ref INIT_LOOKUP: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+}
 
 pub struct SqliteConnection {
     conn: Connection,
@@ -47,7 +56,7 @@ fn sqlite_put_data(conn: &Connection, key: &str, value: &str) -> Result<()> {
         Ok(_) => Ok(()),
         Err(e) => {
             error!("Failed to insert/replace ({},{}): {:?}", key, value, &e);
-            Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
+            Err(InterpreterError::SqliteError(IncomparableError { err: e }).into())
         }
     }
 }
@@ -66,7 +75,7 @@ fn sqlite_get_data(conn: &Connection, key: &str) -> Result<Option<String>> {
         Ok(x) => Ok(x),
         Err(e) => {
             error!("Failed to query '{}': {:?}", key, &e);
-            Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
+            Err(InterpreterError::SqliteError(IncomparableError { err: e }).into())
         }
     };
 
@@ -95,7 +104,10 @@ impl SqliteConnection {
         bhh: &StacksBlockId,
     ) -> Result<ContractSizeData> {
         test_debug!("get_contract_sizes: {} {} {}", issuer, name, bhh);
-        
+
+        #[cfg(feature = "testing")]
+        Self::print_contracts(conn)?;
+
         let mut statement = conn.prepare_cached(
             "
             SELECT 
@@ -115,7 +127,7 @@ impl SqliteConnection {
             [
                 &issuer as &dyn ToSql,
                 &name as &dyn ToSql,
-                &bhh as &dyn ToSql,
+                &bhh.0.to_vec() as &dyn ToSql,
             ],
             |row| {
                 Ok(ContractSizeData {
@@ -126,7 +138,13 @@ impl SqliteConnection {
             },
         )?;
 
-        test_debug!("get_contract_sizes: {} {} {} -> {:?}", issuer, name, bhh, &result);
+        test_debug!(
+            "get_contract_sizes: {} {} {} -> {:?}",
+            issuer,
+            name,
+            bhh,
+            &result
+        );
 
         Ok(result)
     }
@@ -140,6 +158,10 @@ impl SqliteConnection {
         bhh: &StacksBlockId,
     ) -> Result<bool> {
         test_debug!("contract_exists: {} {} {}", issuer, name, bhh);
+
+        #[cfg(feature = "testing")]
+        Self::print_contracts(conn)?;
+
         let mut statement = conn.prepare_cached(
             "
             SELECT EXISTS(
@@ -159,7 +181,7 @@ impl SqliteConnection {
             [
                 &issuer as &dyn ToSql,
                 &name as &dyn ToSql,
-                &bhh as &dyn ToSql,
+                &bhh.0.to_vec() as &dyn ToSql,
             ],
             |row| Ok(row.get::<_, u32>(0)?),
         )?;
@@ -167,7 +189,17 @@ impl SqliteConnection {
         Ok(result == 1)
     }
 
-    pub fn get_internal_contract_id(conn: &Connection, issuer: &str, name: &str, bhh: &StacksBlockId) -> Result<u32> {
+    pub fn get_internal_contract_id(
+        conn: &Connection,
+        issuer: &str,
+        name: &str,
+        bhh: &StacksBlockId,
+    ) -> Result<Option<u32>> {
+        test_debug!("get_internal_contract_id: {} {} {}", issuer, name, bhh);
+
+        #[cfg(feature = "testing")]
+        Self::print_contracts(conn)?;
+
         let mut statement = conn.prepare_cached(
             "
             SELECT 
@@ -185,10 +217,11 @@ impl SqliteConnection {
             [
                 &issuer as &dyn ToSql,
                 &name as &dyn ToSql,
-                &bhh as &dyn ToSql,
+                &bhh.0.to_vec() as &dyn ToSql,
             ],
             |row| Ok(row.get::<_, u32>(0)?),
-        )?;
+        )
+        .optional()?;
 
         Ok(result)
     }
@@ -222,7 +255,7 @@ impl SqliteConnection {
         let contract_id = match statement.insert([
             &data.issuer as &dyn ToSql,
             &data.name as &dyn ToSql,
-            &bhh as &dyn ToSql,
+            &bhh.0.to_vec() as &dyn ToSql,
             &data.source as &dyn ToSql,
             &data.source_size as &dyn ToSql,
             &data.data_size as &dyn ToSql,
@@ -231,15 +264,23 @@ impl SqliteConnection {
             &data.contract_hash as &dyn ToSql,
         ]) {
             Ok(x) => x,
-            Err(SqliteError::StatementChangedRows(0)) => {
-                warn!("Contract already exists (replaced): {} {} {}", &data.issuer, &data.name, &bhh);
-                Self::get_internal_contract_id(conn, &data.issuer, &data.name, bhh)?.into()
-            },
+            // Err(SqliteError::StatementChangedRows(0)) => {
+            //     warn!(
+            //         "Contract already exists (replaced): {} {} {}",
+            //         &data.issuer, &data.name, &bhh
+            //     );
+            //     Self::get_internal_contract_id(conn, &data.issuer, &data.name, bhh)?
+            //         .expect("Contract was updated but the id was not returned")
+            //         .into()
+            // }
             Err(e) => {
                 error!("Failed to insert contract: {:?}", &e);
-                return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+                return Err(InterpreterError::SqliteError(IncomparableError { err: e }).into());
             }
         };
+
+        #[cfg(feature = "testing")]
+        Self::print_contracts(conn)?;
 
         data.id = contract_id as u32;
 
@@ -250,7 +291,9 @@ impl SqliteConnection {
         conn: &Connection,
         contract_id: u32,
         data: &[u8],
+        size: usize
     ) -> Result<()> {
+        test_debug!("insert_contract_analysis: {}", contract_id);
         let mut statement = conn.prepare_cached(
             "
             INSERT INTO contract_analysis (
@@ -258,16 +301,21 @@ impl SqliteConnection {
                 analysis, 
                 analysis_size
             ) VALUES (
-                ?, ?, ?
+                ?, 
+                ?, 
+                ?
             );
             ",
         )?;
 
         statement.insert([
-            &contract_id as &dyn ToSql,
+            &contract_id,
             &data as &dyn ToSql,
-            &(data.len() as u32) as &dyn ToSql,
+            &(size as u32),
         ])?;
+
+        #[cfg(feature = "testing")]
+        Self::print_contract_analyses(conn)?;
 
         Ok(())
     }
@@ -278,6 +326,15 @@ impl SqliteConnection {
         contract_name: &str,
         bhh: &StacksBlockId,
     ) -> Result<Option<ContractData>> {
+        test_debug!(
+            "get_contract: {} {} {}",
+            contract_issuer,
+            contract_name,
+            bhh
+        );
+
+        #[cfg(feature = "testing")]
+        Self::print_contracts(conn)?;
 
         let mut statement = conn.prepare_cached(
             "
@@ -306,7 +363,7 @@ impl SqliteConnection {
                 [
                     &contract_issuer as &dyn ToSql,
                     &contract_name as &dyn ToSql,
-                    &bhh as &dyn ToSql,
+                    &bhh.0.to_vec() as &dyn ToSql,
                 ],
                 |row| {
                     Ok(ContractData {
@@ -329,8 +386,12 @@ impl SqliteConnection {
 
     pub fn get_contract_analysis(
         conn: &Connection,
-        contract_id: u32,
+        contract_id: u32
     ) -> Result<Option<ContractAnalysisData>> {
+        test_debug!("get_contract_analysis: {}", contract_id);
+        #[cfg(feature = "testing")]
+        Self::print_contract_analyses(conn)?;
+
         let mut statement = conn
             .prepare_cached(
                 "
@@ -347,7 +408,8 @@ impl SqliteConnection {
             .expect("Failed to prepare contract analysis select statement");
 
         let result = statement
-            .query_row([&contract_id as &dyn ToSql], |row| {
+            .query_row(
+                [&contract_id], |row| {
                 Ok(ContractAnalysisData {
                     contract_id: row.get(0)?,
                     analysis: row.get(1)?,
@@ -359,6 +421,68 @@ impl SqliteConnection {
         Ok(result)
     }
 
+    fn print_contracts(conn: &Connection) -> Result<()> {
+        let mut statement = conn.prepare_cached(
+            "
+                SELECT 
+                    id, 
+                    issuer, 
+                    name, 
+                    hex(block_hash)
+                FROM 
+                    contract;
+                ",
+        )?;
+
+        test_debug!("// ENUMERATING CONTRACTS:");
+        let mut results = statement.query(NO_PARAMS)?;
+
+        while let Some(row) = results.next()? {
+            let id: u32 = row.get(0)?;
+            let issuer: String = row.get(1)?;
+            let name: String = row.get(2)?;
+            let block_hash: String = row.get(3)?;
+
+            test_debug!(
+                "// contract id: {}, issuer: {}, name: {}, block_hash {:?}",
+                id,
+                issuer,
+                name,
+                block_hash
+            );
+        }
+
+        Ok(())
+    }
+
+    fn print_contract_analyses(conn: &Connection) -> Result<()> {
+        let mut statement = conn.prepare_cached(
+            "
+                SELECT 
+                    contract_id, 
+                    analysis_size
+                FROM 
+                    contract_analysis;
+                ",
+        )?;
+
+        test_debug!("// ENUMERATING CONTRACT ANALYSES:");
+        let mut results = statement.query(NO_PARAMS)?;
+
+        while let Some(row) = results.next()? {
+            let contract_id: u32 = row.get(0)?;
+            let analysis_size: u32 = row.get(1)?;
+
+            test_debug!(
+                "// contract id: {}, analysis_size: {}",
+                contract_id,
+                analysis_size
+            );
+        }
+
+        Ok(())
+    }
+
     pub fn insert_metadata(
         conn: &Connection,
         bhh: &StacksBlockId,
@@ -367,7 +491,7 @@ impl SqliteConnection {
         value: &str,
     ) -> Result<()> {
         let key = format!("clr-meta::{}::{}", contract_hash, key);
-        let params: [&dyn ToSql; 3] = [&bhh, &key, &value];
+        let params: [&dyn ToSql; 3] = [bhh, &key, &value];
 
         test_debug!("insert_metadata: {} {} {}", &bhh, &key, &value.to_string());
 
@@ -382,7 +506,7 @@ impl SqliteConnection {
                 &value.to_string(),
                 &e
             );
-            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+            return Err(InterpreterError::SqliteError(IncomparableError { err: e }).into());
         }
         Ok(())
     }
@@ -399,12 +523,12 @@ impl SqliteConnection {
         test_debug!("commit_metadata_to: {} -> {}", from, to);
         let params = [to, from];
 
-        let mut statement = conn.prepare_cached(
-            "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?")?;
+        let mut statement =
+            conn.prepare_cached("UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?")?;
 
         if let Err(e) = statement.execute(&params) {
             error!("Failed to update {} to {}: {:?}", &from, &to, &e);
-            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+            return Err(InterpreterError::SqliteError(IncomparableError { err: e }).into());
         }
 
         Self::commit_contracts_to(conn, from, to)
@@ -417,18 +541,21 @@ impl SqliteConnection {
     ) -> Result<()> {
         test_debug!("commit_contract_to: {} -> {}", from, to);
 
-        if from == to {
-            test_debug!("not updating contracts for same block: {} -> {}", from, to);
-            return Ok(());
-        }
+        // if from == to {
+        //     test_debug!("not updating contracts for same block: {} -> {}", from, to);
+        //     return Ok(());
+        // }
 
-        match conn.execute("UPDATE contract SET block_hash = ? WHERE block_hash = ?", &[to, from]) {
+        match conn.execute(
+            "UPDATE contract SET block_hash = ? WHERE block_hash = ?",
+            &[to.0.to_vec(), from.0.to_vec()],
+        ) {
             Ok(rows_updated) => {
                 test_debug!("updated {} contracts from {} to {}", rows_updated, from, to);
-            },
+            }
             Err(e) => {
                 error!("Failed to update {} to {}: {:?}", &from, &to, &e);
-                return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+                return Err(InterpreterError::SqliteError(IncomparableError { err: e }).into());
             }
         }
 
@@ -438,7 +565,7 @@ impl SqliteConnection {
     pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) -> Result<()> {
         if let Err(e) = conn.execute("DELETE FROM metadata_table WHERE blockhash = ?", &[from]) {
             error!("Failed to drop metadata from {}: {:?}", &from, &e);
-            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+            return Err(InterpreterError::SqliteError(IncomparableError { err: e }).into());
         }
 
         Self::delete_contracts_for_block(conn, from)
@@ -447,9 +574,20 @@ impl SqliteConnection {
     pub fn delete_contracts_for_block(conn: &Connection, bhh: &StacksBlockId) -> Result<()> {
         test_debug!("delete_contracts_for_block: {}", bhh);
 
-        if let Err(e) = conn.execute("DELETE FROM contract WHERE block_hash = ?", &[bhh]) {
+        if let Err(e) = conn.execute(
+            "DELETE FROM contract_analysis WHERE contract_id IN (SELECT id FROM contract WHERE block_hash = ?)",
+            &[bhh.0.to_vec()],
+        ) {
+            error!("Failed to delete contract analysis for {}: {:?}", bhh, &e);
+            return Err(InterpreterError::SqliteError(IncomparableError { err: e }).into());
+        }
+
+        if let Err(e) = conn.execute(
+            "DELETE FROM contract WHERE block_hash = ?",
+            &[bhh.0.to_vec()],
+        ) {
             error!("Failed to delete contracts for {}: {:?}", bhh, &e);
-            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+            return Err(InterpreterError::SqliteError(IncomparableError { err: e }).into());
         }
 
         Ok(())
@@ -475,7 +613,7 @@ impl SqliteConnection {
             Ok(x) => Ok(x),
             Err(e) => {
                 error!("Failed to query ({},{}): {:?}", &bhh, &key, &e);
-                Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
+                Err(InterpreterError::SqliteError(IncomparableError { err: e }).into())
             }
         }
     }
@@ -483,10 +621,40 @@ impl SqliteConnection {
     pub fn has_entry(conn: &Connection, key: &str) -> Result<bool> {
         sqlite_has_entry(conn, key)
     }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn contract_count(conn: &Connection) -> u32 {
+        let mut statement = conn.prepare_cached("SELECT COUNT(*) FROM contract")
+            .expect("Failed to prepare contract count statement");
+        let result = statement.query_row(NO_PARAMS, |row| Ok(row.get::<_, u32>(0)?))
+            .expect("Failed to query contract count");
+        result
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn analysis_count(conn: &Connection) -> u32 {
+        let mut statement = conn.prepare_cached("SELECT COUNT(*) FROM contract_analysis")
+            .expect("Failed to prepare contract analysis count statement");
+        let result = statement.query_row(NO_PARAMS, |row| Ok(row.get::<_, u32>(0)?))
+            .expect("Failed to query contract analysis count");
+        result
+    }
 }
 
 impl SqliteConnection {
-    pub fn initialize_conn(conn: &Connection) -> Result<()> {
+    pub fn initialize_conn(conn: &Connection, path_str: &str) -> Result<()> {
+
+        let version = conn.query_row("SELECT * FROM pragma_user_version;", NO_PARAMS, |row| {
+            let version: i64 = row.get(0)?;
+            Ok(version)
+        }).expect("failed to get user version");
+
+        if version > 0 {
+            test_debug!("initialize_conn: {} already initialized", path_str);
+            return Ok(());
+        }
+        test_debug!("initialize_conn: {} initializing", path_str);
+
         conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
             .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
 
@@ -544,12 +712,18 @@ impl SqliteConnection {
 
         Self::check_schema(conn)?;
 
+        conn.execute("PRAGMA user_version = 1;", NO_PARAMS)
+            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+
         Ok(())
     }
 
     pub fn memory() -> Result<Connection> {
         let contract_db = SqliteConnection::inner_open(":memory:")?;
-        SqliteConnection::initialize_conn(&contract_db)?;
+        SqliteConnection::initialize_conn(
+            &contract_db, 
+            &format!(":memory:{}", thread_rng().gen_range(100000..999999))
+        )?;
 
         Ok(contract_db)
     }

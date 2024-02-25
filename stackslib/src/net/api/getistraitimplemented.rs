@@ -16,6 +16,7 @@
 
 use std::io::{Read, Write};
 
+use clarity::types::StacksEpochId;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
@@ -157,9 +158,10 @@ impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
         let data_resp =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 chainstate.maybe_read_only_clarity_tx(&sortdb.index_conn(), &tip, |clarity_tx| {
+                    let epoch = clarity_tx.get_epoch();
                     clarity_tx.with_clarity_db_readonly(|db| {
                         let analysis = db
-                            .load_contract_analysis(&contract_identifier)
+                            .get_contract_analysis(&contract_identifier, &epoch)
                             .ok()
                             .flatten()?;
                         if analysis.implemented_traits.contains(&trait_id) {
@@ -168,7 +170,7 @@ impl RPCRequestHandler for RPCGetIsTraitImplementedRequestHandler {
                             })
                         } else {
                             let trait_defining_contract = db
-                                .load_contract_analysis(&trait_id.contract_identifier)
+                                .get_contract_analysis(&trait_id.contract_identifier, &StacksEpochId::latest())
                                 .ok()
                                 .flatten()?;
                             let trait_definition =

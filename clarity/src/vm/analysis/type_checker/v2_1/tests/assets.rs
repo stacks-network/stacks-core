@@ -23,7 +23,6 @@ use stacks_common::types::StacksEpochId;
 use super::contracts::type_check;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
@@ -119,9 +118,12 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: S
         parse(&tokens_contract_id, FIRST_CLASS_TOKENS, version, epoch).unwrap();
     let mut names_contract = parse(&names_contract_id, ASSET_NAMES, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+      db.test_insert_contract(&tokens_contract_id, FIRST_CLASS_TOKENS);
+      db.test_insert_contract(&names_contract_id, ASSET_NAMES);
+
         type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
         type_check(&names_contract_id, &mut names_contract, db, true)
     })

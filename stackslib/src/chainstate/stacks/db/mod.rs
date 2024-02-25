@@ -21,7 +21,6 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::{fmt, fs, io};
 
-use clarity::vm::analysis::analysis_db::AnalysisDatabase;
 use clarity::vm::analysis::run_analysis;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
@@ -476,13 +475,6 @@ impl<'a, 'b> ClarityConnection for ClarityTx<'a, 'b> {
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase),
     {
         ClarityConnection::with_clarity_db_readonly_owned(&mut self.block, to_do)
-    }
-
-    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
-    {
-        self.block.with_analysis_db_readonly(to_do)
     }
 
     fn get_epoch(&self) -> StacksEpochId {

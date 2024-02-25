@@ -2650,10 +2650,11 @@ mod test {
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
-    use crate::vm::analysis::type_check;
+    use crate::vm::analysis::{type_check, ContractAnalysis};
     use crate::vm::ast::ASTRules;
     use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
+    use crate::vm::database::cache::clear_clarity_cache;
     use crate::vm::database::{
         BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
     };
@@ -2864,7 +2865,8 @@ mod test {
         let contract_id = QualifiedContractIdentifier::local("docs-test").unwrap();
 
         {
-            let mut analysis_db = store.as_analysis_db();
+            let mut clarity_db = store.as_clarity_db();
+
             let whole_contract = segments.join("\n");
             eprintln!("{}", whole_contract);
             let mut parsed = ast::build_ast(
@@ -2876,11 +2878,19 @@ mod test {
             )
             .unwrap()
             .expressions;
+        
+            let analysis = ContractAnalysis::new(
+                contract_id.clone(),
+                parsed.clone(),
+                LimitedCostTracker::new_free(),
+                StacksEpochId::latest(),
+                ClarityVersion::latest());
+            clarity_db.test_insert_contract_with_analysis(&contract_id, &whole_contract, &analysis);
 
             let analysis = type_check(
                 &contract_id,
                 &mut parsed,
-                &mut analysis_db,
+                &mut clarity_db,
                 false,
                 &StacksEpochId::latest(),
                 &ClarityVersion::latest(),
@@ -2902,16 +2912,26 @@ mod test {
             .unwrap()
             .expressions;
 
-            let mut analysis_db = store.as_analysis_db();
+            let mut clarity_db = store.as_clarity_db();
+
+            let analysis = ContractAnalysis::new(
+                contract_id.clone(),
+                parsed.clone(),
+                LimitedCostTracker::new_free(),
+                StacksEpochId::latest(),
+                ClarityVersion::latest());
+            clarity_db.test_insert_contract_with_analysis(&contract_id, &total_example, &analysis);
+
             let analysis = type_check(
                 &contract_id,
                 &mut parsed,
-                &mut analysis_db,
+                &mut clarity_db,
                 false,
                 &StacksEpochId::latest(),
                 &ClarityVersion::latest(),
             )
             .expect("Failed to type check");
+
             type_results.push(
                 analysis
                     .type_map
@@ -2999,6 +3019,7 @@ mod test {
             }
 
             let mut store = MemoryBackingStore::new();
+
             // first, load the samples for contract-call
             // and give the doc environment's contract some STX
             {
@@ -3009,7 +3030,7 @@ mod test {
                 .unwrap();
 
                 {
-                    let mut analysis_db = store.as_analysis_db();
+                    let mut clarity_db = store.as_clarity_db();
                     let mut parsed = ast::build_ast(
                         &contract_id,
                         &token_contract_content,
@@ -3020,10 +3041,12 @@ mod test {
                     .unwrap()
                     .expressions;
 
+                    //clarity_db.test_insert_contract(&contract_id, &token_contract_content);
+
                     type_check(
                         &contract_id,
                         &mut parsed,
-                        &mut analysis_db,
+                        &mut clarity_db,
                         true,
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
@@ -3032,7 +3055,7 @@ mod test {
                 }
 
                 {
-                    let mut analysis_db = store.as_analysis_db();
+                    let mut clarity_db = store.as_clarity_db();
                     let mut parsed = ast::build_ast(
                         &trait_def_id,
                         super::DEFINE_TRAIT_API.example,
@@ -3043,17 +3066,19 @@ mod test {
                     .unwrap()
                     .expressions;
 
+                    //clarity_db.test_insert_contract(&trait_def_id, super::DEFINE_TRAIT_API.example);
+
                     type_check(
                         &trait_def_id,
                         &mut parsed,
-                        &mut analysis_db,
+                        &mut clarity_db,
                         true,
                         &StacksEpochId::latest(),
                         &ClarityVersion::latest(),
                     )
                     .expect("Failed to type check sample-contracts/tokens");
                 }
-
+                
                 let conn = store.as_docs_clarity_db();
                 let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
                 let docs_principal_id = PrincipalData::Contract(docs_test_id);

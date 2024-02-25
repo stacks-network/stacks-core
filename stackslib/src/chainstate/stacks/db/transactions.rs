@@ -966,6 +966,7 @@ impl StacksChainState {
     ) -> Result<StacksTransactionReceipt, Error> {
         match tx.payload {
             TransactionPayload::TokenTransfer(ref addr, ref amount, ref memo) => {
+                test_debug!("token_transfer: {} {} {:?}", addr, amount, memo);
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -1146,6 +1147,7 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::SmartContract(ref smart_contract, ref version_opt) => {
+                test_debug!("smart_contract: {smart_contract:?}");
                 let epoch_id = clarity_tx.get_epoch();
                 let clarity_version = version_opt
                     .unwrap_or(ClarityVersion::default_for_epoch(clarity_tx.get_epoch()));
@@ -1379,6 +1381,7 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::PoisonMicroblock(ref mblock_header_1, ref mblock_header_2) => {
+                test_debug!("poison_microblock: {mblock_header_1:?} {mblock_header_2:?}");
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -1404,6 +1407,7 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::Coinbase(..) => {
+                test_debug!("coinbase");
                 // no-op; not handled here
                 // NOTE: technically, post-conditions are allowed (even if they're non-sensical).
 
@@ -1411,6 +1415,7 @@ impl StacksChainState {
                 Ok(receipt)
             }
             TransactionPayload::TenureChange(ref payload) => {
+                test_debug!("tenure_change: {:?}", payload);
                 // post-conditions are not allowed for this variant, since they're non-sensical.
                 // Their presence in this variant makes the transaction invalid.
                 if tx.post_conditions.len() > 0 {
@@ -1567,10 +1572,11 @@ impl StacksChainState {
 pub mod test {
     use clarity::vm::clarity::TransactionConnection;
     use clarity::vm::contracts::Contract;
+    use clarity::vm::database::NULL_HEADER_DB;
     use clarity::vm::representations::{ClarityName, ContractName};
     use clarity::vm::test_util::{UnitTestBurnStateDB, TEST_BURN_STATE_DB};
     use clarity::vm::tests::TEST_HEADER_DB;
-    use clarity::vm::types::*;
+    use clarity::vm::{types::*, ContractContext};
     use rand::Rng;
     use stacks_common::types::chainstate::SortitionId;
     use stacks_common::util::hash::*;
@@ -10380,8 +10386,7 @@ pub mod test {
                 &"transitive".to_string(),
                 &transitive_trait.to_string(),
                 Some(ClarityVersion::Clarity2),
-            )
-            .unwrap(),
+            ).unwrap()
         );
 
         tx_transitive_trait_clar2.post_condition_mode = TransactionPostConditionMode::Allow;
@@ -10603,8 +10608,7 @@ pub mod test {
         .unwrap_err();
         if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
             check_error,
-        ))) = err
-        {
+        ))) = err {   
         } else {
             panic!("Did not get unchecked interpreter error");
         }

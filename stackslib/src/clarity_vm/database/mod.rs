@@ -1,6 +1,5 @@
 use std::ops::{Deref, DerefMut};
 
-use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
@@ -716,10 +715,6 @@ impl MemoryBackingStore {
         burn_state_db: &'a dyn BurnStateDB,
     ) -> ClarityDatabase<'a> {
         ClarityDatabase::new(self, headers_db, burn_state_db)
-    }
-
-    pub fn as_analysis_db<'a>(&'a mut self) -> AnalysisDatabase<'a> {
-        AnalysisDatabase::new(self)
     }
 }
 

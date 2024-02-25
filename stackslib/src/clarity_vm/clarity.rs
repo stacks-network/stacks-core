@@ -17,7 +17,7 @@
 use std::{error, fmt, thread};
 
 use clarity::vm::analysis::errors::{CheckError, CheckErrors};
-use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use clarity::vm::analysis::ContractAnalysis;
 use clarity::vm::ast::errors::{ParseError, ParseErrors};
 use clarity::vm::ast::{ASTRules, ContractAST};
 use clarity::vm::clarity::TransactionConnection;
@@ -647,18 +647,6 @@ impl<'a, 'b> ClarityConnection for ClarityBlockConnection<'a, 'b> {
         result
     }
 
-    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
-    {
-        let mut db = AnalysisDatabase::new(&mut self.datastore);
-        db.begin();
-        let result = to_do(&mut db);
-        db.roll_back()
-            .expect("FATAL: failed to roll back from read-only context");
-        result
-    }
-
     fn get_epoch(&self) -> StacksEpochId {
         self.epoch
     }
@@ -675,18 +663,6 @@ impl ClarityConnection for ClarityReadOnlyConnection<'_> {
             .as_clarity_db(&self.header_db, &self.burn_state_db);
         db.begin();
         let (result, mut db) = to_do(db);
-        db.roll_back()
-            .expect("FATAL: failed to roll back changes in read-only context");
-        result
-    }
-
-    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
-    {
-        let mut db = self.datastore.as_analysis_db();
-        db.begin();
-        let result = to_do(&mut db);
         db.roll_back()
             .expect("FATAL: failed to roll back changes in read-only context");
         result
@@ -1624,6 +1600,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     where
         F: FnOnce(&mut ClarityTransactionConnection) -> R,
     {
+        //4th f5 press crashes
         let mut tx = self.start_transaction_processing();
         let r = todo(&mut tx);
         tx.commit()
@@ -1666,19 +1643,6 @@ impl<'a, 'b> ClarityConnection for ClarityTransactionConnection<'a, 'b> {
         })
     }
 
-    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R,
-    {
-        self.with_analysis_db(|mut db, cost_tracker| {
-            db.begin();
-            let result = to_do(&mut db);
-            db.roll_back()
-                .expect("FATAL: failed to rollback changes during read-only connection");
-            (cost_tracker, result)
-        })
-    }
-
     fn get_epoch(&self) -> StacksEpochId {
         self.epoch
     }
@@ -1715,67 +1679,131 @@ impl<'a, 'b> TransactionConnection for ClarityTransactionConnection<'a, 'b> {
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<InterpreterError>,
     {
-        using!(self.log, "log", |log| {
-            using!(self.cost_track, "cost tracker", |cost_track| {
-                let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = ClarityDatabase::new_with_rollback_wrapper(
-                    rollback_wrapper,
-                    &self.header_db,
-                    &self.burn_state_db,
-                );
+        // Recursive expansion of using! macro
+        // ====================================
 
-                // wrap the whole contract-call in a claritydb transaction,
-                //   so we can abort on call_back's boolean retun
-                db.begin();
-                let mut vm_env = OwnedEnvironment::new_cost_limited(
-                    self.mainnet,
-                    self.chain_id,
-                    db,
-                    cost_track,
-                    self.epoch,
-                );
-                let result = to_do(&mut vm_env);
-                let (mut db, cost_track) = vm_env
-                    .destruct()
-                    .expect("Failed to recover database reference after executing transaction");
-                // DO NOT reset memory usage yet -- that should happen only when the TX commits.
-
-                let result = match result {
-                    Ok((value, asset_map, events)) => {
-                        let aborted = abort_call_back(&asset_map, &mut db);
-                        let db_result = if aborted { db.roll_back() } else { db.commit() };
-                        match db_result {
-                            Ok(_) => Ok((value, asset_map, events, aborted)),
-                            Err(e) => Err(e.into()),
+        {
+            let object = (self.log).take().expect(&{
+                let res = format!("BUG: Transaction connection lost {} handle.", "log");
+                res
+            });
+            let (object, result) = (|log| {
+                let object = (self.cost_track).take().expect(&{
+                    let res = format!(
+                        "BUG: Transaction connection lost {} handle.",
+                        "cost tracker"
+                    );
+                    res
+                });
+                let (object, result) = (|cost_track| {
+                    let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+                    let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                        rollback_wrapper,
+                        &self.header_db,
+                        &self.burn_state_db,
+                    );
+                    db.begin();
+                    let mut vm_env = OwnedEnvironment::new_cost_limited(
+                        self.mainnet,
+                        self.chain_id,
+                        db,
+                        cost_track,
+                        self.epoch,
+                    );
+                    let result = to_do(&mut vm_env);
+                    let (mut db, cost_track) = vm_env
+                        .destruct()
+                        .expect("Failed to recover database reference after executing transaction");
+                    let result = match result {
+                        Ok((value, asset_map, events)) => {
+                            let aborted = abort_call_back(&asset_map, &mut db);
+                            let db_result = if aborted { db.roll_back() } else { db.commit() };
+                            match db_result {
+                                Ok(_) => Ok((value, asset_map, events, aborted)),
+                                Err(e) => Err(e.into()),
+                            }
                         }
-                    }
-                    Err(e) => {
-                        let db_result = db.roll_back();
-                        match db_result {
-                            Ok(_) => Err(e),
-                            Err(db_err) => Err(db_err.into()),
+                        Err(e) => {
+                            let db_result = db.roll_back();
+                            match db_result {
+                                Ok(_) => Err(e),
+                                Err(db_err) => Err(db_err.into()),
+                            }
                         }
-                    }
-                };
+                    };
+                    (cost_track, (db.destroy().into(), result))
+                })(object);
+                (self.cost_track).replace(object);
+                result
+            })(object);
+            (self.log).replace(object);
+            result
+        }
 
-                (cost_track, (db.destroy().into(), result))
-            })
-        })
+        // using!(self.log, "log", |log| {
+        //     using!(self.cost_track, "cost tracker", |cost_track| {
+        //         let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+        //         let mut db = ClarityDatabase::new_with_rollback_wrapper(
+        //             rollback_wrapper,
+        //             &self.header_db,
+        //             &self.burn_state_db,
+        //         );
+
+        //         // wrap the whole contract-call in a claritydb transaction,
+        //         //   so we can abort on call_back's boolean retun
+        //         db.begin();
+        //         let mut vm_env = OwnedEnvironment::new_cost_limited(
+        //             self.mainnet,
+        //             self.chain_id,
+        //             db,
+        //             cost_track,
+        //             self.epoch,
+        //         );
+        //         let result = to_do(&mut vm_env);
+        //         let (mut db, cost_track) = vm_env
+        //             .destruct()
+        //             .expect("Failed to recover database reference after executing transaction");
+        //         // DO NOT reset memory usage yet -- that should happen only when the TX commits.
+
+        //         let result = match result {
+        //             Ok((value, asset_map, events)) => {
+        //                 let aborted = abort_call_back(&asset_map, &mut db);
+        //                 let db_result = if aborted { db.roll_back() } else { db.commit() };
+        //                 match db_result {
+        //                     Ok(_) => Ok((value, asset_map, events, aborted)),
+        //                     Err(e) => Err(e.into()),
+        //                 }
+        //             }
+        //             Err(e) => {
+        //                 let db_result = db.roll_back();
+        //                 match db_result {
+        //                     Ok(_) => Err(e),
+        //                     Err(db_err) => Err(db_err.into()),
+        //                 }
+        //             }
+        //         };
+
+        //         (cost_track, (db.destroy().into(), result))
+        //     })
+        // })
     }
-
-    fn with_analysis_db<F, R>(&mut self, to_do: F) -> R
+    
+    fn with_clarity_db<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R),
-    {
-        using!(self.cost_track, "cost tracker", |cost_track| {
-            using!(self.log, "log", |log| {
-                let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
-                let mut db = AnalysisDatabase::new_with_rollback_wrapper(rollback_wrapper);
-                let r = to_do(&mut db, cost_track);
-                (db.destroy().into(), r)
+        F: FnOnce(&mut ClarityDatabase, LimitedCostTracker) -> (LimitedCostTracker, R) {
+            using!(self.cost_track, "cost tracker", |cost_track| {
+                using!(self.log, "log", |log| {
+                    let rollback_wrapper = RollbackWrapper::from_persisted_log(self.store, log);
+                    let mut db = ClarityDatabase::new_with_rollback_wrapper(
+                        rollback_wrapper, 
+                        &self.header_db, 
+                        &self.burn_state_db);
+                    let r = to_do(&mut db, cost_track);
+                    (db.destroy().into(), r)
+                })
             })
-        })
     }
+    
 }
 
 impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
@@ -2285,10 +2313,7 @@ mod tests {
 
         let mut conn = marf.begin(&StacksBlockId::sentinel(), &StacksBlockId([0 as u8; 32]));
         // should not be in the marf.
-        assert_eq!(
-            conn.get_contract_hash(&contract_identifier).unwrap(),
-            None
-        );
+        assert_eq!(conn.get_contract_hash(&contract_identifier).unwrap(), None);
         let sql = conn.get_side_store();
         // sqlite only have entries
         assert_eq!(
@@ -2383,7 +2408,8 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
-                    let src = tx.get_contract_src2(&contract_identifier)
+                    let src = tx
+                        .get_contract_src2(&contract_identifier)
                         .expect("failed to get contract src")
                         .expect("contract source was None");
                     assert_eq!(src, contract);
@@ -2404,7 +2430,8 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
-                    let src = tx.get_contract_src2(&contract_identifier)
+                    let src = tx
+                        .get_contract_src2(&contract_identifier)
                         .expect("failed to get contract src")
                         .expect("contract source was None");
                     assert_eq!(src, contract);
@@ -2424,10 +2451,10 @@ mod tests {
 
             conn.as_transaction(|conn| {
                 conn.with_clarity_db_readonly(|ref mut tx| {
-                    assert!(tx.get_contract_src2(&contract_identifier)
+                    assert!(tx
+                        .get_contract_src2(&contract_identifier)
                         .expect("failed to get contract src")
-                        .is_none()
-                    );
+                        .is_none());
                 });
             });
 
@@ -2439,7 +2466,8 @@ mod tests {
 
         // should not be in the marf.
         assert_eq!(
-            conn.get_contract_hash(&contract_identifier).expect("failed to get contract hash"),
+            conn.get_contract_hash(&contract_identifier)
+                .expect("failed to get contract hash"),
             None
         );
 

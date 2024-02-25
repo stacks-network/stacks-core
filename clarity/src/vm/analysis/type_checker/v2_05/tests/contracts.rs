@@ -21,7 +21,7 @@ use {assert_json_diff, serde_json};
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::{
-    mem_type_check, type_check, AnalysisDatabase, CheckError, ContractAnalysis,
+    mem_type_check, type_check, CheckError, ContractAnalysis,
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
@@ -410,9 +410,12 @@ fn test_names_tokens_contracts() {
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&tokens_contract_id, SIMPLE_TOKENS);
+        db.test_insert_contract(&names_contract_id, SIMPLE_NAMES);
+        
         type_check(
             &tokens_contract_id,
             &mut tokens_contract,
@@ -469,10 +472,10 @@ fn test_names_tokens_contracts_bad() {
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
-        db.test_insert_contract_hash(&tokens_contract_id);
+        db.test_insert_contract(&tokens_contract_id, SIMPLE_TOKENS);
         type_check(
             &tokens_contract_id,
             &mut tokens_contract,
@@ -578,9 +581,12 @@ fn test_same_function_name() {
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&ca_id, contract_a);
+        db.test_insert_contract(&cb_id, contract_b);
+
         type_check(
             &cb_id,
             &mut cb,

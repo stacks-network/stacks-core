@@ -1,9 +1,9 @@
 use rand::{Rng, RngCore};
 use randomizer::Randomizer;
-use stacks_common::types::chainstate::StacksBlockId;
+use stacks_common::types::{chainstate::StacksBlockId, StacksEpochId};
 
 use super::structures::ContractData;
-use crate::vm::types::QualifiedContractIdentifier;
+use crate::vm::{analysis::ContractAnalysis, ast::build_ast, costs::LimitedCostTracker, types::QualifiedContractIdentifier, ClarityVersion, ContractContext};
 
 mod db;
 mod kv;
@@ -44,6 +44,11 @@ fn random_string(len: usize) -> String {
     String::from_utf8(result).unwrap()
 }
 
+fn random_contract_id() -> QualifiedContractIdentifier {
+    QualifiedContractIdentifier::local(&Randomizer::ALPHABETICAL(10).string().unwrap())
+        .unwrap()
+}
+
 fn assert_contract_eq(left: ContractData, right: ContractData) {
     assert_eq!(left.issuer, right.issuer);
     assert_eq!(left.name, right.name);
@@ -80,3 +85,58 @@ fn random_contract_data() -> (QualifiedContractIdentifier, ContractData) {
         },
     )
 }
+
+fn random_contract_and_analysis() -> (ContractContext, ContractAnalysis) {
+    let contract_id = random_contract_id();
+    
+    let parsed = build_ast(
+        &contract_id,
+        CONTRACT_SRC,
+        &mut (),
+        ClarityVersion::latest(),
+        StacksEpochId::latest(),
+    ).expect("failed to parse contract");
+
+    let contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::latest());
+
+    let analysis = ContractAnalysis::new(
+        contract_id.clone(),
+        parsed.expressions.clone(),
+        LimitedCostTracker::new_free(),
+        StacksEpochId::latest(),
+        ClarityVersion::latest());
+
+    (contract_context, analysis)
+}
+
+const CONTRACT_SRC: &str = "(define-map tokens { account: principal } { balance: uint })
+         (define-read-only (my-get-token-balance (account principal))
+            (default-to u0 (get balance (map-get? tokens (tuple (account account))))))
+         (define-read-only (explode (account principal))
+             (map-delete tokens (tuple (account account))))
+         (define-private (token-credit! (account principal) (amount uint))
+            (if (<= amount u0)
+                (err \"must be positive\")
+                (let ((current-amount (my-get-token-balance account)))
+                  (begin
+                    (map-set tokens (tuple (account account))
+                                       (tuple (balance (+ amount current-amount))))
+                    (ok 0)))))
+         (define-public (token-transfer (to principal) (amount uint))
+          (let ((balance (my-get-token-balance tx-sender)))
+             (if (or (> amount balance) (<= amount u0))
+                 (err \"not enough balance\")
+                 (begin
+                   (map-set tokens (tuple (account tx-sender))
+                                      (tuple (balance (- balance amount))))
+                   (token-credit! to amount)))))
+         (define-public (faucet)
+           (let ((original-sender tx-sender))
+             (as-contract (print (token-transfer (print original-sender) u1)))))                     
+         (define-public (mint-after (block-to-release uint))
+           (if (>= block-height block-to-release)
+               (faucet)
+               (err \"must be in the future\")))
+         (begin (token-credit! 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR u10000)
+                (token-credit! 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G u200)
+                (token-credit! .tokens u4))";

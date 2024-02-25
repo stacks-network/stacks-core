@@ -2,10 +2,12 @@ use std::fmt;
 use std::str::FromStr;
 
 use stacks_common::types::StacksEpochId;
+use speedy::{Readable, Writable};
 
 use crate::vm::errors::{Error, RuntimeErrorType};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[derive(Readable, Writable)]
 #[cfg_attr(test, derive(::fake::Dummy))]
 pub enum ClarityVersion {
     Clarity1,

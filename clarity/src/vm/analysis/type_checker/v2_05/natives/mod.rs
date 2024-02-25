@@ -369,14 +369,14 @@ fn check_contract_call(
                     contract_identifier,
                     func_name,
                     &StacksEpochId::Epoch2_05,
-                )? {
+                ).map_err(|_| CheckError::new(CheckErrors::Expects("Failed to fetch public function type".into())))? {
                     Ok(function)
                 } else if let Some(FunctionType::Fixed(function)) =
                     checker.db.get_read_only_function_type(
                         contract_identifier,
                         func_name,
                         &StacksEpochId::Epoch2_05,
-                    )?
+                    ).map_err(|_| CheckError::new(CheckErrors::Expects("Failed to fetch read-only function type".into())))?
                 {
                     Ok(function)
                 } else {

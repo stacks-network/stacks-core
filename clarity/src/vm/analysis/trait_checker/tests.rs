@@ -22,9 +22,10 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::{type_check, AnalysisDatabase, CheckError};
+use crate::vm::analysis::{type_check, CheckError, ContractAnalysis};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
+use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
@@ -55,9 +56,12 @@ fn test_dynamic_dispatch_by_defining_trait(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -91,9 +95,12 @@ fn test_incomplete_impl_trait_1(#[case] version: ClarityVersion, #[case] epoch: 
     let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&def_contract_id, contract_defining_trait);
+            db.test_insert_contract(&impl_contract_id, impl_contract);
+
             type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
             type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
         })
@@ -118,9 +125,12 @@ fn test_incomplete_impl_trait_2(#[case] version: ClarityVersion, #[case] epoch: 
     let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&def_contract_id, contract_defining_trait);
+            db.test_insert_contract(&impl_contract_id, impl_contract);
+
             type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
             type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
         })
@@ -142,9 +152,12 @@ fn test_impl_trait_arg_admission_1(#[case] version: ClarityVersion, #[case] epoc
     let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&def_contract_id, contract_defining_trait);
+            db.test_insert_contract(&impl_contract_id, impl_contract);
+
             type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
             type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
         })
@@ -166,8 +179,11 @@ fn test_impl_trait_arg_admission_2(#[case] version: ClarityVersion, #[case] epoc
     let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     db.execute(|db| {
+        db.test_insert_contract(&def_contract_id, contract_defining_trait);
+        db.test_insert_contract(&impl_contract_id, impl_contract);
+
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
         type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
     })
@@ -185,8 +201,11 @@ fn test_impl_trait_arg_admission_3(#[case] version: ClarityVersion, #[case] epoc
     let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     db.execute(|db| {
+        db.test_insert_contract(&def_contract_id, contract_defining_trait);
+        db.test_insert_contract(&impl_contract_id, impl_contract);
+
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
         type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
     })
@@ -208,8 +227,11 @@ fn test_complete_impl_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
     let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     db.execute(|db| {
+        db.test_insert_contract(&def_contract_id, contract_defining_trait);
+        db.test_insert_contract(&impl_contract_id, impl_contract);
+
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
         type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
     })
@@ -234,8 +256,11 @@ fn test_complete_impl_trait_mixing_readonly(
     let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     db.execute(|db| {
+        db.test_insert_contract(&def_contract_id, contract_defining_trait);
+        db.test_insert_contract(&impl_contract_id, impl_contract);
+
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
         type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version)
     })
@@ -267,7 +292,7 @@ fn test_get_trait_reference_from_tuple(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err = db
         .execute(|db| {
@@ -318,10 +343,12 @@ fn test_dynamic_dispatch_by_defining_and_impl_trait(
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+            
             type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
@@ -412,11 +439,14 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err = db
         .execute(|db| {
-            type_check(
+            db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+            db.test_insert_contract(&target_contract_id, target_contract_src);
+
+            let first_result = type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
                 db,
@@ -424,14 +454,17 @@ fn test_cycle_in_traits_2_contracts(#[case] version: ClarityVersion, #[case] epo
                 &epoch,
                 &version,
             )?;
-            type_check(
+            test_debug!("FINISHED FIRST TYPE CHECK: {:?}", first_result);
+            let last_result = type_check(
                 &target_contract_id,
                 &mut target_contract,
                 db,
                 true,
                 &epoch,
                 &version,
-            )
+            );
+            test_debug!("FINISHED SECOND TYPE CHECK: {:?}", last_result);
+            last_result
         })
         .unwrap_err();
     match err.err {
@@ -465,10 +498,13 @@ fn test_dynamic_dispatch_unknown_method(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+            db.test_insert_contract(&target_contract_id, target_contract_src);
+
             type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
@@ -530,9 +566,13 @@ fn test_nested_literal_implicitly_compliant(
     .unwrap();
 
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&nested_target_contract_id, nested_target_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+        
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -584,9 +624,11 @@ fn test_passing_trait_reference_instances(
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -623,9 +665,11 @@ fn test_passing_nested_trait_reference_instances(
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -782,10 +826,14 @@ fn test_dynamic_dispatch_importing_non_existant_trait(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&contract_defining_trait_id, contract_defining_trait_src);
+            db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+            db.test_insert_contract(&target_contract_id, target_contract_src);
+
             type_check(
                 &contract_defining_trait_id,
                 &mut contract_defining_trait,
@@ -854,9 +902,13 @@ fn test_dynamic_dispatch_importing_trait(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&contract_defining_trait_id, contract_defining_trait_src);
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+
         type_check(
             &contract_defining_trait_id,
             &mut contract_defining_trait,
@@ -945,9 +997,15 @@ fn test_dynamic_dispatch_including_nested_trait(
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&contract_defining_nested_trait_id, contract_defining_nested_trait_src);
+        db.test_insert_contract(&contract_defining_trait_id, contract_defining_trait_src);
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+        db.test_insert_contract(&target_nested_contract_id, target_nested_contract_src);
+
         type_check(
             &contract_defining_nested_trait_id,
             &mut contract_defining_nested_trait,
@@ -1052,10 +1110,16 @@ fn test_dynamic_dispatch_including_wrong_nested_trait(
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&contract_defining_nested_trait_id, contract_defining_nested_trait_src);
+            db.test_insert_contract(&contract_defining_trait_id, contract_defining_trait_src);
+            db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+            db.test_insert_contract(&target_contract_id, target_contract_src);
+            db.test_insert_contract(&target_nested_contract_id, target_nested_contract_src);
+
             type_check(
                 &contract_defining_nested_trait_id,
                 &mut contract_defining_nested_trait,
@@ -1137,10 +1201,13 @@ fn test_dynamic_dispatch_mismatched_args(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+            db.test_insert_contract(&target_contract_id, target_contract_src);
+
             type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
@@ -1191,10 +1258,13 @@ fn test_dynamic_dispatch_mismatched_returns(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+            db.test_insert_contract(&target_contract_id, target_contract_src);
+
             type_check(
                 &dispatching_contract_id,
                 &mut dispatching_contract,
@@ -1240,9 +1310,14 @@ fn test_bad_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Stac
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut c4 = parse(&call_contract_id, caller_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     let err = db
         .execute(|db| {
+            db.test_insert_contract(&def_contract_id, contract_defining_trait);
+            db.test_insert_contract(&disp_contract_id, dispatching_contract);
+            db.test_insert_contract(&impl_contract_id, impl_contract);
+            db.test_insert_contract(&call_contract_id, caller_contract);
+
             type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
             type_check(&disp_contract_id, &mut c2, db, true, &epoch, &version).unwrap();
             type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version).unwrap();
@@ -1275,11 +1350,16 @@ fn test_good_call_with_trait(#[case] version: ClarityVersion, #[case] epoch: Sta
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut c4 = parse(&call_contract_id, caller_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     println!("c4: {:?}", c4);
 
     db.execute(|db| {
+        db.test_insert_contract(&def_contract_id, contract_defining_trait);
+        db.test_insert_contract(&disp_contract_id, dispatching_contract);
+        db.test_insert_contract(&impl_contract_id, impl_contract);
+        db.test_insert_contract(&call_contract_id, caller_contract);
+
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
         type_check(&disp_contract_id, &mut c2, db, true, &epoch, &version).unwrap();
         type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version).unwrap();
@@ -1309,11 +1389,16 @@ fn test_good_call_2_with_trait(#[case] version: ClarityVersion, #[case] epoch: S
     let mut c3 = parse(&impl_contract_id, impl_contract, version, epoch).unwrap();
     let mut c4 = parse(&call_contract_id, caller_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     println!("c4: {:?}", c4);
 
     db.execute(|db| {
+        db.test_insert_contract(&def_contract_id, contract_defining_trait);
+        db.test_insert_contract(&disp_contract_id, dispatching_contract);
+        db.test_insert_contract(&impl_contract_id, impl_contract);
+        db.test_insert_contract(&call_contract_id, caller_contract);
+
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
         type_check(&disp_contract_id, &mut c2, db, true, &epoch, &version).unwrap();
         type_check(&impl_contract_id, &mut c3, db, true, &epoch, &version).unwrap();
@@ -1359,9 +1444,13 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+        db.test_insert_contract(&contract_defining_trait_id, contract_defining_trait_src);
+
         type_check(
             &contract_defining_trait_id,
             &mut contract_defining_trait,
@@ -1428,9 +1517,13 @@ fn test_dynamic_dispatch_pass_bound_principal_as_trait_in_user_defined_functions
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let result = db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+        db.test_insert_contract(&contract_defining_trait_id, contract_defining_trait_src);
+
         type_check(
             &contract_defining_trait_id,
             &mut contract_defining_trait,
@@ -1480,9 +1573,12 @@ fn test_contract_of_good(#[case] version: ClarityVersion, #[case] epoch: StacksE
     let mut c1 = parse(&def_contract_id, contract_defining_trait, version, epoch).unwrap();
     let mut c2 = parse(&disp_contract_id, dispatching_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&def_contract_id, contract_defining_trait);
+        db.test_insert_contract(&disp_contract_id, dispatching_contract);
+
         type_check(&def_contract_id, &mut c1, db, true, &epoch, &version).unwrap();
         type_check(&disp_contract_id, &mut c2, db, true, &epoch, &version)
     })
@@ -1537,10 +1633,13 @@ fn test_contract_of_wrong_type(#[case] version: ClarityVersion, #[case] epoch: S
     )
     .unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let err_principal = db
         .execute(|db| {
+            db.test_insert_contract(&def_contract_id, contract_defining_trait);
+            db.test_insert_contract(&disp_contract_id, dispatching_contract_principal);
+
             type_check(&def_contract_id, &mut c_trait, db, true, &epoch, &version).unwrap();
             type_check(
                 &disp_contract_id,
@@ -1645,9 +1744,12 @@ fn test_return_trait_with_contract_of(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+        
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -1695,9 +1797,12 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -1745,9 +1850,12 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
     let mut target_contract =
         parse(&target_contract_id, target_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&dispatching_contract_id, dispatching_contract_src);
+        db.test_insert_contract(&target_contract_id, target_contract_src);
+
         type_check(
             &dispatching_contract_id,
             &mut dispatching_contract,
@@ -1789,11 +1897,14 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
     let mut impl_contract = parse(&impl_contract_id, impl_contract_src, version, epoch).unwrap();
     let mut trait_contract = parse(&trait_contract_id, trait_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Referring to a trait from the current contract is supported in Clarity2,
     // but not in Clarity1.
     match db.execute(|db| {
+        db.test_insert_contract(&trait_contract_id, trait_contract_src);
+        db.test_insert_contract(&impl_contract_id, impl_contract_src);
+        
         type_check(
             &impl_contract_id,
             &mut impl_contract,

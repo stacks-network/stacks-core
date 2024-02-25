@@ -22,6 +22,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::{ParseError, ParseErrors};
+use crate::vm::database::cache::disable_clarity_cache;
 use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
@@ -395,6 +396,7 @@ fn test_define_map_arg_count() {
 
 #[test]
 fn test_define_data_var_arg_count() {
+    disable_clarity_cache();
     let test0 = "(define-data-var)";
     let test1 = "(define-data-var foo)";
     let test2 = "(define-data-var foo uint)";

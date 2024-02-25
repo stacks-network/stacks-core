@@ -20,8 +20,8 @@ use stacks_common::types::StacksEpochId;
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
 };
-use super::AnalysisDatabase;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
+use crate::vm::database::ClarityDatabase;
 use crate::vm::functions::define::DefineFunctionsParsed;
 use crate::vm::functions::{tuples, NativeFunctions};
 use crate::vm::representations::SymbolicExpressionType::{
@@ -44,7 +44,7 @@ mod tests;
 /// A contract that does not violate its read-only declarations is called
 /// *read-only correct*.
 pub struct ReadOnlyChecker<'a, 'b> {
-    db: &'a mut AnalysisDatabase<'b>,
+    db: &'a mut ClarityDatabase<'b>,
     defined_functions: HashMap<ClarityName, bool>,
     epoch: StacksEpochId,
     clarity_version: ClarityVersion,
@@ -54,7 +54,7 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
     fn run_pass(
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
-        analysis_db: &mut AnalysisDatabase,
+        analysis_db: &mut ClarityDatabase,
     ) -> CheckResult<()> {
         let mut command =
             ReadOnlyChecker::new(analysis_db, epoch, &contract_analysis.clarity_version);
@@ -65,7 +65,7 @@ impl<'a, 'b> AnalysisPass for ReadOnlyChecker<'a, 'b> {
 
 impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn new(
-        db: &'a mut AnalysisDatabase<'b>,
+        db: &'a mut ClarityDatabase<'b>,
         epoch: &StacksEpochId,
         version: &ClarityVersion,
     ) -> ReadOnlyChecker<'a, 'b> {

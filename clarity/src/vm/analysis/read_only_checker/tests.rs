@@ -191,7 +191,7 @@ fn test_contract_call_read_only_violations(
     #[case] version: ClarityVersion,
     #[case] epoch: StacksEpochId,
 ) {
-    let contract1 = "(define-map tokens { account: principal } { balance: int })
+    let contract1_src = "(define-map tokens { account: principal } { balance: int })
          (define-read-only (get-token-balance)
             (get balance (map-get? tokens (tuple (account tx-sender))) ))
          (define-public (mint)
@@ -208,15 +208,16 @@ fn test_contract_call_read_only_violations(
     let contract_bad_caller_id = QualifiedContractIdentifier::local("bad_caller").unwrap();
     let contract_ok_caller_id = QualifiedContractIdentifier::local("ok_caller").unwrap();
 
-    let mut contract1 = parse(&contract_1_id, contract1, version, epoch).unwrap();
+    let mut contract1 = parse(&contract_1_id, contract1_src, version, epoch).unwrap();
     let mut bad_caller = parse(&contract_bad_caller_id, bad_caller, version, epoch).unwrap();
     let mut ok_caller = parse(&contract_ok_caller_id, ok_caller, version, epoch).unwrap();
 
     let mut marf = MemoryBackingStore::new();
 
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
     db.execute(|db| {
-        db.test_insert_contract_hash(&contract_1_id);
+        //db.test_insert_contract_hash(&contract_1_id);
+        db.test_insert_contract(&contract_1_id, contract1_src);
         type_check(&contract_1_id, &mut contract1, db, true, &epoch, &version)
     })
     .unwrap();

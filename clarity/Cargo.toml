@@ -33,9 +33,9 @@ rstest_reuse = "0.5.0"
 hashbrown = { workspace = true }
 exec_time = "0.1.4"
 lzzzz = "1.0.4"
-rmp-serde = "1.1.2"
 lru = "0.12.2"
 lz4_flex = "0.11.2"
+speedy = "0.8.7"
 
 [dependencies.serde_json]
 version = "1.0"

@@ -58,6 +58,7 @@ libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 wsts = { workspace = true }
 hashbrown = { workspace = true }
+speedy = "0.8.7"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = {workspace = true}

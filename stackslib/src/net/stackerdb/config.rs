@@ -497,11 +497,12 @@ impl StackerDBConfig {
 
         // check the target contract
         let res = chainstate.with_read_only_clarity_tx(&dbconn, &chain_tip_hash, |clarity_tx| {
+            let epoch = clarity_tx.get_epoch();
             // determine if this contract exists and conforms to this trait
             clarity_tx.with_clarity_db_readonly(|db| {
                 // contract must exist or this errors out
                 let analysis = db
-                    .load_contract_analysis(contract_id)?
+                    .get_contract_analysis(contract_id, &epoch)?
                     .ok_or(NetError::NoSuchStackerDB(contract_id.clone()))?;
 
                 // contract must be consistent with StackerDB control interface

@@ -25,7 +25,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{
     analysis_typecheck_cost, cost_functions, runtime_cost, CostOverflowingMath,
 };
-use crate::vm::errors::{Error as InterpError, RuntimeErrorType};
+use crate::vm::errors::{self, Error as InterpError, RuntimeErrorType};
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
@@ -378,7 +378,7 @@ fn check_contract_call(
                     contract_identifier,
                     func_name,
                     &StacksEpochId::Epoch21,
-                )? {
+                ).map_err(|_| CheckErrors::Expects("Failed to get public function type".into()))? {
                     Ok(function)
                 } else if let Some(FunctionType::Fixed(function)) =
                     checker.db.get_read_only_function_type(
@@ -451,7 +451,7 @@ fn check_contract_call(
                                     contract_identifier,
                                     func_name,
                                     &StacksEpochId::Epoch21,
-                                )?
+                                ).map_err(|_| CheckErrors::Expects("Failed to get public function type".into()))?
                             {
                                 Ok(function)
                             } else if let Some(FunctionType::Fixed(function)) =

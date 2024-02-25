@@ -16,7 +16,7 @@ fn can_create_and_initialize_database() {
 
     // The first call runs this, but let's make sure it's idempotent, and
     // just in-case someone changes that...
-    SqliteConnection::initialize_conn(&conn).expect("failed to initialize connection");
+    SqliteConnection::initialize_conn(&conn, "asdf").expect("failed to initialize connection");
 
     // The first call runs this, but just in-case someone changes that...
     SqliteConnection::check_schema(&conn).expect("failed to check schema");
@@ -140,7 +140,7 @@ fn insert_contract_analysis() {
 
     let analysis = random_bytes_random_len(100, 1000);
 
-    SqliteConnection::insert_contract_analysis(&conn, contract.id, &analysis)
+    SqliteConnection::insert_contract_analysis(&conn, contract.id, &analysis, 123)
         .expect("failed to insert contract analysis");
 }
 
@@ -155,6 +155,6 @@ fn insert_contract_analysis_with_bad_contract_id() {
 
     let analysis = random_bytes_random_len(100, 1000);
 
-    SqliteConnection::insert_contract_analysis(&conn, 999, &analysis)
+    SqliteConnection::insert_contract_analysis(&conn, 999, &analysis, 123)
         .expect("inserted contract analysis with bad contract id");
 }

@@ -2,7 +2,7 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
+use crate::vm::analysis::{CheckError, CheckErrors, ContractAnalysis};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
@@ -100,9 +100,6 @@ pub trait ClarityConnection {
     fn with_clarity_db_readonly_owned<F, R>(&mut self, to_do: F) -> R
     where
         F: FnOnce(ClarityDatabase) -> (R, ClarityDatabase);
-    fn with_analysis_db_readonly<F, R>(&mut self, to_do: F) -> R
-    where
-        F: FnOnce(&mut AnalysisDatabase) -> R;
 
     fn get_epoch(&self) -> StacksEpochId;
 
@@ -168,14 +165,9 @@ pub trait TransactionConnection: ClarityConnection {
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
         E: From<InterpreterError>;
 
-    /// Do something with the analysis database and cost tracker
-    ///  instance of this transaction connection. This is a low-level
-    ///  method that in most cases should not be used except in
-    ///  implementing structs of `TransactionConnection`, and the auto
-    ///  implemented methods of the `TransactionConnection` trait
-    fn with_analysis_db<F, R>(&mut self, to_do: F) -> R
+    fn with_clarity_db<F, R>(&mut self, to_do: F) -> R
     where
-        F: FnOnce(&mut AnalysisDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
+        F: FnOnce(&mut ClarityDatabase, LimitedCostTracker) -> (LimitedCostTracker, R);
 
     /// Analyze a provided smart contract, but do not write the analysis to the AnalysisDatabase
     fn analyze_smart_contract(
@@ -187,7 +179,7 @@ pub trait TransactionConnection: ClarityConnection {
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
         let epoch_id = self.get_epoch();
 
-        self.with_analysis_db(|db, mut cost_track| {
+        self.with_clarity_db(|db, mut cost_track| {
             let ast_result = ast::build_ast_with_rules(
                 identifier,
                 contract_content,
@@ -230,9 +222,9 @@ pub trait TransactionConnection: ClarityConnection {
         identifier: &QualifiedContractIdentifier,
         contract_analysis: &ContractAnalysis,
     ) -> Result<(), CheckError> {
-        self.with_analysis_db(|db, cost_tracker| {
+        self.with_clarity_db(|db, cost_tracker| {
             db.begin();
-            let result = db.insert_contract(identifier, contract_analysis);
+            let result = db.insert_contract_analysis(&contract_analysis);
             match result {
                 Ok(_) => {
                     let result = db
@@ -252,6 +244,7 @@ pub trait TransactionConnection: ClarityConnection {
                 }
             }
         })
+        .map_err(|_| CheckError::new(CheckErrors::Expects("Failed to save contract analysis".into())))
     }
 
     /// Execute a STX transfer in the current block.

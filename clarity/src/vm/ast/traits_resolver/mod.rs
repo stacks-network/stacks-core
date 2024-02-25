@@ -16,7 +16,6 @@
 
 use hashbrown::{HashMap, HashSet};
 
-use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};

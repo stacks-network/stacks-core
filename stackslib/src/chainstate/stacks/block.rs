@@ -128,7 +128,11 @@ impl StacksBlockHeader {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> StacksBlockId {
-        test_debug!("make_index_block_hash: consensus_hash: {}, block_hash: {}", consensus_hash, block_hash);
+        test_debug!(
+            "make_index_block_hash: consensus_hash: {}, block_hash: {}",
+            consensus_hash,
+            block_hash
+        );
         StacksBlockId::new(consensus_hash, block_hash)
     }
 

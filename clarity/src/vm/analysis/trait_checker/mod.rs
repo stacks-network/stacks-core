@@ -19,7 +19,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
-use crate::vm::analysis::AnalysisDatabase;
+use crate::vm::database::ClarityDatabase;
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{Atom, AtomValue, List, LiteralValue};
@@ -34,10 +34,10 @@ impl AnalysisPass for TraitChecker {
     fn run_pass(
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
-        analysis_db: &mut AnalysisDatabase,
+        clarity_db: &mut ClarityDatabase,
     ) -> CheckResult<()> {
         let mut command = TraitChecker::new(epoch);
-        command.run(contract_analysis, analysis_db)?;
+        command.run(contract_analysis, clarity_db)?;
         Ok(())
     }
 }
@@ -50,12 +50,13 @@ impl TraitChecker {
     pub fn run(
         &mut self,
         contract_analysis: &ContractAnalysis,
-        analysis_db: &mut AnalysisDatabase,
+        clarity_db: &mut ClarityDatabase,
     ) -> CheckResult<()> {
         for trait_identifier in &contract_analysis.implemented_traits {
             let trait_name = trait_identifier.name.to_string();
-            let contract_defining_trait = analysis_db
-                .load_contract(&trait_identifier.contract_identifier, &self.epoch)?
+            let contract_defining_trait = clarity_db
+                .get_contract_analysis(&trait_identifier.contract_identifier, &self.epoch)
+                .map_err(|_| CheckErrors::Expects("Failed to load contract analysis".into()))?
                 .ok_or(CheckErrors::TraitReferenceUnknown(
                     trait_identifier.name.to_string(),
                 ))?;

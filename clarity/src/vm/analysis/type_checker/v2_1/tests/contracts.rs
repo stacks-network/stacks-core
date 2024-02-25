@@ -24,12 +24,12 @@ use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
-    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError, CheckResult,
+    mem_type_check as mem_run_analysis, run_analysis, CheckError, CheckResult,
     ContractAnalysis,
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
-use crate::vm::database::MemoryBackingStore;
+use crate::vm::database::{ClarityDatabase, MemoryBackingStore};
 use crate::vm::errors::Error;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::CallableSubtype;
@@ -52,13 +52,13 @@ fn test_epoch21_clarity_versions(#[case] version: ClarityVersion) {}
 pub fn type_check(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    clarity_db: &mut ClarityDatabase,
     save_contract: bool,
 ) -> Result<ContractAnalysis, CheckError> {
     type_check_version(
         contract_identifier,
         expressions,
-        analysis_db,
+        clarity_db,
         save_contract,
         StacksEpochId::Epoch21,
         ClarityVersion::Clarity2,
@@ -68,7 +68,7 @@ pub fn type_check(
 pub fn type_check_version(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    clarity_db: &mut ClarityDatabase,
     save_contract: bool,
     epoch: StacksEpochId,
     version: ClarityVersion,
@@ -76,7 +76,7 @@ pub fn type_check_version(
     run_analysis(
         contract_identifier,
         expressions,
-        analysis_db,
+        clarity_db,
         save_contract,
         LimitedCostTracker::new_free(),
         epoch,
@@ -448,9 +448,12 @@ fn test_names_tokens_contracts(#[case] version: ClarityVersion, #[case] epoch: S
     let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS, version, epoch).unwrap();
     let mut names_contract = parse(&names_contract_id, SIMPLE_NAMES, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&tokens_contract_id, SIMPLE_TOKENS);
+        db.test_insert_contract(&names_contract_id, SIMPLE_NAMES);
+
         type_check(&tokens_contract_id, &mut tokens_contract, db, true)?;
         type_check(&names_contract_id, &mut names_contract, db, true)
     })
@@ -481,10 +484,10 @@ fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion, #[case] epoc
     let mut tokens_contract = parse(&tokens_contract_id, SIMPLE_TOKENS, version, epoch).unwrap();
     let mut names_contract = parse(&names_contract_id, &names_contract, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
-        db.test_insert_contract_hash(&tokens_contract_id);
+        db.test_insert_contract(&tokens_contract_id, SIMPLE_TOKENS);
         type_check(&tokens_contract_id, &mut tokens_contract, db, true)
     })
     .unwrap();
@@ -555,9 +558,12 @@ fn test_same_function_name(#[case] version: ClarityVersion, #[case] epoch: Stack
     let mut ca = parse(&ca_id, contract_a, version, epoch).unwrap();
     let mut cb = parse(&cb_id, contract_b, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     db.execute(|db| {
+        db.test_insert_contract(&ca_id, contract_a);
+        db.test_insert_contract(&cb_id, contract_b);
+
         type_check(&cb_id, &mut cb, db, true)?;
         type_check(&ca_id, &mut ca, db, true)
     })
@@ -1681,9 +1687,12 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
     let mut use_contract = parse(&use_contract_id, use_contract_src, version, epoch).unwrap();
     let mut trait_contract = parse(&trait_contract_id, trait_contract_src, version, epoch).unwrap();
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     match db.execute(|db| {
+        db.test_insert_contract(&trait_contract_id, trait_contract_src);
+        db.test_insert_contract(&use_contract_id, use_contract_src);
+
         type_check_version(
             &trait_contract_id,
             &mut trait_contract,
@@ -1717,7 +1726,7 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
 // Tests below are derived from https://github.com/sskeirik/clarity-trait-experiments.
 
 fn load_versioned(
-    db: &mut AnalysisDatabase,
+    db: &mut ClarityDatabase,
     name: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
@@ -1731,12 +1740,13 @@ fn load_versioned(
     let contract_id = QualifiedContractIdentifier::local(name).unwrap();
     let mut contract =
         parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
+    db.test_insert_contract(&contract_id, &source);
     type_check_version(&contract_id, &mut contract, db, true, epoch, version)
         .map_err(|e| e.to_string())
 }
 
 fn call_versioned(
-    db: &mut AnalysisDatabase,
+    db: &mut ClarityDatabase,
     contract: &str,
     function: &str,
     args: &str,
@@ -1745,6 +1755,7 @@ fn call_versioned(
 ) -> Result<ContractAnalysis, String> {
     let source = format!("(contract-call? .{} {} {})", contract, function, args);
     let contract_id = QualifiedContractIdentifier::transient();
+    db.test_insert_contract(&contract_id, &source);
     let mut contract =
         parse(&contract_id, source.as_str(), version, epoch).map_err(|e| e.to_string())?;
     type_check_version(&contract_id, &mut contract, db, false, epoch, version)
@@ -1754,7 +1765,7 @@ fn call_versioned(
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_impl(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let result = db.execute(|db| {
         load_versioned(db, "math-trait", version, epoch)?;
@@ -1769,7 +1780,7 @@ fn clarity_trait_experiments_impl(#[case] version: ClarityVersion, #[case] epoch
 #[apply(test_clarity_versions)]
 fn clarity_trait_experiments_use(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     let result = db.execute(|db| {
         load_versioned(db, "math-trait", version, epoch)?;
@@ -1787,7 +1798,7 @@ fn clarity_trait_experiments_empty_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define an empty trait?
     let result = db.execute(|db| load_versioned(db, "empty-trait", version, epoch));
@@ -1803,7 +1814,7 @@ fn clarity_trait_experiments_duplicate_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we re-define a trait with the same type and same name in a different contract?
     let result = db.execute(|db| {
@@ -1822,7 +1833,7 @@ fn clarity_trait_experiments_use_undefined(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define traits that use traits in not-yet-deployed contracts?
     let err = db
@@ -1839,7 +1850,7 @@ fn clarity_trait_experiments_circular(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define traits in a contract that are circular?
     let err = db
@@ -1857,7 +1868,7 @@ fn clarity_trait_experiments_no_response(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define traits that do not return a response type?
     let err = db
@@ -1872,7 +1883,7 @@ fn clarity_trait_experiments_out_of_order(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define traits that occur in a contract out-of-order?
     let result = db.execute(|db| load_versioned(db, "out-of-order-traits", version, epoch));
@@ -1888,7 +1899,7 @@ fn clarity_trait_experiments_double_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define a trait with two methods with the same name and different types?
     match db.execute(|db| load_versioned(db, "double-trait", version, epoch)) {
@@ -1906,7 +1917,7 @@ fn clarity_trait_experiments_impl_double_trait_both(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we implement a trait with two methods with the same name and different types?
     match db.execute(|db| {
@@ -1927,7 +1938,7 @@ fn clarity_trait_experiments_impl_double_trait_1(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we implement a trait with two methods with the same name and different types?
     match db.execute(|db| {
@@ -1950,7 +1961,7 @@ fn clarity_trait_experiments_impl_double_trait_2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we implement a trait with two methods with the same name and different types?
     match db.execute(|db| {
@@ -1971,7 +1982,7 @@ fn clarity_trait_experiments_use_double_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we implement a trait with two methods with the same name and different types?
     match db.execute(|db| {
@@ -1995,7 +2006,7 @@ fn clarity_trait_experiments_use_partial_double_trait_1(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we implement a trait with two methods with the same name and different types?
     match db.execute(|db| {
@@ -2019,7 +2030,7 @@ fn clarity_trait_experiments_use_partial_double_trait_2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we implement a trait with two methods with the same name and different types?
     match db.execute(|db| {
@@ -2041,7 +2052,7 @@ fn clarity_trait_experiments_identical_double_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define a trait with two methods with the same name and the same type?
     match db.execute(|db| load_versioned(db, "identical-double-trait", version, epoch)) {
@@ -2059,7 +2070,7 @@ fn clarity_trait_experiments_impl_identical_double_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we implement a trait with two methods with the same name and different types?
     match db.execute(|db| {
@@ -2080,7 +2091,7 @@ fn clarity_trait_experiments_selfret_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we implement a trait that returns itself?
     let err = db
@@ -2095,7 +2106,7 @@ fn clarity_trait_experiments_use_math_trait_transitive_alias(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we import a trait from a contract that uses but does not define the trait?
     // Does the transitive import use the trait alias or the trait name?
@@ -2115,7 +2126,7 @@ fn clarity_trait_experiments_use_math_trait_transitive_name(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we import a trait from a contract that uses but does not define the trait?
     // Does the transitive import use the trait alias or the trait name?
@@ -2138,7 +2149,7 @@ fn clarity_trait_experiments_use_original_and_define_a_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we reference original trait and define trait with the same name in one contract?
     let result = db.execute(|db| {
@@ -2160,7 +2171,7 @@ fn clarity_trait_experiments_use_redefined_and_define_a_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we reference redefined trait and define trait with the same name in one contract?
     // Will this redefined trait also overwrite the trait alias?
@@ -2182,7 +2193,7 @@ fn clarity_trait_experiments_use_a_trait_transitive_original(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use the original trait from a contract that redefines it?
     let err = db
@@ -2201,7 +2212,7 @@ fn clarity_trait_experiments_use_a_trait_transitive_redefined(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use the redefined trait from a contract that redefines it?
     let result = db.execute(|db| {
@@ -2221,7 +2232,7 @@ fn clarity_trait_experiments_nested_traits(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we nest traits in other types inside a function parameter type?
     let result = db.execute(|db| {
@@ -2243,7 +2254,7 @@ fn clarity_trait_experiments_call_nested_trait_1(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
     // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
@@ -2276,7 +2287,7 @@ fn clarity_trait_experiments_call_nested_trait_2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
     // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
@@ -2302,7 +2313,7 @@ fn clarity_trait_experiments_call_nested_trait_3_ok(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
     // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
@@ -2328,7 +2339,7 @@ fn clarity_trait_experiments_call_nested_trait_3_err(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
     // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
@@ -2351,7 +2362,7 @@ fn clarity_trait_experiments_call_nested_trait_4(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call functions with nested trait types by passing a trait parameter?
     // Can we call functions with nested trait types where a trait parameter is _not_ passed? E.g. a response.
@@ -2384,7 +2395,7 @@ fn clarity_trait_experiments_impl_math_trait_incomplete(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use impl-trait on a partial trait implementation?
     let err = db
@@ -2402,7 +2413,7 @@ fn clarity_trait_experiments_trait_literal(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we pass a literal where a trait is expected with a full implementation?
     let result = db.execute(|db| {
@@ -2422,7 +2433,7 @@ fn clarity_trait_experiments_pass_let_rename_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we rename a trait with let and pass it to a function?
     let result = db.execute(|db| {
@@ -2441,7 +2452,7 @@ fn clarity_trait_experiments_trait_literal_incomplete(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we pass a literal where a trait is expected with a partial implementation?
     let err = db
@@ -2460,7 +2471,7 @@ fn clarity_trait_experiments_call_let_rename_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we rename a trait with let and call it?
     let result = db.execute(|db| {
@@ -2482,7 +2493,7 @@ fn clarity_trait_experiments_trait_data_1(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we save trait in data-var or data-map?
     let err = db
@@ -2501,7 +2512,7 @@ fn clarity_trait_experiments_trait_data_2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we save trait in data-var or data-map?
     let err = db
@@ -2520,7 +2531,7 @@ fn clarity_trait_experiments_upcast_trait_1(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use a trait exp where a principal type is expected?
     // Principal can be expected in var/map/function
@@ -2543,7 +2554,7 @@ fn clarity_trait_experiments_upcast_trait_2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use a trait exp where a principal type is expected?
     // Principal can be expected in var/map/function
@@ -2562,7 +2573,7 @@ fn clarity_trait_experiments_upcast_trait_3(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use a trait exp where a principal type is expected?
     // Principal can be expected in var/map/function
@@ -2585,7 +2596,7 @@ fn clarity_trait_experiments_return_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we return a trait from a function and use it?
     let result = db.execute(|db| {
@@ -2604,7 +2615,7 @@ fn clarity_trait_experiments_upcast_renamed(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use a let-renamed trait where a principal type is expected?
     // That is, does let-renaming affect the type?
@@ -2627,7 +2638,7 @@ fn clarity_trait_experiments_constant_call(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // A principal literal in a constant should be callable.
     let result = db.execute(|db| {
@@ -2650,7 +2661,7 @@ fn clarity_trait_experiments_constant_to_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // A principal literal in a constant should be callable.
     let result = db.execute(|db| {
@@ -2676,7 +2687,7 @@ fn clarity_trait_experiments_constant_to_constant_call(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // A principal literal from a constant should be treated as a principal
     // literal (and therefore be callable)
@@ -2703,7 +2714,7 @@ fn clarity_trait_experiments_downcast_literal_1(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // A principal literal returned from a function should not be castable to a
     // trait
@@ -2728,7 +2739,7 @@ fn clarity_trait_experiments_downcast_literal_2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // A principal returned from a function should not be callable
     let err = db
@@ -2752,7 +2763,7 @@ fn clarity_trait_experiments_downcast_literal_3(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // A principal saved in a let binding should not be callable
     let err = db
@@ -2771,7 +2782,7 @@ fn clarity_trait_experiments_downcast_trait_2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
@@ -2795,7 +2806,7 @@ fn clarity_trait_experiments_downcast_trait_3(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
@@ -2818,7 +2829,7 @@ fn clarity_trait_experiments_downcast_trait_4(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
@@ -2841,7 +2852,7 @@ fn clarity_trait_experiments_downcast_trait_5(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
@@ -2864,7 +2875,7 @@ fn clarity_trait_experiments_identical_trait_cast(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we cast a trait to a different trait with the same signature?
     let result = db.execute(|db| {
@@ -2890,7 +2901,7 @@ fn clarity_trait_experiments_trait_cast(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we cast a trait to an compatible trait?
     let result = db.execute(|db| {
@@ -2916,7 +2927,7 @@ fn clarity_trait_experiments_trait_cast_incompatible(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we cast a trait to an incompatible trait?
     let err = db
@@ -2944,7 +2955,7 @@ fn clarity_trait_experiments_renamed_trait_cast(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we cast a trait to a renaming of itself?
     let result = db.execute(|db| {
@@ -2963,7 +2974,7 @@ fn clarity_trait_experiments_readonly_use_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we pass a trait to a read-only function?
     let result = db.execute(|db| {
@@ -2982,7 +2993,7 @@ fn clarity_trait_experiments_readonly_pass_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we pass a trait to a read-only function?
     let result = db.execute(|db| {
@@ -3002,7 +3013,7 @@ fn clarity_trait_experiments_readonly_call_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we dynamically call a trait in a read-only function?
     let err = db
@@ -3021,7 +3032,7 @@ fn clarity_trait_experiments_readonly_static_call(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call a readonly function in a separate contract from a readonly function?
     let result = db.execute(|db| {
@@ -3041,7 +3052,7 @@ fn clarity_trait_experiments_readonly_static_call_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call a function with traits from a read-only function statically?
     let err = db
@@ -3060,7 +3071,7 @@ fn clarity_trait_experiments_dyn_call_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we dynamically call a contract that fully implements a trait?
     let result = db.execute(|db| {
@@ -3088,7 +3099,7 @@ fn clarity_trait_experiments_dyn_call_trait_partial(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we dynamically call a contract that just implements one function from a trait?
     let err = db
@@ -3115,7 +3126,7 @@ fn clarity_trait_experiments_dyn_call_not_implemented(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we dynamically call a contract that doesn't implement the function call via the trait?
     let err = db
@@ -3142,7 +3153,7 @@ fn clarity_trait_experiments_call_use_principal(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call a contract with takes a principal with a contract identifier that is not bound to a deployed contract?
     let result = db.execute(|db| {
@@ -3161,7 +3172,7 @@ fn clarity_trait_experiments_call_return_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call a contract where a function returns a trait?
     let result = db.execute(|db| {
@@ -3189,7 +3200,7 @@ fn clarity_trait_experiments_call_full_double_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call a contract where a function returns a trait?
     let result = db.execute(|db| {
@@ -3220,7 +3231,7 @@ fn clarity_trait_experiments_call_partial_double_trait(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we call a contract where a function returns a trait?
     let result = db.execute(|db| {
@@ -3251,7 +3262,7 @@ fn clarity_trait_experiments_trait_recursion(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
     let result = db.execute(|db| {
@@ -3280,7 +3291,7 @@ fn clarity_trait_experiments_principals_list_to_traits_list(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
     let result = db.execute(|db| {
@@ -3303,7 +3314,7 @@ fn clarity_trait_experiments_traits_list_to_traits_list(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
     let result = db.execute(|db| {
@@ -3323,7 +3334,7 @@ fn clarity_trait_experiments_mixed_list_to_traits_list(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // This example shows how traits can induce the runtime to make a recursive (but terminating) call which is caught by the recursion checker at runtime.
     let result = db.execute(|db| {
@@ -3349,7 +3360,7 @@ fn clarity_trait_experiments_double_trait_method1_v1(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define a trait with two methods with the same name and different
     // types and use the first method in Clarity1?
@@ -3384,7 +3395,7 @@ fn clarity_trait_experiments_double_trait_method2_v1(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define a trait with two methods with the same name and different
     // types and use it in Clarity1?
@@ -3420,7 +3431,7 @@ fn clarity_trait_experiments_double_trait_method1_v1_v2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define a trait with two methods with the same name and different
     // types and use the first method in Clarity1?
@@ -3455,7 +3466,7 @@ fn clarity_trait_experiments_double_trait_method2_v1_v2(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define a trait with two methods with the same name and different
     // types in Clarity1, then use it in Clarity2?
@@ -3498,7 +3509,7 @@ fn clarity_trait_experiments_cross_epochs(
     #[case] epoch: StacksEpochId,
 ) {
     let mut marf = MemoryBackingStore::new();
-    let mut db = marf.as_analysis_db();
+    let mut db = marf.as_clarity_db();
 
     // Can we define a trait in epoch 2.05 that uses another trait, then use it in epoch 2.1?
     let result = db.execute(|db| {

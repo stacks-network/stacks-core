@@ -17,6 +17,7 @@
 use std::io::Write;
 
 use serde::Deserialize;
+use speedy::{Readable, Writable};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 
@@ -107,6 +108,12 @@ pub struct PendingContract {
 }
 
 #[derive(Debug, Clone)]
+pub enum ContractId<'a> {
+    Id(u32),
+    QualifiedContractIdentifier(&'a QualifiedContractIdentifier),
+}
+
+#[derive(Debug, Clone)]
 pub enum GetContractResult {
     Stored(StoredContract),
     Pending(PendingContract),
@@ -114,6 +121,7 @@ pub enum GetContractResult {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Readable, Writable)]
 pub struct ContractSizeData {
     pub contract_size: u32,
     pub data_size: u32,
@@ -121,6 +129,7 @@ pub struct ContractSizeData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Readable, Writable)]
 pub struct ContractData {
     pub id: u32,
     /// The issuing principal of the contract.
@@ -142,6 +151,7 @@ pub struct ContractData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Readable, Writable)]
 pub struct ContractAnalysisData {
     pub contract_id: u32,
     /// The serialized contract analysis as binary data.
@@ -151,6 +161,7 @@ pub struct ContractAnalysisData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Readable, Writable)]
 pub struct BlockData {
     /// The 32-byte block hash as binary data.
     pub block_hash: Vec<u8>,
@@ -159,6 +170,7 @@ pub struct BlockData {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Readable, Writable)]
 #[cfg_attr(test, derive(::fake::Dummy))]
 pub struct FungibleTokenMetadata {
     pub total_supply: Option<u128>,
@@ -167,6 +179,7 @@ pub struct FungibleTokenMetadata {
 clarity_serializable!(FungibleTokenMetadata);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Readable, Writable)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct NonFungibleTokenMetadata {
     pub key_type: TypeSignature,
@@ -175,6 +188,7 @@ pub struct NonFungibleTokenMetadata {
 clarity_serializable!(NonFungibleTokenMetadata);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Readable, Writable)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct DataMapMetadata {
     pub key_type: TypeSignature,
@@ -184,6 +198,7 @@ pub struct DataMapMetadata {
 clarity_serializable!(DataMapMetadata);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Readable, Writable)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct DataVariableMetadata {
     pub value_type: TypeSignature,
@@ -192,6 +207,7 @@ pub struct DataVariableMetadata {
 clarity_serializable!(DataVariableMetadata);
 
 #[derive(Serialize, Deserialize)]
+#[derive(Readable, Writable)]
 pub struct SimmedBlock {
     pub block_height: u64,
     pub block_time: u64,
@@ -210,6 +226,7 @@ clarity_serializable!(Contract);
 clarity_serializable!(ContractAnalysis);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Readable, Writable)]
 pub enum STXBalance {
     Unlocked {
         amount: u128,

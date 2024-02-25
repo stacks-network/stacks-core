@@ -30,6 +30,7 @@ pub use self::structures::{
 
 pub mod clarity_db;
 pub mod clarity_store;
+pub mod cache;
 mod key_value_wrapper;
 mod sqlite;
 mod structures;

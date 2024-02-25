@@ -6565,7 +6565,7 @@ impl StacksChainState {
                 let contract_identifier =
                     QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
                 let epoch = clarity_connection.get_epoch().clone();
-                clarity_connection.with_analysis_db_readonly(|db| {
+                clarity_connection.with_clarity_db_readonly(|db| {
                     let function_type = db
                         .get_public_function_type(&contract_identifier, &function_name, &epoch)
                         .map_err(|_e| MemPoolRejection::NoSuchContract)?
@@ -6591,7 +6591,7 @@ impl StacksChainState {
                     QualifiedContractIdentifier::new(tx.origin_address().into(), name.clone());
 
                 let exists = clarity_connection
-                    .with_analysis_db_readonly(|db| db.has_contract(&contract_identifier));
+                    .with_clarity_db_readonly(|db| db.has_contract2(&contract_identifier))?;
 
                 if exists {
                     return Err(MemPoolRejection::ContractAlreadyExists(contract_identifier));

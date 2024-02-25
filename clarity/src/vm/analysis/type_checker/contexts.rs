@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use hashbrown::HashMap;
+use speedy::{Readable, Writable};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
@@ -23,6 +24,7 @@ use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Writable, Readable)]
 pub struct TypeMap {
     map: HashMap<u64, TypeSignature>,
 }

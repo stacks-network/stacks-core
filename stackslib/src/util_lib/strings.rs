@@ -35,6 +35,7 @@ use stacks_common::codec::{
     MAX_MESSAGE_LEN,
 };
 use stacks_common::util::retry::BoundReader;
+use stacks_common::speedy;
 use url;
 
 lazy_static! {

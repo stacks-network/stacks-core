@@ -26,7 +26,6 @@ pub mod types;
 
 use stacks_common::types::StacksEpochId;
 
-pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
 pub use self::errors::{CheckError, CheckErrors, CheckResult};
@@ -41,6 +40,8 @@ use crate::vm::database::{MemoryBackingStore, STORE_CONTRACT_SRC_INTERFACE};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::ClarityVersion;
+
+use super::database::ClarityDatabase;
 
 /// Used by CLI tools like the docs generator. Not used in production
 pub fn mem_type_check(
@@ -61,12 +62,12 @@ pub fn mem_type_check(
     .expressions;
 
     let mut marf = MemoryBackingStore::new();
-    let mut analysis_db = marf.as_analysis_db();
+    let mut clarity_db = marf.as_clarity_db();
     let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(
         &QualifiedContractIdentifier::transient(),
         &mut contract,
-        &mut analysis_db,
+        &mut clarity_db,
         false,
         cost_tracker,
         epoch,
@@ -96,7 +97,7 @@ pub fn mem_type_check(
 pub fn type_check(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &mut [SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    clarity_db: &mut ClarityDatabase,
     insert_contract: bool,
     epoch: &StacksEpochId,
     version: &ClarityVersion,
@@ -104,7 +105,7 @@ pub fn type_check(
     run_analysis(
         contract_identifier,
         expressions,
-        analysis_db,
+        clarity_db,
         insert_contract,
         // for the type check tests, the cost tracker's epoch doesn't
         //  matter: the costs in those tests are all free anyways.
@@ -118,7 +119,7 @@ pub fn type_check(
 pub fn run_analysis(
     contract_identifier: &QualifiedContractIdentifier,
     expressions: &[SymbolicExpression],
-    analysis_db: &mut AnalysisDatabase,
+    clarity_db: &mut ClarityDatabase,
     save_contract: bool,
     cost_tracker: LimitedCostTracker,
     epoch: StacksEpochId,
@@ -131,10 +132,12 @@ pub fn run_analysis(
         epoch,
         version,
     );
-    let result = analysis_db.execute(|db| {
+
+    let result = clarity_db.execute(|db| {
         ReadOnlyChecker::run_pass(&epoch, &mut contract_analysis, db)?;
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
+                test_debug!("Running type checker for epoch 2.0");
                 TypeChecker2_05::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch21
@@ -143,6 +146,7 @@ pub fn run_analysis(
             | StacksEpochId::Epoch24
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30 => {
+                test_debug!("Running type checker for epoch 2.1+");
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db)
             }
             StacksEpochId::Epoch10 => {
@@ -160,8 +164,10 @@ pub fn run_analysis(
             contract_analysis.contract_interface = Some(interface);
         }
         if save_contract {
-            db.insert_contract(contract_identifier, &contract_analysis)?;
+            db.insert_contract_analysis(&contract_analysis)
+                .map_err(|e| CheckErrors::Expects(format!("Failed to save contract analysis: {}", e)))?;
         }
+
         Ok(())
     });
     match result {

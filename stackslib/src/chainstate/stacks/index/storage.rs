@@ -2206,8 +2206,7 @@ impl<'a, T: MarfTrieId> TrieStorageConnection<'a, T> {
                     {
                         debug!(
                             "{} unconfirmed trie block ID is {:?}",
-                            bhh,
-                            &self.data.cur_block_id
+                            bhh, &self.data.cur_block_id
                         );
                         self.unconfirmed_block_id = self.data.cur_block_id.clone();
                     }

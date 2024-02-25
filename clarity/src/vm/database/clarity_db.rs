@@ -13,9 +13,11 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::convert::{TryFrom, TryInto};
 use std::num::NonZeroUsize;
 
-use lru::LruCache;
 use serde_json;
 use stacks_common::address::AddressHashMode;
 use stacks_common::consts::{
@@ -32,10 +34,11 @@ use stacks_common::types::{
 };
 use stacks_common::util::hash::{to_hex, Hash160, Sha256Sum, Sha512Trunc256Sum};
 
+use super::cache::with_clarity_cache;
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
 use super::structures::{ContractData, GetContractResult, StoredContract};
-use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use crate::vm::analysis::{CheckResult, ContractAnalysis};
 use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
@@ -45,16 +48,16 @@ use crate::vm::database::structures::{
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
+    self,
     CheckErrors, Error, IncomparableError, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::{SerializationError, NONE_SERIALIZATION_LEN};
 use crate::vm::types::{
-    byte_len_of_serialization, OptionalData, PrincipalData, QualifiedContractIdentifier,
-    SequenceData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE,
+    byte_len_of_serialization, FunctionSignature, FunctionType, OptionalData, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData, TupleData, TupleTypeSignature, TypeSignature, Value, NONE
 };
-use crate::vm::ContractContext;
+use crate::vm::{ClarityVersion, ContractContext};
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 
@@ -84,8 +87,6 @@ pub struct ClarityDatabase<'a> {
     pub store: RollbackWrapper<'a>,
     headers_db: &'a dyn HeadersDB,
     burn_state_db: &'a dyn BurnStateDB,
-    contract_cache: lru::LruCache<QualifiedContractIdentifier, StoredContract>,
-    analysis_cache: lru::LruCache<QualifiedContractIdentifier, ContractAnalysis>,
 }
 
 pub trait HeadersDB {
@@ -433,8 +434,6 @@ impl<'a> ClarityDatabase<'a> {
             store: RollbackWrapper::new(store),
             headers_db,
             burn_state_db,
-            contract_cache: LruCache::new(NonZeroUsize::new(10).unwrap()),
-            analysis_cache: LruCache::new(NonZeroUsize::new(10).unwrap())
         }
     }
 
@@ -447,12 +446,26 @@ impl<'a> ClarityDatabase<'a> {
             store,
             headers_db,
             burn_state_db,
-            contract_cache: LruCache::new(NonZeroUsize::new(10).unwrap()),
-            analysis_cache: LruCache::new(NonZeroUsize::new(10).unwrap())
         }
     }
 
     pub fn initialize(&mut self) {}
+
+    pub fn execute<F, T, E>(&mut self, f: F) -> std::result::Result<T, E>
+    where
+        F: FnOnce(&mut Self) -> std::result::Result<T, E>,
+        E: From<CheckErrors>,
+    {
+        self.begin();
+        let result = f(self).or_else(|e| {
+            self.roll_back()
+                .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into())?;
+            Err(e)
+        })?;
+        self.commit()
+            .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into())?;
+        Ok(result)
+    }
 
     pub fn is_stack_empty(&self) -> bool {
         self.store.depth() == 0
@@ -479,6 +492,31 @@ impl<'a> ClarityDatabase<'a> {
         query_pending_data: bool,
     ) -> Result<StacksBlockId> {
         self.store.set_block_hash(bhh, query_pending_data)
+    }
+
+    // used by tests to ensure that
+    //   the contract -> contract hash key exists in the marf
+    //    even if the contract isn't published.
+    #[cfg(test)]
+    pub fn test_insert_contract_hash(&mut self, contract_identifier: &QualifiedContractIdentifier) {
+        use stacks_common::util::hash::Sha512Trunc256Sum;
+        self.store
+            .prepare_for_contract_metadata(contract_identifier, Sha512Trunc256Sum([0; 32]))
+            .unwrap();
+    }
+
+    #[cfg(test)]
+    pub fn test_insert_contract(&mut self, contract_identifier: &QualifiedContractIdentifier, src: &str) {
+        let ctx = ContractContext::new(contract_identifier.clone(), ClarityVersion::Clarity2);
+        self.insert_contract2(Contract { contract_context: ctx }, src)
+            .expect("failed to insert contract");
+    }
+
+    #[cfg(test)]
+    pub fn test_insert_contract_with_analysis(&mut self, contract_identifier: &QualifiedContractIdentifier, src: &str, analysis: &ContractAnalysis) {
+        self.test_insert_contract(contract_identifier, src);
+        self.insert_contract_analysis(analysis)
+            .expect("failed to insert contract analysis");
     }
 
     pub fn put_data<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
@@ -704,22 +742,22 @@ impl<'a> ClarityDatabase<'a> {
     //   in unit testing, where the interpreter is invoked without
     //   an analysis pass, this function will fail to find contract
     //   analysis data
-    #[deprecated]
-    pub fn load_contract_analysis(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Option<ContractAnalysis>> {
-        let x_opt = self
-            .store
-            .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
-            // treat NoSuchContract error thrown by get_metadata as an Option::None --
-            //    the analysis will propagate that as a CheckError anyways.
-            .ok();
-        match x_opt.flatten() {
-            None => Ok(None),
-            Some(x) => ContractAnalysis::deserialize(&x).map(|out| Some(out)),
-        }
-    }
+    // #[deprecated]
+    // pub fn load_contract_analysis(
+    //     &mut self,
+    //     contract_identifier: &QualifiedContractIdentifier,
+    // ) -> Result<Option<ContractAnalysis>> {
+    //     let x_opt = self
+    //         .store
+    //         .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
+    //         // treat NoSuchContract error thrown by get_metadata as an Option::None --
+    //         //    the analysis will propagate that as a CheckError anyways.
+    //         .ok();
+    //     match x_opt.flatten() {
+    //         None => Ok(None),
+    //         Some(x) => ContractAnalysis::deserialize(&x).map(|out| Some(out)),
+    //     }
+    // }
 
     // #[deprecated]
     // pub fn get_contract_size(
@@ -747,7 +785,7 @@ impl<'a> ClarityDatabase<'a> {
     //     Ok(data_size + contract_size)
     // }
 
-    /// used for adding the memory usage of `define-constant` variables.
+    // /// used for adding the memory usage of `define-constant` variables.
     // #[deprecated]
     // pub fn set_contract_data_size(
     //     &mut self,
@@ -769,10 +807,21 @@ impl<'a> ClarityDatabase<'a> {
     //     Ok(())
     // }
 
+    pub fn insert_contract_analysis(&mut self, analysis: &ContractAnalysis) -> Result<()> {
+        Ok(with_clarity_cache(|cache| {
+            self.store.put_contract_analysis(&analysis);
+
+            cache.push_contract_analysis(
+                analysis.contract_identifier.clone(),
+                analysis.clone()
+            );
+        }))
+    }
+
     pub fn insert_contract2(&mut self, contract: Contract, src: &str) -> Result<()> {
         let ctx = contract.contract_context;
-
-        self.store.put_contract(src.to_string(), ctx.clone())?;
+        
+        self.store.put_contract(src, ctx.clone())?;
 
         Ok(())
     }
@@ -781,63 +830,86 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Option<String>> {
-        Ok(self
-            .contract_cache
-            .get(contract_identifier)
+
+        Ok(with_clarity_cache(|cache| cache.try_get_contract(contract_identifier)
             .map(|x| x.source.clone())
             .or_else(|| {
                 let ctx = self.store.get_contract(contract_identifier).ok()?;
                 match ctx {
-                    GetContractResult::Pending(pending) => 
-                        Some(pending.source),
+                    GetContractResult::Pending(pending) => Some(pending.source),
                     GetContractResult::Stored(stored) => {
                         let src = stored.source.clone();
-                        self.contract_cache.put(contract_identifier.clone(), stored);
+                        cache.push_contract(contract_identifier.clone(), stored);
                         Some(src)
-                    },
-                    GetContractResult::NotFound => None
+                    }
+                    GetContractResult::NotFound => None,
                 }
-            }))
+            })
+        ))
+    }
+
+    pub fn get_contract_analysis(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        epoch: &StacksEpochId
+    ) -> Result<Option<ContractAnalysis>> {
+        Ok(with_clarity_cache(|cache| cache.try_get_contract_analysis(contract_identifier))
+            .map(|x| x.clone())
+            .or_else(|| {
+                self.store.get_contract_analysis(contract_identifier).ok()?
+                    .map(|x| {
+                        let mut analysis = x.clone();
+                        analysis.canonicalize_types(epoch);
+                        with_clarity_cache(|cache|
+                            cache.push_contract_analysis(contract_identifier.clone(), analysis.clone())
+                        );
+                        analysis
+                    })
+            })
+        )
     }
 
     pub fn get_contract2(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<Contract> {
-        self
-            .contract_cache
-            .get(contract_identifier)
+        with_clarity_cache(|cache| cache.try_get_contract(contract_identifier)
             .map(|x| x.contract.clone())
             .or_else(|| {
                 let ctx = self.store.get_contract(contract_identifier).ok()?;
                 match ctx {
-                    GetContractResult::Pending(pending) => 
-                        Some(pending.contract),
+                    GetContractResult::Pending(pending) => Some(pending.contract),
                     GetContractResult::Stored(stored) => {
                         let context = stored.contract.clone();
-                        self.contract_cache.put(contract_identifier.clone(), stored);
+                        cache.push_contract(contract_identifier.clone(), stored);
                         Some(context)
-                    },
-                    GetContractResult::NotFound => None
+                    }
+                    GetContractResult::NotFound => None,
                 }
-            }).ok_or(Error::Unchecked(CheckErrors::NoSuchContract(contract_identifier.to_string())))
+            })
+            .ok_or(Error::Unchecked(CheckErrors::NoSuchContract(
+                contract_identifier.to_string(),
+            )))
             .map(|ctx| Contract {
                 contract_context: ctx,
-            })
+            }))
     }
 
     pub fn has_contract2(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
     ) -> Result<bool> {
-        let exists = self.contract_cache.contains(contract_identifier);
+        let exists_in_cache = with_clarity_cache(|cache| cache.has_contract(contract_identifier));
 
-        if !exists {
-            let result = self.store.has_contract(contract_identifier)?;
-            return Ok(result);
+        if !exists_in_cache {
+            test_debug!("has_contract2: cache miss");
+            Ok(
+                self.store.has_contract(contract_identifier)?
+            )
+        } else {
+            test_debug!("has_contract2: cache hit");
+            Ok(true)
         }
-
-        Ok(exists)
     }
 
     pub fn get_contract_size2(
@@ -2230,5 +2302,73 @@ impl<'a> ClarityDatabase<'a> {
     /// Valid epochs include stacks 1.0, 2.0, 2.05, and so on.
     pub fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch> {
         self.burn_state_db.get_stacks_epoch(height)
+    }
+}
+
+// contract analysis
+impl<'a> ClarityDatabase<'a> {
+    pub fn get_public_function_type(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        function_name: &str,
+        epoch: &StacksEpochId,
+    ) -> Result<Option<FunctionType>> {
+        test_debug!("get_public_function_type: contract_identifier={:?}, function_name={:?}, epoch={:?}", contract_identifier, function_name, epoch);
+        let analysis = self
+            .get_contract_analysis(contract_identifier, epoch)?
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        Ok(analysis
+            .get_public_function_type(function_name)
+            .map(|x| x.canonicalize(epoch)))
+    }
+
+    pub fn get_read_only_function_type(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        function_name: &str,
+        epoch: &StacksEpochId,
+    ) -> Result<Option<FunctionType>> {
+        test_debug!("get_read_only_function_type: contract_identifier={:?}, function_name={:?}, epoch={:?}", contract_identifier, function_name, epoch);
+        let analysis = self
+            .get_contract_analysis(contract_identifier, epoch)?
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+
+        Ok(analysis
+            .get_read_only_function_type(function_name)
+            .map(|x| x.canonicalize(epoch)))
+    }
+
+    pub fn get_defined_trait(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+        trait_name: &str,
+        epoch: &StacksEpochId,
+    ) -> Result<Option<BTreeMap<ClarityName, FunctionSignature>>> {
+        test_debug!("get_defined_trait: contract_identifier={:?}, trait_name={:?}, epoch={:?}", contract_identifier, trait_name, epoch);
+        let analysis = self
+            .get_contract_analysis(contract_identifier, epoch)?
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        test_debug!("got contract analysis: {:?}", analysis);
+        let defined_trait = analysis.get_defined_trait(trait_name).map(|trait_map| {
+            test_debug!("trait_map with trait name {}: {:?}", trait_name, trait_map);
+            trait_map
+                .iter()
+                .map(|(name, sig)| (name.clone(), sig.canonicalize(epoch)))
+                .collect()
+        });
+        test_debug!("defined_trait: {:?}", defined_trait);
+
+        Ok(defined_trait)
+    }
+
+    pub fn get_clarity_version(
+        &mut self,
+        contract_identifier: &QualifiedContractIdentifier,
+    ) -> Result<ClarityVersion> {
+        test_debug!("get_clarity_version: contract_identifier={:?}", contract_identifier);
+        let contract = self
+            .get_contract_analysis(contract_identifier, &StacksEpochId::latest())?
+            .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;
+        Ok(contract.clarity_version)
     }
 }

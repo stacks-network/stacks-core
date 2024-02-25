@@ -21,6 +21,7 @@ use std::mem::replace;
 #[cfg(test)]
 use fake::{Faker, Dummy};
 use hashbrown::{HashMap, HashSet};
+use speedy::{Readable, Writable};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -207,7 +208,8 @@ pub struct GlobalContext<'a, 'hooks> {
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Readable, Writable)]
 #[cfg_attr(test, derive(Dummy))]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
@@ -1135,68 +1137,140 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
         self.global_context.add_memory(contract_size)?;
 
-        finally_drop_memory!(self.global_context, contract_size; {
-            let contract = self
-                .global_context
-                .database
-                //.get_contract(contract_identifier)?;
-                .get_contract2(contract_identifier)?;
+        let result: Result<Value>;
 
-            let func = contract.contract_context.lookup_function(tx_name)
-                .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
-            if !allow_private && !func.is_public() {
-                return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
-            } else if read_only && !func.is_read_only() {
-                return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
+        let contract = self
+            .global_context
+            .database
+            .get_contract2(contract_identifier)?;
+        let func = contract
+            .contract_context
+            .lookup_function(tx_name)
+            .ok_or_else(|| CheckErrors::UndefinedFunction(tx_name.to_string()))?;
+        if !allow_private && !func.is_public() {
+            return Err(CheckErrors::NoSuchPublicFunction(
+                contract_identifier.to_string(),
+                tx_name.to_string(),
+            )
+            .into());
+        }
+        if read_only && !func.is_read_only() {
+            return Err(CheckErrors::PublicFunctionNotReadOnly(
+                contract_identifier.to_string(),
+                tx_name.to_string(),
+            )
+            .into());
+        }
+        let args: Result<Vec<Value>> = args
+            .iter()
+            .map(|arg| {
+                let value = arg.match_atom_value().ok_or_else(|| {
+                    InterpreterError::InterpreterError({
+                        let res = format!("Passed non-value expression to exec_tx on {}!", tx_name);
+                        res
+                    })
+                })?;
+                let expected_type = TypeSignature::type_of(value)?;
+                let (sanitized_value, _) =
+                    Value::sanitize_value(self.epoch(), &expected_type, value.clone())
+                        .ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
+                Ok(sanitized_value)
+            })
+            .collect();
+        let args = args?;
+        let func_identifier = func.get_identifier();
+        if self.call_stack.contains(&func_identifier) {
+            return Err(CheckErrors::CircularReference(<[_]>::into_vec(Box::new([
+                (func_identifier.to_string()),
+            ])))
+            .into());
+        }
+        self.call_stack.insert(&func_identifier, true);
+        let res =
+            self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+        self.call_stack.remove(&func_identifier, true)?;
+        result = match res {
+            Ok(value) => {
+                if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
+                    handler(
+                        &mut self.global_context,
+                        self.sender.as_ref(),
+                        self.sponsor.as_ref(),
+                        contract_identifier,
+                        tx_name,
+                        &args,
+                        &value,
+                    )?;
+                }
+                Ok(value)
             }
+            Err(e) => Err(e),
+        };
+        (self.global_context).drop_memory(contract_size)?;
+        result
 
-            let args: Result<Vec<Value>> = args.iter()
-                .map(|arg| {
-                    let value = arg.match_atom_value()
-                        .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
-                                                                                  tx_name)))?;
-                    // sanitize contract-call inputs in epochs >= 2.4
-                    // testing todo: ensure sanitize_value() preserves trait callability!
-                    let expected_type = TypeSignature::type_of(value)?;
-                    let (sanitized_value, _) = Value::sanitize_value(
-                        self.epoch(),
-                        &expected_type,
-                        value.clone(),
-                    ).ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
+        // finally_drop_memory!(self.global_context, contract_size; {
+        //     let contract = self
+        //         .global_context
+        //         .database
+        //         //.get_contract(contract_identifier)?;
+        //         .get_contract2(contract_identifier)?;
 
-                    Ok(sanitized_value)
-                })
-                .collect();
+        //     let func = contract.contract_context.lookup_function(tx_name)
+        //         .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+        //     if !allow_private && !func.is_public() {
+        //         return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+        //     } else if read_only && !func.is_read_only() {
+        //         return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
+        //     }
 
-            let args = args?;
+        //     let args: Result<Vec<Value>> = args.iter()
+        //         .map(|arg| {
+        //             let value = arg.match_atom_value()
+        //                 .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {}!",
+        //                                                                           tx_name)))?;
+        //             // sanitize contract-call inputs in epochs >= 2.4
+        //             // testing todo: ensure sanitize_value() preserves trait callability!
+        //             let expected_type = TypeSignature::type_of(value)?;
+        //             let (sanitized_value, _) = Value::sanitize_value(
+        //                 self.epoch(),
+        //                 &expected_type,
+        //                 value.clone(),
+        //             ).ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
 
-            let func_identifier = func.get_identifier();
-            if self.call_stack.contains(&func_identifier) {
-                return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
-            }
-            self.call_stack.insert(&func_identifier, true);
+        //             Ok(sanitized_value)
+        //         })
+        //         .collect();
 
-            let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
-            self.call_stack.remove(&func_identifier, true)?;
+        //     let args = args?;
 
-            match res {
-                Ok(value) => {
-                    if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
-                        handler(
-                            &mut self.global_context,
-                            self.sender.as_ref(),
-                            self.sponsor.as_ref(),
-                            contract_identifier,
-                            tx_name,
-                            &args,
-                            &value
-                        )?;
-                    }
-                    Ok(value)
-                },
-                Err(e) => Err(e)
-            }
-        })
+        //     let func_identifier = func.get_identifier();
+        //     if self.call_stack.contains(&func_identifier) {
+        //         return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+        //     }
+        //     self.call_stack.insert(&func_identifier, true);
+
+        //     let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context));
+        //     self.call_stack.remove(&func_identifier, true)?;
+
+        //     match res {
+        //         Ok(value) => {
+        //             if let Some(handler) = self.global_context.database.get_cc_special_cases_handler() {
+        //                 handler(
+        //                     &mut self.global_context,
+        //                     self.sender.as_ref(),
+        //                     self.sponsor.as_ref(),
+        //                     contract_identifier,
+        //                     tx_name,
+        //                     &args,
+        //                     &value
+        //                 )?;
+        //             }
+        //             Ok(value)
+        //         },
+        //         Err(e) => Err(e)
+        //     }
+        // })
     }
 
     pub fn execute_function_as_transaction(

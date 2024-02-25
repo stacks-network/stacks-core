@@ -20,10 +20,11 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::Deref;
 
-use lazy_static::lazy_static;
 #[cfg(test)]
 use fake::Faker;
+use lazy_static::lazy_static;
 use regex::Regex;
+use speedy::{Readable, Writable};
 use stacks_common::codec::{
     read_next, read_next_at_most, write_next, Error as codec_error, StacksMessageCodec,
 };
@@ -170,6 +171,7 @@ impl StacksMessageCodec for ContractName {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Readable, Writable)]
 pub enum PreSymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
@@ -184,6 +186,7 @@ pub enum PreSymbolicExpressionType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Readable, Writable)]
 pub struct PreSymbolicExpression {
     pub pre_expr: PreSymbolicExpressionType,
     pub id: u64,
@@ -412,6 +415,7 @@ impl PreSymbolicExpression {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Readable, Writable)]
 pub enum SymbolicExpressionType {
     AtomValue(Value),
     Atom(ClarityName),
@@ -422,6 +426,7 @@ pub enum SymbolicExpressionType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Readable, Writable)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum TraitDefinition {
     Defined(TraitIdentifier),
@@ -448,6 +453,7 @@ where
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Readable, Writable)]
 pub struct SymbolicExpression {
     pub expr: SymbolicExpressionType,
     // this id field is used by compiler passes to store information in
@@ -656,6 +662,7 @@ impl fmt::Display for SymbolicExpression {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Readable, Writable)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Span {
     pub start_line: u32,

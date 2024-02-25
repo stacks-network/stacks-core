@@ -1,6 +1,8 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+use speedy::{Readable, Writable};
+
 use crate::address::c32::{c32_address, c32_address_decode};
 use crate::address::{
     public_keys_to_address_hash, to_bits_p2pkh, AddressHashMode,
@@ -62,6 +64,7 @@ pub const PEER_VERSION_EPOCH_2_1: u8 = 0x06;
 
 #[repr(u32)]
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
+#[derive(Writable, Readable)]
 pub enum StacksEpochId {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,

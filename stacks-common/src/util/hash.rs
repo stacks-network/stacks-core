@@ -24,6 +24,7 @@ use serde::ser::Error as ser_Error;
 use serde::Serialize;
 use sha2::{Digest, Sha256, Sha512, Sha512_256};
 use sha3::Keccak256;
+use speedy::{Readable, Writable};
 
 use crate::types::StacksPublicKeyBuffer;
 use crate::util::pair::*;
@@ -136,6 +137,7 @@ impl_array_hexstring_fmt!(Sha512Sum);
 impl_byte_array_newtype!(Sha512Sum, u8, 64);
 
 #[derive(Serialize, Deserialize)]
+#[derive(Readable, Writable)]
 pub struct Sha512Trunc256Sum(
     #[serde(
         serialize_with = "Hash32::json_serialize",
