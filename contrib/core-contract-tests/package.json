@@ -4,7 +4,8 @@
   "description": "Run unit tests on this project.",
   "private": true,
   "scripts": {
-    "test": "vitest run -- --coverage"
+    "test": "vitest run -- --coverage",
+    "genhtml": "genhtml lcov.info --branch-coverage -o coverage/"
   },
   "author": "",
   "license": "ISC",
@@ -12,7 +13,7 @@
     "@hirosystems/clarinet-sdk": "^1.1.0",
     "@stacks/transactions": "^6.9.0",
     "chokidar-cli": "^3.0.0",
-    "clarunit": "github:MarvinJanssen/clarunit#a5c042a",
+    "@stacks/clarunit": "0.0.1",
     "typescript": "^5.2.2",
     "vite": "^4.4.9",
     "vitest": "^0.34.4",

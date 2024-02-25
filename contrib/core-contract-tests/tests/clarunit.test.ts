@@ -1,2 +1,2 @@
-import { clarunit } from "clarunit";
+import { clarunit } from "@stacks/clarunit";
 clarunit(simnet);
