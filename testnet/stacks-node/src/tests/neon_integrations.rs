@@ -56,9 +56,6 @@ use stacks::net::atlas::{
 };
 use stacks::util_lib::boot::boot_code_id;
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
-use stacks::util_lib::signed_structured_data::pox4::{
-    make_pox_4_signer_key_signature, Pox4SignatureTopic,
-};
 use stacks_common::address::AddressHashMode;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -2233,21 +2230,11 @@ fn stack_stx_burn_op_test() {
 
     let recipient_sk = StacksPrivateKey::new();
     let recipient_addr = to_addr(&recipient_sk);
-    let pox_pubkey = Secp256k1PublicKey::from_hex(
-        "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
-    )
-    .unwrap();
-    let _pox_pubkey_hash = bytes_to_hex(
-        &Hash160::from_node_public_key(&pox_pubkey)
-            .to_bytes()
-            .to_vec(),
-    );
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
     let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
     let second_bal = 2_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let stacked_bal = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr.clone(),
@@ -2350,7 +2337,6 @@ fn stack_stx_burn_op_test() {
         Some(burnchain_config.clone()),
         None,
     );
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     btc_regtest_controller.bootstrap_chain(201);
 
@@ -2374,8 +2360,6 @@ fn stack_stx_burn_op_test() {
 
     info!("Bootstrapped to 2.5, submitting stack-stx and pre-stx op...");
 
-    // setup stack-stx tx
-
     let signer_sk = spender_sk.clone();
     let signer_pk = StacksPublicKey::from_private(&signer_sk);
 
@@ -2383,38 +2367,7 @@ fn stack_stx_burn_op_test() {
 
     let mut block_height = channel.get_sortitions_processed();
 
-    let reward_cycle = burnchain_config
-        .block_height_to_reward_cycle(block_height)
-        .unwrap();
-
-    // let signature = make_pox_4_signer_key_signature(
-    //     &pox_addr,
-    //     &signer_sk,
-    //     reward_cycle.into(),
-    //     &Pox4SignatureTopic::StackStx,
-    //     CHAIN_ID_TESTNET,
-    //     12,
-    // )
-    //     .unwrap();
-
     let signer_pk_bytes = signer_pk.to_bytes_compressed();
-
-    // let stacking_tx = make_contract_call(
-    //     &spender_sk,
-    //     0,
-    //     500,
-    //     &StacksAddress::from_string("ST000000000000000000002AMW42H").unwrap(),
-    //     "pox-4",
-    //     "stack-stx",
-    //     &[
-    //         Value::UInt(stacked_bal),
-    //         Value::Tuple(pox_addr.as_clarity_tuple().unwrap()),
-    //         Value::UInt(block_height.into()),
-    //         Value::UInt(12),
-    //         Value::some(Value::buff_from(signature.to_rsv()).unwrap()).unwrap(),
-    //         Value::buff_from(signer_pk_bytes.clone()).unwrap(),
-    //     ],
-    // );
 
     let mut miner_signer = Keychain::default(conf.node.seed.clone()).generate_op_signer();
     let pre_stx_op = PreStxOp {
@@ -2437,11 +2390,7 @@ fn stack_stx_burn_op_test() {
             .is_some(),
         "Pre-stx operation should submit successfully"
     );
-
-    // push the stacking transaction
-    // submit_tx(&http_origin, &stacking_tx);
-
-    info!("Submitted stack-stx and pre-stx op at block {block_height}, mining a few blocks...");
+    info!("Submitted pre-stx op at block {block_height}, mining a few blocks...");
 
     // Wait a few blocks to be registered
     for _i in 0..5 {
@@ -2465,7 +2414,7 @@ fn stack_stx_burn_op_test() {
         sender: spender_stx_addr.clone(),
         reward_addr: pox_addr,
         stacked_ustx: 100000,
-        num_cycles: 4,
+        num_cycles: reward_cycle.try_into().unwrap(),
         signer_key: Some(signer_key),
         // to be filled in
         vtxindex: 0,
