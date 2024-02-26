@@ -343,6 +343,33 @@ impl FromRow<NakamotoBlockHeader> for NakamotoBlockHeader {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A vote across the signer set for a block
+pub struct NakamotoBlockVote {
+    pub signer_signature_hash: Sha512Trunc256Sum,
+    pub rejected: bool,
+}
+
+impl StacksMessageCodec for NakamotoBlockVote {
+    fn consensus_serialize<W: std::io::Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.signer_signature_hash)?;
+        if self.rejected {
+            write_next(fd, &1u8)?;
+        }
+        Ok(())
+    }
+
+    fn consensus_deserialize<R: std::io::Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let signer_signature_hash = read_next(fd)?;
+        let rejected_byte: Option<u8> = read_next(fd).ok();
+        let rejected = rejected_byte.is_some();
+        Ok(Self {
+            signer_signature_hash,
+            rejected,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NakamotoBlock {
     pub header: NakamotoBlockHeader,
     pub txs: Vec<StacksTransaction>,
@@ -1702,7 +1729,9 @@ impl NakamotoChainState {
             &block.header.signer_signature_hash().0,
             aggregate_public_key,
         )? {
-            let msg = format!("Received block, but the stacker signature does not match the active stacking cycle");
+            let msg = format!(
+                "Received block, but the signer signature does not match the active stacking cycle"
+            );
             warn!("{}", msg; "aggregate_key" => %aggregate_public_key);
             return Err(ChainstateError::InvalidStacksBlock(msg));
         }

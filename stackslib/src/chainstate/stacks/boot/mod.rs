@@ -16,7 +16,7 @@
 
 use std::boxed::Box;
 use std::cmp;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::{TryFrom, TryInto};
 
 use clarity::vm::analysis::CheckErrors;
