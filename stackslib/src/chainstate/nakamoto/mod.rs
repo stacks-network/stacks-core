@@ -60,7 +60,6 @@ use super::stacks::boot::{
     BOOT_TEST_POX_4_AGG_KEY_FNAME, SIGNERS_MAX_LIST_SIZE, SIGNERS_NAME, SIGNERS_PK_LEN,
 };
 use super::stacks::db::accounts::MinerReward;
-use super::stacks::db::blocks::StagingUserBurnSupport;
 use super::stacks::db::{
     ChainstateTx, ClarityTx, MinerPaymentSchedule, MinerPaymentTxFees, MinerRewardInfo,
     StacksBlockHeaderTypes, StacksDBTx, StacksEpochReceipt, StacksHeaderInfo,
@@ -2348,8 +2347,7 @@ impl NakamotoChainState {
         if let Some(block_reward) = block_reward {
             StacksChainState::insert_miner_payment_schedule(
                 headers_tx.deref_mut(),
-                block_reward,
-                &[],
+                block_reward
             )?;
         }
         StacksChainState::store_burnchain_txids(
