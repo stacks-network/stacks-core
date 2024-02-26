@@ -1903,7 +1903,6 @@ fn stack_stx_burn_op_integration_test() {
     }
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
-    let _http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     naka_conf.miner.wait_on_interim_blocks = Duration::from_secs(1);
     let signer_sk = Secp256k1PrivateKey::new();
     let signer_addr = tests::to_addr(&signer_sk);
@@ -1950,16 +1949,6 @@ fn stack_stx_burn_op_integration_test() {
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
-
-    let burnchain = naka_conf.get_burnchain();
-    let _sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (_chainstate, _) = StacksChainState::open(
-        naka_conf.is_mainnet(),
-        naka_conf.burnchain.chain_id,
-        &naka_conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
 
     info!("Nakamoto miner started...");
     // first block wakes up the run loop, wait until a key registration has been submitted.
@@ -2048,7 +2037,7 @@ fn stack_stx_burn_op_integration_test() {
         sender: signer_addr.clone(),
         reward_addr: PoxAddress::Standard(signer_addr, None),
         stacked_ustx: 100000,
-        num_cycles: 4,
+        num_cycles: reward_cycle.try_into().unwrap(),
         signer_key: Some(signer_key_arg),
         // to be filled in
         vtxindex: 0,

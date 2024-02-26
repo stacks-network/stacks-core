@@ -179,7 +179,7 @@ impl StackStxOp {
             Wire format:
             0      2  3                             19           20    21                 54
             |------|--|-----------------------------|------------|-----|-------------------|
-            magic  op         uSTX to lock (u128)     cycles (u8) option     signing key
+            magic  op         uSTX to lock (u128)     cycles (u8) option     signer key
                                                                   marker
 
              Note that `data` is missing the first 3 bytes -- the magic and op have been stripped
@@ -188,7 +188,7 @@ impl StackStxOp {
 
              parent-delta and parent-txoff will both be 0 if this block builds off of the genesis block.
 
-             "signing key" is encoded as follows: the first byte is an option marker
+             "signer key" is encoded as follows: the first byte is an option marker
                - if it is set to 1, the parse function attempts to parse the next 33 bytes as a StacksPublicKeyBuffer
                - if it is set to 0, the value is interpreted as None
         */
@@ -208,7 +208,7 @@ impl StackStxOp {
         let signer_key = {
             if data[17] == 1 {
                 if data.len() < 51 {
-                    // too short to have required data
+                    // too short to have required data for signer key
                     warn!(
                         "StacksStxOp payload is malformed ({} bytes, expected {})",
                         data.len(),
@@ -359,7 +359,7 @@ impl StacksMessageCodec for StackStxOp {
     /*
             0      2  3                             19           20    21                 54
             |------|--|-----------------------------|------------|-----|-------------------|
-            magic  op         uSTX to lock (u128)     cycles (u8) option     signing key
+            magic  op         uSTX to lock (u128)     cycles (u8) option     signer key
                                                                   marker
     */
     fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), codec_error> {
