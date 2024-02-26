@@ -39,46 +39,72 @@ use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ContractContext, Value};
 
+/// TODO: Duplicate
 pub struct NullBackingStore {}
 
+/// TODO: Document this type
 pub type SpecialCaseHandler = &'static dyn Fn(
-    // the current Clarity global context
+    // The current Clarity global context
     &mut GlobalContext,
-    // the current sender
+    // The current sender, if present.
     Option<&PrincipalData>,
-    // the current sponsor
+    // The current sponsor, if present.
     Option<&PrincipalData>,
-    // the invoked contract
+    // The identifier for the invoked contract.
     &QualifiedContractIdentifier,
-    // the invoked function name
+    // The name of the function being invoked.
     &str,
-    // the function parameters
+    // The arguments to the function being invoked.
     &[Value],
-    // the result of the function call
+    // The result of the function being invoked.
     &Value,
 ) -> Result<()>;
 
-// These functions generally _do not_ return errors, rather, any errors in the underlying storage
-//    will _panic_. The rationale for this is that under no condition should the interpreter
-//    attempt to continue processing in the event of an unexpected storage error.
+/// The ClarityBackingStore trait is used to abstract over the persistence layer
+/// of the Clarity VM. This allows for different implementations of the backing
+/// store to be used, such as in-memory stores for testing, or disk-based stores
+/// for production.
+///
+/// The primary consumer of this trait is the [`RollbackWrapper`](super::RollbackWrapper)
+/// which is used to buffer pending writes to the backing store using nested
+/// transactions. This allows for the Clarity VM to perform a "dry run" of a
+/// transaction, and then commit the changes to the backing store if the
+/// transaction is successful.
+///
+/// In a live node, the primary implementor of this trait is the [`WritableMarfStore`]
+/// in the `stackslib` chainstate index code. It implements 
+/// [`get_side_store`](ClarityBackingStore::get_side_store) to provide a reference 
+/// to its database [`Connection`] for the Clarity VM to use via this trait.
 pub trait ClarityBackingStore {
-    /// put K-V data into the committed datastore
+    /// Accepts a list of key-value pairs and writes them to the backing store.
     fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
-    /// fetch K-V out of the committed datastore
+
+    /// Attempts to fetch the value associated with the provided key from the
+    /// consensus-critical backing store. Returns [`None`] if the key is not found.
     fn get_data(&mut self, key: &str) -> Result<Option<String>>;
-    /// fetch K-V out of the committed datastore, along with the byte representation
-    ///  of the Merkle proof for that key-value pair
+
+    /// Attempts to fetch the value associated with the provided key from the
+    /// consensus-critical backing store, as well as the byte representation
+    /// of the Merkle proof for that key-value pair. 
+    ///
+    /// Returns [`None`] if the key is not found.
     fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
+
+    /// Returns `true` if the provided key exists in the backing store, and `false`
+    /// otherwise.
     fn has_data_entry(&mut self, key: &str) -> Result<bool> {
         Ok(self.get_data(key)?.is_some())
     }
 
-    /// change the current MARF context to service reads from a different chain_tip
-    ///   used to implement time-shifted evaluation.
-    /// returns the previous block header hash on success
+    /// Change the current MARF context to service reads from a different chain_tip
+    /// used to implement time-shifted evaluation.
+    /// Returns the previous block header hash on success.
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
 
-    /// Is None if `block_height` >= the "currently" under construction Stacks block height.
+    /// Returns the index block hash for the Stacks block at the given block height.
+    /// 
+    /// Returns [`None`] if `block_height` >= the "currently" under construction 
+    /// Stacks block height.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
 
     /// this function returns the current block height, as viewed by this marfed-kv structure,
@@ -90,6 +116,7 @@ pub trait ClarityBackingStore {
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
     fn get_side_store(&mut self) -> &Connection;
 
+    /// TODO: Document this function
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         None
     }

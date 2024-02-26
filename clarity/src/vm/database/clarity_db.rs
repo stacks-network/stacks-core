@@ -752,8 +752,8 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Set a metadata entry if it hasn't already been set, yielding
-    ///  a runtime error if it was. This should only be called by post-nakamoto
-    ///  contexts.
+    /// a runtime error if it was. This should only be called by post-nakamoto
+    /// contexts.
     pub fn try_set_metadata(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
@@ -793,7 +793,7 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Attempts to retrieve a non-consensus-critical metadata entry for
-    /// a contract by its [QualifiedContractIdentifier] and the provided key,
+    /// a contract by its [`QualifiedContractIdentifier`] and the provided key,
     /// using the current block height.
     ///
     /// If the metadata entry is found, it will be deserialized using its
@@ -815,7 +815,7 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Attempts to retrieve a non-consensus-critical metadata entry for
-    /// a contract by its [QualifiedContractIdentifier] and the provided key,
+    /// a contract by its [`QualifiedContractIdentifier`] and the provided key,
     /// at the specific Stacks block height.
     ///
     /// If the metadata entry is found, it will be deserialized using its
@@ -849,7 +849,7 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
-    /// Attempts to retrieve a contract's source code by its [QualifiedContractIdentifier].
+    /// Attempts to retrieve a contract's source code by its [`QualifiedContractIdentifier`].
     /// This method will first check the global in-memory cache (if enabled), and if
     /// not found it will then query the underlying [`RollbackWrapper`].
     ///
@@ -877,7 +877,7 @@ impl<'a> ClarityDatabase<'a> {
         ))
     }
 
-    /// Attempts to retrieve a [`Contract`] by its [`identifier`](QualifiedContractIdentifier).
+    /// Attempts to retrieve a [`Contract`] by its [`QualifiedContractIdentifier`].
     /// This method will first check the global in-memory cache (if enabled), and if
     /// not found it will then query the underlying [`RollbackWrapper`].
     ///
@@ -1149,6 +1149,11 @@ impl<'a> ClarityDatabase<'a> {
             })
     }
 
+    /// Attempts to retrieve the Stacks block header hash for a given Stacks 
+    /// block height. 
+    /// 
+    /// This method will return an error if no Stacks block at the specified height 
+    /// could be found.
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Result<BlockHeaderHash> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         self.headers_db
@@ -1156,6 +1161,12 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
+    /// Attempts to retrieve the timestamp from the burnchain (i.e. Bitcoin)
+    /// block header which generated the consensus hash for the given Stacks
+    /// block height.
+    ///
+    /// This method will return an error if no Stacks block at the specified height
+    /// 
     pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         self.headers_db
@@ -1163,6 +1174,11 @@ impl<'a> ClarityDatabase<'a> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
+    /// Attempts to retrieve the burnchain (i.e. Bitcoin) block header hash
+    /// corresponding to the Stacks block at the given height.
+    ///
+    /// This method will return an error if no Stacks block at the specified height
+    /// could be found.
     pub fn get_burnchain_block_header_hash(
         &mut self,
         block_height: u32,
@@ -1250,6 +1266,8 @@ impl<'a> ClarityDatabase<'a> {
             .get_pox_payout_addrs(burnchain_block_height, &sortition_id))
     }
 
+    /// Attempts to retrieve the burnchain (i.e. Bitcoin) block height for the
+    /// Stacks block with the given index block hash.
     pub fn get_burnchain_block_height(&mut self, id_bhh: &StacksBlockId) -> Option<u32> {
         self.headers_db.get_burn_block_height_for_block(id_bhh)
     }
